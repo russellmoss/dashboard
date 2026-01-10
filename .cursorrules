@@ -1,0 +1,160 @@
+# Savvy Funnel Analytics Dashboard - Project Instructions
+
+## Project Context
+
+You are working on the **Savvy Funnel Analytics Dashboard**, a Next.js 14 application that replaces Tableau for funnel analytics. The dashboard connects to BigQuery and visualizes data from the `vw_funnel_master` view.
+
+**Repository**: https://github.com/russellmoss/dashboard  
+**Current Status**: Phases 1-6 Complete, Conversion Trends Chart Bug Under Investigation
+
+## Key Principles
+
+1. **Data Source**: All queries must use the `vw_funnel_master` view (`savvy-gtm-analytics.Tableau_Views.vw_funnel_master`)
+2. **Security**: Always use BigQuery parameterized queries (`@paramName` syntax) - never string interpolation
+3. **Type Safety**: Use TypeScript types from `src/types/` - maintain type consistency
+4. **Date Dimensions**: Each conversion rate has a specific date field:
+   - Contacted→MQL: `stage_entered_contacting__c`
+   - MQL→SQL: `converted_date_raw` (numerator), `stage_entered_contacting__c` (denominator)
+   - SQL→SQO: `Date_Became_SQO__c` (numerator), `converted_date_raw` (denominator)
+   - SQO→Joined: `advisor_join_date__c` (numerator), `Date_Became_SQO__c` (denominator)
+5. **Deduplication**: Use `is_sqo_unique` and `is_joined_unique` for opportunity-level metrics
+6. **Record Type**: SQO calculations must filter by `recordtypeid = '012Dn000000mrO3IAI'` (Recruiting)
+
+## Current Blocker: Conversion Trends Chart Bug
+
+**Issue**: The conversion trends chart displays incorrect rates and volumes that don't match scorecard values.
+
+**Location**: `src/lib/queries/conversion-rates.ts` - `getConversionTrends()` function
+
+**Root Causes**:
+1. Period mismatch: Numerators and denominators grouped by different date fields
+2. Cohort restrictions: Only counting same-period conversions, excluding valid cross-period conversions
+3. Inconsistent denominator logic: Using `eligible_for_*` fields instead of `COUNT(*)` like scorecard
+
+**Reference**: See `conversion-rates-chart-bug.md` for comprehensive documentation
+
+**Goal**: Fix `getConversionTrends()` to match the logic in `getConversionRates()` (scorecard), ensuring:
+- Same date field grouping for numerators and denominators
+- No cohort restrictions (count all conversions, not just same-period)
+- Consistent denominator calculation with scorecard
+
+## Architecture Patterns
+
+### Query Functions (`src/lib/queries/`)
+- Use `runQuery<T>()` from `src/lib/bigquery.ts`
+- Always use parameterized queries with `@paramName` syntax
+- Return typed results using interfaces from `src/types/bigquery-raw.ts`
+- Transform raw results to dashboard types in the query function
+
+### API Routes (`src/app/api/dashboard/`)
+- Use `getServerSession()` for authentication
+- Apply permission-based filters via `getUserPermissions()`
+- Return `NextResponse.json()` with proper error handling
+- Log errors but don't expose sensitive details
+
+### Components (`src/components/dashboard/`)
+- Use client components (`'use client'`) for interactivity
+- Fetch data via `dashboardApi` from `src/lib/api-client.ts`
+- Handle loading and error states
+- Use Tremor components for tables/cards, Recharts for trend charts
+
+### Date Filtering
+- Use `buildDateRangeFromFilters()` from `src/lib/utils/date-helpers.ts`
+- Apply date filters to the specific date field for each metric
+- For trend charts, expand to full year: `YYYY-01-01` to `YYYY-12-31`
+
+## Key Files Reference
+
+### Core Query Logic
+- `src/lib/queries/conversion-rates.ts` - Scorecard (correct) and trend chart (buggy) queries
+- `src/lib/queries/funnel-metrics.ts` - Volume metrics (SQLs, SQOs, Joined, AUM)
+- `src/lib/queries/source-performance.ts` - Channel and source breakdowns
+
+### Configuration
+- `src/config/constants.ts` - Table names, record types, constants
+- `src/types/dashboard.ts` - Dashboard data types
+- `src/types/bigquery-raw.ts` - Raw BigQuery result types
+
+### Components
+- `src/components/dashboard/ConversionTrendChart.tsx` - Trend chart (uses Recharts)
+- `src/components/dashboard/ConversionRateCards.tsx` - Scorecard cards
+- `src/app/dashboard/page.tsx` - Main dashboard with data fetching
+
+## Development Guidelines
+
+### When Fixing the Conversion Chart Bug
+
+1. **Compare Logic**: Always compare `getConversionTrends()` with `getConversionRates()` to ensure consistency
+2. **Test with Q4 2025**: Use Q4 2025 as test case (expected: 3.6% Contacted→MQL, 74.6% SQL→SQO, 11.6% SQO→Joined)
+3. **Verify Volumes**: Ensure volumes match scorecard (144 SQOs, 17 Joined for Q4 2025)
+4. **Period Alignment**: Group numerators and denominators by the same date field, or properly join them
+5. **No Cohort Restrictions**: Don't restrict conversions to same-period only - count all valid conversions
+
+### When Adding Features
+
+1. **Follow Existing Patterns**: Match the structure of existing query functions and components
+2. **Type Safety**: Define types in `src/types/` before implementing
+3. **Error Handling**: Always handle errors gracefully with user-friendly messages
+4. **Testing**: Test against known Q4 2025 values when possible
+
+### When Debugging
+
+1. **Check BigQuery View**: Verify logic against `vw_funnel_master.sql` structure
+2. **Use Console Logs**: Add strategic console.logs to track data flow
+3. **Test Queries**: Test BigQuery queries directly before implementing in code
+4. **Compare Scorecard**: If chart values differ, compare with scorecard calculation
+
+## Important Constants
+
+- **Recruiting Record Type**: `'012Dn000000mrO3IAI'`
+- **Full Table**: `'savvy-gtm-analytics.Tableau_Views.vw_funnel_master'`
+- **Mapping Table**: `'savvy-gtm-analytics.SavvyGTMData.new_mapping'`
+- **Forecast Table**: `'savvy-gtm-analytics.SavvyGTMData.q4_2025_forecast'`
+
+## Verification Values (Q4 2025)
+
+Use these as test cases when debugging:
+- SQLs: 193
+- SQOs: 144
+- Joined: 17
+- Contacted→MQL: 3.6%
+- MQL→SQL: 34.2%
+- SQL→SQO: 74.6%
+- SQO→Joined: 11.6%
+- Open Pipeline AUM: ~$12.3B
+
+## Code Style
+
+- Use TypeScript strict mode
+- Prefer async/await over promises
+- Use descriptive variable names
+- Add comments for complex logic
+- Follow Next.js 14 App Router patterns
+- Use Tailwind CSS for styling
+
+## When Making Changes
+
+1. **Read Related Files**: Understand the full context before changing
+2. **Maintain Consistency**: Keep patterns consistent with existing code
+3. **Update Types**: Update TypeScript types if data structures change
+4. **Test Locally**: Run `npm run dev` and test changes
+5. **Document Changes**: Update relevant documentation if needed
+
+## Priority Focus Areas
+
+1. **Fix Conversion Trends Chart**: This is the current blocker - align trend calculations with scorecard logic
+2. **Maintain Data Accuracy**: Ensure all metrics match BigQuery view calculations
+3. **Performance**: Optimize queries and add caching where appropriate
+4. **User Experience**: Improve error messages and loading states
+
+## Questions to Ask Before Making Changes
+
+- Does this match the `vw_funnel_master` view logic?
+- Are we using the correct date field for this metric?
+- Are we properly deduplicating opportunity-level metrics?
+- Are we filtering by the correct record type for SQO calculations?
+- Does this maintain consistency with the scorecard calculations?
+
+---
+
+**Remember**: The scorecard calculations in `getConversionRates()` are correct. Use them as the reference implementation when fixing the trend chart.
