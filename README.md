@@ -1,253 +1,242 @@
-# BigQuery Connection Test for Savvy Funnel Dashboard
+# Savvy Funnel Analytics Dashboard
 
-This test harness verifies that you can connect to BigQuery and query `vw_funnel_master` before building the full dashboard.
+A Next.js 14 dashboard application that replaces Tableau for funnel analytics, providing real-time insights into lead conversion rates, pipeline performance, and team metrics.
 
----
+## 🎯 Project Overview
 
-## Prerequisites
+This dashboard connects directly to BigQuery to visualize data from the `vw_funnel_master` view, which serves as the single source of truth for all funnel analytics. The application provides:
 
-- Node.js 18+ installed
-- Access to GCP Console for `savvy-gtm-analytics` project
-- Permission to create service accounts (or ask your GCP admin)
+- **Real-time Funnel Metrics**: SQLs, SQOs, Joined advisors, and pipeline AUM
+- **Conversion Rate Analysis**: Track conversion rates across all funnel stages (Contacted→MQL→SQL→SQO→Joined)
+- **Trend Visualization**: Monthly and quarterly trend charts for conversion rates and volumes
+- **Channel & Source Performance**: Drill down into performance by marketing channel and lead source
+- **Team Performance**: Filter and analyze performance by SGA (Sales Growth Advisor) and SGM (Sales Growth Manager)
+- **User Management**: Role-based access control with admin, manager, SGM, SGA, and viewer roles
 
----
+## 📊 Data Source
 
-## Step-by-Step Setup
+The dashboard queries the `vw_funnel_master` BigQuery view (`savvy-gtm-analytics.Tableau_Views.vw_funnel_master`), which:
 
-### Step 1: Create a Service Account in GCP
+- **Joins Leads and Opportunities**: Combines Salesforce Lead and Opportunity data with proper deduplication
+- **Handles Attribution**: Tracks SGA/SGM ownership at both lead and opportunity levels
+- **Calculates Conversion Flags**: Pre-computes progression flags (contacted_to_mql_progression, mql_to_sql_progression, etc.)
+- **Manages Eligibility**: Tracks which records are eligible for conversion rate calculations
+- **Deduplicates Opportunities**: Ensures opportunity-level metrics (SQO, Joined, AUM) count once per opportunity
 
-1. **Go to GCP Console**: https://console.cloud.google.com/
+### Key Fields from `vw_funnel_master`:
 
-2. **Select your project**: Make sure `savvy-gtm-analytics` is selected in the project dropdown (top left)
+- **Date Fields**: `FilterDate`, `stage_entered_contacting__c`, `converted_date_raw`, `Date_Became_SQO__c`, `advisor_join_date__c`
+- **Conversion Flags**: `is_contacted`, `is_mql`, `is_sql`, `is_sqo`, `is_joined`
+- **Progression Flags**: `contacted_to_mql_progression`, `mql_to_sql_progression`, `sql_to_sqo_progression`, `sqo_to_joined_progression`
+- **Eligibility Flags**: `eligible_for_contacted_conversions`, `eligible_for_mql_conversions`, `eligible_for_sql_conversions`, `eligible_for_sqo_conversions`
+- **Deduplication**: `is_sqo_unique`, `is_joined_unique`, `is_primary_opp_record`
+- **Attribution**: `SGA_Owner_Name__c`, `SGM_Owner_Name__c`, `Original_source`, `Channel_Grouping_Name`
 
-3. **Navigate to Service Accounts**:
-   - Click the hamburger menu (☰) → **IAM & Admin** → **Service Accounts**
-   - Or go directly to: https://console.cloud.google.com/iam-admin/serviceaccounts?project=savvy-gtm-analytics
+## 🏗️ Architecture
 
-4. **Create a new service account**:
-   - Click **+ CREATE SERVICE ACCOUNT** (top of page)
-   - **Service account name**: `dashboard-bigquery-reader`
-   - **Service account ID**: Will auto-fill to `dashboard-bigquery-reader`
-   - **Description**: `Read-only access to BigQuery for funnel dashboard`
-   - Click **CREATE AND CONTINUE**
+### Tech Stack
 
-5. **Grant permissions** (this is the important part!):
-   - Click **Select a role** dropdown
-   - Search for `BigQuery Data Viewer` and select it
-   - Click **+ ADD ANOTHER ROLE**
-   - Search for `BigQuery Job User` and select it
-   - Click **CONTINUE**
-   
-   > **Why both roles?**
-   > - `BigQuery Data Viewer`: Lets you read data from tables/views
-   > - `BigQuery Job User`: Lets you run queries (required!)
+- **Framework**: Next.js 14 (App Router)
+- **UI Components**: Tremor React (charts and tables), Recharts (trend charts)
+- **Styling**: Tailwind CSS
+- **Authentication**: NextAuth.js (Email/Password)
+- **Database**: Google BigQuery
+- **Deployment**: Vercel (ready)
 
-6. **Skip the optional step** (grant users access) - just click **DONE**
+### Project Structure
 
----
+```
+src/
+├── app/                    # Next.js App Router pages
+│   ├── api/               # API routes (dashboard endpoints, auth, users)
+│   ├── dashboard/         # Main dashboard page and settings
+│   └── login/             # Authentication page
+├── components/
+│   ├── dashboard/         # Dashboard-specific components
+│   ├── layout/            # Header, Sidebar, Navigation
+│   ├── settings/          # User management components
+│   └── ui/                # Reusable UI components
+├── lib/
+│   ├── queries/           # BigQuery query functions
+│   ├── utils/             # Helper functions (date formatting, CSV export)
+│   ├── bigquery.ts        # BigQuery client
+│   ├── auth.ts            # NextAuth configuration
+│   └── users.ts           # User management
+├── types/                 # TypeScript type definitions
+└── config/                # Constants (table names, record types)
+```
 
-### Step 2: Download the Service Account Key
+## ✅ Current Status
 
-1. **Find your new service account** in the list and click on it
+### Completed Phases
 
-2. **Go to Keys tab**: Click the **KEYS** tab at the top
+- ✅ **Phase 1**: Project setup and infrastructure
+- ✅ **Phase 2**: BigQuery connection layer with parameterized queries
+- ✅ **Phase 3**: Authentication and permissions system
+- ✅ **Phase 4**: All API routes (funnel-metrics, conversion-rates, source-performance, detail-records, forecast, open-pipeline, filters)
+- ✅ **Phase 5**: All dashboard components (Scorecards, ConversionRateCards, ConversionTrendChart, tables, filters)
+- ✅ **Phase 6**: Main dashboard page with data fetching and state management
 
-3. **Create a new key**:
-   - Click **ADD KEY** → **Create new key**
-   - Select **JSON** format
-   - Click **CREATE**
+### Known Issues
 
-4. **A JSON file will download** - this is your credentials file!
-   - It will be named something like: `savvy-gtm-analytics-abc123.json`
-   - ⚠️ **Keep this file secure** - it grants access to your data
+⚠️ **Conversion Trends Chart Bug**: The trend chart is displaying incorrect conversion rates and volumes that don't align with scorecard values. See [`conversion-rates-chart-bug.md`](./conversion-rates-chart-bug.md) for detailed documentation.
 
-5. **Move the file** to this project folder and rename it:
+**Example Discrepancy (Q4 2025)**:
+- Scorecard (correct): Contacted→MQL: 3.6%, SQL→SQO: 74.6%, SQO→Joined: 11.6%
+- Chart (incorrect): Contacted→MQL: 8.6%, SQL→SQO: 59.1%, SQO→Joined: 4.1%
+- Volumes: Chart shows 114 SQOs vs 144 actual, 6 Joined vs 17 actual
+
+**Root Cause**: The `getConversionTrends()` function uses different date field groupings for numerators and denominators, causing period mismatches. Cohort restrictions also exclude valid conversions that span multiple periods.
+
+## 🎯 Goals & Objectives
+
+### Primary Goals
+
+1. **Replace Tableau Dependencies**: Provide a self-hosted, customizable alternative to Tableau dashboards
+2. **Real-time Data Access**: Direct BigQuery integration for up-to-date metrics without manual refreshes
+3. **Role-based Access**: Secure access control with different permission levels (admin, manager, SGM, SGA, viewer)
+4. **Performance Tracking**: Monitor conversion rates across all funnel stages with trend analysis
+5. **Team Analytics**: Enable SGA and SGM filtering to track individual and team performance
+
+### Conversion Rate Tracking
+
+The dashboard tracks four key conversion rates, each tied to specific date dimensions:
+
+1. **Contacted → MQL**: Based on `stage_entered_contacting__c`
+   - Numerator: Leads that became MQL (`is_mql = 1`)
+   - Denominator: All leads that were contacted
+
+2. **MQL → SQL**: Based on `converted_date_raw` (numerator) and `stage_entered_contacting__c` (denominator)
+   - Numerator: SQLs that converted (`is_sql = 1`)
+   - Denominator: MQLs that became MQLs in the period
+
+3. **SQL → SQO**: Based on `Date_Became_SQO__c` (numerator) and `converted_date_raw` (denominator)
+   - Numerator: SQOs that became SQO (`is_sqo_unique = 1`, recruiting record type)
+   - Denominator: SQLs that converted in the period
+
+4. **SQO → Joined**: Based on `advisor_join_date__c` (numerator) and `Date_Became_SQO__c` (denominator)
+   - Numerator: Advisors that joined (`is_joined_unique = 1`)
+   - Denominator: SQOs that became SQO in the period
+
+### Key Metrics
+
+- **Volume Metrics**: SQLs, SQOs, Joined advisors
+- **Pipeline Metrics**: Open Pipeline AUM, Joined AUM
+- **Conversion Rates**: All four stage-to-stage conversion rates
+- **Channel Performance**: Performance breakdown by marketing channel
+- **Source Performance**: Performance breakdown by lead source
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- npm 9+
+- Google Cloud service account with BigQuery access
+- Access to `savvy-gtm-analytics` BigQuery project
+
+### Installation
+
+1. **Clone the repository**:
    ```bash
-   mv ~/Downloads/savvy-gtm-analytics-*.json ./service-account-key.json
+   git clone https://github.com/russellmoss/dashboard.git
+   cd dashboard
    ```
 
----
-
-### Step 3: Configure Environment Variables
-
-1. **Copy the example env file**:
+2. **Install dependencies**:
    ```bash
-   cp .env.example .env
+   npm install
    ```
 
-2. **Verify the .env file** looks like this:
-   ```
-   GOOGLE_APPLICATION_CREDENTIALS=./service-account-key.json
+3. **Set up environment variables**:
+   Create a `.env.local` file:
+   ```env
+   NEXTAUTH_SECRET=your-secret-here
+   NEXTAUTH_URL=http://localhost:3000
    GCP_PROJECT_ID=savvy-gtm-analytics
-   BQ_DATASET=Tableau_Views
-   BQ_VIEW=vw_funnel_master
+   GOOGLE_APPLICATION_CREDENTIALS=path/to/service-account-key.json
    ```
 
-3. **Make sure the path is correct** - if you named your key file differently, update the path
+4. **Run the development server**:
+   ```bash
+   npm run dev
+   ```
 
----
+5. **Open your browser**:
+   Navigate to `http://localhost:3000`
 
-### Step 4: Install Dependencies
+### Default Login
+
+- **Email**: `russell.moss@savvywealth.com`
+- **Password**: `Savvy1234!`
+- **Role**: Admin (full access)
+
+## 📝 Development
+
+### Key Files
+
+- **Query Functions**: `src/lib/queries/conversion-rates.ts` - Contains both scorecard and trend chart queries
+- **Dashboard Page**: `src/app/dashboard/page.tsx` - Main dashboard with data fetching
+- **API Routes**: `src/app/api/dashboard/*` - Backend endpoints for data retrieval
+- **Components**: `src/components/dashboard/*` - Reusable dashboard components
+
+### Building
 
 ```bash
-npm install
+npm run build
 ```
 
-This installs:
-- `@google-cloud/bigquery` - Google's official BigQuery client
-- `dotenv` - Loads your .env file
+### Testing
+
+The dashboard has been tested against Q4 2025 data with the following expected values:
+- SQLs: 193
+- SQOs: 144
+- Joined: 17
+- Open Pipeline AUM: ~$12.3B
+
+## 🔒 Security
+
+- **Authentication**: Email/password authentication with bcrypt password hashing
+- **Authorization**: Role-based access control (admin, manager, SGM, SGA, viewer)
+- **Data Filtering**: Automatic SGA/SGM filtering based on user permissions
+- **SQL Injection Protection**: All queries use BigQuery parameterized queries
+- **Sensitive Data**: User credentials and service account keys are excluded from version control
+
+## 📚 Documentation
+
+- **[Build Instructions](./savvy-dashboard-build-instructions.md)**: Comprehensive guide for building and deploying the dashboard
+- **[Conversion Chart Bug](./conversion-rates-chart-bug.md)**: Detailed documentation of the known conversion trends chart issue
+- **[BigQuery View](./vw_funnel_master.sql)**: SQL definition of the `vw_funnel_master` view
+
+## 🐛 Known Issues
+
+1. **Conversion Trends Chart**: Rates and volumes don't match scorecard values (see `conversion-rates-chart-bug.md`)
+2. **Period Alignment**: Trend chart uses different date field groupings causing period mismatches
+3. **Cohort Restrictions**: Some conversion rates only count same-period conversions, excluding valid cross-period conversions
+
+## 🔮 Future Enhancements
+
+- Fix conversion trends chart calculation logic
+- Add forecast comparison charts
+- Implement caching for API routes
+- Add export functionality for all tables
+- Create additional dashboard pages (Channel Drilldown, Open Pipeline, Partner Performance, Experimentation, SGA Performance)
+
+## 📄 License
+
+Proprietary - Savvy Wealth Internal Use Only
+
+## 👥 Contributors
+
+- Russell Moss - Initial development
+
+## 🔗 Links
+
+- **Repository**: https://github.com/russellmoss/dashboard
+- **BigQuery Project**: `savvy-gtm-analytics`
+- **Main View**: `savvy-gtm-analytics.Tableau_Views.vw_funnel_master`
 
 ---
 
-### Step 5: Run the Connection Test
-
-```bash
-npm test
-```
-
-**Expected output** (if everything is working):
-
-```
-============================================================
-🔌 BIGQUERY CONNECTION TEST
-============================================================
-
-Step 1: Checking credentials...
-✅ Credentials file found: ./service-account-key.json
-
-Step 2: Initializing BigQuery client...
-✅ BigQuery client initialized for project: savvy-gtm-analytics
-
-Step 3: Testing basic query (SELECT 1)...
-✅ Basic query successful: { test_value: 1 }
-
-Step 4: Listing datasets in project...
-✅ Found 5 datasets:
-   - SavvyGTMData
-   - Tableau_Views ⭐ (target)
-   - ...
-
-Step 5: Checking access to vw_funnel_master view...
-✅ View accessible! Total rows: 45,231
-
-Step 6: Fetching view schema...
-✅ View has 65 columns. Key fields:
-   ✓ primary_key (STRING)
-   ✓ advisor_name (STRING)
-   ...
-
-============================================================
-🎉 ALL TESTS PASSED - BigQuery connection is working!
-============================================================
-```
-
----
-
-### Step 6: Run Additional Tests
-
-**Test filtered queries** (like your dashboard will use):
-```bash
-npm run test:query
-```
-
-**Test the full dashboard data structure**:
-```bash
-npm run test:dashboard
-```
-
-This last one writes a `dashboard-data-sample.json` file showing exactly what your React app will receive.
-
----
-
-## Troubleshooting
-
-### ❌ "Could not load the default credentials"
-
-**Cause**: The credentials file path is wrong or file doesn't exist
-
-**Fix**: 
-- Check that `service-account-key.json` exists in this folder
-- Make sure `.env` has the correct path
-
----
-
-### ❌ "Permission denied" or "Access Denied"
-
-**Cause**: Service account doesn't have the right roles
-
-**Fix**: Go back to GCP Console → IAM → find your service account → Edit → Add roles:
-- `BigQuery Data Viewer`
-- `BigQuery Job User`
-
-If you still get errors specifically on `vw_funnel_master`:
-- The service account may need access granted at the **dataset level**
-- Go to BigQuery Console → `Tableau_Views` dataset → **SHARING** → Add the service account email with "BigQuery Data Viewer"
-
----
-
-### ❌ "Dataset not found" or "Table not found"
-
-**Cause**: Either the dataset/view name is wrong, or you're in the wrong project
-
-**Fix**:
-- Verify in BigQuery Console that `Tableau_Views.vw_funnel_master` exists
-- Check that `.env` has `GCP_PROJECT_ID=savvy-gtm-analytics`
-
----
-
-### ❌ "Quota exceeded" or "Rate limit"
-
-**Cause**: Too many queries or project quota issues
-
-**Fix**: This is usually temporary - wait a minute and retry. If persistent, check your GCP quotas.
-
----
-
-## What's Next?
-
-Once all tests pass, you're ready to build the full dashboard!
-
-The test scripts in this folder become the foundation for your Next.js API routes:
-- `test-connection.js` → Health check endpoint
-- `test-query.js` → Filter dropdowns endpoint  
-- `test-dashboard-queries.js` → Main dashboard data endpoint
-
-Next steps:
-1. Set up Next.js project with Vercel
-2. Add NextAuth.js for Google OAuth
-3. Create API routes using these query patterns
-4. Build React dashboard components
-
----
-
-## File Structure
-
-```
-bq-test/
-├── package.json              # Dependencies
-├── .env.example              # Environment template
-├── .env                      # Your actual config (create this)
-├── service-account-key.json  # Your GCP credentials (download this)
-├── test-connection.js        # Basic connection test
-├── test-query.js             # Filtered query tests
-├── test-dashboard-queries.js # Full dashboard data structure
-└── README.md                 # This file
-```
-
----
-
-## Security Notes
-
-⚠️ **Never commit these files to git:**
-- `service-account-key.json`
-- `.env`
-
-Add them to `.gitignore`:
-```
-.env
-service-account-key.json
-*.json
-!package.json
-```
-
-For production (Vercel), you'll add the service account JSON as an environment variable, not a file.
+**Last Updated**: January 2026  
+**Status**: Phase 5 & 6 Complete, Conversion Chart Bug Under Investigation
