@@ -1,0 +1,40 @@
+{
+  "name": "savvy-dashboard",
+  "version": "1.0.0",
+  "description": "Savvy Funnel Analytics Dashboard",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "node test-connection.js",
+    "test:query": "node test-query.js",
+    "test:dashboard": "node test-dashboard-queries.js"
+  },
+  "dependencies": {
+    "@google-cloud/bigquery": "^7.9.4",
+    "@tremor/react": "^3.18.7",
+    "bcryptjs": "^3.0.3",
+    "date-fns": "^3.6.0",
+    "dotenv": "^16.3.1",
+    "lucide-react": "^0.300.0",
+    "next": "^14.2.0",
+    "next-auth": "^4.24.13",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^3.6.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20.19.28",
+    "@types/react": "^18.3.27",
+    "@types/react-dom": "^18.3.7",
+    "autoprefixer": "^10.4.23",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^14.2.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5.9.3"
+  }
+}

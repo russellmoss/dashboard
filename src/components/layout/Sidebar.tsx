@@ -1,0 +1,70 @@
+'use client';
+
+import { usePathname } from 'next/navigation';
+import { useSession } from 'next-auth/react';
+import Link from 'next/link';
+import Image from 'next/image';
+import { 
+  BarChart3, GitBranch, Users, Building2, 
+  FlaskConical, UserCircle, Settings
+} from 'lucide-react';
+
+const PAGES = [
+  { id: 1, name: 'Funnel Performance', href: '/dashboard', icon: BarChart3 },
+  { id: 2, name: 'Channel Drilldown', href: '/dashboard/channels', icon: GitBranch },
+  { id: 3, name: 'Open Pipeline', href: '/dashboard/pipeline', icon: Users },
+  { id: 4, name: 'Partner Performance', href: '/dashboard/partners', icon: Building2 },
+  { id: 5, name: 'Experimentation', href: '/dashboard/experiments', icon: FlaskConical },
+  { id: 6, name: 'SGA Performance', href: '/dashboard/sga', icon: UserCircle },
+  { id: 7, name: 'Settings', href: '/dashboard/settings', icon: Settings },
+];
+
+export function Sidebar() {
+  const pathname = usePathname();
+  const { data: session } = useSession();
+  const permissions = (session as any)?.permissions;
+  const allowedPages = permissions?.allowedPages || [1, 2];
+
+  const filteredPages = PAGES.filter(page => allowedPages.includes(page.id));
+
+  return (
+    <aside className="w-64 bg-white border-r border-gray-200 min-h-screen">
+      {/* Logo Section */}
+      <div className="h-16 flex items-center justify-center border-b border-gray-200 px-4">
+        <Image
+          src="/savvy-logo.png"
+          alt="Savvy Wealth"
+          width={140}
+          height={36}
+          className="h-9 w-auto"
+          priority
+        />
+      </div>
+      
+      {/* Navigation */}
+      <nav className="p-4">
+        <ul className="space-y-1">
+          {filteredPages.map((page) => {
+            const isActive = pathname === page.href;
+            const Icon = page.icon;
+            return (
+              <li key={page.id}>
+                <Link
+                  href={page.href}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
+                    isActive
+                      ? 'bg-blue-50 text-blue-700 font-medium'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <Icon className={`w-5 h-5 ${isActive ? 'text-blue-600' : 'text-gray-500'}`} />
+                  <span>{page.name}</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+    </aside>
+  );
+}
