@@ -155,6 +155,90 @@ Use these as test cases when debugging:
 - Are we filtering by the correct record type for SQO calculations?
 - Does this maintain consistency with the scorecard calculations?
 
+## Rules and Commands
+
+### Code Generation Rules
+
+1. **Always use parameterized queries**: Never use string interpolation in SQL queries. Always use `@paramName` syntax with BigQuery parameters.
+
+2. **Type safety first**: Always define TypeScript interfaces in `src/types/` before implementing query functions. Use `Raw*Result` types for BigQuery results.
+
+3. **Error handling**: All API routes must have try/catch blocks and return appropriate HTTP status codes. Log errors but don't expose sensitive details.
+
+4. **Date filtering**: When filtering by date, always use `TIMESTAMP(@paramName)` for BigQuery compatibility. Include time component for end dates: `endDate + ' 23:59:59'`.
+
+5. **Deduplication**: For opportunity-level metrics (SQO, Joined, AUM), always use `is_sqo_unique`, `is_joined_unique`, or `is_primary_opp_record` flags.
+
+6. **Record type filtering**: When querying SQOs, always include `recordtypeid = @recruitingRecordType` filter with `RECRUITING_RECORD_TYPE` constant.
+
+### Testing Commands
+
+Before committing changes that affect calculations:
+1. Run `npm run build` to ensure TypeScript compiles
+2. Test with Q4 2025 filters and verify values match expected:
+   - SQLs: 193
+   - SQOs: 144
+   - Joined: 17
+   - Contacted→MQL: 3.6%
+   - SQL→SQO: 74.6%
+   - SQO→Joined: 11.6%
+
+### Code Review Checklist
+
+When reviewing or modifying code:
+- [ ] Uses parameterized queries (no string interpolation)
+- [ ] Has proper TypeScript types
+- [ ] Handles errors gracefully
+- [ ] Uses correct date fields for each metric
+- [ ] Properly deduplicates opportunity-level metrics
+- [ ] Filters by correct record type for SQO calculations
+- [ ] Matches scorecard logic (if modifying conversion rates)
+
+### Debugging Workflow
+
+1. **Identify the issue**: Check console logs, network requests, and component state
+2. **Compare with scorecard**: If chart values differ, compare with `getConversionRates()` logic
+3. **Test query directly**: Run BigQuery query in console to verify results
+4. **Check date fields**: Ensure using correct date dimension for each metric
+5. **Verify deduplication**: Check that `is_*_unique` flags are used correctly
+6. **Test with known values**: Use Q4 2025 as test case
+
+### File Modification Rules
+
+- **Query files**: Always maintain consistency between `getConversionRates()` and `getConversionTrends()`
+- **Component files**: Keep data transformation minimal - do it in query functions
+- **Type files**: Update types when data structures change
+- **API routes**: Always apply permission filters via `getUserPermissions()`
+
+### Common Patterns
+
+**Query Pattern**:
+```typescript
+const { startDate, endDate } = buildDateRangeFromFilters(filters);
+const params: Record<string, any> = { startDate, endDate: endDate + ' 23:59:59' };
+// Add filters to params
+const query = `SELECT ... WHERE ... AND TIMESTAMP(@startDate) ...`;
+const results = await runQuery<RawType>(query, params);
+```
+
+**API Route Pattern**:
+```typescript
+const session = await getServerSession(authOptions);
+if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+const permissions = await getUserPermissions(session.user?.email || '');
+// Apply permission filters
+const data = await getDataFunction(filters);
+return NextResponse.json(data);
+```
+
+**Component Pattern**:
+```typescript
+'use client';
+import { useState, useEffect } from 'react';
+import { dashboardApi } from '@/lib/api-client';
+// Fetch data, handle loading/error states, render UI
+```
+
 ---
 
 **Remember**: The scorecard calculations in `getConversionRates()` are correct. Use them as the reference implementation when fixing the trend chart.
