@@ -3,6 +3,7 @@
 import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Badge } from '@tremor/react';
 import { SourcePerformance } from '@/types/dashboard';
 import { formatCurrency, formatPercent, formatNumber } from '@/lib/utils/date-helpers';
+import { ExportButton } from '@/components/ui/ExportButton';
 
 interface SourcePerformanceTableProps {
   sources: SourcePerformance[];
@@ -15,14 +16,35 @@ export function SourcePerformanceTable({ sources, selectedSource, onSourceClick,
   const filteredSources = channelFilter 
     ? sources.filter(s => s.channel === channelFilter)
     : sources;
+  
+  // Prepare data for CSV export with formatted values
+  const exportData = filteredSources.map(source => ({
+    Source: source.source,
+    Channel: source.channel,
+    Prospects: source.prospects,
+    Contacted: source.contacted,
+    MQLs: source.mqls,
+    SQLs: source.sqls,
+    SQOs: source.sqos,
+    Joined: source.joined,
+    'MQL→SQL Rate': (source.mqlToSqlRate * 100).toFixed(2) + '%',
+    'SQL→SQO Rate': (source.sqlToSqoRate * 100).toFixed(2) + '%',
+    'SQO→Joined Rate': (source.sqoToJoinedRate * 100).toFixed(2) + '%',
+    'Contacted→MQL Rate': (source.contactedToMqlRate * 100).toFixed(2) + '%',
+    AUM: source.aum,
+  }));
+
   return (
     <Card className="mb-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">
-        Source Performance
-        {channelFilter && (
-          <span className="ml-2 text-sm text-gray-500">(Filtered by: {channelFilter})</span>
-        )}
-      </h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-gray-900">
+          Source Performance
+          {channelFilter && (
+            <span className="ml-2 text-sm text-gray-500">(Filtered by: {channelFilter})</span>
+          )}
+        </h3>
+        <ExportButton data={exportData} filename="source-performance" />
+      </div>
       <div className="overflow-x-auto">
         <Table>
           <TableHead>

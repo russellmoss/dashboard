@@ -1,3 +1,5 @@
+export type ConversionTrendMode = 'period' | 'cohort';
+
 export interface FunnelMetrics {
   sqls: number;
   sqos: number;
@@ -81,4 +83,5 @@ export interface TrendDataPoint {
   mqlToSqlRate: number;
   sqlToSqoRate: number;
   sqoToJoinedRate: number;
+  isSelectedPeriod?: boolean;
 }

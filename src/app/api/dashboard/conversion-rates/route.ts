@@ -16,6 +16,7 @@ export async function POST(request: NextRequest) {
     const filters: DashboardFilters = body.filters;
     const includeTrends = body.includeTrends || false;
     const granularity = body.granularity || 'month';
+    const mode = body.mode || 'period';
     
     // Apply permission-based filters
     const permissions = await getUserPermissions(session.user?.email || '');
@@ -31,7 +32,7 @@ export async function POST(request: NextRequest) {
     let trends = null;
     if (includeTrends) {
       try {
-        trends = await getConversionTrends(filters, granularity);
+        trends = await getConversionTrends(filters, granularity, mode);
       } catch (trendError) {
         console.error('Conversion trends error:', trendError);
         // Don't fail the whole request if trends fail, just return empty array
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    return NextResponse.json({ rates, trends });
+    return NextResponse.json({ rates, trends, mode });
   } catch (error) {
     console.error('Conversion rates error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

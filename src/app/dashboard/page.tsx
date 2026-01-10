@@ -13,7 +13,7 @@ import { DetailRecordsTable } from '@/components/dashboard/DetailRecordsTable';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { dashboardApi, handleApiError } from '@/lib/api-client';
 import { DashboardFilters, FilterOptions } from '@/types/filters';
-import { FunnelMetrics, ConversionRates, ChannelPerformance, SourcePerformance, DetailRecord, TrendDataPoint } from '@/types/dashboard';
+import { FunnelMetrics, ConversionRates, ChannelPerformance, SourcePerformance, DetailRecord, TrendDataPoint, ConversionTrendMode } from '@/types/dashboard';
 import { buildDateRangeFromFilters } from '@/lib/utils/date-helpers';
 
 const DEFAULT_FILTERS: DashboardFilters = {
@@ -50,7 +50,8 @@ export default function DashboardPage() {
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
-  const [trendGranularity, setTrendGranularity] = useState<'month' | 'quarter'>('month');
+  const [trendGranularity, setTrendGranularity] = useState<'month' | 'quarter'>('quarter');
+  const [trendMode, setTrendMode] = useState<ConversionTrendMode>('period');
   
   // Fetch filter options on mount
   useEffect(() => {
@@ -88,7 +89,7 @@ export default function DashboardPage() {
       // Fetch all data in parallel
       const [metricsData, conversionData, channelsData, sourcesData, recordsData] = await Promise.all([
         dashboardApi.getFunnelMetrics(currentFilters),
-        dashboardApi.getConversionRates(currentFilters, { includeTrends: true, granularity: trendGranularity }),
+        dashboardApi.getConversionRates(currentFilters, { includeTrends: true, granularity: trendGranularity, mode: trendMode }),
         dashboardApi.getChannelPerformance(currentFilters),
         dashboardApi.getSourcePerformance(currentFilters),
         dashboardApi.getDetailRecords(currentFilters, 500),
@@ -111,7 +112,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters, selectedMetric, trendGranularity, filterOptions]);
+  }, [filters, selectedMetric, trendGranularity, trendMode, filterOptions]);
   
   useEffect(() => {
     if (filterOptions) {
@@ -208,6 +209,10 @@ export default function DashboardPage() {
           <ConversionTrendChart
             trends={trends}
             onGranularityChange={setTrendGranularity}
+            granularity={trendGranularity}
+            mode={trendMode}
+            onModeChange={setTrendMode}
+            isLoading={loading}
           />
           
           {/* Channel Performance */}

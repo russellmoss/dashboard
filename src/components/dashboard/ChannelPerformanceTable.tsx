@@ -3,6 +3,7 @@
 import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Badge } from '@tremor/react';
 import { ChannelPerformance } from '@/types/dashboard';
 import { formatCurrency, formatPercent, formatNumber } from '@/lib/utils/date-helpers';
+import { ExportButton } from '@/components/ui/ExportButton';
 
 interface ChannelPerformanceTableProps {
   channels: ChannelPerformance[];
@@ -11,9 +12,28 @@ interface ChannelPerformanceTableProps {
 }
 
 export function ChannelPerformanceTable({ channels, selectedChannel, onChannelClick }: ChannelPerformanceTableProps) {
+  // Prepare data for CSV export with formatted values
+  const exportData = channels.map(channel => ({
+    Channel: channel.channel,
+    Prospects: channel.prospects,
+    Contacted: channel.contacted,
+    MQLs: channel.mqls,
+    SQLs: channel.sqls,
+    SQOs: channel.sqos,
+    Joined: channel.joined,
+    'MQL→SQL Rate': (channel.mqlToSqlRate * 100).toFixed(2) + '%',
+    'SQL→SQO Rate': (channel.sqlToSqoRate * 100).toFixed(2) + '%',
+    'SQO→Joined Rate': (channel.sqoToJoinedRate * 100).toFixed(2) + '%',
+    'Contacted→MQL Rate': (channel.contactedToMqlRate * 100).toFixed(2) + '%',
+    AUM: channel.aum,
+  }));
+
   return (
     <Card className="mb-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">Channel Performance</h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-gray-900">Channel Performance</h3>
+        <ExportButton data={exportData} filename="channel-performance" />
+      </div>
       <div className="overflow-x-auto">
         <Table>
           <TableHead>

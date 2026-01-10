@@ -31,10 +31,15 @@ export const dashboardApi = {
       body: JSON.stringify(filters),
     }),
 
-  getConversionRates: (filters: DashboardFilters, options?: { includeTrends?: boolean; granularity?: 'month' | 'quarter' }) =>
-    apiFetch<{ rates: ConversionRates; trends: TrendDataPoint[] | null }>('/api/dashboard/conversion-rates', {
+  getConversionRates: (filters: DashboardFilters, options?: { includeTrends?: boolean; granularity?: 'month' | 'quarter'; mode?: 'period' | 'cohort' }) =>
+    apiFetch<{ rates: ConversionRates; trends: TrendDataPoint[] | null; mode?: string }>('/api/dashboard/conversion-rates', {
       method: 'POST',
-      body: JSON.stringify({ filters, ...options }),
+      body: JSON.stringify({ 
+        filters, 
+        includeTrends: options?.includeTrends ?? false,
+        granularity: options?.granularity ?? 'quarter',
+        mode: options?.mode ?? 'period',
+      }),
     }),
 
   getChannelPerformance: (filters: DashboardFilters) =>
