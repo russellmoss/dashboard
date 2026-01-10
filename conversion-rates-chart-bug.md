@@ -1,6 +1,38 @@
 # Conversion Rates Chart Bug Documentation
 
-## Issue Summary
+## ✅ STATUS: RESOLVED
+
+### Resolution Summary
+- **Fixed Date**: January 2026
+- **Fixed By**: Automated fix via cursor-ai-fix-instructions.md
+- **Root Cause**: Cohort restrictions in `getConversionTrends()` excluded cross-period conversions, and Contacted→MQL denominator used incorrect field
+- **Solution**: Rewrote function to calculate each metric independently per period using 7 separate CTEs, removed cohort restrictions, and fixed denominator logic
+
+### Validated Results (Q4 2025)
+| Metric | Before Fix | After Fix | Expected |
+|--------|------------|-----------|----------|
+| SQLs | 193 | 193 ✓ | 193 |
+| SQOs | 114 | 144 ✓ | 144 |
+| Joined | 6 | 17 ✓ | 17 |
+| Contacted→MQL | 8.6% | 3.6% ✓ | 3.6% |
+| SQL→SQO | 59.1% | 74.6% ✓ | 74.6% |
+| SQO→Joined | 4.1% | 11.6% ✓ | 11.6% |
+
+### Key Changes Made
+1. **Denominator Fix**: Changed Contacted→MQL denominator from `SUM(eligible_for_contacted_conversions)` to `COUNT(*)` to match scorecard logic
+2. **Removed Cohort Restrictions**: SQL→SQO and SQO→Joined no longer require date periods to match - counts all conversions where the conversion date falls in the period
+3. **Architecture Change**: Now uses 7 separate CTEs (contacted_to_mql, mql_to_sql_numer, mql_to_sql_denom, sql_to_sqo_numer, sql_to_sqo_denom, sqo_to_joined_numer, sqo_to_joined_denom) joined by period instead of UNION ALL with cohort restrictions
+4. **Volume Calculation**: Volumes (SQLs, SQOs, Joined) are now calculated independently using their respective date fields without cohort restrictions
+
+### Implementation Details
+- **File Modified**: `src/lib/queries/conversion-rates.ts`
+- **Function**: `getConversionTrends(filters, granularity)`
+- **Backup Created**: `src/lib/queries/conversion-rates.backup.ts`
+- **Reference**: See `cursor-ai-fix-instructions.md` for step-by-step fix process
+
+---
+
+## Original Issue Summary
 
 The Conversion Trends chart displays incorrect conversion rates and volumes that do not align with the scorecard values. When filtering to Q4 2025 with all sources and channels, there are significant discrepancies between the scorecard (which appears correct) and the trend chart.
 

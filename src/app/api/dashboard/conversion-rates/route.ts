@@ -32,7 +32,6 @@ export async function POST(request: NextRequest) {
     if (includeTrends) {
       try {
         trends = await getConversionTrends(filters, granularity);
-        console.log(`[Conversion Trends] Returned ${trends?.length || 0} trend points for ${granularity} granularity`);
       } catch (trendError) {
         console.error('Conversion trends error:', trendError);
         // Don't fail the whole request if trends fail, just return empty array
