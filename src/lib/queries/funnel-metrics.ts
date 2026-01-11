@@ -34,18 +34,19 @@ export async function getFunnelMetrics(filters: DashboardFilters): Promise<Funne
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   
   // Main metrics query with parameterized values
-  // MQLs: Count leads where stage_entered_contacting__c is within date range
+  // MQLs: Count leads where mql_stage_entered_ts (Call Scheduled) is within date range
   // SQLs: Count leads where converted_date_raw is within date range (is_sql = 1)
   // SQOs: Count opportunities where Date_Became_SQO__c is within date range AND record type is recruiting
   // Joined: Count opportunities where advisor_join_date__c is within date range
   // NOTE: We do NOT filter by FilterDate in WHERE clause - we count by specific date fields
   const metricsQuery = `
     SELECT
+      -- FIX: MQLs use mql_stage_entered_ts (Call Scheduled), NOT stage_entered_contacting__c
       SUM(
         CASE 
-          WHEN stage_entered_contacting__c IS NOT NULL
-            AND TIMESTAMP(stage_entered_contacting__c) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          WHEN mql_stage_entered_ts IS NOT NULL
+            AND TIMESTAMP(mql_stage_entered_ts) >= TIMESTAMP(@startDate) 
+            AND TIMESTAMP(mql_stage_entered_ts) <= TIMESTAMP(@endDate)
           THEN 1 
           ELSE 0 
         END

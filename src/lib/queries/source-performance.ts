@@ -32,13 +32,32 @@ export async function getChannelPerformance(filters: DashboardFilters): Promise<
   const query = `
     SELECT
       COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
-      COUNT(*) as prospects,
-      SUM(v.is_contacted) as contacted,
+      -- FIX: prospects filtered by FilterDate (the cohort date that handles recycled leads)
+      SUM(
+        CASE 
+          WHEN v.FilterDate IS NOT NULL
+            AND TIMESTAMP(v.FilterDate) >= TIMESTAMP(@startDate) 
+            AND TIMESTAMP(v.FilterDate) <= TIMESTAMP(@endDate)
+          THEN 1 
+          ELSE 0 
+        END
+      ) as prospects,
+      -- FIX: contacted filtered by stage_entered_contacting__c (Contacting stage)
       SUM(
         CASE 
           WHEN v.stage_entered_contacting__c IS NOT NULL
             AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate) 
             AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          THEN 1 
+          ELSE 0 
+        END
+      ) as contacted,
+      -- FIX: MQLs filtered by mql_stage_entered_ts (Call Scheduled stage = Stage_Entered_Call_Scheduled__c)
+      SUM(
+        CASE 
+          WHEN v.mql_stage_entered_ts IS NOT NULL
+            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate) 
+            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
           THEN 1 
           ELSE 0 
         END
@@ -89,18 +108,18 @@ export async function getChannelPerformance(filters: DashboardFilters): Promise<
           THEN v.eligible_for_contacted_conversions ELSE 0 
         END)
       ) as contacted_to_mql_rate,
-      -- MQL→SQL (cohort by stage_entered_contacting__c)
+      -- MQL→SQL (cohort by mql_stage_entered_ts - people who became MQL in the period)
       SAFE_DIVIDE(
         SUM(CASE 
-          WHEN v.stage_entered_contacting__c IS NOT NULL
-            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          WHEN v.mql_stage_entered_ts IS NOT NULL
+            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
           THEN v.mql_to_sql_progression ELSE 0 
         END),
         SUM(CASE 
-          WHEN v.stage_entered_contacting__c IS NOT NULL
-            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          WHEN v.mql_stage_entered_ts IS NOT NULL
+            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
           THEN v.eligible_for_mql_conversions ELSE 0 
         END)
       ) as mql_to_sql_rate,
@@ -203,13 +222,32 @@ export async function getSourcePerformance(filters: DashboardFilters): Promise<S
     SELECT
       v.Original_source as source,
       COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
-      COUNT(*) as prospects,
-      SUM(v.is_contacted) as contacted,
+      -- FIX: prospects filtered by FilterDate (the cohort date that handles recycled leads)
+      SUM(
+        CASE 
+          WHEN v.FilterDate IS NOT NULL
+            AND TIMESTAMP(v.FilterDate) >= TIMESTAMP(@startDate) 
+            AND TIMESTAMP(v.FilterDate) <= TIMESTAMP(@endDate)
+          THEN 1 
+          ELSE 0 
+        END
+      ) as prospects,
+      -- FIX: contacted filtered by stage_entered_contacting__c (Contacting stage)
       SUM(
         CASE 
           WHEN v.stage_entered_contacting__c IS NOT NULL
             AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate) 
             AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          THEN 1 
+          ELSE 0 
+        END
+      ) as contacted,
+      -- FIX: MQLs filtered by mql_stage_entered_ts (Call Scheduled stage = Stage_Entered_Call_Scheduled__c)
+      SUM(
+        CASE 
+          WHEN v.mql_stage_entered_ts IS NOT NULL
+            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate) 
+            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
           THEN 1 
           ELSE 0 
         END
@@ -260,18 +298,18 @@ export async function getSourcePerformance(filters: DashboardFilters): Promise<S
           THEN v.eligible_for_contacted_conversions ELSE 0 
         END)
       ) as contacted_to_mql_rate,
-      -- MQL→SQL (cohort by stage_entered_contacting__c)
+      -- MQL→SQL (cohort by mql_stage_entered_ts - people who became MQL in the period)
       SAFE_DIVIDE(
         SUM(CASE 
-          WHEN v.stage_entered_contacting__c IS NOT NULL
-            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          WHEN v.mql_stage_entered_ts IS NOT NULL
+            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
           THEN v.mql_to_sql_progression ELSE 0 
         END),
         SUM(CASE 
-          WHEN v.stage_entered_contacting__c IS NOT NULL
-            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          WHEN v.mql_stage_entered_ts IS NOT NULL
+            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
           THEN v.eligible_for_mql_conversions ELSE 0 
         END)
       ) as mql_to_sql_rate,

@@ -37,52 +37,58 @@ export function ChannelPerformanceTable({ channels, selectedChannel, onChannelCl
       <div className="overflow-x-auto">
         <Table>
           <TableHead>
-            <TableRow>
-              <TableHeaderCell>Channel</TableHeaderCell>
-              <TableHeaderCell className="text-right">Prospects</TableHeaderCell>
-              <TableHeaderCell className="text-right">Contacted</TableHeaderCell>
-              <TableHeaderCell className="text-right">MQLs</TableHeaderCell>
-              <TableHeaderCell className="text-right">SQLs</TableHeaderCell>
-              <TableHeaderCell className="text-right">SQOs</TableHeaderCell>
-              <TableHeaderCell className="text-right">Joined</TableHeaderCell>
-              <TableHeaderCell className="text-right">MQL→SQL</TableHeaderCell>
-              <TableHeaderCell className="text-right">SQL→SQO</TableHeaderCell>
-              <TableHeaderCell className="text-right">SQO→Joined</TableHeaderCell>
+            <TableRow className="bg-gray-50">
+              <TableHeaderCell className="border-r border-gray-200">Channel</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">Prospects</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">Contacted</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">MQLs</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">SQLs</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">SQOs</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">Joined</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">MQL→SQL</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">SQL→SQO</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">SQO→Joined</TableHeaderCell>
               <TableHeaderCell className="text-right">AUM</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {channels.map((channel, idx) => (
+            {channels.map((channel, idx) => {
+              const baseZebra = idx % 2 === 0 ? 'bg-white' : 'bg-gray-50';
+              const hoverZebra = idx % 2 === 0 ? 'hover:bg-gray-50' : 'hover:bg-gray-100';
+              const isSelected = selectedChannel === channel.channel;
+              
+              return (
               <TableRow 
                 key={idx}
-                className={onChannelClick ? `cursor-pointer transition-colors ${selectedChannel === channel.channel ? 'bg-blue-50' : 'hover:bg-gray-50'}` : ''}
-                onClick={() => onChannelClick?.(selectedChannel === channel.channel ? null : channel.channel)}
+                className={`${baseZebra} ${isSelected ? '!bg-blue-50 hover:!bg-blue-100' : hoverZebra} transition-colors cursor-pointer`}
+                onClick={() => onChannelClick?.(isSelected ? null : channel.channel)}
               >
-                <TableCell className="font-medium">{channel.channel}</TableCell>
-                <TableCell className="text-right">{formatNumber(channel.prospects)}</TableCell>
-                <TableCell className="text-right">{formatNumber(channel.contacted)}</TableCell>
-                <TableCell className="text-right">{formatNumber(channel.mqls)}</TableCell>
-                <TableCell className="text-right font-semibold">{formatNumber(channel.sqls)}</TableCell>
-                <TableCell className="text-right">{formatNumber(channel.sqos)}</TableCell>
-                <TableCell className="text-right">{formatNumber(channel.joined)}</TableCell>
-                <TableCell className="text-right">
+                <TableCell className="font-medium border-r border-gray-200">{channel.channel}</TableCell>
+                <TableCell className="text-right border-r border-gray-200">{formatNumber(channel.prospects)}</TableCell>
+                <TableCell className="text-right border-r border-gray-200">{formatNumber(channel.contacted)}</TableCell>
+                <TableCell className="text-right border-r border-gray-200">{formatNumber(channel.mqls)}</TableCell>
+                <TableCell className="text-right font-semibold border-r border-gray-200">{formatNumber(channel.sqls)}</TableCell>
+                <TableCell className="text-right border-r border-gray-200">{formatNumber(channel.sqos)}</TableCell>
+                <TableCell className="text-right border-r border-gray-200">{formatNumber(channel.joined)}</TableCell>
+                <TableCell className="text-right border-r border-gray-200">
                   <Badge size="sm" color={channel.mqlToSqlRate > 0.3 ? 'green' : channel.mqlToSqlRate > 0.2 ? 'yellow' : 'red'}>
                     {formatPercent(channel.mqlToSqlRate)}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-right border-r border-gray-200">
                   <Badge size="sm" color={channel.sqlToSqoRate > 0.5 ? 'green' : channel.sqlToSqoRate > 0.3 ? 'yellow' : 'red'}>
                     {formatPercent(channel.sqlToSqoRate)}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-right border-r border-gray-200">
                   <Badge size="sm" color={channel.sqoToJoinedRate > 0.4 ? 'green' : channel.sqoToJoinedRate > 0.2 ? 'yellow' : 'red'}>
                     {formatPercent(channel.sqoToJoinedRate)}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right font-semibold">{formatCurrency(channel.aum)}</TableCell>
               </TableRow>
-            ))}
+              );
+            })}
           </TableBody>
         </Table>
       </div>

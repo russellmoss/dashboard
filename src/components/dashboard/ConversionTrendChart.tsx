@@ -99,7 +99,7 @@ const ModeTooltip = ({ mode, children }: { mode: ConversionTrendMode; children: 
             {content.calculation}
           </div>
           
-          {content.resolvedNote && (
+          {'resolvedNote' in content && content.resolvedNote && (
             <div className="text-xs text-gray-500 italic">
               {content.resolvedNote}
             </div>
@@ -314,7 +314,7 @@ export function ConversionTrendChart({
                 borderRadius: '8px',
                 boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
               }}
-              formatter={(value: number, name: string) => [formatValue(value), name]}
+              formatter={(value: number | undefined, name: string | undefined) => [formatValue(value ?? 0), name ?? '']}
               labelStyle={{ fontWeight: 600, marginBottom: '4px' }}
             />
             <Legend 
@@ -344,13 +344,13 @@ export function ConversionTrendChart({
             {mode === 'period' ? (
               <>
                 <strong>Period Mode:</strong> Shows conversion activity in each period. 
-                An SQL from Q3 that becomes SQO in Q4 counts toward Q4's rate.
+                An SQL from Q3 that becomes SQO in Q4 counts toward Q4&apos;s rate.
                 Includes all records. Rates can exceed 100% when converting older leads.
               </>
             ) : (
               <>
                 <strong>Cohort Mode:</strong> Tracks each cohort through the funnel using only resolved records.
-                An SQL from Q3 that becomes SQO in Q4 counts toward Q3's rate.
+                An SQL from Q3 that becomes SQO in Q4 counts toward Q3&apos;s rate.
                 Open records (still in progress) are excluded. Rates are always 0-100%.
               </>
             )}

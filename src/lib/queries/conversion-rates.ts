@@ -35,7 +35,7 @@ import { FULL_TABLE, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/cons
  * | Conversion     | Period Num Date      | Period Denom Date           | Cohort Date               |
  * |----------------|----------------------|-----------------------------|---------------------------|
  * | Contacted→MQL  | stage_entered_contacting__c | stage_entered_contacting__c | stage_entered_contacting__c |
- * | MQL→SQL        | converted_date_raw   | stage_entered_contacting__c | stage_entered_contacting__c |
+ * | MQL→SQL        | converted_date_raw   | mql_stage_entered_ts        | mql_stage_entered_ts      |
  * | SQL→SQO        | Date_Became_SQO__c   | converted_date_raw          | converted_date_raw        |
  * | SQO→Joined     | advisor_join_date__c | Date_Became_SQO__c          | Date_Became_SQO__c        |
  */
@@ -94,7 +94,7 @@ export async function getConversionRates(
           AND v.is_contacted = 1
         ) as contacted_denom,
         
-        -- MQL→SQL: Numerator by converted_date_raw, Denominator by stage_entered_contacting__c
+        -- MQL→SQL: Numerator by converted_date_raw, Denominator by mql_stage_entered_ts (Call Scheduled)
         COUNTIF(
           v.converted_date_raw IS NOT NULL
           AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
@@ -102,9 +102,9 @@ export async function getConversionRates(
           AND v.is_sql = 1
         ) as mql_numer,
         COUNTIF(
-          v.stage_entered_contacting__c IS NOT NULL
-          AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
-          AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          v.mql_stage_entered_ts IS NOT NULL
+          AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate)
+          AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
           AND v.is_mql = 1
         ) as mql_denom,
         
@@ -161,17 +161,17 @@ export async function getConversionRates(
           THEN v.eligible_for_contacted_conversions ELSE 0 
         END) as contacted_denom,
         
-        -- MQL→SQL (cohort by stage_entered_contacting__c)
+        -- MQL→SQL (cohort by mql_stage_entered_ts - Call Scheduled date)
         SUM(CASE 
-          WHEN v.stage_entered_contacting__c IS NOT NULL
-            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          WHEN v.mql_stage_entered_ts IS NOT NULL
+            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
           THEN v.mql_to_sql_progression ELSE 0 
         END) as mql_numer,
         SUM(CASE 
-          WHEN v.stage_entered_contacting__c IS NOT NULL
-            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          WHEN v.mql_stage_entered_ts IS NOT NULL
+            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
           THEN v.eligible_for_mql_conversions ELSE 0 
         END) as mql_denom,
         
@@ -284,7 +284,7 @@ export async function getConversionRates(
  * | Conversion     | Numerator Date Field      | Denominator Date Field        |
  * |----------------|---------------------------|-------------------------------|
  * | Contacted→MQL  | stage_entered_contacting__c | stage_entered_contacting__c |
- * | MQL→SQL        | converted_date_raw        | stage_entered_contacting__c   |
+ * | MQL→SQL        | converted_date_raw        | mql_stage_entered_ts          |
  * | SQL→SQO        | Date_Became_SQO__c        | converted_date_raw            |
  * | SQO→Joined     | advisor_join_date__c      | Date_Became_SQO__c            |
  * 
@@ -531,16 +531,16 @@ function buildPeriodModeQuery(
       GROUP BY period
     ),
     
-    -- CTE 3: MQL→SQL DENOMINATOR (by stage_entered_contacting__c)
+    -- CTE 3: MQL→SQL DENOMINATOR (by mql_stage_entered_ts)
     mql_to_sql_denom AS (
       SELECT
-        ${periodFn('v.stage_entered_contacting__c')} as period,
+        ${periodFn('v.mql_stage_entered_ts')} as period,
         COUNTIF(v.is_mql = 1) as mql_to_sql_denom
       FROM \`${FULL_TABLE}\` v
       LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
-      WHERE v.stage_entered_contacting__c IS NOT NULL
-        AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@trendStartDate)
-        AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@trendEndDate)
+      WHERE v.mql_stage_entered_ts IS NOT NULL
+        AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@trendStartDate)
+        AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@trendEndDate)
         ${filterWhereClause}
       GROUP BY period
     ),
@@ -671,18 +671,18 @@ function buildCohortModeQuery(
       GROUP BY period
     ),
     
-    -- CTE 2: MQL COHORT (by stage_entered_contacting__c)
+    -- CTE 2: MQL COHORT (by mql_stage_entered_ts - Call Scheduled date)
     -- Uses eligible_for_mql_conversions (resolved only) and mql_to_sql_progression
     mql_cohort AS (
       SELECT
-        ${periodFn('v.stage_entered_contacting__c')} as period,
+        ${periodFn('v.mql_stage_entered_ts')} as period,
         SUM(v.eligible_for_mql_conversions) as eligible_mqls,
         SUM(v.mql_to_sql_progression) as progressed_to_sql
       FROM \`${FULL_TABLE}\` v
       LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
-      WHERE v.stage_entered_contacting__c IS NOT NULL
-        AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@trendStartDate)
-        AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@trendEndDate)
+      WHERE v.mql_stage_entered_ts IS NOT NULL
+        AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@trendStartDate)
+        AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@trendEndDate)
         ${filterWhereClause}
       GROUP BY period
     ),

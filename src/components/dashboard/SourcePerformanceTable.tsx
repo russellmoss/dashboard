@@ -48,54 +48,60 @@ export function SourcePerformanceTable({ sources, selectedSource, onSourceClick,
       <div className="overflow-x-auto">
         <Table>
           <TableHead>
-            <TableRow>
-              <TableHeaderCell>Source</TableHeaderCell>
-              <TableHeaderCell>Channel</TableHeaderCell>
-              <TableHeaderCell className="text-right">Prospects</TableHeaderCell>
-              <TableHeaderCell className="text-right">Contacted</TableHeaderCell>
-              <TableHeaderCell className="text-right">MQLs</TableHeaderCell>
-              <TableHeaderCell className="text-right">SQLs</TableHeaderCell>
-              <TableHeaderCell className="text-right">SQOs</TableHeaderCell>
-              <TableHeaderCell className="text-right">Joined</TableHeaderCell>
-              <TableHeaderCell className="text-right">MQL→SQL</TableHeaderCell>
-              <TableHeaderCell className="text-right">SQL→SQO</TableHeaderCell>
-              <TableHeaderCell className="text-right">SQO→Joined</TableHeaderCell>
+            <TableRow className="bg-gray-50">
+              <TableHeaderCell className="border-r border-gray-200">Source</TableHeaderCell>
+              <TableHeaderCell className="border-r border-gray-200">Channel</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">Prospects</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">Contacted</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">MQLs</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">SQLs</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">SQOs</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">Joined</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">MQL→SQL</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">SQL→SQO</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200">SQO→Joined</TableHeaderCell>
               <TableHeaderCell className="text-right">AUM</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredSources.map((source, idx) => (
+            {filteredSources.map((source, idx) => {
+              const baseZebra = idx % 2 === 0 ? 'bg-white' : 'bg-gray-50';
+              const hoverZebra = idx % 2 === 0 ? 'hover:bg-gray-50' : 'hover:bg-gray-100';
+              const isSelected = selectedSource === source.source;
+              
+              return (
               <TableRow 
                 key={idx}
-                className={onSourceClick ? `cursor-pointer transition-colors ${selectedSource === source.source ? 'bg-blue-50' : 'hover:bg-gray-50'}` : ''}
-                onClick={() => onSourceClick?.(selectedSource === source.source ? null : source.source)}
+                className={`${baseZebra} ${isSelected ? '!bg-blue-50 hover:!bg-blue-100' : hoverZebra} transition-colors cursor-pointer`}
+                onClick={() => onSourceClick?.(isSelected ? null : source.source)}
               >
-                <TableCell className="font-medium">{source.source}</TableCell>
-                <TableCell>{source.channel}</TableCell>
-                <TableCell className="text-right">{formatNumber(source.prospects)}</TableCell>
-                <TableCell className="text-right">{formatNumber(source.contacted)}</TableCell>
-                <TableCell className="text-right">{formatNumber(source.mqls)}</TableCell>
-                <TableCell className="text-right font-semibold">{formatNumber(source.sqls)}</TableCell>
-                <TableCell className="text-right">{formatNumber(source.sqos)}</TableCell>
-                <TableCell className="text-right">{formatNumber(source.joined)}</TableCell>
-                <TableCell className="text-right">
+                <TableCell className="font-medium border-r border-gray-200">{source.source}</TableCell>
+                <TableCell className="border-r border-gray-200">{source.channel}</TableCell>
+                <TableCell className="text-right border-r border-gray-200">{formatNumber(source.prospects)}</TableCell>
+                <TableCell className="text-right border-r border-gray-200">{formatNumber(source.contacted)}</TableCell>
+                <TableCell className="text-right border-r border-gray-200">{formatNumber(source.mqls)}</TableCell>
+                <TableCell className="text-right font-semibold border-r border-gray-200">{formatNumber(source.sqls)}</TableCell>
+                <TableCell className="text-right border-r border-gray-200">{formatNumber(source.sqos)}</TableCell>
+                <TableCell className="text-right border-r border-gray-200">{formatNumber(source.joined)}</TableCell>
+                <TableCell className="text-right border-r border-gray-200">
                   <Badge size="sm" color={source.mqlToSqlRate > 0.3 ? 'green' : source.mqlToSqlRate > 0.2 ? 'yellow' : 'red'}>
                     {formatPercent(source.mqlToSqlRate)}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-right border-r border-gray-200">
                   <Badge size="sm" color={source.sqlToSqoRate > 0.5 ? 'green' : source.sqlToSqoRate > 0.3 ? 'yellow' : 'red'}>
                     {formatPercent(source.sqlToSqoRate)}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-right border-r border-gray-200">
                   <Badge size="sm" color={source.sqoToJoinedRate > 0.4 ? 'green' : source.sqoToJoinedRate > 0.2 ? 'yellow' : 'red'}>
                     {formatPercent(source.sqoToJoinedRate)}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right font-semibold">{formatCurrency(source.aum)}</TableCell>
               </TableRow>
-            ))}
+              );
+            })}
           </TableBody>
         </Table>
       </div>
