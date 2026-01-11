@@ -1,5 +1,5 @@
 import { DashboardFilters, FilterOptions } from '@/types/filters';
-import { FunnelMetrics, ConversionRates, ChannelPerformance, SourcePerformance, DetailRecord, TrendDataPoint } from '@/types/dashboard';
+import { FunnelMetrics, ConversionRates, ConversionRatesResponse, ChannelPerformance, SourcePerformance, DetailRecord, TrendDataPoint } from '@/types/dashboard';
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public endpoint: string) {
@@ -31,8 +31,19 @@ export const dashboardApi = {
       body: JSON.stringify(filters),
     }),
 
-  getConversionRates: (filters: DashboardFilters, options?: { includeTrends?: boolean; granularity?: 'month' | 'quarter'; mode?: 'period' | 'cohort' }) =>
-    apiFetch<{ rates: ConversionRates; trends: TrendDataPoint[] | null; mode?: string }>('/api/dashboard/conversion-rates', {
+  getConversionRates: (
+    filters: DashboardFilters, 
+    options?: { 
+      includeTrends?: boolean; 
+      granularity?: 'month' | 'quarter'; 
+      mode?: 'period' | 'cohort';
+    }
+  ) =>
+    apiFetch<{ 
+      rates: ConversionRatesResponse; 
+      trends: TrendDataPoint[] | null; 
+      mode?: string;
+    }>('/api/dashboard/conversion-rates', {
       method: 'POST',
       body: JSON.stringify({ 
         filters, 

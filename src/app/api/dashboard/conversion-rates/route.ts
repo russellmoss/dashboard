@@ -16,7 +16,14 @@ export async function POST(request: NextRequest) {
     const filters: DashboardFilters = body.filters;
     const includeTrends = body.includeTrends || false;
     const granularity = body.granularity || 'month';
-    const mode = body.mode || 'period';
+    
+    // Parse mode parameter (default to 'period' for backward compatibility)
+    const mode = (body.mode as 'period' | 'cohort') || 'period';
+    
+    // Validate mode
+    if (!['period', 'cohort'].includes(mode)) {
+      return NextResponse.json({ error: 'Invalid mode. Must be "period" or "cohort"' }, { status: 400 });
+    }
     
     // Apply permission-based filters
     const permissions = await getUserPermissions(session.user?.email || '');
@@ -27,7 +34,8 @@ export async function POST(request: NextRequest) {
       filters.sgm = permissions.sgmFilter;
     }
     
-    const rates = await getConversionRates(filters);
+    // Pass mode to getConversionRates()
+    const rates = await getConversionRates(filters, mode);
     
     let trends = null;
     if (includeTrends) {

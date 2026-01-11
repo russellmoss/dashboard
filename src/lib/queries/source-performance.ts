@@ -74,10 +74,66 @@ export async function getChannelPerformance(filters: DashboardFilters): Promise<
           ELSE 0 
         END
       ) as joined,
-      SAFE_DIVIDE(SUM(v.contacted_to_mql_progression), SUM(v.eligible_for_contacted_conversions)) as contacted_to_mql_rate,
-      SAFE_DIVIDE(SUM(v.mql_to_sql_progression), SUM(v.eligible_for_mql_conversions)) as mql_to_sql_rate,
-      SAFE_DIVIDE(SUM(v.sql_to_sqo_progression), SUM(v.eligible_for_sql_conversions)) as sql_to_sqo_rate,
-      SAFE_DIVIDE(SUM(v.sqo_to_joined_progression), SUM(v.eligible_for_sqo_conversions)) as sqo_to_joined_rate,
+      -- Contacted→MQL (cohort by stage_entered_contacting__c)
+      SAFE_DIVIDE(
+        SUM(CASE 
+          WHEN v.stage_entered_contacting__c IS NOT NULL
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          THEN v.contacted_to_mql_progression ELSE 0 
+        END),
+        SUM(CASE 
+          WHEN v.stage_entered_contacting__c IS NOT NULL
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          THEN v.eligible_for_contacted_conversions ELSE 0 
+        END)
+      ) as contacted_to_mql_rate,
+      -- MQL→SQL (cohort by stage_entered_contacting__c)
+      SAFE_DIVIDE(
+        SUM(CASE 
+          WHEN v.stage_entered_contacting__c IS NOT NULL
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          THEN v.mql_to_sql_progression ELSE 0 
+        END),
+        SUM(CASE 
+          WHEN v.stage_entered_contacting__c IS NOT NULL
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          THEN v.eligible_for_mql_conversions ELSE 0 
+        END)
+      ) as mql_to_sql_rate,
+      -- SQL→SQO (cohort by converted_date_raw)
+      SAFE_DIVIDE(
+        SUM(CASE 
+          WHEN v.converted_date_raw IS NOT NULL
+            AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
+          THEN v.sql_to_sqo_progression ELSE 0 
+        END),
+        SUM(CASE 
+          WHEN v.converted_date_raw IS NOT NULL
+            AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
+          THEN v.eligible_for_sql_conversions ELSE 0 
+        END)
+      ) as sql_to_sqo_rate,
+      -- SQO→Joined (cohort by Date_Became_SQO__c)
+      SAFE_DIVIDE(
+        SUM(CASE 
+          WHEN v.Date_Became_SQO__c IS NOT NULL
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+          THEN v.sqo_to_joined_progression ELSE 0 
+        END),
+        SUM(CASE 
+          WHEN v.Date_Became_SQO__c IS NOT NULL
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+          THEN v.eligible_for_sqo_conversions ELSE 0 
+        END)
+      ) as sqo_to_joined_rate,
       SUM(
         CASE 
           WHEN v.Date_Became_SQO__c IS NOT NULL
@@ -189,10 +245,66 @@ export async function getSourcePerformance(filters: DashboardFilters): Promise<S
           ELSE 0 
         END
       ) as joined,
-      SAFE_DIVIDE(SUM(v.contacted_to_mql_progression), SUM(v.eligible_for_contacted_conversions)) as contacted_to_mql_rate,
-      SAFE_DIVIDE(SUM(v.mql_to_sql_progression), SUM(v.eligible_for_mql_conversions)) as mql_to_sql_rate,
-      SAFE_DIVIDE(SUM(v.sql_to_sqo_progression), SUM(v.eligible_for_sql_conversions)) as sql_to_sqo_rate,
-      SAFE_DIVIDE(SUM(v.sqo_to_joined_progression), SUM(v.eligible_for_sqo_conversions)) as sqo_to_joined_rate,
+      -- Contacted→MQL (cohort by stage_entered_contacting__c)
+      SAFE_DIVIDE(
+        SUM(CASE 
+          WHEN v.stage_entered_contacting__c IS NOT NULL
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          THEN v.contacted_to_mql_progression ELSE 0 
+        END),
+        SUM(CASE 
+          WHEN v.stage_entered_contacting__c IS NOT NULL
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          THEN v.eligible_for_contacted_conversions ELSE 0 
+        END)
+      ) as contacted_to_mql_rate,
+      -- MQL→SQL (cohort by stage_entered_contacting__c)
+      SAFE_DIVIDE(
+        SUM(CASE 
+          WHEN v.stage_entered_contacting__c IS NOT NULL
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          THEN v.mql_to_sql_progression ELSE 0 
+        END),
+        SUM(CASE 
+          WHEN v.stage_entered_contacting__c IS NOT NULL
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          THEN v.eligible_for_mql_conversions ELSE 0 
+        END)
+      ) as mql_to_sql_rate,
+      -- SQL→SQO (cohort by converted_date_raw)
+      SAFE_DIVIDE(
+        SUM(CASE 
+          WHEN v.converted_date_raw IS NOT NULL
+            AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
+          THEN v.sql_to_sqo_progression ELSE 0 
+        END),
+        SUM(CASE 
+          WHEN v.converted_date_raw IS NOT NULL
+            AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
+          THEN v.eligible_for_sql_conversions ELSE 0 
+        END)
+      ) as sql_to_sqo_rate,
+      -- SQO→Joined (cohort by Date_Became_SQO__c)
+      SAFE_DIVIDE(
+        SUM(CASE 
+          WHEN v.Date_Became_SQO__c IS NOT NULL
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+          THEN v.sqo_to_joined_progression ELSE 0 
+        END),
+        SUM(CASE 
+          WHEN v.Date_Became_SQO__c IS NOT NULL
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+          THEN v.eligible_for_sqo_conversions ELSE 0 
+        END)
+      ) as sqo_to_joined_rate,
       SUM(
         CASE 
           WHEN v.Date_Became_SQO__c IS NOT NULL

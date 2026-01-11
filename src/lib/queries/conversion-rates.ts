@@ -1,5 +1,5 @@
 import { runQuery } from '../bigquery';
-import { ConversionRates, TrendDataPoint } from '@/types/dashboard';
+import { ConversionRates, TrendDataPoint, ConversionRatesResponse } from '@/types/dashboard';
 import { DashboardFilters } from '@/types/filters';
 import { 
   buildDateRangeFromFilters,
@@ -14,18 +14,46 @@ import {
 import { RawConversionRatesResult, RawConversionTrendResult, toNumber } from '@/types/bigquery-raw';
 import { FULL_TABLE, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
 
-export async function getConversionRates(filters: DashboardFilters): Promise<ConversionRates> {
+/**
+ * CONVERSION RATE CALCULATION MODES:
+ * 
+ * PERIOD MODE (Activity-Based):
+ * - "What conversion activity happened in this period?"
+ * - Numerator: Records reaching next stage IN the period (by that stage's date)
+ * - Denominator: Records reaching current stage IN the period (by that stage's date)
+ * - Different populations - rates can exceed 100%
+ * - Best for: Activity tracking, sales dashboards
+ * 
+ * COHORT MODE (Resolved-Only):
+ * - "Of records from this period, what % converted?"
+ * - Uses pre-calculated progression/eligibility flags from vw_funnel_master
+ * - Only includes RESOLVED records (converted OR closed/lost)
+ * - Same population - rates always 0-100%
+ * - Best for: Funnel efficiency, forecasting
+ * 
+ * DATE FIELD MAPPING:
+ * | Conversion     | Period Num Date      | Period Denom Date           | Cohort Date               |
+ * |----------------|----------------------|-----------------------------|---------------------------|
+ * | Contacted→MQL  | stage_entered_contacting__c | stage_entered_contacting__c | stage_entered_contacting__c |
+ * | MQL→SQL        | converted_date_raw   | stage_entered_contacting__c | stage_entered_contacting__c |
+ * | SQL→SQO        | Date_Became_SQO__c   | converted_date_raw          | converted_date_raw        |
+ * | SQO→Joined     | advisor_join_date__c | Date_Became_SQO__c          | Date_Became_SQO__c        |
+ */
+export async function getConversionRates(
+  filters: DashboardFilters,
+  mode: 'period' | 'cohort' = 'period'
+): Promise<ConversionRatesResponse> {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
   
-  // Build conditions manually since we need table aliases
-  const conditions: string[] = [];
   const params: Record<string, any> = {
     startDate,
     endDate: endDate + ' 23:59:59',
+    recruitingRecordType: RECRUITING_RECORD_TYPE,
   };
-  
+
+  // Build filter conditions
+  const conditions: string[] = [];
   if (filters.channel) {
-    // Use mapped channel from new_mapping table
     conditions.push('COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, \'Other\') = @channel');
     params.channel = filters.channel;
   }
@@ -41,108 +69,181 @@ export async function getConversionRates(filters: DashboardFilters): Promise<Con
     conditions.push('v.SGM_Owner_Name__c = @sgm');
     params.sgm = filters.sgm;
   }
-  
-  params.recruitingRecordType = RECRUITING_RECORD_TYPE;
-  
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  
-  // Each conversion rate is tied to its own date field:
-  // - Contacted→MQL: stage_entered_contacting__c
-  // - MQL→SQL: converted_date_raw
-  // - SQL→SQO: Date_Became_SQO__c
-  // - SQO→Joined: advisor_join_date__c
-  // Use actual counts (not progression fields) for numerators, eligible_for for denominators
-  const query = `
-    SELECT
-      -- Contacted→MQL: Anyone that was contacted (stage_entered_contacting__c in date range)
-      -- that also MQL'ed (is_mql = 1)
-      -- Numerator: Those that MQL'ed (is_mql = 1)
-      COUNTIF(
-        v.stage_entered_contacting__c IS NOT NULL
-        AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
-        AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
-        AND v.is_mql = 1
-      ) as contacted_numer,
-      -- Denominator: All records where stage_entered_contacting__c is in date range
-      COUNTIF(
-        v.stage_entered_contacting__c IS NOT NULL
-        AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
-        AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
-      ) as contacted_denom,
-      -- MQL→SQL: SQLs that converted in date range / MQLs where stage_entered_contacting__c is in date range
-      -- The denominator should be MQLs that became MQLs in this period, not FilterDate
-      COUNTIF(
-        v.converted_date_raw IS NOT NULL
-        AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
-        AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
-        AND v.is_sql = 1
-      ) as mql_numer,
-      COUNTIF(
-        v.stage_entered_contacting__c IS NOT NULL
-        AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
-        AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
-        AND v.is_mql = 1
-      ) as mql_denom,
-      -- SQL→SQO: SQOs that became SQO in date range / SQLs where converted_date_raw is in date range
-      COUNTIF(
-        v.Date_Became_SQO__c IS NOT NULL
-        AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
-        AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
-        AND v.recordtypeid = @recruitingRecordType
-        AND v.is_sqo_unique = 1
-      ) as sql_numer,
-      COUNTIF(
-        v.converted_date_raw IS NOT NULL
-        AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
-        AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
-        AND v.is_sql = 1
-      ) as sql_denom,
-      -- SQO→Joined: Joined that joined in date range / SQOs where Date_Became_SQO__c is in date range
-      -- The denominator should be SQOs that became SQOs in this period, not where they joined
-      COUNTIF(
-        v.advisor_join_date__c IS NOT NULL
-        AND TIMESTAMP(v.advisor_join_date__c) >= TIMESTAMP(@startDate)
-        AND TIMESTAMP(v.advisor_join_date__c) <= TIMESTAMP(@endDate)
-        AND v.is_joined_unique = 1
-      ) as sqo_numer,
-      COUNTIF(
-        v.Date_Became_SQO__c IS NOT NULL
-        AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
-        AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
-        AND v.recordtypeid = @recruitingRecordType
-        AND LOWER(v.SQO_raw) = 'yes'
-      ) as sqo_denom
-    FROM \`${FULL_TABLE}\` v
-    LEFT JOIN \`${MAPPING_TABLE}\` nm
-      ON v.Original_source = nm.original_source
-    ${whereClause}
-  `;
-  
+
+  const filterWhereClause = conditions.length > 0 
+    ? 'AND ' + conditions.join(' AND ') 
+    : '';
+
+  let query: string;
+
+  if (mode === 'period') {
+    // PERIOD MODE: Activity-based, different date fields for numerator/denominator
+    query = `
+      SELECT
+        -- Contacted→MQL (both use stage_entered_contacting__c)
+        COUNTIF(
+          v.stage_entered_contacting__c IS NOT NULL
+          AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+          AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          AND v.is_mql = 1
+        ) as contacted_numer,
+        COUNTIF(
+          v.stage_entered_contacting__c IS NOT NULL
+          AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+          AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          AND v.is_contacted = 1
+        ) as contacted_denom,
+        
+        -- MQL→SQL: Numerator by converted_date_raw, Denominator by stage_entered_contacting__c
+        COUNTIF(
+          v.converted_date_raw IS NOT NULL
+          AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
+          AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
+          AND v.is_sql = 1
+        ) as mql_numer,
+        COUNTIF(
+          v.stage_entered_contacting__c IS NOT NULL
+          AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+          AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          AND v.is_mql = 1
+        ) as mql_denom,
+        
+        -- SQL→SQO: Numerator by Date_Became_SQO__c, Denominator by converted_date_raw
+        COUNTIF(
+          v.Date_Became_SQO__c IS NOT NULL
+          AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+          AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+          AND v.recordtypeid = @recruitingRecordType
+          AND v.is_sqo_unique = 1
+        ) as sql_numer,
+        COUNTIF(
+          v.converted_date_raw IS NOT NULL
+          AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
+          AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
+          AND v.is_sql = 1
+        ) as sql_denom,
+        
+        -- SQO→Joined: Numerator by advisor_join_date__c, Denominator by Date_Became_SQO__c
+        COUNTIF(
+          v.advisor_join_date__c IS NOT NULL
+          AND TIMESTAMP(v.advisor_join_date__c) >= TIMESTAMP(@startDate)
+          AND TIMESTAMP(v.advisor_join_date__c) <= TIMESTAMP(@endDate)
+          AND v.is_joined_unique = 1
+        ) as sqo_numer,
+        COUNTIF(
+          v.Date_Became_SQO__c IS NOT NULL
+          AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+          AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+          AND v.recordtypeid = @recruitingRecordType
+          AND LOWER(v.SQO_raw) = 'yes'
+        ) as sqo_denom
+        
+      FROM \`${FULL_TABLE}\` v
+      LEFT JOIN \`${MAPPING_TABLE}\` nm
+        ON v.Original_source = nm.original_source
+      WHERE 1=1 ${filterWhereClause}
+    `;
+  } else {
+    // COHORT MODE: Resolved-only, uses progression/eligibility flags
+    query = `
+      SELECT
+        -- Contacted→MQL (cohort by stage_entered_contacting__c)
+        SUM(CASE 
+          WHEN v.stage_entered_contacting__c IS NOT NULL
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          THEN v.contacted_to_mql_progression ELSE 0 
+        END) as contacted_numer,
+        SUM(CASE 
+          WHEN v.stage_entered_contacting__c IS NOT NULL
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          THEN v.eligible_for_contacted_conversions ELSE 0 
+        END) as contacted_denom,
+        
+        -- MQL→SQL (cohort by stage_entered_contacting__c)
+        SUM(CASE 
+          WHEN v.stage_entered_contacting__c IS NOT NULL
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          THEN v.mql_to_sql_progression ELSE 0 
+        END) as mql_numer,
+        SUM(CASE 
+          WHEN v.stage_entered_contacting__c IS NOT NULL
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          THEN v.eligible_for_mql_conversions ELSE 0 
+        END) as mql_denom,
+        
+        -- SQL→SQO (cohort by converted_date_raw)
+        SUM(CASE 
+          WHEN v.converted_date_raw IS NOT NULL
+            AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
+          THEN v.sql_to_sqo_progression ELSE 0 
+        END) as sql_numer,
+        SUM(CASE 
+          WHEN v.converted_date_raw IS NOT NULL
+            AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
+          THEN v.eligible_for_sql_conversions ELSE 0 
+        END) as sql_denom,
+        
+        -- SQO→Joined (cohort by Date_Became_SQO__c)
+        SUM(CASE 
+          WHEN v.Date_Became_SQO__c IS NOT NULL
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+          THEN v.sqo_to_joined_progression ELSE 0 
+        END) as sqo_numer,
+        SUM(CASE 
+          WHEN v.Date_Became_SQO__c IS NOT NULL
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+          THEN v.eligible_for_sqo_conversions ELSE 0 
+        END) as sqo_denom
+        
+      FROM \`${FULL_TABLE}\` v
+      LEFT JOIN \`${MAPPING_TABLE}\` nm
+        ON v.Original_source = nm.original_source
+      WHERE 1=1 ${filterWhereClause}
+    `;
+  }
+
   const [result] = await runQuery<RawConversionRatesResult>(query, params);
-  
+
   const safeDiv = (n: number, d: number) => d === 0 ? 0 : n / d;
-  
+  const formatLabel = (n: number, d: number, isResolved: boolean) => 
+    isResolved ? `${n} / ${d} resolved` : `${n} / ${d}`;
+
+  const isResolved = mode === 'cohort';
+
   return {
     contactedToMql: {
       rate: safeDiv(toNumber(result.contacted_numer), toNumber(result.contacted_denom)),
       numerator: toNumber(result.contacted_numer),
       denominator: toNumber(result.contacted_denom),
+      label: formatLabel(toNumber(result.contacted_numer), toNumber(result.contacted_denom), isResolved),
     },
     mqlToSql: {
       rate: safeDiv(toNumber(result.mql_numer), toNumber(result.mql_denom)),
       numerator: toNumber(result.mql_numer),
       denominator: toNumber(result.mql_denom),
+      label: formatLabel(toNumber(result.mql_numer), toNumber(result.mql_denom), isResolved),
     },
     sqlToSqo: {
       rate: safeDiv(toNumber(result.sql_numer), toNumber(result.sql_denom)),
       numerator: toNumber(result.sql_numer),
       denominator: toNumber(result.sql_denom),
+      label: formatLabel(toNumber(result.sql_numer), toNumber(result.sql_denom), isResolved),
     },
     sqoToJoined: {
       rate: safeDiv(toNumber(result.sqo_numer), toNumber(result.sqo_denom)),
       numerator: toNumber(result.sqo_numer),
       denominator: toNumber(result.sqo_denom),
+      label: formatLabel(toNumber(result.sqo_numer), toNumber(result.sqo_denom), isResolved),
     },
+    mode,
   };
 }
 

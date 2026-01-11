@@ -1,4 +1,5 @@
 export type ConversionTrendMode = 'period' | 'cohort';
+export type TrendMode = 'period' | 'cohort'; // Alias for compatibility
 
 export interface FunnelMetrics {
   sqls: number;
@@ -14,6 +15,22 @@ export interface ConversionRates {
   mqlToSql: { rate: number; numerator: number; denominator: number };
   sqlToSqo: { rate: number; numerator: number; denominator: number };
   sqoToJoined: { rate: number; numerator: number; denominator: number };
+}
+
+// New interfaces for mode-aware conversion rates
+export interface ConversionRateResult {
+  rate: number;
+  numerator: number;
+  denominator: number;
+  label: string; // e.g., "66 / 116" or "61 / 97 resolved"
+}
+
+export interface ConversionRatesResponse {
+  contactedToMql: ConversionRateResult;
+  mqlToSql: ConversionRateResult;
+  sqlToSqo: ConversionRateResult;
+  sqoToJoined: ConversionRateResult;
+  mode: 'period' | 'cohort';
 }
 
 export interface SourcePerformance {

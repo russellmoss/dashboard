@@ -13,7 +13,7 @@ import { DetailRecordsTable } from '@/components/dashboard/DetailRecordsTable';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { dashboardApi, handleApiError } from '@/lib/api-client';
 import { DashboardFilters, FilterOptions } from '@/types/filters';
-import { FunnelMetrics, ConversionRates, ChannelPerformance, SourcePerformance, DetailRecord, TrendDataPoint, ConversionTrendMode } from '@/types/dashboard';
+import { FunnelMetrics, ConversionRatesResponse, ChannelPerformance, SourcePerformance, DetailRecord, TrendDataPoint, ConversionTrendMode } from '@/types/dashboard';
 import { buildDateRangeFromFilters } from '@/lib/utils/date-helpers';
 
 const DEFAULT_FILTERS: DashboardFilters = {
@@ -40,7 +40,7 @@ export default function DashboardPage() {
   
   // Data
   const [metrics, setMetrics] = useState<FunnelMetrics | null>(null);
-  const [conversionRates, setConversionRates] = useState<ConversionRates | null>(null);
+  const [conversionRates, setConversionRates] = useState<ConversionRatesResponse | null>(null);
   const [trends, setTrends] = useState<TrendDataPoint[]>([]);
   const [channels, setChannels] = useState<ChannelPerformance[]>([]);
   const [sources, setSources] = useState<SourcePerformance[]>([]);
@@ -202,7 +202,7 @@ export default function DashboardPage() {
           
           {/* Conversion Rate Cards */}
           {conversionRates && (
-            <ConversionRateCards rates={conversionRates} />
+            <ConversionRateCards conversionRates={conversionRates} isLoading={loading} />
           )}
           
           {/* Trend Chart */}
