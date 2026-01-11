@@ -325,18 +325,12 @@ export async function getConversionTrends(
   if (granularity === 'quarter') {
     // Quarterly: Selected quarter + 3 quarters back
     const quarters = calculateQuarterRollingWindow(selectedYear, selectedQuarter);
-    console.log(`[getConversionTrends] Selected: ${selectedYear}-Q${selectedQuarter}`);
-    console.log(`[getConversionTrends] Calculated quarters:`, quarters.map(q => `${q.year}-Q${q.quarter}`).join(', '));
     
     const dateRange = getQuarterWindowDateRange(quarters);
     trendStartDate = dateRange.startDate;
     trendEndDate = dateRange.endDate + ' 23:59:59';
     expectedPeriods = quarters.map(q => formatQuarterString(q.year, q.quarter));
     selectedPeriodString = formatQuarterString(selectedYear, selectedQuarter);
-    
-    console.log(`[getConversionTrends] Date range: ${trendStartDate} to ${trendEndDate}`);
-    console.log(`[getConversionTrends] Expected periods: ${expectedPeriods.join(', ')}`);
-    console.log(`[getConversionTrends] Selected period string: ${selectedPeriodString}`);
   } else {
     // Monthly: 12 months back + completed months in selected quarter
     const months = calculateMonthRollingWindow(selectedYear, selectedQuarter);
@@ -348,15 +342,6 @@ export async function getConversionTrends(
     const quarterStartMonth = (selectedQuarter - 1) * 3 + 1;
     selectedPeriodString = formatMonthString(selectedYear, quarterStartMonth);
   }
-  
-  // Additional logging for monthly granularity
-  if (granularity === 'month') {
-    console.log(`[getConversionTrends] Selected: ${selectedYear}-Q${selectedQuarter}`);
-    console.log(`[getConversionTrends] Date range: ${trendStartDate} to ${trendEndDate}`);
-    console.log(`[getConversionTrends] Expected periods: ${expectedPeriods.join(', ')}`);
-  }
-  
-  console.log(`[getConversionTrends] Mode: ${mode}, Granularity: ${granularity}`);
   
   // ═══════════════════════════════════════════════════════════════════════════
   // BUILD FILTER CONDITIONS
@@ -408,17 +393,7 @@ export async function getConversionTrends(
     ? buildCohortModeQuery(periodFn, filterWhereClause, expectedPeriods, granularity)
     : buildPeriodModeQuery(periodFn, filterWhereClause, expectedPeriods, granularity);
   
-  console.log(`[getConversionTrends] Executing query with params:`, {
-    trendStartDate,
-    trendEndDate,
-    expectedPeriodCount: expectedPeriods.length,
-  });
-  
   const results = await runQuery<RawConversionTrendResult>(query, params);
-  
-  console.log(`[getConversionTrends] Query returned ${results.length} rows`);
-  console.log(`[getConversionTrends] Returned periods:`, results.map(r => r.period).join(', '));
-  console.log(`[getConversionTrends] Missing periods:`, expectedPeriods.filter(p => !results.some(r => r.period === p)).join(', '));
   
   // ═══════════════════════════════════════════════════════════════════════════
   // STEP 5: TRANSFORM RESULTS AND ENSURE ALL PERIODS ARE PRESENT
@@ -474,10 +449,6 @@ export async function getConversionTrends(
   const finalResults = Array.from(resultMap.values()).sort((a, b) => 
     a.period.localeCompare(b.period)
   );
-  
-  console.log(`[getConversionTrends] Final results: ${finalResults.length} periods`);
-  console.log(`[getConversionTrends] Final periods:`, finalResults.map(r => r.period).join(', '));
-  console.log(`[getConversionTrends] Selected period (${selectedPeriodString}) in results:`, finalResults.some(r => r.period === selectedPeriodString));
   
   return finalResults;
 }

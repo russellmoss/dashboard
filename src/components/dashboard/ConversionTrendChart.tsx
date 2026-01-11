@@ -4,6 +4,7 @@ import { Card, Title, Text } from '@tremor/react';
 import { TrendDataPoint, ConversionTrendMode } from '@/types/dashboard';
 import { useState } from 'react';
 import { useTheme } from 'next-themes';
+import { CHART_COLORS } from '@/config/theme';
 import {
   BarChart,
   Bar,
@@ -163,18 +164,18 @@ export function ConversionTrendChart({
   const rateCategories = ['Contacted→MQL', 'MQL→SQL', 'SQL→SQO', 'SQO→Joined'];
   const volumeCategories = ['SQLs', 'SQOs', 'Joined'];
 
-  // Color scheme matching requirements
+  // Color scheme using centralized theme constants
   const RATE_COLORS: Record<string, string> = {
-    'Contacted→MQL': '#3b82f6', // blue-500
-    'MQL→SQL': '#10b981',       // emerald-500
-    'SQL→SQO': '#f59e0b',       // amber-500
-    'SQO→Joined': '#8b5cf6',    // violet-500
+    'Contacted→MQL': CHART_COLORS.contactedToMql,
+    'MQL→SQL': CHART_COLORS.mqlToSql,
+    'SQL→SQO': CHART_COLORS.sqlToSqo,
+    'SQO→Joined': CHART_COLORS.sqoToJoined,
   };
 
   const VOLUME_COLORS: Record<string, string> = {
-    'SQLs': '#3b82f6',
-    'SQOs': '#10b981',
-    'Joined': '#8b5cf6',
+    'SQLs': CHART_COLORS.primary,
+    'SQOs': CHART_COLORS.mqlToSql,
+    'Joined': CHART_COLORS.sqoToJoined,
   };
 
   const categories = selectedMetric === 'rates' ? rateCategories : volumeCategories;
@@ -360,16 +361,16 @@ export function ConversionTrendChart({
             barCategoryGap="15%"
             barGap={2}
           >
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} className="dark:stroke-gray-700" />
+            <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} className="dark:stroke-gray-700" />
             <XAxis 
               dataKey="period" 
-              tick={{ fontSize: 12, fill: '#6b7280' }}
-              tickLine={{ stroke: '#d1d5db' }}
+              tick={{ fontSize: 12, fill: CHART_COLORS.axis }}
+              tickLine={{ stroke: CHART_COLORS.grid }}
               className="dark:[&_text]:fill-gray-400 dark:[&_line]:stroke-gray-700"
             />
             <YAxis 
-              tick={{ fontSize: 12, fill: '#6b7280' }}
-              tickLine={{ stroke: '#d1d5db' }}
+              tick={{ fontSize: 12, fill: CHART_COLORS.axis }}
+              tickLine={{ stroke: CHART_COLORS.grid }}
               tickFormatter={(value) => 
                 selectedMetric === 'rates' ? `${value}%` : value.toLocaleString()
               }

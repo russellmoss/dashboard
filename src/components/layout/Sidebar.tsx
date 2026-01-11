@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
+import { getSessionPermissions } from '@/types/auth';
 import Link from 'next/link';
 import Image from 'next/image';
 import { 
@@ -27,7 +28,7 @@ interface SidebarProps {
 export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const permissions = (session as any)?.permissions;
+  const permissions = getSessionPermissions(session);
   const allowedPages = permissions?.allowedPages || [1, 2];
 
   const filteredPages = PAGES.filter(page => allowedPages.includes(page.id));

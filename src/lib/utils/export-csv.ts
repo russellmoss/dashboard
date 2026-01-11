@@ -1,4 +1,10 @@
-export function exportToCSV(data: any[], filename: string): void {
+type CSVValue = string | number | boolean | null | undefined;
+type CSVRow = Record<string, CSVValue>;
+
+export function exportToCSV<T extends CSVRow>(
+  data: T[],
+  filename: string
+): void {
   if (data.length === 0) return;
   
   const headers = Object.keys(data[0]);

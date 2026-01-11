@@ -11,10 +11,12 @@ import { ChannelPerformanceTable } from '@/components/dashboard/ChannelPerforman
 import { SourcePerformanceTable } from '@/components/dashboard/SourcePerformanceTable';
 import { DetailRecordsTable } from '@/components/dashboard/DetailRecordsTable';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { ChartErrorBoundary, TableErrorBoundary, CardErrorBoundary, FilterErrorBoundary } from '@/components/ui';
 import { dashboardApi, handleApiError } from '@/lib/api-client';
 import { DashboardFilters, FilterOptions } from '@/types/filters';
 import { FunnelMetrics, ConversionRatesResponse, ChannelPerformance, SourcePerformance, DetailRecord, TrendDataPoint, ConversionTrendMode } from '@/types/dashboard';
 import { buildDateRangeFromFilters } from '@/lib/utils/date-helpers';
+import { getSessionPermissions } from '@/types/auth';
 
 const DEFAULT_FILTERS: DashboardFilters = {
   startDate: '2025-10-01',
@@ -31,7 +33,7 @@ const DEFAULT_FILTERS: DashboardFilters = {
 
 export default function DashboardPage() {
   const { data: session } = useSession();
-  const permissions = (session as any)?.permissions;
+  const permissions = getSessionPermissions(session);
   
   // State
   const [loading, setLoading] = useState(true);
@@ -98,8 +100,6 @@ export default function DashboardPage() {
       setMetrics(metricsData);
       setConversionRates(conversionData.rates);
       const trendsData = conversionData.trends || [];
-      console.log('[Dashboard] Setting trends:', trendsData.length, 'data points');
-      console.log('[Dashboard] Sample trend data:', trendsData.slice(0, 2));
       setTrends(trendsData);
       setChannels(channelsData.channels);
       setSources(sourcesData.sources);
@@ -180,12 +180,14 @@ export default function DashboardPage() {
         <Text>Track volume, conversion rates, and pipeline health</Text>
       </div>
       
-      <GlobalFilters
-        filters={filters}
-        filterOptions={filterOptions}
-        onFiltersChange={setFilters}
-        onReset={handleFilterReset}
-      />
+      <FilterErrorBoundary>
+        <GlobalFilters
+          filters={filters}
+          filterOptions={filterOptions}
+          onFiltersChange={setFilters}
+          onReset={handleFilterReset}
+        />
+      </FilterErrorBoundary>
       
       {loading ? (
         <LoadingSpinner />
@@ -193,50 +195,62 @@ export default function DashboardPage() {
         <>
           {/* Volume Scorecards */}
           {metrics && (
-            <Scorecards
-              metrics={metrics}
-              selectedMetric={selectedMetric}
-              onMetricClick={handleMetricClick}
-            />
+            <CardErrorBoundary>
+              <Scorecards
+                metrics={metrics}
+                selectedMetric={selectedMetric}
+                onMetricClick={handleMetricClick}
+              />
+            </CardErrorBoundary>
           )}
           
           {/* Conversion Rate Cards */}
           {conversionRates && (
-            <ConversionRateCards conversionRates={conversionRates} isLoading={loading} />
+            <CardErrorBoundary>
+              <ConversionRateCards conversionRates={conversionRates} isLoading={loading} />
+            </CardErrorBoundary>
           )}
           
           {/* Trend Chart */}
-          <ConversionTrendChart
-            trends={trends}
-            onGranularityChange={setTrendGranularity}
-            granularity={trendGranularity}
-            mode={trendMode}
-            onModeChange={setTrendMode}
-            isLoading={loading}
-          />
+          <ChartErrorBoundary>
+            <ConversionTrendChart
+              trends={trends}
+              onGranularityChange={setTrendGranularity}
+              granularity={trendGranularity}
+              mode={trendMode}
+              onModeChange={setTrendMode}
+              isLoading={loading}
+            />
+          </ChartErrorBoundary>
           
           {/* Channel Performance */}
-          <ChannelPerformanceTable
-            channels={channels}
-            selectedChannel={selectedChannel}
-            onChannelClick={handleChannelClick}
-          />
+          <TableErrorBoundary>
+            <ChannelPerformanceTable
+              channels={channels}
+              selectedChannel={selectedChannel}
+              onChannelClick={handleChannelClick}
+            />
+          </TableErrorBoundary>
           
           {/* Source Performance (filtered by channel if selected) */}
-          <SourcePerformanceTable
-            sources={sources}
-            selectedSource={selectedSource}
-            onSourceClick={handleSourceClick}
-            channelFilter={selectedChannel}
-          />
+          <TableErrorBoundary>
+            <SourcePerformanceTable
+              sources={sources}
+              selectedSource={selectedSource}
+              onSourceClick={handleSourceClick}
+              channelFilter={selectedChannel}
+            />
+          </TableErrorBoundary>
           
           {/* Detail Records */}
-          <DetailRecordsTable
-            records={detailRecords}
-            title="Record Details"
-            filterDescription={getDetailDescription()}
-            canExport={permissions?.canExport ?? false}
-          />
+          <TableErrorBoundary>
+            <DetailRecordsTable
+              records={detailRecords}
+              title="Record Details"
+              filterDescription={getDetailDescription()}
+              canExport={permissions?.canExport ?? false}
+            />
+          </TableErrorBoundary>
         </>
       )}
     </div>

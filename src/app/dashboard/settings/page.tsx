@@ -4,10 +4,11 @@ import { useSession } from 'next-auth/react';
 import { Title, Text } from '@tremor/react';
 import { UserManagement } from '@/components/settings/UserManagement';
 import { ShieldAlert } from 'lucide-react';
+import { getSessionPermissions } from '@/types/auth';
 
 export default function SettingsPage() {
   const { data: session, status } = useSession();
-  const permissions = (session as any)?.permissions;
+  const permissions = getSessionPermissions(session);
   
   if (status === 'loading') {
     return (

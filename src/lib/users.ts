@@ -175,30 +175,21 @@ export async function validateUser(
   email: string,
   password: string
 ): Promise<{ id: string; email: string; name: string; role: string } | null> {
-  console.log('[validateUser] Attempting to validate:', email);
-  
   if (!email.endsWith('@savvywealth.com')) {
-    console.log('[validateUser] Email does not end with @savvywealth.com');
     return null;
   }
-
+  
   const user = await getUserByEmail(email);
-  console.log('[validateUser] User found:', user ? 'Yes' : 'No');
-
+  
   if (!user || !user.isActive) {
-    console.log('[validateUser] User not found or inactive');
     return null;
   }
-
+  
   const isValid = await bcrypt.compare(password, user.passwordHash);
-  console.log('[validateUser] Password valid:', isValid);
-
+  
   if (!isValid) {
-    console.log('[validateUser] Invalid password');
     return null;
   }
-
-  console.log('[validateUser] Validation successful');
   return {
     id: user.id,
     email: user.email,

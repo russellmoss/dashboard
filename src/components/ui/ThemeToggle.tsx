@@ -5,9 +5,7 @@ import { useEffect, useState } from 'react';
 import { Sun, Moon, Monitor } from 'lucide-react';
 
 export function ThemeToggle() {
-  console.log('[ThemeToggle] Component rendering');
   const { theme, setTheme, resolvedTheme } = useTheme();
-  console.log('[ThemeToggle] Theme:', theme, 'Resolved:', resolvedTheme);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
