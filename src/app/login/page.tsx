@@ -2,16 +2,10 @@
 
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import Image from 'next/image';
-import { Suspense } from 'react';
+import { useRouter } from 'next/navigation';
 
-function LoginForm() {
-  const searchParams = useSearchParams();
+export default function LoginPage() {
   const router = useRouter();
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
-  const error = searchParams.get('error');
-  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -34,18 +28,11 @@ function LoginForm() {
 
       if (result?.error) {
         console.error('[Login] Sign in error:', result.error);
-        if (result.error === 'Configuration') {
-          setLoginError('Server configuration error. Please check NEXTAUTH_SECRET is set.');
-        } else {
-          setLoginError('Invalid email or password');
-        }
+        setLoginError('Invalid email or password');
       } else if (result?.ok) {
         console.log('[Login] Sign in successful, redirecting...');
-        // Small delay to ensure session is set
-        setTimeout(() => {
-          router.push(callbackUrl);
-          router.refresh();
-        }, 100);
+        router.push('/dashboard');
+        router.refresh();
       }
     } catch (err) {
       console.error('[Login] Exception during sign in:', err);
@@ -56,44 +43,23 @@ function LoginForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full mx-4">
-        <div className="bg-white rounded-xl shadow-lg p-8">
-          {/* Logo */}
-          <div className="flex justify-center mb-8">
-            <Image
-              src="/savvy-logo.png"
-              alt="Savvy Wealth"
-              width={180}
-              height={48}
-              className="h-12 w-auto"
-              priority
-            />
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f9fafb' }}>
+      <div style={{ maxWidth: '400px', width: '100%', padding: '20px' }}>
+        <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '32px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+          <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+            <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px' }}>Savvy Wealth</h1>
+            <p style={{ color: '#6b7280' }}>Funnel Analytics Dashboard</p>
           </div>
           
-          {/* Title */}
-          <div className="text-center mb-8">
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">
-              Funnel Analytics Dashboard
-            </h1>
-            <p className="text-gray-600">
-              Sign in with your Savvy Wealth credentials
-            </p>
-          </div>
-          
-          {/* Error Messages */}
-          {(error || loginError) && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-600">
-                {loginError || 'Invalid email or password. Please try again.'}
-              </p>
+          {loginError && (
+            <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px' }}>
+              <p style={{ fontSize: '14px', color: '#dc2626' }}>{loginError}</p>
             </div>
           )}
           
-          {/* Login Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="email" style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px', color: '#374151' }}>
                 Email
               </label>
               <input
@@ -103,12 +69,12 @@ function LoginForm() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@savvywealth.com"
                 required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
+                style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px' }}
               />
             </div>
             
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="password" style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px', color: '#374151' }}>
                 Password
               </label>
               <input
@@ -118,37 +84,24 @@ function LoginForm() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
+                style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px' }}
               />
             </div>
             
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 px-4 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:ring-4 focus:ring-blue-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ width: '100%', padding: '12px', backgroundColor: isLoading ? '#9ca3af' : '#2563eb', color: 'white', fontWeight: '500', borderRadius: '6px', border: 'none', cursor: isLoading ? 'not-allowed' : 'pointer' }}
             >
               {isLoading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
           
-          {/* Footer */}
-          <p className="mt-6 text-center text-xs text-gray-500">
+          <p style={{ marginTop: '24px', textAlign: 'center', fontSize: '12px', color: '#6b7280' }}>
             Only @savvywealth.com accounts are authorized
           </p>
         </div>
       </div>
     </div>
-  );
-}
-
-export default function LoginPage() {
-  return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-gray-500">Loading...</div>
-      </div>
-    }>
-      <LoginForm />
-    </Suspense>
   );
 }

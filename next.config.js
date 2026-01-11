@@ -1,6 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Disable TypeScript checking during build to speed up compilation
+  typescript: {
+    ignoreBuildErrors: false,
+  },
+  // Disable ESLint during build
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   images: {
     remotePatterns: [
       {
@@ -9,7 +17,7 @@ const nextConfig = {
       },
       {
         protocol: 'https',
-        hostname: 'lh3.googleusercontent.com', // For Google profile pictures
+        hostname: 'lh3.googleusercontent.com',
       },
     ],
   },

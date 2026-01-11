@@ -2,18 +2,140 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================
+   CSS Custom Properties for Theming
+   ============================================ */
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 255, 255, 255;
-  --background-end-rgb: 255, 255, 255;
+  /* Light mode colors */
+  --foreground-rgb: 17, 24, 39;
+  --background-rgb: 249, 250, 251;
+  
+  /* Dashboard specific */
+  --card-bg: 255, 255, 255;
+  --card-border: 229, 231, 235;
+  --card-border-hover: 59, 130, 246;
+  
+  /* Table zebra */
+  --table-row-even: 255, 255, 255;
+  --table-row-odd: 249, 250, 251;
+  --table-row-hover: 239, 246, 255;
+  --table-border: 229, 231, 235;
+  --table-text: 17, 24, 39;
+  --table-header-bg: 249, 250, 251;
+  --table-header-text: 17, 24, 39;
+  
+  /* Scorecard */
+  --scorecard-bg: 255, 255, 255;
+  --scorecard-border: 229, 231, 235;
+  --scorecard-border-hover: 59, 130, 246;
+  --scorecard-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  --scorecard-shadow-hover: 0 4px 12px rgba(59, 130, 246, 0.15);
 }
 
+.dark {
+  /* Dark mode colors */
+  --foreground-rgb: 249, 250, 251;
+  --background-rgb: 17, 24, 39;
+  
+  /* Dashboard specific */
+  --card-bg: 31, 41, 55;
+  --card-border: 55, 65, 81;
+  --card-border-hover: 96, 165, 250;
+  
+  /* Table zebra */
+  --table-row-even: 31, 41, 55;
+  --table-row-odd: 17, 24, 39;
+  --table-row-hover: 30, 58, 95;
+  --table-border: 55, 65, 81;
+  --table-text: 249, 250, 251;
+  --table-header-bg: 17, 24, 39;
+  --table-header-text: 249, 250, 251;
+  
+  /* Scorecard */
+  --scorecard-bg: 31, 41, 55;
+  --scorecard-border: 55, 65, 81;
+  --scorecard-border-hover: 96, 165, 250;
+  --scorecard-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  --scorecard-shadow-hover: 0 4px 12px rgba(96, 165, 250, 0.2);
+}
+
+/* ============================================
+   Base Styles
+   ============================================ */
 body {
   color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+  background: rgb(var(--background-rgb));
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ============================================
+   Table Styles with Dark Mode Support
+   ============================================ */
+.dark .tremor-TableRow-root {
+  background-color: rgb(var(--table-row-even)) !important;
+  color: rgb(var(--table-text)) !important;
+}
+
+.dark .tremor-TableRow-root:nth-child(even) {
+  background-color: rgb(var(--table-row-even)) !important;
+}
+
+.dark .tremor-TableRow-root:nth-child(odd) {
+  background-color: rgb(var(--table-row-odd)) !important;
+}
+
+.dark .tremor-TableRow-root:hover {
+  background-color: rgb(var(--table-row-hover)) !important;
+}
+
+.dark .tremor-TableCell-root {
+  color: rgb(var(--table-text)) !important;
+  border-color: rgb(var(--table-border)) !important;
+}
+
+.dark .tremor-TableHeaderCell-root {
+  background-color: rgb(var(--table-header-bg)) !important;
+  color: rgb(var(--table-header-text)) !important;
+  border-color: rgb(var(--table-border)) !important;
+}
+
+/* Ensure text in table cells is visible in dark mode */
+.dark .tremor-Text-root {
+  color: rgb(var(--table-text)) !important;
+}
+
+.dark .tremor-Metric-root {
+  color: rgb(var(--table-text)) !important;
+}
+
+/* ============================================
+   Theme Toggle Button
+   ============================================ */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 0.5rem;
+  background: rgb(var(--card-bg));
+  border: 1px solid rgb(var(--card-border));
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.theme-toggle:hover {
+  background: rgb(var(--table-row-hover));
+  border-color: rgb(var(--card-border-hover));
+}
+
+.theme-toggle svg {
+  width: 20px;
+  height: 20px;
+  color: rgb(var(--foreground-rgb));
+  transition: transform 0.3s ease;
+}
+
+.theme-toggle:hover svg {
+  transform: rotate(15deg);
 }

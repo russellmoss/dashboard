@@ -77,12 +77,12 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
   }, [records, searchQuery]);
   
   return (
-    <Card>
+    <Card className="mb-6 dark:bg-gray-800 dark:border-gray-700">
       <div className="flex items-center justify-between mb-4">
         <div className="flex-1">
-          <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{title}</h3>
           {filterDescription && (
-            <p className="text-sm text-gray-500 mt-1">{filterDescription}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{filterDescription}</p>
           )}
         </div>
         {canExport && <ExportButton data={filteredRecords} filename="detail-records" />}
@@ -110,7 +110,7 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
           )}
         </div>
         {searchQuery && (
-          <p className="text-sm text-gray-500 mt-2">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
             {filteredRecords.length === 0 
               ? 'No advisors found matching your search'
               : `Found ${filteredRecords.length} advisor${filteredRecords.length !== 1 ? 's' : ''} matching "${searchQuery}"`
@@ -122,22 +122,22 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
       <div className="overflow-x-auto">
         <Table>
           <TableHead>
-            <TableRow className="bg-gray-50">
-              <TableHeaderCell className="border-r border-gray-200">Advisor</TableHeaderCell>
-              <TableHeaderCell className="border-r border-gray-200">Source</TableHeaderCell>
-              <TableHeaderCell className="border-r border-gray-200">Channel</TableHeaderCell>
-              <TableHeaderCell className="border-r border-gray-200">Stage</TableHeaderCell>
-              <TableHeaderCell className="border-r border-gray-200">Date</TableHeaderCell>
-              <TableHeaderCell className="border-r border-gray-200">SGA</TableHeaderCell>
-              <TableHeaderCell className="border-r border-gray-200">SGM</TableHeaderCell>
-              <TableHeaderCell className="text-right border-r border-gray-200">AUM</TableHeaderCell>
-              <TableHeaderCell>Actions</TableHeaderCell>
+            <TableRow className="bg-gray-50 dark:bg-gray-900">
+              <TableHeaderCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">Advisor</TableHeaderCell>
+              <TableHeaderCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">Source</TableHeaderCell>
+              <TableHeaderCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">Channel</TableHeaderCell>
+              <TableHeaderCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">Stage</TableHeaderCell>
+              <TableHeaderCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">Date</TableHeaderCell>
+              <TableHeaderCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">SGA</TableHeaderCell>
+              <TableHeaderCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">SGM</TableHeaderCell>
+              <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">AUM</TableHeaderCell>
+              <TableHeaderCell className="text-gray-600 dark:text-gray-400">Actions</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {filteredRecords.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center text-gray-500 py-8">
+                <TableCell colSpan={9} className="text-center text-gray-500 dark:text-gray-400 py-8">
                   {searchQuery ? 'No records found matching your search' : 'No records found'}
                 </TableCell>
               </TableRow>
@@ -145,32 +145,32 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
               filteredRecords.map((record, idx) => (
                 <TableRow 
                   key={record.id}
-                  className={`${idx % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-gray-50 hover:bg-gray-100'} transition-colors cursor-pointer`}
+                  className={`${idx % 2 === 0 ? 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700' : 'bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700'} transition-colors cursor-pointer`}
                 >
-                  <TableCell className="font-medium border-r border-gray-200">{record.advisorName}</TableCell>
-                  <TableCell className="border-r border-gray-200">{record.source}</TableCell>
-                  <TableCell className="border-r border-gray-200">{record.channel}</TableCell>
-                  <TableCell className="border-r border-gray-200">
+                  <TableCell className="font-medium border-r border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100">{record.advisorName}</TableCell>
+                  <TableCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">{record.source}</TableCell>
+                  <TableCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">{record.channel}</TableCell>
+                  <TableCell className="border-r border-gray-200 dark:border-gray-700">
                     <div className="flex items-center gap-2">
-                      <span>{record.stage}</span>
+                      <span className="text-gray-700 dark:text-gray-300">{record.stage}</span>
                       {record.isSql && <Badge size="xs" color="blue">SQL</Badge>}
                       {record.isSqo && <Badge size="xs" color="green">SQO</Badge>}
                       {record.isJoined && <Badge size="xs" color="purple">Joined</Badge>}
                     </div>
                   </TableCell>
-                  <TableCell className="text-sm text-gray-600 border-r border-gray-200">
+                  <TableCell className="text-sm border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
                     {record.relevantDate ? new Date(record.relevantDate).toLocaleDateString() : '-'}
                   </TableCell>
-                  <TableCell className="border-r border-gray-200">{record.sga || '-'}</TableCell>
-                  <TableCell className="border-r border-gray-200">{record.sgm || '-'}</TableCell>
-                  <TableCell className="text-right font-semibold border-r border-gray-200">{record.aumFormatted}</TableCell>
+                  <TableCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">{record.sga || '-'}</TableCell>
+                  <TableCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">{record.sgm || '-'}</TableCell>
+                  <TableCell className="text-right font-semibold border-r border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white">{record.aumFormatted}</TableCell>
                   <TableCell>
                     {record.salesforceUrl && (
                       <a
                         href={record.salesforceUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm"
+                        className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm"
                       >
                         View <ExternalLink className="w-3 h-3" />
                       </a>
@@ -184,10 +184,10 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
       </div>
       
       {filteredRecords.length > 0 && (
-        <div className="mt-4 text-sm text-gray-500 text-center">
+        <div className="mt-4 text-sm text-gray-500 dark:text-gray-400 text-center">
           Showing {filteredRecords.length} of {records.length} record{records.length !== 1 ? 's' : ''}
           {searchQuery && filteredRecords.length < records.length && (
-            <span className="ml-2 text-blue-600">(filtered)</span>
+            <span className="ml-2 text-blue-600 dark:text-blue-400">(filtered)</span>
           )}
         </div>
       )}

@@ -4,16 +4,22 @@ export function buildDateRangeFromFilters(filters: DashboardFilters): {
   startDate: string;
   endDate: string;
 } {
-  const year = filters.year || new Date().getFullYear();
   const today = new Date().toISOString().split('T')[0];
+  const currentYear = new Date().getFullYear();
+  
+  // For YTD and QTD, always use current year regardless of filter year
+  const year = (filters.datePreset === 'ytd' || filters.datePreset === 'qtd') 
+    ? currentYear 
+    : (filters.year || currentYear);
   
   switch (filters.datePreset) {
     case 'ytd':
       return { startDate: `${year}-01-01`, endDate: today };
     
     case 'qtd': {
-      const quarter = Math.floor((new Date().getMonth() / 3));
-      const quarterStart = new Date(year, quarter * 3, 1);
+      const currentMonth = new Date().getMonth(); // 0-11
+      const currentQuarter = Math.floor(currentMonth / 3); // 0-3
+      const quarterStart = new Date(year, currentQuarter * 3, 1);
       return { 
         startDate: quarterStart.toISOString().split('T')[0], 
         endDate: today 

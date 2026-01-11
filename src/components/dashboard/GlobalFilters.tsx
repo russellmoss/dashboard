@@ -30,10 +30,18 @@ export function GlobalFilters({
   onReset 
 }: GlobalFiltersProps) {
   const handleDatePresetChange = (preset: string) => {
-    onFiltersChange({
+    const currentYear = new Date().getFullYear();
+    const updatedFilters: DashboardFilters = {
       ...filters,
       datePreset: preset as DashboardFilters['datePreset'],
-    });
+    };
+    
+    // Auto-select current year for "Quarter to Date" and "Year to Date"
+    if (preset === 'qtd' || preset === 'ytd') {
+      updatedFilters.year = currentYear;
+    }
+    
+    onFiltersChange(updatedFilters);
   };
 
   const handleYearChange = (year: number) => {
@@ -120,23 +128,25 @@ export function GlobalFilters({
           </select>
         </div>
 
-        {/* Year */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Year
-          </label>
-          <select
-            value={filters.year.toString()}
-            onChange={(e) => handleYearChange(parseInt(e.target.value))}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
-          >
-            {filterOptions.years.map((year) => (
-              <option key={year} value={year.toString()}>
-                {year}
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* Year - Only show for Q1-Q4 presets, not for QTD/YTD */}
+        {['q1', 'q2', 'q3', 'q4'].includes(filters.datePreset) && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Year
+            </label>
+            <select
+              value={filters.year.toString()}
+              onChange={(e) => handleYearChange(parseInt(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
+            >
+              {filterOptions.years.map((year) => (
+                <option key={year} value={year.toString()}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Custom Date Range (shown when preset is 'custom') */}
         {filters.datePreset === 'custom' && (
