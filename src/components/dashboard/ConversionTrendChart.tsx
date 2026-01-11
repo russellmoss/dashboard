@@ -3,9 +3,11 @@
 import { Card, Title, Text } from '@tremor/react';
 import { TrendDataPoint, ConversionTrendMode } from '@/types/dashboard';
 import { useState } from 'react';
+import { useTheme } from 'next-themes';
 import {
-  LineChart as RechartsLineChart,
-  Line,
+  BarChart,
+  Bar,
+  LabelList,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -127,6 +129,8 @@ export function ConversionTrendChart({
   onModeChange,
   isLoading = false,
 }: ConversionTrendChartProps) {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
   const [selectedMetric, setSelectedMetric] = useState<'rates' | 'volume'>('rates');
   const [internalGranularity, setInternalGranularity] = useState<'month' | 'quarter'>('quarter');
   
@@ -142,15 +146,15 @@ export function ConversionTrendChart({
     onModeChange?.(newMode);
   };
 
-  // Transform data for chart display
+  // Transform data for chart display with proper rounding
   const chartData = trends.map(t => ({
     period: t.period,
     isSelectedPeriod: t.isSelectedPeriod || false,
-    // Convert rates from decimal (0-1) to percentage (0-100)
-    'Contacted→MQL': (Number(t.contactedToMqlRate) || 0) * 100,
-    'MQL→SQL': (Number(t.mqlToSqlRate) || 0) * 100,
-    'SQL→SQO': (Number(t.sqlToSqoRate) || 0) * 100,
-    'SQO→Joined': (Number(t.sqoToJoinedRate) || 0) * 100,
+    // Convert rates from decimal (0-1) to percentage (0-100) and round to 1 decimal
+    'Contacted→MQL': Number(((Number(t.contactedToMqlRate) || 0) * 100).toFixed(1)),
+    'MQL→SQL': Number(((Number(t.mqlToSqlRate) || 0) * 100).toFixed(1)),
+    'SQL→SQO': Number(((Number(t.sqlToSqoRate) || 0) * 100).toFixed(1)),
+    'SQO→Joined': Number(((Number(t.sqoToJoinedRate) || 0) * 100).toFixed(1)),
     SQLs: Number(t.sqls) || 0,
     SQOs: Number(t.sqos) || 0,
     Joined: Number(t.joined) || 0,
@@ -159,17 +163,78 @@ export function ConversionTrendChart({
   const rateCategories = ['Contacted→MQL', 'MQL→SQL', 'SQL→SQO', 'SQO→Joined'];
   const volumeCategories = ['SQLs', 'SQOs', 'Joined'];
 
-  const rateColors = ['#3b82f6', '#10b981', '#eab308', '#a855f7']; // blue, green, yellow, purple
-  const volumeColors = ['#3b82f6', '#10b981', '#a855f7']; // blue, green, purple
+  // Color scheme matching requirements
+  const RATE_COLORS: Record<string, string> = {
+    'Contacted→MQL': '#3b82f6', // blue-500
+    'MQL→SQL': '#10b981',       // emerald-500
+    'SQL→SQO': '#f59e0b',       // amber-500
+    'SQO→Joined': '#8b5cf6',    // violet-500
+  };
+
+  const VOLUME_COLORS: Record<string, string> = {
+    'SQLs': '#3b82f6',
+    'SQOs': '#10b981',
+    'Joined': '#8b5cf6',
+  };
 
   const categories = selectedMetric === 'rates' ? rateCategories : volumeCategories;
-  const colors = selectedMetric === 'rates' ? rateColors : volumeColors;
+  const colorMap = selectedMetric === 'rates' ? RATE_COLORS : VOLUME_COLORS;
 
   const formatValue = (value: number) => {
     if (selectedMetric === 'rates') {
       return `${Number(value).toFixed(1)}%`;
     }
     return value.toLocaleString();
+  };
+
+  // Custom label renderer for values above bars
+  const renderBarLabel = (props: any) => {
+    const { x = 0, y = 0, width = 0, value } = props;
+    
+    // Don't show label for zero or undefined values
+    if (!value || value === 0) return null;
+    
+    const displayValue = selectedMetric === 'rates' 
+      ? `${Number(value).toFixed(1)}%`
+      : Number(value).toLocaleString();
+    
+    // Use dark mode aware text color with better contrast
+    // Use darker color in light mode, lighter in dark mode for visibility
+    const textColor = isDark ? '#e5e7eb' : '#1f2937';
+    const bgColor = isDark ? 'rgba(31, 41, 55, 0.9)' : 'rgba(255, 255, 255, 0.9)';
+    const labelX = x + width / 2;
+    const labelY = y - 6;
+    
+    // Calculate text width approximation (rough estimate: ~6px per character)
+    const textWidth = displayValue.length * 6;
+    const padding = 4;
+    
+    return (
+      <g style={{ pointerEvents: 'none' }}>
+        {/* Background rectangle for better contrast */}
+        <rect
+          x={labelX - textWidth / 2 - padding}
+          y={labelY - 12}
+          width={textWidth + padding * 2}
+          height={14}
+          fill={bgColor}
+          rx={3}
+          stroke={isDark ? '#4b5563' : '#e5e7eb'}
+          strokeWidth={0.5}
+        />
+        {/* Text label */}
+        <text 
+          x={labelX} 
+          y={labelY} 
+          fill={textColor}
+          textAnchor="middle" 
+          fontSize={11} 
+          fontWeight={600}
+        >
+          {displayValue}
+        </text>
+      </g>
+    );
   };
 
   if (isLoading) {
@@ -189,12 +254,12 @@ export function ConversionTrendChart({
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <Title>Conversion Trends</Title>
+            <Title className="dark:text-white">Conversion Trends</Title>
             <ModeTooltip mode={mode}>
               <InfoIcon />
             </ModeTooltip>
           </div>
-          <Text className="text-gray-500 text-sm mt-1">
+          <Text className="text-gray-500 dark:text-gray-400 text-sm mt-1">
             {mode === 'period' 
               ? 'Activity view: What happened in each period'
               : 'Cohort view: How well resolved leads from each period convert'
@@ -287,17 +352,20 @@ export function ConversionTrendChart({
       </div>
 
       {/* Chart */}
-      <div className="h-80">
+      <div className="h-96">
         <ResponsiveContainer width="100%" height="100%">
-          <RechartsLineChart
+          <BarChart
             data={chartData}
-            margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+            margin={{ top: 25, right: 30, left: 20, bottom: 5 }}
+            barCategoryGap="15%"
+            barGap={2}
           >
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} className="dark:stroke-gray-700" />
             <XAxis 
               dataKey="period" 
               tick={{ fontSize: 12, fill: '#6b7280' }}
               tickLine={{ stroke: '#d1d5db' }}
+              className="dark:[&_text]:fill-gray-400 dark:[&_line]:stroke-gray-700"
             />
             <YAxis 
               tick={{ fontSize: 12, fill: '#6b7280' }}
@@ -306,41 +374,54 @@ export function ConversionTrendChart({
                 selectedMetric === 'rates' ? `${value}%` : value.toLocaleString()
               }
               domain={selectedMetric === 'rates' ? [0, 'auto'] : ['auto', 'auto']}
+              className="dark:[&_text]:fill-gray-400 dark:[&_line]:stroke-gray-700"
             />
             <RechartsTooltip
               contentStyle={{ 
-                backgroundColor: '#fff', 
-                border: '1px solid #e5e7eb',
+                backgroundColor: isDark ? '#1f2937' : '#fff',
+                border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
                 borderRadius: '8px',
-                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                color: isDark ? '#f9fafb' : '#111827'
               }}
               formatter={(value: number | undefined, name: string | undefined) => [formatValue(value ?? 0), name ?? '']}
-              labelStyle={{ fontWeight: 600, marginBottom: '4px' }}
+              labelStyle={{ 
+                fontWeight: 600, 
+                marginBottom: '4px',
+                color: isDark ? '#f9fafb' : '#111827'
+              }}
+              itemStyle={{
+                color: isDark ? '#f9fafb' : '#111827'
+              }}
             />
             <Legend 
               wrapperStyle={{ paddingTop: '10px' }}
-              iconType="circle"
+              iconType="square"
             />
-            {categories.map((cat, idx) => (
-              <Line
+            {categories.map((cat) => (
+              <Bar
                 key={cat}
-                type="monotone"
                 dataKey={cat}
-                stroke={colors[idx]}
-                strokeWidth={2}
-                dot={{ r: 4, fill: colors[idx] }}
-                activeDot={{ r: 6 }}
-              />
+                fill={colorMap[cat]}
+                radius={[4, 4, 0, 0]}
+                maxBarSize={50}
+              >
+                <LabelList 
+                  dataKey={cat} 
+                  position="top" 
+                  content={renderBarLabel}
+                />
+              </Bar>
             ))}
-          </RechartsLineChart>
+          </BarChart>
         </ResponsiveContainer>
       </div>
 
       {/* Legend Explanation */}
-      <div className="mt-4 pt-4 border-t border-gray-200">
+      <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
         <div className="flex items-start gap-2">
           <InfoIcon className="mt-0.5 flex-shrink-0" />
-          <Text className="text-xs text-gray-500">
+          <Text className="text-xs text-gray-500 dark:text-gray-400">
             {mode === 'period' ? (
               <>
                 <strong>Period Mode:</strong> Shows conversion activity in each period. 
