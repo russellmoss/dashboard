@@ -6,17 +6,25 @@ import { ExtendedSession } from '@/types/auth';
 
 // Helper to get NEXTAUTH_URL safely (never empty during build)
 function getNextAuthUrl(): string {
-  // During build, VERCEL_URL might not be set, so use fallback
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
-  }
-  
+  // Priority 1: Explicitly set NEXTAUTH_URL
   if (process.env.NEXTAUTH_URL && process.env.NEXTAUTH_URL.trim() !== '') {
     return process.env.NEXTAUTH_URL;
   }
   
-  // Fallback for build time
-  return 'http://localhost:3000';
+  // Priority 2: Use VERCEL_URL (automatically set by Vercel)
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  
+  // Priority 3: Use VERCEL_BRANCH_URL (for preview deployments)
+  if (process.env.VERCEL_BRANCH_URL) {
+    return `https://${process.env.VERCEL_BRANCH_URL}`;
+  }
+  
+  // Fallback for local development
+  return process.env.NODE_ENV === 'production' 
+    ? 'https://dashboard-eta-lime-45.vercel.app' // Hardcoded fallback for production
+    : 'http://localhost:3000';
 }
 
 export const authOptions: NextAuthOptions = {
