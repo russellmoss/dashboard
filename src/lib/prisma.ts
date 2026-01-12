@@ -8,14 +8,24 @@ const globalForPrisma = globalThis as unknown as {
 // Neon: POSTGRES_URL or DATABASE_URL
 // Vercel Postgres: POSTGRES_PRISMA_URL
 function getDatabaseUrl(): string {
+  // Check all possible environment variable names
   const url = 
+    process.env.DATABASE_URL ||
     process.env.POSTGRES_PRISMA_URL ||
     process.env.POSTGRES_URL ||
-    process.env.DATABASE_URL ||
     '';
   
-  // Ensure DATABASE_URL is set for Prisma to read
-  if (url && !process.env.DATABASE_URL) {
+  if (!url) {
+    throw new Error(
+      'DATABASE_URL is required. Please set DATABASE_URL, POSTGRES_URL, or POSTGRES_PRISMA_URL environment variable. ' +
+      `Current env vars: DATABASE_URL=${!!process.env.DATABASE_URL}, ` +
+      `POSTGRES_PRISMA_URL=${!!process.env.POSTGRES_PRISMA_URL}, ` +
+      `POSTGRES_URL=${!!process.env.POSTGRES_URL}`
+    );
+  }
+  
+  // Ensure DATABASE_URL is set (Prisma 7 requires this exact name)
+  if (!process.env.DATABASE_URL) {
     process.env.DATABASE_URL = url;
   }
   
@@ -29,30 +39,31 @@ function getPrismaClient(): PrismaClient {
     return globalForPrisma.prisma;
   }
 
-  // Get database URL and ensure it's set
+  // Get and validate database URL
   const dbUrl = getDatabaseUrl();
   
-  if (!dbUrl) {
-    // If no database URL is available, throw a clear error
-    throw new Error(
-      'DATABASE_URL is required. Please set POSTGRES_URL, POSTGRES_PRISMA_URL, or DATABASE_URL environment variable. ' +
-      `Current env vars: POSTGRES_PRISMA_URL=${!!process.env.POSTGRES_PRISMA_URL}, ` +
-      `POSTGRES_URL=${!!process.env.POSTGRES_URL}, ` +
-      `DATABASE_URL=${!!process.env.DATABASE_URL}`
-    );
+  // Double-check DATABASE_URL is set (Prisma 7 requires this)
+  if (!process.env.DATABASE_URL) {
+    process.env.DATABASE_URL = dbUrl;
   }
 
-  // Ensure DATABASE_URL is set (Prisma reads from this)
-  process.env.DATABASE_URL = dbUrl;
+  console.log('[Prisma] Initializing PrismaClient');
+  console.log('[Prisma] DATABASE_URL available:', !!process.env.DATABASE_URL);
+  console.log('[Prisma] DATABASE_URL prefix:', process.env.DATABASE_URL?.substring(0, 30) || 'NOT SET');
 
-  console.log('[Prisma] Initializing PrismaClient with DATABASE_URL:', dbUrl.substring(0, 20) + '...');
+  try {
+    // Create PrismaClient - Prisma 7 reads DATABASE_URL from process.env automatically
+    globalForPrisma.prisma = new PrismaClient({
+      log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+    });
 
-  // Create PrismaClient - Prisma will read DATABASE_URL from environment
-  globalForPrisma.prisma = new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-  });
-
-  return globalForPrisma.prisma;
+    console.log('[Prisma] PrismaClient created successfully');
+    return globalForPrisma.prisma;
+  } catch (error: any) {
+    console.error('[Prisma] Failed to create PrismaClient:', error.message);
+    console.error('[Prisma] DATABASE_URL at error time:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
+    throw error;
+  }
 }
 
 // Export a getter that lazily initializes Prisma
