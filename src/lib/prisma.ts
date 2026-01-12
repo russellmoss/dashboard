@@ -16,25 +16,45 @@ function getDatabaseUrl(): string {
   );
 }
 
-// Ensure DATABASE_URL is set for Prisma to read
-// During build, if no URL is available, set a dummy value
-// Prisma won't actually connect during build, but needs a valid format
-if (!process.env.DATABASE_URL) {
-  const dbUrl = getDatabaseUrl();
-  if (dbUrl) {
-    process.env.DATABASE_URL = dbUrl;
-  } else if (process.env.NEXT_PHASE === 'phase-production-build') {
-    // During build, provide a dummy URL with valid format
-    // This prevents Prisma from throwing during build
-    // The actual connection won't be used during build
-    process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/db?schema=public';
+// Lazy initialization function - only creates PrismaClient when actually called
+// This prevents Prisma from being instantiated during build
+function getPrismaClient(): PrismaClient {
+  if (globalForPrisma.prisma) {
+    return globalForPrisma.prisma;
   }
+
+  // Ensure DATABASE_URL is set
+  if (!process.env.DATABASE_URL) {
+    const dbUrl = getDatabaseUrl();
+    if (dbUrl) {
+      process.env.DATABASE_URL = dbUrl;
+    } else {
+      // If no database URL is available, throw an error
+      // This should only happen at runtime, not during build
+      throw new Error(
+        'DATABASE_URL is required. Please set POSTGRES_URL, POSTGRES_PRISMA_URL, or DATABASE_URL environment variable.'
+      );
+    }
+  }
+
+  // Create PrismaClient - Prisma will read DATABASE_URL from environment
+  globalForPrisma.prisma = new PrismaClient();
+
+  if (process.env.NODE_ENV !== 'production') {
+    globalForPrisma.prisma = globalForPrisma.prisma;
+  }
+
+  return globalForPrisma.prisma;
 }
 
-// Initialize PrismaClient
-// Prisma will read DATABASE_URL from environment
-export const prisma = globalForPrisma.prisma ?? new PrismaClient();
-
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+// Export a getter that lazily initializes Prisma
+// This prevents Prisma from being instantiated during build
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    const client = getPrismaClient();
+    const value = (client as any)[prop];
+    return typeof value === 'function' ? value.bind(client) : value;
+  },
+});
 
 export default prisma;
