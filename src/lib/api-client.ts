@@ -24,6 +24,8 @@ export class ApiError extends Error {
  * Returns empty string for client-side (browser) to use relative URLs.
  * Returns full URL for server-side requests.
  * This function is called lazily (not at module load time) to avoid build-time errors.
+ * 
+ * IMPORTANT: Never returns empty string on server-side to avoid "Invalid URL" errors.
  */
 function getBaseUrl(): string {
   // Client-side: use relative URLs (works with Next.js routing)
@@ -31,27 +33,42 @@ function getBaseUrl(): string {
     return '';
   }
   
-  // Server-side: construct absolute URL
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
+  // Server-side (including build time): always return a valid URL
+  // During build, environment variables might not be set, so use fallback
+  const vercelUrl = process.env.VERCEL_URL;
+  if (vercelUrl) {
+    return `https://${vercelUrl}`;
   }
   
-  if (process.env.NEXTAUTH_URL) {
-    return process.env.NEXTAUTH_URL;
+  const nextAuthUrl = process.env.NEXTAUTH_URL;
+  if (nextAuthUrl && nextAuthUrl.trim() !== '') {
+    return nextAuthUrl;
   }
   
-  // Fallback for local development
+  // Fallback: use localhost for build time (Next.js will handle this)
+  // This prevents "Invalid URL" errors during static generation
   return 'http://localhost:3000';
 }
 
 /**
  * Fetch API endpoint with proper URL construction.
  * Uses relative URLs in browser, absolute URLs on server.
+ * 
+ * IMPORTANT: This function should only be called at runtime, not during build.
  */
 async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  // Construct full URL only when needed (lazy evaluation)
-  const baseUrl = getBaseUrl();
-  const fullUrl = baseUrl ? `${baseUrl}${endpoint}` : endpoint;
+  // During build/static generation, use relative URLs to avoid URL construction errors
+  // At runtime, construct proper URLs
+  let fullUrl: string;
+  
+  if (typeof window !== 'undefined') {
+    // Browser: always use relative URLs
+    fullUrl = endpoint;
+  } else {
+    // Server-side: construct absolute URL only if we have a valid base URL
+    const baseUrl = getBaseUrl();
+    fullUrl = baseUrl && baseUrl.trim() !== '' ? `${baseUrl}${endpoint}` : endpoint;
+  }
   
   const response = await fetch(fullUrl, {
     headers: { 'Content-Type': 'application/json' },

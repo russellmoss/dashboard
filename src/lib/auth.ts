@@ -4,8 +4,25 @@ import { validateUser } from './users';
 import { getUserPermissions } from './permissions';
 import { ExtendedSession } from '@/types/auth';
 
+// Helper to get NEXTAUTH_URL safely (never empty during build)
+function getNextAuthUrl(): string {
+  // During build, VERCEL_URL might not be set, so use fallback
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  
+  if (process.env.NEXTAUTH_URL && process.env.NEXTAUTH_URL.trim() !== '') {
+    return process.env.NEXTAUTH_URL;
+  }
+  
+  // Fallback for build time
+  return 'http://localhost:3000';
+}
+
 export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
+  // Ensure URL is never empty during build
+  ...(typeof window === 'undefined' && { url: getNextAuthUrl() }),
   providers: [
     CredentialsProvider({
       name: 'Email',
