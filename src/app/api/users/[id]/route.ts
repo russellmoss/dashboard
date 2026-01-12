@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { getUserById, updateUser, deleteUser } from '@/lib/users';
 import { getUserPermissions } from '@/lib/permissions';
 import { SafeUser } from '@/types/user';
+import prisma from '@/lib/prisma';
 
 interface RouteParams {
   params: { id: string };
@@ -30,6 +31,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
     
+    // Get full user with createdBy from database
+    const fullUser = await prisma.user.findUnique({
+      where: { id: params.id },
+      select: { createdBy: true },
+    });
+    
     // Convert to SafeUser (exclude passwordHash)
     const safeUser: SafeUser = {
       id: user.id,
@@ -39,7 +46,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       isActive: user.isActive ?? true,
       createdAt: user.createdAt?.toISOString() || new Date().toISOString(),
       updatedAt: user.updatedAt?.toISOString() || new Date().toISOString(),
-      createdBy: '', // Will be populated from Prisma if needed
+      createdBy: fullUser?.createdBy || '',
     };
     
     return NextResponse.json({ user: safeUser });
