@@ -81,6 +81,7 @@ export async function getUserByEmail(email: string): Promise<User | null> {
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     isActive: user.isActive ?? true,
+    createdBy: user.createdBy,
   };
 }
 
@@ -99,6 +100,7 @@ export async function getUserById(id: string): Promise<User | null> {
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     isActive: user.isActive ?? true,
+    createdBy: user.createdBy,
   };
 }
 
@@ -152,6 +154,7 @@ export async function createUser(
     isActive: user.isActive ?? true,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
+    createdBy: user.createdBy,
   };
 }
 
@@ -179,6 +182,7 @@ export async function updateUser(
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     isActive: user.isActive ?? true,
+    createdBy: user.createdBy,
   };
 }
 
