@@ -40,7 +40,7 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
-          console.error('[Auth] Missing credentials');
+          console.error('[Auth] Missing credentials - email:', !!credentials?.email, 'password:', !!credentials?.password);
           return null;
         }
 
@@ -49,7 +49,7 @@ export const authOptions: NextAuthOptions = {
           const user = await validateUser(credentials.email, credentials.password);
           
           if (!user) {
-            console.error('[Auth] User validation failed for:', credentials.email);
+            console.error('[Auth] User validation failed for:', credentials.email, '- validateUser returned null');
             return null;
           }
 
@@ -59,8 +59,12 @@ export const authOptions: NextAuthOptions = {
             email: user.email,
             name: user.name,
           };
-        } catch (error) {
-          console.error('[Auth] Error during authorization:', error);
+        } catch (error: any) {
+          console.error('[Auth] Error during authorization:', {
+            message: error?.message,
+            stack: error?.stack,
+            name: error?.name,
+          });
           return null;
         }
       },
