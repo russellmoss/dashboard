@@ -10,6 +10,49 @@ export interface FunnelMetrics {
   openPipelineAum: number;
 }
 
+// Forecast goals for any metric level
+export interface ForecastGoals {
+  prospects: number;
+  mqls: number;
+  sqls: number;
+  sqos: number;
+  joined: number;
+}
+
+// Variance calculation result
+export interface GoalVariance {
+  actual: number;
+  goal: number;
+  difference: number;      // actual - goal (positive = ahead, negative = behind)
+  percentVariance: number; // ((actual - goal) / goal) * 100
+  isOnTrack: boolean;      // actual >= goal
+}
+
+// Extended types with goals
+export interface FunnelMetricsWithGoals extends FunnelMetrics {
+  goals: ForecastGoals | null;
+}
+
+export interface ChannelPerformanceWithGoals extends ChannelPerformance {
+  goals?: {
+    prospects: number;
+    mqls: number;
+    sqls: number;
+    sqos: number;
+    joined: number;
+  };
+}
+
+export interface SourcePerformanceWithGoals extends SourcePerformance {
+  goals?: {
+    prospects: number;
+    mqls: number;
+    sqls: number;
+    sqos: number;
+    joined: number;
+  };
+}
+
 export interface ConversionRates {
   contactedToMql: { rate: number; numerator: number; denominator: number };
   mqlToSql: { rate: number; numerator: number; denominator: number };

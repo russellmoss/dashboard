@@ -1,5 +1,16 @@
 import { DashboardFilters, FilterOptions } from '@/types/filters';
-import { FunnelMetrics, ConversionRates, ConversionRatesResponse, ChannelPerformance, SourcePerformance, DetailRecord, TrendDataPoint } from '@/types/dashboard';
+import { 
+  FunnelMetrics, 
+  FunnelMetricsWithGoals,
+  ConversionRates, 
+  ConversionRatesResponse, 
+  ChannelPerformance, 
+  ChannelPerformanceWithGoals,
+  SourcePerformance, 
+  SourcePerformanceWithGoals,
+  DetailRecord, 
+  TrendDataPoint 
+} from '@/types/dashboard';
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public endpoint: string) {
@@ -25,8 +36,9 @@ async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T> 
 export const dashboardApi = {
   getFilterOptions: () => apiFetch<FilterOptions>('/api/dashboard/filters'),
 
+  // Updated to return FunnelMetricsWithGoals
   getFunnelMetrics: (filters: DashboardFilters) =>
-    apiFetch<FunnelMetrics>('/api/dashboard/funnel-metrics', {
+    apiFetch<FunnelMetricsWithGoals>('/api/dashboard/funnel-metrics', {
       method: 'POST',
       body: JSON.stringify(filters),
     }),
@@ -53,14 +65,16 @@ export const dashboardApi = {
       }),
     }),
 
+  // Updated to return ChannelPerformanceWithGoals[]
   getChannelPerformance: (filters: DashboardFilters) =>
-    apiFetch<{ channels: ChannelPerformance[] }>('/api/dashboard/source-performance', {
+    apiFetch<{ channels: ChannelPerformanceWithGoals[] }>('/api/dashboard/source-performance', {
       method: 'POST',
       body: JSON.stringify({ filters, groupBy: 'channel' }),
     }),
 
+  // Updated to return SourcePerformanceWithGoals[]
   getSourcePerformance: (filters: DashboardFilters) =>
-    apiFetch<{ sources: SourcePerformance[] }>('/api/dashboard/source-performance', {
+    apiFetch<{ sources: SourcePerformanceWithGoals[] }>('/api/dashboard/source-performance', {
       method: 'POST',
       body: JSON.stringify({ filters, groupBy: 'source' }),
     }),

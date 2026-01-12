@@ -7,11 +7,19 @@ export function getBigQueryClient(): BigQuery {
 
   const projectId = process.env.GCP_PROJECT_ID || 'savvy-gtm-analytics';
 
+  // OAuth scopes needed for accessing Google Drive external tables
+  const scopes = [
+    'https://www.googleapis.com/auth/bigquery',
+    'https://www.googleapis.com/auth/cloud-platform',
+    'https://www.googleapis.com/auth/drive.readonly',
+  ];
+
   // For Vercel deployment: use JSON credentials from env var
   if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
     bigqueryClient = new BigQuery({
       projectId,
       credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON),
+      scopes,
     });
   } 
   // For local development: use file path
@@ -19,6 +27,7 @@ export function getBigQueryClient(): BigQuery {
     bigqueryClient = new BigQuery({
       projectId,
       keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS,
+      scopes,
     });
   } 
   else {

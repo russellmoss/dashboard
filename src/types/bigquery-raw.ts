@@ -71,6 +71,24 @@ export interface RawDetailRecordResult {
   is_joined: number;
 }
 
+// Forecast Goals Raw Results
+export interface RawForecastGoalsResult {
+  prospects_goal: number | null;
+  mqls_goal: number | null;
+  sqls_goal: number | null;
+  sqos_goal: number | null;
+  joined_goal: number | null;
+}
+
+export interface RawChannelForecastResult extends RawForecastGoalsResult {
+  channel_grouping_name: string | null;
+}
+
+export interface RawSourceForecastResult extends RawForecastGoalsResult {
+  original_source: string | null;
+  channel_grouping_name: string | null;
+}
+
 export function toNumber(value: number | null | undefined): number {
   return Number(value) || 0;
 }

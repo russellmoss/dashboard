@@ -14,7 +14,18 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ChartErrorBoundary, TableErrorBoundary, CardErrorBoundary, FilterErrorBoundary } from '@/components/ui';
 import { dashboardApi, handleApiError } from '@/lib/api-client';
 import { DashboardFilters, FilterOptions } from '@/types/filters';
-import { FunnelMetrics, ConversionRatesResponse, ChannelPerformance, SourcePerformance, DetailRecord, TrendDataPoint, ConversionTrendMode } from '@/types/dashboard';
+import { 
+  FunnelMetrics, 
+  FunnelMetricsWithGoals,  // Changed from FunnelMetrics
+  ConversionRatesResponse, 
+  ChannelPerformance, 
+  ChannelPerformanceWithGoals,  // Changed from ChannelPerformance
+  SourcePerformance, 
+  SourcePerformanceWithGoals,   // Changed from SourcePerformance
+  DetailRecord, 
+  TrendDataPoint, 
+  ConversionTrendMode 
+} from '@/types/dashboard';
 import { buildDateRangeFromFilters } from '@/lib/utils/date-helpers';
 import { getSessionPermissions } from '@/types/auth';
 
@@ -40,12 +51,12 @@ export default function DashboardPage() {
   const [filters, setFilters] = useState<DashboardFilters>(DEFAULT_FILTERS);
   const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null);
   
-  // Data
-  const [metrics, setMetrics] = useState<FunnelMetrics | null>(null);
+  // Data state - update these three types
+  const [metrics, setMetrics] = useState<FunnelMetricsWithGoals | null>(null);
   const [conversionRates, setConversionRates] = useState<ConversionRatesResponse | null>(null);
   const [trends, setTrends] = useState<TrendDataPoint[]>([]);
-  const [channels, setChannels] = useState<ChannelPerformance[]>([]);
-  const [sources, setSources] = useState<SourcePerformance[]>([]);
+  const [channels, setChannels] = useState<ChannelPerformanceWithGoals[]>([]);
+  const [sources, setSources] = useState<SourcePerformanceWithGoals[]>([]);
   const [detailRecords, setDetailRecords] = useState<DetailRecord[]>([]);
   
   // UI state
