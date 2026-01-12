@@ -29,6 +29,8 @@ import {
 import { buildDateRangeFromFilters } from '@/lib/utils/date-helpers';
 import { getSessionPermissions } from '@/types/auth';
 
+export const dynamic = 'force-dynamic';
+
 const DEFAULT_FILTERS: DashboardFilters = {
   startDate: '2025-10-01',
   endDate: '2025-12-31',

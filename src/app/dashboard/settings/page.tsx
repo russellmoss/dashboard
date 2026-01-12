@@ -6,6 +6,8 @@ import { UserManagement } from '@/components/settings/UserManagement';
 import { ShieldAlert } from 'lucide-react';
 import { getSessionPermissions } from '@/types/auth';
 
+export const dynamic = 'force-dynamic';
+
 export default function SettingsPage() {
   const { data: session, status } = useSession();
   const permissions = getSessionPermissions(session);
