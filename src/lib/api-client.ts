@@ -19,8 +19,41 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Get the base URL for API requests.
+ * Returns empty string for client-side (browser) to use relative URLs.
+ * Returns full URL for server-side requests.
+ * This function is called lazily (not at module load time) to avoid build-time errors.
+ */
+function getBaseUrl(): string {
+  // Client-side: use relative URLs (works with Next.js routing)
+  if (typeof window !== 'undefined') {
+    return '';
+  }
+  
+  // Server-side: construct absolute URL
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  
+  if (process.env.NEXTAUTH_URL) {
+    return process.env.NEXTAUTH_URL;
+  }
+  
+  // Fallback for local development
+  return 'http://localhost:3000';
+}
+
+/**
+ * Fetch API endpoint with proper URL construction.
+ * Uses relative URLs in browser, absolute URLs on server.
+ */
 async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(endpoint, {
+  // Construct full URL only when needed (lazy evaluation)
+  const baseUrl = getBaseUrl();
+  const fullUrl = baseUrl ? `${baseUrl}${endpoint}` : endpoint;
+  
+  const response = await fetch(fullUrl, {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   });
