@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getUserById, updateUser, deleteUser } from '@/lib/users';
 import { getUserPermissions } from '@/lib/permissions';
+import { SafeUser } from '@/types/user';
 
 interface RouteParams {
   params: { id: string };
@@ -29,7 +30,19 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
     
-    return NextResponse.json({ user });
+    // Convert to SafeUser (exclude passwordHash)
+    const safeUser: SafeUser = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      isActive: user.isActive ?? true,
+      createdAt: user.createdAt?.toISOString() || new Date().toISOString(),
+      updatedAt: user.updatedAt?.toISOString() || new Date().toISOString(),
+      createdBy: '', // Will be populated from Prisma if needed
+    };
+    
+    return NextResponse.json({ user: safeUser });
     
   } catch (error) {
     console.error('Error fetching user:', error);
@@ -55,7 +68,25 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const user = await updateUser(params.id, body);
     
-    return NextResponse.json({ user });
+    // Get full user with createdBy from database
+    const fullUser = await prisma.user.findUnique({
+      where: { id: params.id },
+      select: { createdBy: true },
+    });
+    
+    // Convert to SafeUser (exclude passwordHash)
+    const safeUser: SafeUser = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      isActive: user.isActive ?? true,
+      createdAt: user.createdAt?.toISOString() || new Date().toISOString(),
+      updatedAt: user.updatedAt?.toISOString() || new Date().toISOString(),
+      createdBy: fullUser?.createdBy || '',
+    };
+    
+    return NextResponse.json({ user: safeUser });
     
   } catch (error: any) {
     console.error('Error updating user:', error);

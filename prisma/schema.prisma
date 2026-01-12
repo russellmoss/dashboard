@@ -15,6 +15,7 @@ model User {
   name         String
   passwordHash String
   role         String   @default("viewer")
+  isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   createdBy    String?

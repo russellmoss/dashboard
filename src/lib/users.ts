@@ -33,6 +33,12 @@ export async function validateUser(
       return null;
     }
 
+    // Check if user is active
+    if (user.isActive === false) {
+      console.error('[validateUser] User is inactive:', normalizedEmail);
+      return null;
+    }
+
     console.log('[validateUser] User found, comparing password...');
     const isValid = await bcrypt.compare(password, user.passwordHash);
 
@@ -47,6 +53,9 @@ export async function validateUser(
       email: user.email,
       name: user.name,
       role: user.role as User['role'],
+      isActive: user.isActive ?? true,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
     };
   } catch (error) {
     console.error('[validateUser] Database error:', error);
@@ -66,6 +75,9 @@ export async function getUserByEmail(email: string): Promise<User | null> {
     email: user.email,
     name: user.name,
     role: user.role as User['role'],
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    isActive: user.isActive ?? true,
   };
 }
 
@@ -81,6 +93,9 @@ export async function getUserById(id: string): Promise<User | null> {
     email: user.email,
     name: user.name,
     role: user.role as User['role'],
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    isActive: user.isActive ?? true,
   };
 }
 
@@ -89,16 +104,19 @@ export async function getAllUsers(): Promise<User[]> {
     orderBy: { createdAt: 'desc' },
   });
 
-  return users.map((user: { id: string; email: string; name: string; role: string }) => ({
+  return users.map((user) => ({
     id: user.id,
     email: user.email,
     name: user.name,
     role: user.role as User['role'],
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    isActive: user.isActive ?? true,
   }));
 }
 
 export async function createUser(
-  data: { email: string; name: string; password?: string; role: string },
+  data: { email: string; name: string; password?: string; role: string; isActive?: boolean },
   createdBy: string
 ): Promise<User> {
   const existingUser = await prisma.user.findUnique({
@@ -117,6 +135,7 @@ export async function createUser(
       name: data.name,
       passwordHash,
       role: data.role,
+      isActive: data.isActive ?? true,
       createdBy,
     },
   });
@@ -126,18 +145,22 @@ export async function createUser(
     email: user.email,
     name: user.name,
     role: user.role as User['role'],
+    isActive: user.isActive ?? true,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
   };
 }
 
 export async function updateUser(
   id: string,
-  data: { name?: string; role?: string; password?: string }
+  data: { name?: string; role?: string; password?: string; isActive?: boolean }
 ): Promise<User> {
   const updateData: any = {};
   
   if (data.name) updateData.name = data.name;
   if (data.role) updateData.role = data.role;
   if (data.password) updateData.passwordHash = await bcrypt.hash(data.password, 10);
+  if (typeof data.isActive === 'boolean') updateData.isActive = data.isActive;
 
   const user = await prisma.user.update({
     where: { id },
@@ -149,6 +172,9 @@ export async function updateUser(
     email: user.email,
     name: user.name,
     role: user.role as User['role'],
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    isActive: user.isActive ?? true,
   };
 }
 
