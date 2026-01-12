@@ -111,7 +111,7 @@ export const dashboardApi = {
         filters, 
         includeTrends: options?.includeTrends ?? false,
         granularity: options?.granularity ?? 'quarter',
-        mode: options?.mode ?? 'period',
+        mode: options?.mode ?? 'cohort',
       }),
     }),
 

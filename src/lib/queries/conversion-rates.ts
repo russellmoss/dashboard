@@ -77,67 +77,156 @@ export async function getConversionRates(
   let query: string;
 
   if (mode === 'period') {
-    // PERIOD MODE: Activity-based, different date fields for numerator/denominator
+    // ═══════════════════════════════════════════════════════════════════════
+    // PERIOD-RESOLVED MODE: Entry AND Resolution in Same Period
+    // "What actually completed this period?" (excludes in-flight records)
+    // ═══════════════════════════════════════════════════════════════════════
     query = `
       SELECT
-        -- Contacted→MQL (both use stage_entered_contacting__c)
-        COUNTIF(
-          v.stage_entered_contacting__c IS NOT NULL
-          AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
-          AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
-          AND v.is_mql = 1
-        ) as contacted_numer,
+        -- ═══════════════════════════════════════════════════════════════════
+        -- CONTACTED → MQL (Period-Resolved)
+        -- Denominator: Contacted in period AND resolved in period
+        -- Resolution = MQL'd OR Closed (whichever came first)
+        -- ═══════════════════════════════════════════════════════════════════
         COUNTIF(
           v.stage_entered_contacting__c IS NOT NULL
           AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
           AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
           AND v.is_contacted = 1
+          AND (
+            -- Resolved by becoming MQL in period
+            (v.mql_stage_entered_ts IS NOT NULL 
+             AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate) 
+             AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate))
+            OR
+            -- Resolved by being closed in period
+            (v.lead_closed_date IS NOT NULL 
+             AND TIMESTAMP(v.lead_closed_date) >= TIMESTAMP(@startDate) 
+             AND TIMESTAMP(v.lead_closed_date) <= TIMESTAMP(@endDate))
+          )
         ) as contacted_denom,
         
-        -- MQL→SQL: Numerator by converted_date_raw, Denominator by mql_stage_entered_ts (Call Scheduled)
         COUNTIF(
-          v.converted_date_raw IS NOT NULL
-          AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
-          AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
-          AND v.is_sql = 1
-        ) as mql_numer,
+          v.stage_entered_contacting__c IS NOT NULL
+          AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+          AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+          AND v.is_contacted = 1
+          AND v.mql_stage_entered_ts IS NOT NULL
+          AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate)
+          AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
+        ) as contacted_numer,
+
+        -- ═══════════════════════════════════════════════════════════════════
+        -- MQL → SQL (Period-Resolved)
+        -- Denominator: MQL'd in period AND resolved in period
+        -- Resolution = SQL'd (converted) OR Closed
+        -- ═══════════════════════════════════════════════════════════════════
         COUNTIF(
           v.mql_stage_entered_ts IS NOT NULL
           AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate)
           AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
           AND v.is_mql = 1
+          AND (
+            -- Resolved by becoming SQL in period
+            (v.converted_date_raw IS NOT NULL 
+             AND DATE(v.converted_date_raw) >= DATE(@startDate) 
+             AND DATE(v.converted_date_raw) <= DATE(@endDate))
+            OR
+            -- Resolved by being closed in period
+            (v.lead_closed_date IS NOT NULL 
+             AND TIMESTAMP(v.lead_closed_date) >= TIMESTAMP(@startDate) 
+             AND TIMESTAMP(v.lead_closed_date) <= TIMESTAMP(@endDate))
+          )
         ) as mql_denom,
         
-        -- SQL→SQO: Numerator by Date_Became_SQO__c, Denominator by converted_date_raw
         COUNTIF(
-          v.Date_Became_SQO__c IS NOT NULL
+          v.mql_stage_entered_ts IS NOT NULL
+          AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate)
+          AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
+          AND v.is_mql = 1
+          AND v.converted_date_raw IS NOT NULL
+          AND DATE(v.converted_date_raw) >= DATE(@startDate)
+          AND DATE(v.converted_date_raw) <= DATE(@endDate)
+        ) as mql_numer,
+
+        -- ═══════════════════════════════════════════════════════════════════
+        -- SQL → SQO (Period-Resolved)
+        -- Denominator: SQL'd in period AND resolved in period
+        -- Resolution = SQO'd OR Closed Lost (Opportunity level, must be in period)
+        -- ═══════════════════════════════════════════════════════════════════
+        COUNTIF(
+          v.converted_date_raw IS NOT NULL
+          AND DATE(v.converted_date_raw) >= DATE(@startDate)
+          AND DATE(v.converted_date_raw) <= DATE(@endDate)
+          AND v.is_sql = 1
+          AND v.recordtypeid = @recruitingRecordType
+          AND (
+            -- Resolved by becoming SQO in period
+            (LOWER(v.SQO_raw) = 'yes' 
+             AND v.Date_Became_SQO__c IS NOT NULL
+             AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate) 
+             AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate))
+            OR
+            -- Resolved by being closed lost in period (use Stage_Entered_Closed__c)
+            (v.StageName = 'Closed Lost' 
+             AND v.Stage_Entered_Closed__c IS NOT NULL
+             AND TIMESTAMP(v.Stage_Entered_Closed__c) >= TIMESTAMP(@startDate) 
+             AND TIMESTAMP(v.Stage_Entered_Closed__c) <= TIMESTAMP(@endDate))
+          )
+        ) as sql_denom,
+        
+        COUNTIF(
+          v.converted_date_raw IS NOT NULL
+          AND DATE(v.converted_date_raw) >= DATE(@startDate)
+          AND DATE(v.converted_date_raw) <= DATE(@endDate)
+          AND v.is_sql = 1
+          AND LOWER(v.SQO_raw) = 'yes'
+          AND v.Date_Became_SQO__c IS NOT NULL
           AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
           AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
           AND v.recordtypeid = @recruitingRecordType
           AND v.is_sqo_unique = 1
         ) as sql_numer,
+
+        -- ═══════════════════════════════════════════════════════════════════
+        -- SQO → JOINED (Period-Resolved)
+        -- Denominator: SQO'd in period AND resolved in period
+        -- Resolution = Joined OR Closed Lost (must be in period)
+        -- ═══════════════════════════════════════════════════════════════════
         COUNTIF(
-          v.converted_date_raw IS NOT NULL
-          AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
-          AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
-          AND v.is_sql = 1
-        ) as sql_denom,
-        
-        -- SQO→Joined: Numerator by advisor_join_date__c, Denominator by Date_Became_SQO__c
-        COUNTIF(
-          v.advisor_join_date__c IS NOT NULL
-          AND TIMESTAMP(v.advisor_join_date__c) >= TIMESTAMP(@startDate)
-          AND TIMESTAMP(v.advisor_join_date__c) <= TIMESTAMP(@endDate)
-          AND v.is_joined_unique = 1
-        ) as sqo_numer,
-        COUNTIF(
-          v.Date_Became_SQO__c IS NOT NULL
+          LOWER(v.SQO_raw) = 'yes'
+          AND v.Date_Became_SQO__c IS NOT NULL
           AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
           AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
           AND v.recordtypeid = @recruitingRecordType
-          AND LOWER(v.SQO_raw) = 'yes'
-        ) as sqo_denom
+          AND v.is_sqo_unique = 1
+          AND (
+            -- Resolved by joining in period
+            (v.advisor_join_date__c IS NOT NULL 
+             AND DATE(v.advisor_join_date__c) >= DATE(@startDate) 
+             AND DATE(v.advisor_join_date__c) <= DATE(@endDate))
+            OR
+            -- Resolved by being closed lost in period (use Stage_Entered_Closed__c)
+            (v.StageName = 'Closed Lost' 
+             AND v.Stage_Entered_Closed__c IS NOT NULL
+             AND TIMESTAMP(v.Stage_Entered_Closed__c) >= TIMESTAMP(@startDate) 
+             AND TIMESTAMP(v.Stage_Entered_Closed__c) <= TIMESTAMP(@endDate))
+          )
+        ) as sqo_denom,
         
+        COUNTIF(
+          LOWER(v.SQO_raw) = 'yes'
+          AND v.Date_Became_SQO__c IS NOT NULL
+          AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+          AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+          AND v.recordtypeid = @recruitingRecordType
+          AND v.is_sqo_unique = 1
+          AND v.advisor_join_date__c IS NOT NULL
+          AND DATE(v.advisor_join_date__c) >= DATE(@startDate)
+          AND DATE(v.advisor_join_date__c) <= DATE(@endDate)
+          AND v.is_joined_unique = 1
+        ) as sqo_numer
+
       FROM \`${FULL_TABLE}\` v
       LEFT JOIN \`${MAPPING_TABLE}\` nm
         ON v.Original_source = nm.original_source
@@ -454,9 +543,9 @@ export async function getConversionTrends(
 }
 
 /**
- * Build the SQL query for PERIOD MODE (activity-based)
- * Each metric uses its own date field for grouping
- * Includes ALL records, regardless of resolution status
+ * Build the SQL query for PERIOD-RESOLVED MODE
+ * Records must ENTER and RESOLVE within the same period
+ * Resolution = progress to next stage OR close/lost
  */
 function buildPeriodModeQuery(
   periodFn: (field: string) => string,
@@ -466,124 +555,194 @@ function buildPeriodModeQuery(
 ): string {
   return `
     -- ═══════════════════════════════════════════════════════════════════════════
-    -- PERIOD MODE: Activity-based conversion tracking
-    -- "What happened in this period?"
-    -- Each metric grouped by its own date field (no cohort restrictions)
-    -- Includes ALL records, regardless of resolution status
+    -- PERIOD-RESOLVED MODE: Entry AND Resolution in Same Period
+    -- "What actually completed this period?" (excludes in-flight records)
     -- ═══════════════════════════════════════════════════════════════════════════
     
-    -- CTE 1: CONTACTED→MQL (both numerator and denominator by stage_entered_contacting__c)
-    WITH contacted_to_mql AS (
+    -- Generate all expected periods
+    WITH all_periods AS (
+      SELECT period FROM UNNEST([${expectedPeriods.map(p => `'${p}'`).join(', ')}]) AS period
+    ),
+    
+    -- ═══════════════════════════════════════════════════════════════════════════
+    -- CONTACTED → MQL (Period-Resolved by Period)
+    -- ═══════════════════════════════════════════════════════════════════════════
+    contacted_to_mql AS (
       SELECT
         ${periodFn('v.stage_entered_contacting__c')} as period,
-        COUNTIF(v.is_mql = 1) as contacted_to_mql_numer,
-        COUNT(*) as contacted_to_mql_denom
+        -- Denominator: Contacted AND resolved in same period
+        -- Resolution = earliest of: MQL date OR closed date (both must be in same period as entry)
+        COUNTIF(
+          ${periodFn('v.stage_entered_contacting__c')} = ${periodFn('v.mql_stage_entered_ts')}
+          OR (
+            v.lead_closed_date IS NOT NULL 
+            AND ${periodFn('v.stage_entered_contacting__c')} = ${periodFn('v.lead_closed_date')}
+          )
+        ) as contacted_denom,
+        -- Numerator: MQL'd in same period as contacted
+        COUNTIF(
+          ${periodFn('v.stage_entered_contacting__c')} = ${periodFn('v.mql_stage_entered_ts')}
+          AND v.is_mql = 1
+        ) as contacted_numer
       FROM \`${FULL_TABLE}\` v
       LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.stage_entered_contacting__c IS NOT NULL
         AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@trendStartDate)
         AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@trendEndDate)
+        AND v.is_contacted = 1
         ${filterWhereClause}
       GROUP BY period
     ),
     
-    -- CTE 2: MQL→SQL NUMERATOR (by converted_date_raw) + SQL volumes
+    -- ═══════════════════════════════════════════════════════════════════════════
+    -- MQL → SQL Numerator (SQLs created in each period)
+    -- ═══════════════════════════════════════════════════════════════════════════
     mql_to_sql_numer AS (
       SELECT
-        ${periodFn('v.converted_date_raw')} as period,
-        COUNTIF(v.is_sql = 1) as mql_to_sql_numer,
-        COUNTIF(v.is_sql = 1) as sqls
+        ${periodFn('TIMESTAMP(v.converted_date_raw)')} as period,
+        COUNT(*) as mql_to_sql_numer,
+        COUNT(*) as sqls
       FROM \`${FULL_TABLE}\` v
       LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.converted_date_raw IS NOT NULL
-        AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@trendStartDate)
-        AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@trendEndDate)
+        AND v.is_sql = 1
+        AND DATE(v.converted_date_raw) >= DATE(@trendStartDate)
+        AND DATE(v.converted_date_raw) <= DATE(@trendEndDate)
         ${filterWhereClause}
       GROUP BY period
     ),
     
-    -- CTE 3: MQL→SQL DENOMINATOR (by mql_stage_entered_ts)
+    -- ═══════════════════════════════════════════════════════════════════════════
+    -- MQL → SQL Denominator (Period-Resolved: MQL'd AND resolved in same period)
+    -- ═══════════════════════════════════════════════════════════════════════════
     mql_to_sql_denom AS (
       SELECT
         ${periodFn('v.mql_stage_entered_ts')} as period,
-        COUNTIF(v.is_mql = 1) as mql_to_sql_denom
+        COUNTIF(
+          ${periodFn('v.mql_stage_entered_ts')} = ${periodFn('TIMESTAMP(v.converted_date_raw)')}
+          OR (
+            v.lead_closed_date IS NOT NULL 
+            AND ${periodFn('v.mql_stage_entered_ts')} = ${periodFn('v.lead_closed_date')}
+          )
+        ) as mql_to_sql_denom
       FROM \`${FULL_TABLE}\` v
       LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.mql_stage_entered_ts IS NOT NULL
+        AND v.is_mql = 1
         AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@trendStartDate)
         AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@trendEndDate)
         ${filterWhereClause}
       GROUP BY period
     ),
     
-    -- CTE 4: SQL→SQO NUMERATOR (by Date_Became_SQO__c) + SQO volumes
+    -- ═══════════════════════════════════════════════════════════════════════════
+    -- SQL → SQO Numerator (SQOs created in each period)
+    -- ═══════════════════════════════════════════════════════════════════════════
     sql_to_sqo_numer AS (
       SELECT
         ${periodFn('v.Date_Became_SQO__c')} as period,
-        COUNTIF(v.recordtypeid = @recruitingRecordType AND v.is_sqo_unique = 1) as sql_to_sqo_numer,
-        COUNTIF(v.recordtypeid = @recruitingRecordType AND v.is_sqo_unique = 1) as sqos
+        COUNT(*) as sql_to_sqo_numer,
+        COUNT(*) as sqos
       FROM \`${FULL_TABLE}\` v
       LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.Date_Became_SQO__c IS NOT NULL
+        AND LOWER(v.SQO_raw) = 'yes'
+        AND v.is_sqo_unique = 1
+        AND v.recordtypeid = @recruitingRecordType
         AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@trendStartDate)
         AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@trendEndDate)
         ${filterWhereClause}
       GROUP BY period
     ),
     
-    -- CTE 5: SQL→SQO DENOMINATOR (by converted_date_raw)
+    -- ═══════════════════════════════════════════════════════════════════════════
+    -- SQL → SQO Denominator (Period-Resolved: SQL'd AND resolved in same period)
+    -- ═══════════════════════════════════════════════════════════════════════════
     sql_to_sqo_denom AS (
       SELECT
-        ${periodFn('v.converted_date_raw')} as period,
-        COUNTIF(v.is_sql = 1) as sql_to_sqo_denom
+        ${periodFn('TIMESTAMP(v.converted_date_raw)')} as period,
+        COUNTIF(
+          v.recordtypeid = @recruitingRecordType
+          AND (
+            -- Resolved by becoming SQO in same period
+            (LOWER(v.SQO_raw) = 'yes' 
+             AND v.Date_Became_SQO__c IS NOT NULL
+             AND ${periodFn('TIMESTAMP(v.converted_date_raw)')} = ${periodFn('v.Date_Became_SQO__c')})
+            OR
+            -- Resolved by being closed lost in same period
+            (v.StageName = 'Closed Lost' 
+             AND v.Stage_Entered_Closed__c IS NOT NULL
+             AND ${periodFn('TIMESTAMP(v.converted_date_raw)')} = ${periodFn('v.Stage_Entered_Closed__c')})
+          )
+        ) as sql_to_sqo_denom
       FROM \`${FULL_TABLE}\` v
       LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.converted_date_raw IS NOT NULL
-        AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@trendStartDate)
-        AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@trendEndDate)
+        AND v.is_sql = 1
+        AND DATE(v.converted_date_raw) >= DATE(@trendStartDate)
+        AND DATE(v.converted_date_raw) <= DATE(@trendEndDate)
         ${filterWhereClause}
       GROUP BY period
     ),
     
-    -- CTE 6: SQO→JOINED NUMERATOR (by advisor_join_date__c) + Joined volumes
+    -- ═══════════════════════════════════════════════════════════════════════════
+    -- SQO → JOINED Numerator (Joined in each period)
+    -- ═══════════════════════════════════════════════════════════════════════════
     sqo_to_joined_numer AS (
       SELECT
-        ${periodFn('v.advisor_join_date__c')} as period,
-        COUNTIF(v.is_joined_unique = 1) as sqo_to_joined_numer,
-        COUNTIF(v.is_joined_unique = 1) as joined
+        ${periodFn('TIMESTAMP(v.advisor_join_date__c)')} as period,
+        COUNT(*) as sqo_to_joined_numer,
+        COUNT(*) as joined
       FROM \`${FULL_TABLE}\` v
       LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.advisor_join_date__c IS NOT NULL
-        AND TIMESTAMP(v.advisor_join_date__c) >= TIMESTAMP(@trendStartDate)
-        AND TIMESTAMP(v.advisor_join_date__c) <= TIMESTAMP(@trendEndDate)
+        AND v.is_joined_unique = 1
+        AND v.recordtypeid = @recruitingRecordType
+        AND DATE(v.advisor_join_date__c) >= DATE(@trendStartDate)
+        AND DATE(v.advisor_join_date__c) <= DATE(@trendEndDate)
         ${filterWhereClause}
       GROUP BY period
     ),
     
-    -- CTE 7: SQO→JOINED DENOMINATOR (by Date_Became_SQO__c)
+    -- ═══════════════════════════════════════════════════════════════════════════
+    -- SQO → JOINED Denominator (Period-Resolved: SQO'd AND resolved in same period)
+    -- ═══════════════════════════════════════════════════════════════════════════
     sqo_to_joined_denom AS (
       SELECT
         ${periodFn('v.Date_Became_SQO__c')} as period,
-        COUNTIF(v.recordtypeid = @recruitingRecordType AND LOWER(v.SQO_raw) = 'yes') as sqo_to_joined_denom
+        COUNTIF(
+          v.is_sqo_unique = 1
+          AND v.recordtypeid = @recruitingRecordType
+          AND (
+            -- Resolved by joining in same period
+            (v.advisor_join_date__c IS NOT NULL 
+             AND ${periodFn('v.Date_Became_SQO__c')} = ${periodFn('TIMESTAMP(v.advisor_join_date__c)')})
+            OR
+            -- Resolved by being closed lost in same period
+            (v.StageName = 'Closed Lost' 
+             AND v.Stage_Entered_Closed__c IS NOT NULL
+             AND ${periodFn('v.Date_Became_SQO__c')} = ${periodFn('v.Stage_Entered_Closed__c')})
+          )
+        ) as sqo_to_joined_denom
       FROM \`${FULL_TABLE}\` v
       LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.Date_Became_SQO__c IS NOT NULL
+        AND LOWER(v.SQO_raw) = 'yes'
+        AND v.is_sqo_unique = 1
+        AND v.recordtypeid = @recruitingRecordType
         AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@trendStartDate)
         AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@trendEndDate)
         ${filterWhereClause}
       GROUP BY period
-    ),
-    
-    -- Generate all expected periods
-    all_periods AS (
-      SELECT period FROM UNNEST([${expectedPeriods.map(p => `'${p}'`).join(', ')}]) as period
     )
     
-    -- Join all CTEs
+    -- ═══════════════════════════════════════════════════════════════════════════
+    -- FINAL JOIN: Combine all metrics by period
+    -- ═══════════════════════════════════════════════════════════════════════════
     SELECT
       ap.period,
-      COALESCE(c2m.contacted_to_mql_numer, 0) as contacted_to_mql_numer,
-      COALESCE(c2m.contacted_to_mql_denom, 0) as contacted_to_mql_denom,
+      COALESCE(c2m.contacted_numer, 0) as contacted_to_mql_numer,
+      COALESCE(c2m.contacted_denom, 0) as contacted_to_mql_denom,
       COALESCE(m2s_n.mql_to_sql_numer, 0) as mql_to_sql_numer,
       COALESCE(m2s_d.mql_to_sql_denom, 0) as mql_to_sql_denom,
       COALESCE(s2sq_n.sql_to_sqo_numer, 0) as sql_to_sqo_numer,

@@ -17,8 +17,8 @@ export async function POST(request: NextRequest) {
     const includeTrends = body.includeTrends || false;
     const granularity = body.granularity || 'month';
     
-    // Parse mode parameter (default to 'period' for backward compatibility)
-    const mode = (body.mode as 'period' | 'cohort') || 'period';
+    // Parse mode parameter (default to 'cohort' for funnel efficiency analysis)
+    const mode = (body.mode as 'period' | 'cohort') || 'cohort';
     
     // Validate mode
     if (!['period', 'cohort'].includes(mode)) {

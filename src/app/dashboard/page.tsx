@@ -81,7 +81,7 @@ export default function DashboardPage() {
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [trendGranularity, setTrendGranularity] = useState<'month' | 'quarter'>('quarter');
-  const [trendMode, setTrendMode] = useState<ConversionTrendMode>('period');
+  const [trendMode, setTrendMode] = useState<ConversionTrendMode>('cohort');
   
   // Fetch filter options on mount
   useEffect(() => {

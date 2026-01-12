@@ -1,4 +1,4 @@
-- ═══════════════════════════════════════════════════════════════════════════
+-- ═══════════════════════════════════════════════════════════════════════════
 -- VW_FUNNEL_MASTER (Cleaned)
 -- Purpose: Single source of truth for all Tableau funnel dashboards
 -- Created: January 2026
@@ -35,6 +35,7 @@ WITH Lead_Base AS (
     External_Agency__c AS Lead_External_Agency__c,
     SGA_Owner_Name__c AS Lead_SGA_Owner_Name__c,  -- SGA who owns/worked this lead
     Initial_Call_Scheduled_Date__c,
+    Stage_Entered_Closed__c AS lead_closed_date,  -- WHEN the lead was closed (timestamp for period-resolved)
     --##TODO## Talk to Kenji on how we get campaigns in here (if we want) or if we should bring in UTM Parameters
 
     -- FilterDate: Handles recycled leads by taking the most recent of creation or stage entry
@@ -138,6 +139,7 @@ Combined AS (
     o.Stage_Entered_Negotiating__c,
     o.Stage_Entered_On_Hold__c,
     o.Stage_Entered_Closed__c,
+    l.lead_closed_date,
     
     -- Funnel Flags (Binary 0/1)
     CASE WHEN l.stage_entered_contacting__c IS NOT NULL THEN 1 ELSE 0 END AS is_contacted,
@@ -288,25 +290,30 @@ Final AS (
     -- Only records with final outcomes are included
     -- ═══════════════════════════════════════════════════════════════════════
     
-    -- Contacted Eligibility: Contacted that became MQL or closed
+    -- ═══════════════════════════════════════════════════════════════════════
+    -- CONVERSION ELIGIBILITY FLAGS (Denominators) - COHORT MODE
+    -- Only records with final outcomes are included (resolved anytime)
+    -- Lead-level uses lead_closed_date, Opportunity-level uses opp_closed_date/StageName
+    -- ═══════════════════════════════════════════════════════════════════════
+    
+    -- Contacted Eligibility (Cohort): Contacted that became MQL or closed as lead
     CASE 
-      WHEN is_contacted = 1 AND (is_mql = 1 OR Disposition__c IS NOT NULL)
+      WHEN is_contacted = 1 AND (is_mql = 1 OR lead_closed_date IS NOT NULL)
       THEN 1 ELSE 0 
     END AS eligible_for_contacted_conversions,
     
-    -- MQL Eligibility: MQL that became SQL or closed
+    -- MQL Eligibility (Cohort): MQL that became SQL or closed as lead
     CASE 
-      WHEN is_mql = 1 AND (is_sql = 1 OR Disposition__c IS NOT NULL)
+      WHEN is_mql = 1 AND (is_sql = 1 OR lead_closed_date IS NOT NULL)
       THEN 1 ELSE 0 
     END AS eligible_for_mql_conversions,
     
-    -- SQL Eligibility: SQL with outcome OR direct opportunities that became SQO
-    -- Note: Re-Engagement opportunities (99.9%) have no linked lead but should be included
+    -- SQL Eligibility (Cohort): SQL (Opportunity) that became SQO or closed lost
+    -- Note: Once converted, we look at OPPORTUNITY outcomes, not Lead disposition
     CASE 
       WHEN is_sql = 1 AND (
-        (advisor_join_date__c IS NOT NULL OR StageName = 'Joined') OR
-        (LOWER(SQO_raw) = 'yes') OR
-        (Disposition__c IS NOT NULL OR StageName = 'Closed Lost')
+        LOWER(SQO_raw) = 'yes' OR                    -- Became SQO (progress)
+        StageName = 'Closed Lost'                     -- Closed without becoming SQO
       )
       THEN 1 
       -- Include direct opportunities (no linked lead) that became SQO
@@ -315,7 +322,7 @@ Final AS (
       ELSE 0 
     END AS eligible_for_sql_conversions,
     
-    -- SQO Eligibility: SQO that joined or closed lost
+    -- SQO Eligibility (Cohort): SQO that joined or closed lost
     CASE 
       WHEN LOWER(SQO_raw) = 'yes' AND (
         (advisor_join_date__c IS NOT NULL OR StageName = 'Joined') OR 

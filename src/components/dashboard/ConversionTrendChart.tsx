@@ -40,31 +40,31 @@ const ModeTooltip = ({ mode, children }: { mode: ConversionTrendMode; children: 
   const [isOpen, setIsOpen] = useState(false);
   
   const explanations = {
-    period: {
-      title: 'Period Mode (Activity-Based)',
-      description: 'Shows conversion activity that occurred in each period.',
-      example: 'An SQL from Q3 that becomes SQO in Q4 counts toward Q4\'s rate.',
-      details: [
-        'Answers: "What happened in this period?"',
-        'Includes ALL records, including those still in progress',
-        'Rates can exceed 100% when converting older leads',
-        'Best for: Activity tracking, sales performance, executive dashboards',
-      ],
-      calculation: 'SQL→SQO Rate = (SQOs created in period) ÷ (SQLs created in period)',
-    },
     cohort: {
-      title: 'Cohort Mode (Efficiency-Based)',
-      description: 'Tracks how well leads from each period convert over time.',
-      example: 'An SQL from Q3 that becomes SQO in Q4 counts toward Q3\'s rate.',
+      title: 'Cohort Mode (Funnel Efficiency)',
+      description: 'Tracks how leads from each period ultimately convert, regardless of when they convert.',
+      example: 'A Q3 SQL that becomes SQO in Q4 counts toward Q3\'s conversion rate.',
       details: [
         'Answers: "How well do leads from this period convert?"',
         'Only includes RESOLVED records (converted OR closed/lost)',
-        'Open records are excluded from denominators',
+        'Open/in-flight records are excluded from denominators',
         'Rates are always 0-100%',
-        'Best for: Funnel efficiency, forecasting, process improvement',
+        'Best for: Funnel efficiency analysis, forecasting, identifying bottlenecks',
       ],
-      calculation: 'SQL→SQO Rate = (Resolved SQLs that became SQO) ÷ (Resolved SQLs)',
-      resolvedNote: 'Resolved = either converted to next stage OR closed/lost',
+      calculation: 'SQL→SQO Rate = (SQLs from period that became SQO) ÷ (SQLs from period that resolved)',
+    },
+    period: {
+      title: 'Period Mode (Resolved Snapshot)',
+      description: 'Shows conversion rates for records that entered AND resolved within the same period.',
+      example: 'A Q4 SQL→SQO only counts if BOTH the SQL date AND SQO/Closed date are in Q4.',
+      details: [
+        'Answers: "What actually completed this period?"',
+        'Excludes in-flight records (entered but not yet resolved)',
+        'Clean period-over-period comparison',
+        'Rates are always 0-100%',
+        'Best for: Current period snapshots, operational performance',
+      ],
+      calculation: 'SQL→SQO Rate = (SQLs resolved as SQO in period) ÷ (SQLs that entered AND resolved in period)',
     },
   };
   
@@ -101,12 +101,6 @@ const ModeTooltip = ({ mode, children }: { mode: ConversionTrendMode; children: 
           <div className="bg-gray-50 p-2 rounded text-xs text-gray-700 font-mono mb-2">
             {content.calculation}
           </div>
-          
-          {'resolvedNote' in content && content.resolvedNote && (
-            <div className="text-xs text-gray-500 italic">
-              {content.resolvedNote}
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -262,40 +256,40 @@ export function ConversionTrendChart({
           </div>
           <Text className="text-gray-500 dark:text-gray-400 text-sm mt-1">
             {mode === 'period' 
-              ? 'Activity view: What happened in each period'
-              : 'Cohort view: How well resolved leads from each period convert'
+              ? 'Period view: What entered AND completed within each period'
+              : 'Cohort view: How well leads from each period ultimately convert'
             }
           </Text>
         </div>
         
         {/* Controls Row */}
         <div className="flex flex-wrap items-center gap-3">
-          {/* Mode Toggle */}
+          {/* Mode Toggle - Cohort first (default), Period second */}
           {onModeChange && (
-            <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
-              <button
-                onClick={() => handleModeChange('period')}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors flex items-center gap-1 ${
-                  mode === 'period'
-                    ? 'bg-white shadow text-blue-600 font-medium'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                Period
-                <ModeTooltip mode="period">
-                  <InfoIcon className="ml-0.5" />
-                </ModeTooltip>
-              </button>
+            <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
               <button
                 onClick={() => handleModeChange('cohort')}
                 className={`px-3 py-1.5 text-sm rounded-md transition-colors flex items-center gap-1 ${
                   mode === 'cohort'
-                    ? 'bg-white shadow text-blue-600 font-medium'
-                    : 'text-gray-600 hover:text-gray-900'
+                    ? 'bg-white dark:bg-gray-700 shadow text-blue-600 dark:text-blue-400 font-medium'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                 }`}
               >
                 Cohort
                 <ModeTooltip mode="cohort">
+                  <InfoIcon className="ml-0.5" />
+                </ModeTooltip>
+              </button>
+              <button
+                onClick={() => handleModeChange('period')}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors flex items-center gap-1 ${
+                  mode === 'period'
+                    ? 'bg-white dark:bg-gray-700 shadow text-blue-600 dark:text-blue-400 font-medium'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                Period
+                <ModeTooltip mode="period">
                   <InfoIcon className="ml-0.5" />
                 </ModeTooltip>
               </button>
@@ -423,17 +417,19 @@ export function ConversionTrendChart({
         <div className="flex items-start gap-2">
           <InfoIcon className="mt-0.5 flex-shrink-0" />
           <Text className="text-xs text-gray-500 dark:text-gray-400">
-            {mode === 'period' ? (
+            {mode === 'cohort' ? (
               <>
-                <strong>Period Mode:</strong> Shows conversion activity in each period. 
-                An SQL from Q3 that becomes SQO in Q4 counts toward Q4&apos;s rate.
-                Includes all records. Rates can exceed 100% when converting older leads.
+                <strong>Cohort Mode:</strong> Tracks each cohort through the funnel over time.
+                A Q3 SQL that becomes SQO in Q4 counts toward Q3&apos;s rate.
+                Only includes resolved records (converted or closed). Open records still in progress are excluded.
+                Rates are always 0-100%. Best for funnel efficiency analysis.
               </>
             ) : (
               <>
-                <strong>Cohort Mode:</strong> Tracks each cohort through the funnel using only resolved records.
-                An SQL from Q3 that becomes SQO in Q4 counts toward Q3&apos;s rate.
-                Open records (still in progress) are excluded. Rates are always 0-100%.
+                <strong>Period Mode:</strong> Shows what completed within each period.
+                Records must enter AND resolve (convert or close) in the same period to be counted.
+                Excludes in-flight records for clean period comparisons.
+                Rates are always 0-100%. Best for current period snapshots.
               </>
             )}
           </Text>

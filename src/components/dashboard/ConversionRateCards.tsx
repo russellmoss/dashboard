@@ -128,13 +128,16 @@ export function ConversionRateCards({
       {/* Mode indicator */}
       <div className="flex items-center gap-2">
         <Text className="text-xs text-gray-500">
-          Showing {isResolved ? 'cohort' : 'period'} rates
+          {isResolved 
+            ? 'Showing cohort efficiency rates (resolved records only)' 
+            : 'Showing period snapshot rates (resolved in-period only)'
+          }
         </Text>
         <SimpleTooltip 
           content={
             isResolved 
-              ? 'Cohort Mode: Shows conversion efficiency for records that originated in the period AND have resolved (converted or closed). This gives a true funnel efficiency rate that is always between 0-100%.'
-              : 'Period Mode: Shows conversion activity that happened during the selected period. The numerator (e.g., SQOs) and denominator (e.g., SQLs) are counted by their respective dates, so they may represent different populations. Rates can exceed 100% when converting older pipeline.'
+              ? 'Cohort Mode: Shows conversion efficiency for leads that originated in this period AND have resolved (converted or closed). Open records still being worked are excluded. Rates are always 0-100%.'
+              : 'Period Mode: Shows conversion rates for records that entered AND resolved (converted or closed) within this period. In-flight records are excluded for a clean snapshot. Rates are always 0-100%.'
           }
         >
           <InfoIcon />
