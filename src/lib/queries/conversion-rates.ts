@@ -636,21 +636,32 @@ function buildPeriodModeQuery(
     ),
     
     -- ═══════════════════════════════════════════════════════════════════════════
-    -- SQL → SQO Numerator (SQOs created in each period)
+    -- SQL → SQO Numerator (Period-Resolved: SQL'd AND SQO'd in same period)
     -- ═══════════════════════════════════════════════════════════════════════════
     sql_to_sqo_numer AS (
       SELECT
-        ${periodFn('v.Date_Became_SQO__c')} as period,
-        COUNT(*) as sql_to_sqo_numer,
-        COUNT(*) as sqos
+        ${periodFn('TIMESTAMP(v.converted_date_raw)')} as period,
+        COUNTIF(
+          LOWER(v.SQO_raw) = 'yes'
+          AND v.Date_Became_SQO__c IS NOT NULL
+          AND v.is_sqo_unique = 1
+          AND v.recordtypeid = @recruitingRecordType
+          -- Ensure SQO date is in same period as SQL date
+          AND ${periodFn('TIMESTAMP(v.converted_date_raw)')} = ${periodFn('v.Date_Became_SQO__c')}
+        ) as sql_to_sqo_numer,
+        COUNTIF(
+          LOWER(v.SQO_raw) = 'yes'
+          AND v.Date_Became_SQO__c IS NOT NULL
+          AND v.is_sqo_unique = 1
+          AND v.recordtypeid = @recruitingRecordType
+          AND ${periodFn('TIMESTAMP(v.converted_date_raw)')} = ${periodFn('v.Date_Became_SQO__c')}
+        ) as sqos
       FROM \`${FULL_TABLE}\` v
       LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
-      WHERE v.Date_Became_SQO__c IS NOT NULL
-        AND LOWER(v.SQO_raw) = 'yes'
-        AND v.is_sqo_unique = 1
-        AND v.recordtypeid = @recruitingRecordType
-        AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@trendStartDate)
-        AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@trendEndDate)
+      WHERE v.converted_date_raw IS NOT NULL
+        AND v.is_sql = 1
+        AND DATE(v.converted_date_raw) >= DATE(@trendStartDate)
+        AND DATE(v.converted_date_raw) <= DATE(@trendEndDate)
         ${filterWhereClause}
       GROUP BY period
     ),
@@ -686,20 +697,32 @@ function buildPeriodModeQuery(
     ),
     
     -- ═══════════════════════════════════════════════════════════════════════════
-    -- SQO → JOINED Numerator (Joined in each period)
+    -- SQO → JOINED Numerator (Period-Resolved: SQO'd AND Joined in same period)
     -- ═══════════════════════════════════════════════════════════════════════════
     sqo_to_joined_numer AS (
       SELECT
-        ${periodFn('TIMESTAMP(v.advisor_join_date__c)')} as period,
-        COUNT(*) as sqo_to_joined_numer,
-        COUNT(*) as joined
+        ${periodFn('v.Date_Became_SQO__c')} as period,
+        COUNTIF(
+          v.advisor_join_date__c IS NOT NULL
+          AND v.is_joined_unique = 1
+          AND v.recordtypeid = @recruitingRecordType
+          -- Ensure Joined date is in same period as SQO date
+          AND ${periodFn('v.Date_Became_SQO__c')} = ${periodFn('TIMESTAMP(v.advisor_join_date__c)')}
+        ) as sqo_to_joined_numer,
+        COUNTIF(
+          v.advisor_join_date__c IS NOT NULL
+          AND v.is_joined_unique = 1
+          AND v.recordtypeid = @recruitingRecordType
+          AND ${periodFn('v.Date_Became_SQO__c')} = ${periodFn('TIMESTAMP(v.advisor_join_date__c)')}
+        ) as joined
       FROM \`${FULL_TABLE}\` v
       LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
-      WHERE v.advisor_join_date__c IS NOT NULL
-        AND v.is_joined_unique = 1
+      WHERE v.Date_Became_SQO__c IS NOT NULL
+        AND LOWER(v.SQO_raw) = 'yes'
+        AND v.is_sqo_unique = 1
         AND v.recordtypeid = @recruitingRecordType
-        AND DATE(v.advisor_join_date__c) >= DATE(@trendStartDate)
-        AND DATE(v.advisor_join_date__c) <= DATE(@trendEndDate)
+        AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@trendStartDate)
+        AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@trendEndDate)
         ${filterWhereClause}
       GROUP BY period
     ),
