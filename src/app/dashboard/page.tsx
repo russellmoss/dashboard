@@ -202,7 +202,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div>
+    <div className="w-full max-w-full overflow-x-hidden">
       <div className="mb-6">
         <Title>Funnel Performance & Efficiency</Title>
         <Text>Track volume, conversion rates, and pipeline health</Text>

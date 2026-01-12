@@ -18,11 +18,11 @@ export default function DashboardLayout({
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors overflow-x-hidden">
         <Header />
-        <div className="flex">
+        <div className="flex overflow-x-hidden">
           <Sidebar isCollapsed={isSidebarCollapsed} onToggle={toggleSidebar} />
-          <main className={`flex-1 p-6 transition-all duration-300 ease-in-out`}>
+          <main className={`flex-1 p-6 transition-all duration-300 ease-in-out min-w-0 overflow-x-hidden`}>
             {children}
           </main>
         </div>

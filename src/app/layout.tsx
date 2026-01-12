@@ -19,8 +19,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.className} bg-gray-50 dark:bg-gray-900 transition-colors`}>
+    <html lang="en" suppressHydrationWarning className="overflow-x-hidden">
+      <body className={`${inter.className} bg-gray-50 dark:bg-gray-900 transition-colors overflow-x-hidden`}>
         <SessionProviderWrapper>
           <ThemeProvider>
             {children}
