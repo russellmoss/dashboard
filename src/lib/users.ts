@@ -58,6 +58,7 @@ export async function validateUser(
       isActive: user.isActive ?? true,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
+      createdBy: user.createdBy,
     };
   } catch (error) {
     console.error('[validateUser] Database error:', error);
@@ -114,6 +115,7 @@ export async function getAllUsers(): Promise<User[]> {
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     isActive: user.isActive ?? true,
+    createdBy: user.createdBy,
   }));
 }
 
