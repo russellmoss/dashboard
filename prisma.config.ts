@@ -9,6 +9,8 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["POSTGRES_PRISMA_URL"] || process.env["DATABASE_URL"],
+    // Neon provides POSTGRES_URL, Vercel Postgres provides POSTGRES_PRISMA_URL
+    // Set DATABASE_URL to the appropriate value for Prisma to use
+    url: process.env["POSTGRES_PRISMA_URL"] || process.env["POSTGRES_URL"] || process.env["DATABASE_URL"] || "",
   },
 });

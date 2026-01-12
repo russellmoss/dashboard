@@ -5,12 +5,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
     "test": "node test-connection.js",
     "test:query": "node test-query.js",
-    "test:dashboard": "node test-dashboard-queries.js"
+    "test:dashboard": "node test-dashboard-queries.js",
+    "postinstall": "prisma generate"
   },
   "prisma": {
     "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
