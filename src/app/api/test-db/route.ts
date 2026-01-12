@@ -5,6 +5,14 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
+    // Log environment variables (without exposing full values)
+    console.log('[test-db] Environment check:', {
+      hasDatabaseUrl: !!process.env.DATABASE_URL,
+      hasPostgresUrl: !!process.env.POSTGRES_URL,
+      hasPostgresPrismaUrl: !!process.env.POSTGRES_PRISMA_URL,
+      databaseUrlPrefix: process.env.DATABASE_URL?.substring(0, 30) || 'NOT SET',
+    });
+    
     // Test database connection
     const userCount = await prisma.user.count();
     
