@@ -16,12 +16,6 @@ export async function validateUser(
   email: string,
   password: string
 ): Promise<User | null> {
-  // Only allow @savvywealth.com emails
-  if (!email.endsWith('@savvywealth.com')) {
-    console.error('[validateUser] Email does not end with @savvywealth.com:', email);
-    return null;
-  }
-
   const normalizedEmail = email.toLowerCase();
   console.log('[validateUser] Looking up user with email (Prisma):', normalizedEmail);
 
