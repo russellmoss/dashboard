@@ -16,15 +16,15 @@ export function InfoTooltip({ content, className = '' }: InfoTooltipProps) {
   const handleMouseEnter = useCallback(() => {
     if (iconRef.current) {
       const iconRect = iconRef.current.getBoundingClientRect();
-      const tooltipHeight = 400; // Approximate tooltip height
       const spaceAbove = iconRect.top;
       const spaceBelow = window.innerHeight - iconRect.bottom;
 
-      // If we're near the top (within 300px) or there's more space below, show below
-      if (iconRect.top < 300 || spaceBelow > spaceAbove) {
-        setPosition('below');
-      } else {
+      // Default to below - only show above if there's significantly more space above (2x)
+      // This prevents cutoff at the top of the page
+      if (spaceAbove > spaceBelow * 2 && iconRect.top > 400) {
         setPosition('above');
+      } else {
+        setPosition('below');
       }
     }
     setIsVisible(true);
