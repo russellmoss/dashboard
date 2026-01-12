@@ -30,6 +30,7 @@ yarn-error.log*
 
 # Vercel
 .vercel
+!vercel.json
 
 # TypeScript
 *.tsbuildinfo
@@ -40,6 +41,7 @@ next-env.d.ts
 !package.json
 !package-lock.json
 !tsconfig.json
+!vercel.json
 service-account-key.json
 savvy-gtm-analytics-*.json
 

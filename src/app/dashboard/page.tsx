@@ -10,6 +10,7 @@ import { ConversionTrendChart } from '@/components/dashboard/ConversionTrendChar
 import { ChannelPerformanceTable } from '@/components/dashboard/ChannelPerformanceTable';
 import { SourcePerformanceTable } from '@/components/dashboard/SourcePerformanceTable';
 import { DetailRecordsTable } from '@/components/dashboard/DetailRecordsTable';
+import { ExportToSheetsButton } from '@/components/dashboard/ExportToSheetsButton';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ChartErrorBoundary, TableErrorBoundary, CardErrorBoundary, FilterErrorBoundary } from '@/components/ui';
 import { dashboardApi, handleApiError } from '@/lib/api-client';
@@ -216,6 +217,16 @@ export default function DashboardPage() {
           onReset={handleFilterReset}
         />
       </FilterErrorBoundary>
+
+      {/* Export Button */}
+      <div className="mb-6 flex justify-end">
+        <ExportToSheetsButton 
+          filters={filters}
+          mode={trendMode}
+          disabled={loading}
+          canExport={permissions?.canExport ?? false}
+        />
+      </div>
       
       {loading ? (
         <LoadingSpinner />
