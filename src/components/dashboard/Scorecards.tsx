@@ -11,6 +11,7 @@ import {
   getVarianceBadgeColor 
 } from '@/lib/utils/goal-helpers';
 import { TrendingUp, Users, DollarSign, Package } from 'lucide-react';
+import { OpenPipelineAumTooltip } from './OpenPipelineAumTooltip';
 
 interface ScorecardsProps {
   metrics: FunnelMetricsWithGoals;
@@ -149,7 +150,10 @@ export function Scorecards({ metrics, selectedMetric, onMetricClick }: Scorecard
         onClick={() => onMetricClick?.('openPipeline')}
       >
         <div className="flex items-center justify-between mb-2">
-          <Text className="text-gray-600 dark:text-gray-400">Open Pipeline</Text>
+          <div className="flex items-center">
+            <Text className="text-gray-600 dark:text-gray-400">Open Pipeline</Text>
+            <OpenPipelineAumTooltip />
+          </div>
           <DollarSign className="w-5 h-5 text-amber-500 dark:text-amber-400" />
         </div>
         <Metric className="text-2xl font-bold text-gray-900 dark:text-white">
