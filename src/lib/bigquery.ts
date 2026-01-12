@@ -16,11 +16,21 @@ export function getBigQueryClient(): BigQuery {
 
   // For Vercel deployment: use JSON credentials from env var
   if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-    bigqueryClient = new BigQuery({
-      projectId,
-      credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON),
-      scopes,
-    });
+    try {
+      // Parse the JSON string (it should be a single-line JSON string)
+      const credentials = typeof process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON === 'string'
+        ? JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)
+        : process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+      
+      bigqueryClient = new BigQuery({
+        projectId,
+        credentials,
+        scopes,
+      });
+    } catch (error) {
+      console.error('[BigQuery] Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON:', error);
+      throw new Error('Invalid GOOGLE_APPLICATION_CREDENTIALS_JSON format. Must be valid JSON.');
+    }
   } 
   // For local development: use file path
   else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
