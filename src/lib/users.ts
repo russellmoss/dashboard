@@ -9,6 +9,7 @@ export interface User {
   isActive?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
+  createdBy?: string | null;
 }
 
 export async function validateUser(
