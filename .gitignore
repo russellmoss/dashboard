@@ -62,3 +62,5 @@ data/
 
 # OS files
 .DS_Store
+
+/src/generated/prisma
