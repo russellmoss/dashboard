@@ -21,7 +21,7 @@ export async function validateUser(
   }
 
   const normalizedEmail = email.toLowerCase();
-  console.log('[validateUser] Looking up user with email:', normalizedEmail);
+  console.log('[validateUser] Looking up user with email (Prisma):', normalizedEmail);
 
   try {
     const user = await prisma.user.findUnique({
