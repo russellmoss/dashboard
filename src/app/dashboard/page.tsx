@@ -31,11 +31,26 @@ import { getSessionPermissions } from '@/types/auth';
 
 export const dynamic = 'force-dynamic';
 
+// Calculate Quarter to Date default dates
+const getQTDDefaultDates = () => {
+  const today = new Date().toISOString().split('T')[0];
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth(); // 0-11
+  const currentQuarter = Math.floor(currentMonth / 3); // 0-3
+  const quarterStart = new Date(currentYear, currentQuarter * 3, 1);
+  return {
+    startDate: quarterStart.toISOString().split('T')[0],
+    endDate: today,
+  };
+};
+
+const qtdDates = getQTDDefaultDates();
+
 const DEFAULT_FILTERS: DashboardFilters = {
-  startDate: '2025-10-01',
-  endDate: '2025-12-31',
-  datePreset: 'q4',
-  year: 2025,
+  startDate: qtdDates.startDate,
+  endDate: qtdDates.endDate,
+  datePreset: 'qtd',
+  year: new Date().getFullYear(),
   channel: null,
   source: null,
   sga: null,
