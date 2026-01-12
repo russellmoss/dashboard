@@ -15,8 +15,14 @@ export function getBigQueryClient(): BigQuery {
   ];
 
   // For Vercel deployment: use JSON credentials from env var
+  // IMPORTANT: GOOGLE_APPLICATION_CREDENTIALS must NOT be set in Vercel
+  // because Google Cloud libraries will try to use it as a file path
   if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
     try {
+      // Temporarily unset GOOGLE_APPLICATION_CREDENTIALS to prevent auto-detection
+      const originalCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+      delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+      
       // Parse the JSON string (it should be a single-line JSON string)
       const credentials = typeof process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON === 'string'
         ? JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)
@@ -27,6 +33,11 @@ export function getBigQueryClient(): BigQuery {
         credentials,
         scopes,
       });
+      
+      // Restore original if it existed (for local dev compatibility)
+      if (originalCredentials) {
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = originalCredentials;
+      }
     } catch (error) {
       console.error('[BigQuery] Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON:', error);
       throw new Error('Invalid GOOGLE_APPLICATION_CREDENTIALS_JSON format. Must be valid JSON.');
@@ -41,7 +52,7 @@ export function getBigQueryClient(): BigQuery {
     });
   } 
   else {
-    throw new Error('No BigQuery credentials configured');
+    throw new Error('No BigQuery credentials configured. Set GOOGLE_APPLICATION_CREDENTIALS_JSON (Vercel) or GOOGLE_APPLICATION_CREDENTIALS (local).');
   }
 
   return bigqueryClient;
