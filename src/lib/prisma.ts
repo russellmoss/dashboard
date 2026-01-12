@@ -1,4 +1,6 @@
 import { PrismaClient } from '@prisma/client';
+import { Pool } from 'postgres';
+import { PrismaPostgres } from '@prisma/adapter-postgres';
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -52,12 +54,17 @@ function getPrismaClient(): PrismaClient {
   console.log('[Prisma] DATABASE_URL prefix:', process.env.DATABASE_URL?.substring(0, 30) || 'NOT SET');
 
   try {
-    // Create PrismaClient - Prisma 7 reads DATABASE_URL from process.env automatically
+    // Create PostgreSQL connection pool
+    const pool = new Pool({ connectionString: dbUrl });
+    const adapter = new PrismaPostgres(pool);
+
+    // Create PrismaClient with adapter (required for Prisma 7 in serverless)
     globalForPrisma.prisma = new PrismaClient({
+      adapter,
       log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
     });
 
-    console.log('[Prisma] PrismaClient created successfully');
+    console.log('[Prisma] PrismaClient created successfully with adapter');
     return globalForPrisma.prisma;
   } catch (error: any) {
     console.error('[Prisma] Failed to create PrismaClient:', error.message);
