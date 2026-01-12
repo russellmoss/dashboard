@@ -1,24 +1,19 @@
-import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
-import * as dotenv from 'dotenv';
-import * as path from 'path';
+// Simple JavaScript seed script to avoid TypeScript/Prisma 7 issues
+// IMPORTANT: Load environment variables BEFORE importing PrismaClient
+// Prisma 7 reads DATABASE_URL at module load time
+require('dotenv').config();
 
-// Load environment variables from .env file
-// Use explicit path to ensure .env is loaded
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
-
-// Get database URL from environment (after loading .env)
+// Ensure DATABASE_URL is set (Prisma 7 requires it)
 const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL;
-
 if (!databaseUrl) {
   throw new Error('DATABASE_URL is required. Please set DATABASE_URL, POSTGRES_URL, or POSTGRES_PRISMA_URL in your .env file.');
 }
-
-// Ensure DATABASE_URL is set for Prisma to read
-// PrismaClient reads DATABASE_URL from process.env automatically
 process.env.DATABASE_URL = databaseUrl;
 
-// PrismaClient will read DATABASE_URL from process.env
+// Now import PrismaClient (it will read DATABASE_URL from process.env)
+const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcryptjs');
+
 const prisma = new PrismaClient();
 
 async function main() {

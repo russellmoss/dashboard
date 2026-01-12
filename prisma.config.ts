@@ -7,6 +7,7 @@ export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
+    seed: "node prisma/seed.js",
   },
   datasource: {
     // Neon provides POSTGRES_URL, Vercel Postgres provides POSTGRES_PRISMA_URL

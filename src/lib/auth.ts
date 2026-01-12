@@ -32,22 +32,27 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
+          console.error('[Auth] Missing credentials');
           return null;
         }
 
         try {
+          console.log('[Auth] Attempting to validate user:', credentials.email);
           const user = await validateUser(credentials.email, credentials.password);
           
           if (!user) {
+            console.error('[Auth] User validation failed for:', credentials.email);
             return null;
           }
 
+          console.log('[Auth] User validated successfully:', user.email);
           return {
             id: user.id,
             email: user.email,
             name: user.name,
           };
         } catch (error) {
+          console.error('[Auth] Error during authorization:', error);
           return null;
         }
       },

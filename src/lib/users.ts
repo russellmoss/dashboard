@@ -16,29 +16,42 @@ export async function validateUser(
 ): Promise<User | null> {
   // Only allow @savvywealth.com emails
   if (!email.endsWith('@savvywealth.com')) {
+    console.error('[validateUser] Email does not end with @savvywealth.com:', email);
     return null;
   }
 
-  const user = await prisma.user.findUnique({
-    where: { email: email.toLowerCase() },
-  });
+  const normalizedEmail = email.toLowerCase();
+  console.log('[validateUser] Looking up user with email:', normalizedEmail);
 
-  if (!user) {
-    return null;
+  try {
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!user) {
+      console.error('[validateUser] User not found in database:', normalizedEmail);
+      return null;
+    }
+
+    console.log('[validateUser] User found, comparing password...');
+    const isValid = await bcrypt.compare(password, user.passwordHash);
+
+    if (!isValid) {
+      console.error('[validateUser] Password comparison failed for:', normalizedEmail);
+      return null;
+    }
+
+    console.log('[validateUser] Password valid, returning user:', user.email);
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role as User['role'],
+    };
+  } catch (error) {
+    console.error('[validateUser] Database error:', error);
+    throw error;
   }
-
-  const isValid = await bcrypt.compare(password, user.passwordHash);
-
-  if (!isValid) {
-    return null;
-  }
-
-  return {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    role: user.role as User['role'],
-  };
 }
 
 export async function getUserByEmail(email: string): Promise<User | null> {
