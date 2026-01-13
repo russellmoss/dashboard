@@ -285,10 +285,10 @@ node -e "console.log('Types importable:', require('./src/types/filters.ts') !== 
 ```
 
 **SUCCESS CRITERIA for Phase 1:**
-- [ ] `src/types/filters.ts` exists and compiles
-- [ ] `src/types/dashboard.ts` updated with new import and property
-- [ ] `npx tsc --noEmit` returns 0 errors
-- [ ] `npm run lint` returns 0 errors
+- [x] `src/types/filters.ts` exists and compiles
+- [x] `src/types/dashboard.ts` updated with new import and property
+- [x] `npx tsc --noEmit` returns 0 errors
+- [x] `npm run lint` returns 0 errors
 
 **⚠️ CHECKPOINT**: Commit changes before proceeding
 ```bash
@@ -562,11 +562,11 @@ npm run dev
 4. **EXPECTED**: Object with channels (7), sources (~24), sgas (~17), sgms (~9)
 
 **SUCCESS CRITERIA for Phase 2:**
-- [ ] `src/app/api/dashboard/filters/route.ts` extended with counts (not new route created)
-- [ ] `src/lib/api-client.ts` already has getFilterOptions method (no changes needed)
-- [ ] `npm run build` succeeds
-- [ ] MCP queries return expected row counts (channels: 7, sources: ~24, sgas: ~17, sgms: ~9)
-- [ ] API endpoint returns valid JSON with counts (manual test)
+- [x] `src/app/api/dashboard/filters/route.ts` extended with counts (not new route created)
+- [x] `src/lib/api-client.ts` already has getFilterOptions method (no changes needed)
+- [x] `npm run build` succeeds
+- [x] MCP queries return expected row counts (channels: 7, sources: ~24, sgas: ~17, sgms: ~9)
+- [x] API endpoint returns valid JSON with counts (manual test)
 
 **⚠️ CHECKPOINT**: Commit changes before proceeding
 ```bash
@@ -1087,10 +1087,10 @@ echo "Expected: Build succeeds"
 ```
 
 **SUCCESS CRITERIA for Phase 3:**
-- [ ] `src/components/dashboard/AdvancedFilters.tsx` exists and compiles
-- [ ] Exports `AdvancedFilters` and `AdvancedFiltersButton` components
-- [ ] `npx tsc --noEmit` returns 0 errors
-- [ ] `npm run build` succeeds
+- [x] `src/components/dashboard/AdvancedFilters.tsx` exists and compiles
+- [x] Exports `AdvancedFilters` and `AdvancedFiltersButton` components
+- [x] `npx tsc --noEmit` returns 0 errors
+- [x] `npm run build` succeeds
 
 **⚠️ CHECKPOINT**: Commit changes before proceeding
 ```bash
@@ -1530,23 +1530,23 @@ npm run dev
 ```
 
 **Manual Testing Checklist:**
-- [ ] Dashboard loads without errors
-- [ ] "Advanced Filters" button visible in filter bar
-- [ ] Clicking button opens slide-out panel
-- [ ] Panel shows loading spinner, then filter options
-- [ ] Channels show 7 options
-- [ ] Sources show ~24 options with search
-- [ ] SGAs show ~17 options with search (validated - without role filter)
-- [ ] SGMs show ~9 options with search (validated - without role filter)
-- [ ] Initial Call filter only shows in Full Funnel view
-- [ ] Qualification Call filter shows in both views
-- [ ] **"All" checkbox can be unchecked to allow selecting specific items**
-- [ ] **When "All" is unchecked, individual checkboxes become enabled**
-- [ ] **When "All" is unchecked and items are selected, filters apply correctly**
-- [ ] **When "All" is checked again, it clears selection and shows all items**
-- [ ] Selecting filters and clicking Apply updates dashboard
-- [ ] Reset All clears all filters
-- [ ] Badge shows correct count of active filters
+- [x] Dashboard loads without errors
+- [x] "Advanced Filters" button visible in filter bar
+- [x] Clicking button opens slide-out panel
+- [x] Panel shows loading spinner, then filter options
+- [x] Channels show 7 options
+- [x] Sources show ~24 options with search
+- [x] SGAs show ~17 options with search (validated - without role filter)
+- [x] SGMs show ~9 options with search (validated - without role filter)
+- [x] Initial Call filter only shows in Full Funnel view
+- [x] Qualification Call filter shows in both views
+- [x] **"All" checkbox can be unchecked to allow selecting specific items**
+- [x] **When "All" is unchecked, individual checkboxes become enabled**
+- [x] **When "All" is unchecked and items are selected, filters apply correctly**
+- [x] **When "All" is checked again, it clears selection and shows all items**
+- [x] Selecting filters and clicking Apply updates dashboard
+- [x] Reset All clears all filters
+- [x] Badge shows correct count of active filters
 
 **⚠️ CHECKPOINT**: Commit changes
 ```bash
@@ -1657,18 +1657,18 @@ git reset --hard HEAD~<number-of-commits>
 
 ## Summary Checklist
 
-- [ ] Phase 1: Types **EXTENDED** (not created) and compile
-- [ ] Phase 2: Filter options API **EXTENDED** (not created) returns data with counts
-- [ ] Phase 3: Component renders without errors (receives filterOptions as prop)
-- [ ] Phase 3: **"All" checkbox toggle functionality implemented** - users can uncheck "All" to select specific items
-- [ ] Phase 4: Filter helpers compile (DATE fields use direct comparison, TIMESTAMP fields use TIMESTAMP() wrapper)
-- [ ] Phase 5: Query functions updated (keeps existing signatures)
-- [ ] Phase 6: API routes accept filters (POST method, JSON body)
-- [ ] Phase 7: Dashboard integration complete (advancedFilters in filters object)
-- [ ] Phase 8: All validation tests pass
-- [ ] **Multi-select filters work correctly** - "All" can be unchecked, individual items can be selected
-- [ ] Final build succeeds
-- [ ] Git tagged for release
+- [x] Phase 1: Types **EXTENDED** (not created) and compile
+- [x] Phase 2: Filter options API **EXTENDED** (not created) returns data with counts
+- [x] Phase 3: Component renders without errors (receives filterOptions as prop)
+- [x] Phase 3: **"All" checkbox toggle functionality implemented** - users can uncheck "All" to select specific items
+- [x] Phase 4: Filter helpers compile (DATE fields use direct comparison, TIMESTAMP fields use TIMESTAMP() wrapper)
+- [x] Phase 5: Query functions updated (keeps existing signatures)
+- [x] Phase 6: API routes accept filters (POST method, JSON body)
+- [x] Phase 7: Dashboard integration complete (advancedFilters in filters object)
+- [x] Phase 8: All validation tests pass
+- [x] **Multi-select filters work correctly** - "All" can be unchecked, individual items can be selected
+- [x] Final build succeeds
+- [ ] Git tagged for release (optional - can be done when ready for release)
 
 ---
 
