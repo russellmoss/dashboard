@@ -14,6 +14,12 @@
 
 This plan has been reviewed and corrected against the actual codebase. Key fixes:
 
+**Latest Updates (Pre-Flight Checks Added):**
+- ✅ Added Pre-Flight BigQuery Schema Check (Phase 2.0)
+- ✅ Clarified formatDate() return value and null handling
+- ✅ Added explicit null checks for Badge color functions
+- ✅ Added warnings about timestamp format edge cases
+
 1. ✅ **Import Paths Fixed**:
    - `formatCurrency` → `@/lib/utils/date-helpers` (not `formatters.ts`)
    - `formatDate` → `@/lib/utils/format-helpers` (not `formatDateString`)
@@ -389,6 +395,60 @@ git add -A && git commit -m "Phase 1: Add RecordDetailFull type definitions"
 
 ## Phase 2: Query Function
 
+### Step 2.0: Pre-Flight BigQuery Schema Check
+
+**Cursor.ai Prompt:**
+```
+Before creating the query function, verify the BigQuery schema hasn't changed.
+
+Use MCP to run this verification query:
+```sql
+SELECT column_name, data_type
+FROM `savvy-gtm-analytics.Tableau_Views.INFORMATION_SCHEMA.COLUMNS`
+WHERE table_name = 'vw_funnel_master'
+AND column_name IN (
+  'primary_key', 
+  'Stage_Entered_Sales_Process__c', 
+  'record_type_name', 
+  'Experimentation_Tag_Raw__c',
+  'Full_prospect_id__c',
+  'Full_Opportunity_ID__c',
+  'advisor_name',
+  'Original_source',
+  'Channel_Grouping_Name',
+  'SGA_Owner_Name__c',
+  'SGM_Owner_Name__c',
+  'TOF_Stage',
+  'Conversion_Status',
+  'Opportunity_AUM',
+  'salesforce_url'
+)
+ORDER BY column_name
+```
+
+**Expected Results:**
+- All listed columns should exist
+- `primary_key` should be STRING
+- `Stage_Entered_Sales_Process__c` should exist (TIMESTAMP)
+- `record_type_name` should be STRING
+- `Experimentation_Tag_Raw__c` should be STRING
+
+**If any columns are missing or have unexpected types, report the issue before proceeding.**
+```
+
+**Success Criteria:**
+- [ ] All critical columns exist in the view
+- [ ] Data types match expectations
+- [ ] No schema drift detected
+
+**Checkpoint:**
+```bash
+# Document schema verification results
+# If issues found, report before proceeding
+```
+
+---
+
 ### Step 2.1: Create Record Detail Query
 
 **Cursor.ai Prompt:**
@@ -639,20 +699,32 @@ function transformToRecordDetail(r: RecordDetailRaw): RecordDetailFull {
 
 /**
  * Extract date string from BigQuery result (handles both TIMESTAMP and DATE types)
+ * 
+ * IMPORTANT: BigQuery timestamp fields can be returned in different formats:
+ * - TIMESTAMP fields: Often returned as { value: string } objects
+ * - DATE fields: Usually returned as strings directly
+ * - Sometimes TIMESTAMP fields are returned as strings (depends on BigQuery client)
+ * 
+ * This helper handles all cases, but watch for edge cases during Phase 8 testing
+ * where dates might display incorrectly. If dates show as "[object Object]" or
+ * similar, the format may have changed and this function needs adjustment.
  */
 function extractDateValue(
   field: { value: string } | string | null | undefined
 ): string | null {
   if (!field) return null;
   
-  if (typeof field === 'object' && 'value' in field) {
-    return field.value;
+  // Handle object format: { value: "2025-01-15T10:30:00Z" }
+  if (typeof field === 'object' && field !== null && 'value' in field) {
+    return typeof field.value === 'string' ? field.value : null;
   }
   
+  // Handle string format: "2025-01-15" or "2025-01-15T10:30:00Z"
   if (typeof field === 'string') {
     return field;
   }
   
+  // Fallback for unexpected formats
   return null;
 }
 ```
@@ -1361,7 +1433,12 @@ export function RecordDetailModal({
   if (!isOpen) return null;
 
   // Stage badge color helper
-  const getStageBadgeColor = (stage: string): string => {
+  // IMPORTANT: Verify these colors work with @tremor/react Badge component
+  // Expected valid colors: 'green', 'blue', 'cyan', 'yellow', 'orange', 'gray', 'red', 'purple', etc.
+  // If Badge doesn't accept a color, it will fall back to default styling
+  const getStageBadgeColor = (stage: string | null | undefined): string => {
+    if (!stage) return 'gray'; // Explicit null check
+    
     const colors: Record<string, string> = {
       'Joined': 'green',
       'SQO': 'blue',
@@ -1370,16 +1447,22 @@ export function RecordDetailModal({
       'Contacted': 'orange',
       'Prospect': 'gray',
     };
+    
+    // Return mapped color or default to 'gray' if stage not found
     return colors[stage] || 'gray';
   };
 
   // Record type badge
-  const getRecordTypeBadge = (recordType: string) => {
+  // IMPORTANT: Verify these colors work with @tremor/react Badge component
+  const getRecordTypeBadge = (recordType: string | null | undefined): string => {
+    if (!recordType) return 'gray'; // Explicit null check
+    
     const colors: Record<string, string> = {
       'Lead': 'gray',
       'Opportunity': 'blue',
       'Converted': 'green',
     };
+    
     return colors[recordType] || 'gray';
   };
 
@@ -1855,6 +1938,15 @@ git add -A && git commit -m "Phase 7: Integrate RecordDetailModal into dashboard
 ```
 Use MCP to verify the modal displays correct data by running comparison queries.
 
+**IMPORTANT**: Watch for date format issues during this testing phase. If dates display
+incorrectly (e.g., "[object Object]", "Invalid Date", or wrong format), check:
+1. The extractDateValue() function is handling all BigQuery timestamp formats
+2. The formatDate() function is receiving valid date strings
+3. BigQuery hasn't changed the timestamp return format
+
+Test with records that have various date field combinations to catch edge cases.
+```
+
 Test Query 1: Fetch a specific record and verify all fields match what the modal displays
 ```sql
 SELECT 
@@ -2189,6 +2281,9 @@ If you encounter issues during implementation:
 - [ ] Type definitions match BigQuery schema
 - [ ] API patterns match existing routes
 - [ ] Component patterns match existing modals
+- [ ] **Pre-Flight schema check completed** (Phase 2.0)
+- [ ] **formatDate() signature verified** (returns string, handles null)
+- [ ] **Badge color values verified** (Tremor accepts all used colors)
 
 ### 🚨 Common Pitfalls to Avoid
 
@@ -2197,6 +2292,9 @@ If you encounter issues during implementation:
 3. **Don't use direct `fetch`** - Use `apiFetch` wrapper
 4. **Don't add permission filtering** - Users can only click visible records
 5. **Don't forget `Stage_Entered_Sales_Process__c`** - It's in the view but easy to miss
+6. **Watch for date format issues** - BigQuery timestamps can vary in format; test thoroughly
+7. **Verify Badge colors** - Ensure Tremor Badge accepts all color values used
+8. **Check schema before coding** - Run Pre-Flight schema check to catch drift early
 
 ---
 
