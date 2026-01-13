@@ -14,7 +14,7 @@ import {
   AlertCircle,
   FileText
 } from 'lucide-react';
-import { Badge } from '@tremor/react';
+// Removed Badge import - using custom styled badges instead
 import { RecordDetailFull } from '@/types/record-detail';
 import { dashboardApi } from '@/lib/api-client';
 import { FunnelProgressStepper } from './FunnelProgressStepper';
@@ -145,38 +145,37 @@ export function RecordDetailModal({
 
   if (!isOpen) return null;
 
-  // Stage badge color helper
-  // IMPORTANT: Verify these colors work with @tremor/react Badge component
-  // Expected valid colors: 'green', 'blue', 'cyan', 'yellow', 'orange', 'gray', 'red', 'purple', etc.
-  // If Badge doesn't accept a color, it will fall back to default styling
-  const getStageBadgeColor = (stage: string | null | undefined): string => {
-    if (!stage) return 'gray'; // Explicit null check
+  // Stage badge styling helper - returns Tailwind classes for custom badge
+  const getStageBadgeClasses = (stage: string | null | undefined): string => {
+    if (!stage) {
+      return 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200';
+    }
     
-    const colors: Record<string, string> = {
-      'Joined': 'green',
-      'SQO': 'blue',
-      'SQL': 'cyan',
-      'MQL': 'yellow',
-      'Contacted': 'orange',
-      'Prospect': 'gray',
+    const styles: Record<string, string> = {
+      'Joined': 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200',
+      'SQO': 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200',
+      'SQL': 'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-200',
+      'MQL': 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200',
+      'Contacted': 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200',
+      'Prospect': 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200',
     };
     
-    // Return mapped color or default to 'gray' if stage not found
-    return colors[stage] || 'gray';
+    return styles[stage] || 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200';
   };
 
-  // Record type badge
-  // IMPORTANT: Verify these colors work with @tremor/react Badge component
-  const getRecordTypeBadge = (recordType: string | null | undefined): string => {
-    if (!recordType) return 'gray'; // Explicit null check
+  // Record type badge styling helper - returns Tailwind classes for custom badge
+  const getRecordTypeBadgeClasses = (recordType: string | null | undefined): string => {
+    if (!recordType) {
+      return 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200';
+    }
     
-    const colors: Record<string, string> = {
-      'Lead': 'gray',
-      'Opportunity': 'blue',
-      'Converted': 'green',
+    const styles: Record<string, string> = {
+      'Lead': 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200',
+      'Opportunity': 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200',
+      'Converted': 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200',
     };
     
-    return colors[recordType] || 'gray';
+    return styles[recordType] || 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200';
   };
 
   return (
@@ -204,13 +203,13 @@ export function RecordDetailModal({
                   {record.advisorName}
                 </h2>
                 <div className="flex items-center gap-2 mt-1">
-                  <Badge color={getRecordTypeBadge(record.recordType)} size="xs">
+                  <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getRecordTypeBadgeClasses(record.recordType)}`}>
                     {record.recordType}
-                  </Badge>
+                  </span>
                   {record.recordTypeName && (
-                    <Badge color="gray" size="xs">
+                    <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200">
                       {record.recordTypeName}
-                    </Badge>
+                    </span>
                   )}
                 </div>
               </>
@@ -223,9 +222,9 @@ export function RecordDetailModal({
           
           <div className="flex items-center gap-3 ml-4">
             {record && (
-              <Badge color={getStageBadgeColor(record.tofStage)} size="lg">
+              <span className={`px-3 py-1.5 text-sm font-semibold rounded-full ${getStageBadgeClasses(record.tofStage)}`}>
                 {record.tofStage}
-              </Badge>
+              </span>
             )}
             <button
               onClick={onClose}
