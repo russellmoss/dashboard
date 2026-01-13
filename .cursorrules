@@ -395,7 +395,7 @@ When reviewing or modifying code:
 3. **Test query directly**: Run BigQuery query in console to verify results
 4. **Check date fields**: Ensure using correct date dimension for each metric
 5. **Verify deduplication**: Check that `is_*_unique` flags are used correctly
-6. **Test with known values**: Use Q4 2025 as test case
+6. **Test with known values**: Use Q1 2025 as primary test case (TIER 1)
 
 ### File Modification Rules
 
