@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useMemo } from 'react';
 import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Badge } from '@tremor/react';
 import { SourcePerformanceWithGoals } from '@/types/dashboard';
 import { formatCurrency, formatPercent, formatNumber } from '@/lib/utils/date-helpers';
@@ -9,6 +10,10 @@ import {
   getVarianceColorClass 
 } from '@/lib/utils/goal-helpers';
 import { ExportButton } from '@/components/ui/ExportButton';
+import { ChevronUp, ChevronDown } from 'lucide-react';
+
+type SortColumn = 'source' | 'channel' | 'prospects' | 'contacted' | 'contactedToMql' | 'mqls' | 'mqlToSql' | 'sqls' | 'sqos' | 'sqlToSqo' | 'joined' | 'sqoToJoined' | 'aum' | null;
+type SortDirection = 'asc' | 'desc';
 
 interface SourcePerformanceTableProps {
   sources: SourcePerformanceWithGoals[];
@@ -46,6 +51,66 @@ function MetricWithGoal({
   );
 }
 
+/**
+ * Sort sources based on column and direction
+ * 
+ * @param sources - Array of source performance data to sort
+ * @param sortColumn - Column to sort by (null for no sorting)
+ * @param sortDirection - Sort direction ('asc' | 'desc')
+ * @returns Sorted array of sources
+ */
+function sortSources(sources: SourcePerformanceWithGoals[], sortColumn: SortColumn, sortDirection: SortDirection): SourcePerformanceWithGoals[] {
+  if (!sortColumn) return sources;
+  
+  return [...sources].sort((a, b) => {
+    let comparison = 0;
+    
+    switch (sortColumn) {
+      case 'source':
+        comparison = (a.source || '').toLowerCase().localeCompare((b.source || '').toLowerCase());
+        break;
+      case 'channel':
+        comparison = (a.channel || '').toLowerCase().localeCompare((b.channel || '').toLowerCase());
+        break;
+      case 'prospects':
+        comparison = (a.prospects || 0) - (b.prospects || 0);
+        break;
+      case 'contacted':
+        comparison = (a.contacted || 0) - (b.contacted || 0);
+        break;
+      case 'contactedToMql':
+        comparison = (a.contactedToMqlRate || 0) - (b.contactedToMqlRate || 0);
+        break;
+      case 'mqls':
+        comparison = (a.mqls || 0) - (b.mqls || 0);
+        break;
+      case 'mqlToSql':
+        comparison = (a.mqlToSqlRate || 0) - (b.mqlToSqlRate || 0);
+        break;
+      case 'sqls':
+        comparison = (a.sqls || 0) - (b.sqls || 0);
+        break;
+      case 'sqos':
+        comparison = (a.sqos || 0) - (b.sqos || 0);
+        break;
+      case 'sqlToSqo':
+        comparison = (a.sqlToSqoRate || 0) - (b.sqlToSqoRate || 0);
+        break;
+      case 'joined':
+        comparison = (a.joined || 0) - (b.joined || 0);
+        break;
+      case 'sqoToJoined':
+        comparison = (a.sqoToJoinedRate || 0) - (b.sqoToJoinedRate || 0);
+        break;
+      case 'aum':
+        comparison = (a.aum || 0) - (b.aum || 0);
+        break;
+    }
+    
+    return sortDirection === 'asc' ? comparison : -comparison;
+  });
+}
+
 export function SourcePerformanceTable({ 
   sources, 
   selectedSource, 
@@ -53,6 +118,9 @@ export function SourcePerformanceTable({
   channelFilter,
   viewMode = 'focused'
 }: SourcePerformanceTableProps) {
+  const [sortColumn, setSortColumn] = useState<SortColumn>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  
   const filteredSources = channelFilter 
     ? sources.filter(s => s.channel === channelFilter)
     : sources;
@@ -60,8 +128,57 @@ export function SourcePerformanceTable({
   // Check if any source has goals
   const hasGoals = filteredSources.some(s => s.goals && (s.goals.mqls > 0 || s.goals.sqls > 0 || s.goals.sqos > 0));
   
-  // Prepare data for CSV export
-  const exportData = filteredSources.map(source => ({
+  // Sort sources
+  const sortedSources = useMemo(() => {
+    return sortSources(filteredSources, sortColumn, sortDirection);
+  }, [filteredSources, sortColumn, sortDirection]);
+  
+  // Handle column header click for sorting
+  const handleSort = (column: SortColumn) => {
+    if (column === null) return;
+    
+    if (sortColumn === column) {
+      // Toggle direction if clicking the same column
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      // Set new column and default to ascending
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+  
+  // Sortable header cell component
+  const SortableHeader = ({ column, children, alignRight = true }: { column: SortColumn; children: React.ReactNode; alignRight?: boolean }) => {
+    const isActive = sortColumn === column;
+    const showAsc = isActive && sortDirection === 'asc';
+    const showDesc = isActive && sortDirection === 'desc';
+    
+    return (
+      <TableHeaderCell 
+        className={`border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 ${
+          column !== null ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 select-none' : ''
+        } ${alignRight ? 'text-right' : ''}`}
+        onClick={() => handleSort(column)}
+      >
+        <div className={`flex items-center gap-1 ${alignRight ? 'justify-end' : ''}`}>
+          {children}
+          {column !== null && (
+            <div className="flex flex-col">
+              <ChevronUp 
+                className={`w-3 h-3 ${showAsc ? 'text-blue-600 dark:text-blue-400' : 'text-gray-300 dark:text-gray-600'}`} 
+              />
+              <ChevronDown 
+                className={`w-3 h-3 -mt-1 ${showDesc ? 'text-blue-600 dark:text-blue-400' : 'text-gray-300 dark:text-gray-600'}`} 
+              />
+            </div>
+          )}
+        </div>
+      </TableHeaderCell>
+    );
+  };
+  
+  // Prepare data for CSV export (use sorted sources)
+  const exportData = sortedSources.map(source => ({
     Source: source.source,
     Channel: source.channel,
     ...(viewMode === 'fullFunnel' && {
@@ -108,55 +225,63 @@ export function SourcePerformanceTable({
         <Table>
           <TableHead>
             <TableRow className="bg-gray-50 dark:bg-gray-900">
-              <TableHeaderCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                Source
+              <TableHeaderCell 
+                className={`border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 ${
+                  'source' !== null ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 select-none' : ''
+                }`}
+                onClick={() => handleSort('source')}
+              >
+                <div className="flex items-center gap-1">
+                  Source
+                  <div className="flex flex-col">
+                    <ChevronUp 
+                      className={`w-3 h-3 ${sortColumn === 'source' && sortDirection === 'asc' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-300 dark:text-gray-600'}`} 
+                    />
+                    <ChevronDown 
+                      className={`w-3 h-3 -mt-1 ${sortColumn === 'source' && sortDirection === 'desc' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-300 dark:text-gray-600'}`} 
+                    />
+                  </div>
+                </div>
               </TableHeaderCell>
-              <TableHeaderCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                Channel
+              <TableHeaderCell 
+                className={`border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 ${
+                  'channel' !== null ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 select-none' : ''
+                }`}
+                onClick={() => handleSort('channel')}
+              >
+                <div className="flex items-center gap-1">
+                  Channel
+                  <div className="flex flex-col">
+                    <ChevronUp 
+                      className={`w-3 h-3 ${sortColumn === 'channel' && sortDirection === 'asc' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-300 dark:text-gray-600'}`} 
+                    />
+                    <ChevronDown 
+                      className={`w-3 h-3 -mt-1 ${sortColumn === 'channel' && sortDirection === 'desc' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-300 dark:text-gray-600'}`} 
+                    />
+                  </div>
+                </div>
               </TableHeaderCell>
               {viewMode === 'fullFunnel' && (
                 <>
-                  <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                    Prospects
-                  </TableHeaderCell>
-                  <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                    Contacted
-                  </TableHeaderCell>
-                  <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                    Contacted→MQL
-                  </TableHeaderCell>
+                  <SortableHeader column="prospects">Prospects</SortableHeader>
+                  <SortableHeader column="contacted">Contacted</SortableHeader>
+                  <SortableHeader column="contactedToMql">Contacted→MQL</SortableHeader>
                 </>
               )}
-              <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                MQLs{viewMode === 'fullFunnel' && hasGoals && ' / Goal'}
-              </TableHeaderCell>
+              <SortableHeader column="mqls">MQLs{viewMode === 'fullFunnel' && hasGoals && ' / Goal'}</SortableHeader>
               {viewMode === 'fullFunnel' && (
-                <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                  MQL→SQL
-                </TableHeaderCell>
+                <SortableHeader column="mqlToSql">MQL→SQL</SortableHeader>
               )}
-              <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                SQLs{hasGoals && ' / Goal'}
-              </TableHeaderCell>
-              <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                SQOs{hasGoals && ' / Goal'}
-              </TableHeaderCell>
-              <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                SQL→SQO
-              </TableHeaderCell>
-              <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                Joined{hasGoals && ' / Goal'}
-              </TableHeaderCell>
-              <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                SQO→Joined
-              </TableHeaderCell>
-              <TableHeaderCell className="text-right text-gray-600 dark:text-gray-400">
-                AUM
-              </TableHeaderCell>
+              <SortableHeader column="sqls">SQLs{hasGoals && ' / Goal'}</SortableHeader>
+              <SortableHeader column="sqos">SQOs{hasGoals && ' / Goal'}</SortableHeader>
+              <SortableHeader column="sqlToSqo">SQL→SQO</SortableHeader>
+              <SortableHeader column="joined">Joined{hasGoals && ' / Goal'}</SortableHeader>
+              <SortableHeader column="sqoToJoined">SQO→Joined</SortableHeader>
+              <SortableHeader column="aum">AUM</SortableHeader>
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredSources.map((source, idx) => {
+            {sortedSources.map((source, idx) => {
               const isSelected = selectedSource === source.source;
               const zebraClass = idx % 2 === 0 
                 ? 'bg-white dark:bg-gray-800' 
@@ -254,7 +379,7 @@ export function SourcePerformanceTable({
         </Table>
       </div>
       
-      {filteredSources.length === 0 && (
+      {sortedSources.length === 0 && (
         <div className="p-8 text-center text-gray-500 dark:text-gray-400">
           No source data available
         </div>
