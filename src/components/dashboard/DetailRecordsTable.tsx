@@ -425,11 +425,11 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
                   <TableCell className="border-r border-gray-200 dark:border-gray-700">
                     <div className="flex items-center gap-2">
                       <span className="text-gray-700 dark:text-gray-300">{record.stage}</span>
-                      {viewMode === 'fullFunnel' && record.isContacted && <Badge size="xs" color="red">Contacted</Badge>}
-                      {viewMode === 'fullFunnel' && record.isMql && <Badge size="xs" color="orange">MQL</Badge>}
-                      {record.isSql && <Badge size="xs" color="blue">SQL</Badge>}
-                      {record.isSqo && <Badge size="xs" color="green">SQO</Badge>}
-                      {record.isJoined && <Badge size="xs" color="purple">Joined</Badge>}
+                      {viewMode === 'fullFunnel' && record.isContacted && <span className="text-red-600 dark:text-red-400 font-medium">Contacted</span>}
+                      {viewMode === 'fullFunnel' && record.isMql && <span className="text-orange-600 dark:text-orange-400 font-medium">MQL</span>}
+                      {record.isSql && <span className="text-blue-600 dark:text-blue-400 font-medium">SQL</span>}
+                      {record.isSqo && <span className="text-green-600 dark:text-green-400 font-medium">SQO</span>}
+                      {record.isJoined && <span className="text-purple-600 dark:text-purple-400 font-medium">Joined</span>}
                     </div>
                   </TableCell>
                   <TableCell className="text-sm border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">

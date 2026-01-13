@@ -64,16 +64,11 @@ function DetailRow({
 
 // Helper component for date rows with formatting
 function DateRow({ label, value }: { label: string; value: string | null | undefined }) {
-  if (!value) return null;
+  // formatDate now handles null/undefined and invalid dates, returning empty string
+  const formatted = formatDate(value);
   
-  // IMPORTANT: Verify formatDate signature in src/lib/utils/format-helpers.ts
-  // Expected: formatDate(date: string | Date | null | undefined) => string
-  // Returns: "Jan 15, 2025" format or empty string for null/undefined
-  // 
-  // If formatDate doesn't handle null/undefined, add explicit check:
-  const formatted = value ? formatDate(value) : '';
-  
-  if (!formatted) return null; // Don't render if formatting fails
+  // Don't render if no formatted value
+  if (!formatted) return null;
   
   return (
     <div className="flex justify-between py-1.5 border-b border-gray-100 dark:border-gray-700 last:border-0">
