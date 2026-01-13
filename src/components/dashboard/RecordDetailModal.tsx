@@ -284,11 +284,11 @@ export function RecordDetailModal({
                     <DateRow label="Created" value={record.createdDate} />
                     <DateRow label="Contacted" value={record.contactedDate} />
                     <DateRow label="MQL" value={record.mqlDate} />
-                    <DateRow label="SQL (Converted)" value={record.sqlDate} />
-                    <DateRow label="Became SQO" value={record.sqoDate} />
-                    <DateRow label="Joined" value={record.joinedDate} />
                     <DateRow label="Initial Call" value={record.initialCallScheduledDate} />
+                    <DateRow label="SQL" value={record.sqlDate} />
                     <DateRow label="Qualification Call" value={record.qualificationCallDate} />
+                    <DateRow label="SQO" value={record.sqoDate} />
+                    <DateRow label="Joined" value={record.joinedDate} />
                   </div>
                 </div>
 
