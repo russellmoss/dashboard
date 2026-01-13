@@ -20,6 +20,7 @@ interface DetailRecordsTableProps {
   viewMode?: ViewMode;
   advancedFilters?: AdvancedFilters; // To determine which date columns to show
   metricFilter?: 'all' | 'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'joined' | 'openPipeline'; // To determine what date is shown
+  onRecordClick?: (recordId: string) => void;
 }
 
 /**
@@ -137,7 +138,7 @@ function sortRecords(records: DetailRecord[], sortColumn: SortColumn, sortDirect
   });
 }
 
-export function DetailRecordsTable({ records, title = 'Detail Records', filterDescription, canExport = false, viewMode = 'focused', advancedFilters, metricFilter = 'all' }: DetailRecordsTableProps) {
+export function DetailRecordsTable({ records, title = 'Detail Records', filterDescription, canExport = false, viewMode = 'focused', advancedFilters, metricFilter = 'all', onRecordClick }: DetailRecordsTableProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchField, setSearchField] = useState<SearchField>('advisor');
   const [currentPage, setCurrentPage] = useState(1);
@@ -416,6 +417,7 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
                 <TableRow 
                   key={record.id}
                   className={`${idx % 2 === 0 ? 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700' : 'bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700'} transition-colors cursor-pointer`}
+                  onClick={() => onRecordClick?.(record.id)}
                 >
                   <TableCell className="font-medium border-r border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100">{record.advisorName}</TableCell>
                   <TableCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">{record.source}</TableCell>
@@ -452,6 +454,7 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
                         href={record.salesforceUrl}
                         target="_blank"
                         rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
                         className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm"
                       >
                         View <ExternalLink className="w-3 h-3" />
