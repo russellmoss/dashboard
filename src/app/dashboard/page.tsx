@@ -12,6 +12,7 @@ import { SourcePerformanceTable } from '@/components/dashboard/SourcePerformance
 import { DetailRecordsTable } from '@/components/dashboard/DetailRecordsTable';
 import { ExportToSheetsButton } from '@/components/dashboard/ExportToSheetsButton';
 import { AdvancedFilters, AdvancedFiltersButton } from '@/components/dashboard/AdvancedFilters';
+import { RecordDetailModal } from '@/components/dashboard/RecordDetailModal';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ChartErrorBoundary, TableErrorBoundary, CardErrorBoundary, FilterErrorBoundary } from '@/components/ui';
 import { dashboardApi, handleApiError } from '@/lib/api-client';
@@ -90,6 +91,7 @@ export default function DashboardPage() {
   const [trendGranularity, setTrendGranularity] = useState<'month' | 'quarter'>('quarter');
   const [trendMode, setTrendMode] = useState<ConversionTrendMode>('cohort');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   
   // Fetch filter options on mount
   useEffect(() => {
@@ -205,6 +207,16 @@ export default function DashboardPage() {
     setSelectedChannel(null);
     setSelectedSource(null);
   };
+
+  // Handle record click to open modal
+  const handleRecordClick = useCallback((recordId: string) => {
+    setSelectedRecordId(recordId);
+  }, []);
+
+  // Handle modal close
+  const handleCloseRecordModal = useCallback(() => {
+    setSelectedRecordId(null);
+  }, []);
   
   // Build detail table description
   const getDetailDescription = () => {
@@ -352,6 +364,7 @@ export default function DashboardPage() {
               viewMode={viewMode}
               advancedFilters={filters.advancedFilters}
               metricFilter={filters.metricFilter}
+              onRecordClick={handleRecordClick}
             />
           </TableErrorBoundary>
         </>
@@ -370,6 +383,13 @@ export default function DashboardPage() {
           filterOptions={filterOptions}
         />
       )}
+
+      {/* Record Detail Modal */}
+      <RecordDetailModal
+        isOpen={selectedRecordId !== null}
+        onClose={handleCloseRecordModal}
+        recordId={selectedRecordId}
+      />
     </div>
   );
 }
