@@ -6,6 +6,7 @@ import { getAggregateForecastGoals } from '@/lib/queries/forecast-goals';
 import { getUserPermissions } from '@/lib/permissions';
 import { DashboardFilters } from '@/types/filters';
 import { buildDateRangeFromFilters } from '@/lib/utils/date-helpers';
+import { logger } from '@/lib/logger';
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,9 +26,8 @@ export async function POST(request: NextRequest) {
       filters.sgm = permissions.sgmFilter;
     }
     
-    // Debug: Log the filters being used
     const { startDate, endDate } = buildDateRangeFromFilters(filters);
-    console.log('[Funnel Metrics API] Date range:', { startDate, endDate, datePreset: filters.datePreset, year: filters.year });
+    logger.debug('[Funnel Metrics API] Date range', { startDate, endDate, datePreset: filters.datePreset, year: filters.year });
     
     // Fetch metrics and goals in parallel
     // Use allSettled so goals failure doesn't break the entire request
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       getFunnelMetrics(filters),
       getAggregateForecastGoals(filters).catch((error) => {
         // Log but don't fail - goals are optional
-        console.error('[Funnel Metrics API] Forecast goals query failed (non-critical):', error.message || error);
+        logger.warn('[Funnel Metrics API] Forecast goals query failed (non-critical)', error);
         return null;
       }),
     ]);
@@ -48,7 +48,11 @@ export async function POST(request: NextRequest) {
     const metrics = metricsResult.value;
     const goals = goalsResult.status === 'fulfilled' ? goalsResult.value : null;
     
-    console.log('[Funnel Metrics API] Goals result:', goals ? `Found goals (SQLs: ${goals.sqls}, SQOs: ${goals.sqos})` : 'No goals');
+    logger.debug('[Funnel Metrics API] Goals result', { 
+      hasGoals: !!goals, 
+      sqls: goals?.sqls, 
+      sqos: goals?.sqos 
+    });
     
     // Return combined response
     return NextResponse.json({
@@ -56,7 +60,7 @@ export async function POST(request: NextRequest) {
       goals,
     });
   } catch (error) {
-    console.error('Funnel metrics error:', error);
+    logger.error('Funnel metrics error', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

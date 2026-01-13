@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { logger } from './logger';
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -47,9 +48,10 @@ function getPrismaClient(): PrismaClient {
     process.env.DATABASE_URL = dbUrl;
   }
 
-  console.log('[Prisma] Initializing PrismaClient');
-  console.log('[Prisma] DATABASE_URL available:', !!process.env.DATABASE_URL);
-  console.log('[Prisma] DATABASE_URL prefix:', process.env.DATABASE_URL?.substring(0, 30) || 'NOT SET');
+  logger.debug('[Prisma] Initializing PrismaClient', {
+    hasDatabaseUrl: !!process.env.DATABASE_URL,
+    databaseUrlPrefix: process.env.DATABASE_URL?.substring(0, 30) || 'NOT SET',
+  });
 
   try {
     // Create PrismaClient - Prisma 7 with binary engine reads DATABASE_URL from process.env
@@ -57,11 +59,12 @@ function getPrismaClient(): PrismaClient {
       log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
     });
 
-    console.log('[Prisma] PrismaClient created successfully');
+    logger.info('[Prisma] PrismaClient created successfully');
     return globalForPrisma.prisma;
   } catch (error: any) {
-    console.error('[Prisma] Failed to create PrismaClient:', error.message);
-    console.error('[Prisma] DATABASE_URL at error time:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
+    logger.error('[Prisma] Failed to create PrismaClient', error, {
+      hasDatabaseUrl: !!process.env.DATABASE_URL,
+    });
     throw error;
   }
 }
