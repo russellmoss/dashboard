@@ -127,13 +127,19 @@ export function AdvancedFilters({
   };
 
   const handleSelectAll = (filterKey: 'channels' | 'sources' | 'sgas' | 'sgms') => {
-    setLocalFilters(prev => ({
-      ...prev,
-      [filterKey]: {
-        selectAll: true,
-        selected: [],
-      },
-    }));
+    setLocalFilters(prev => {
+      const current = prev[filterKey];
+      // Toggle: if currently "All" is selected, uncheck it (set to false with empty selection)
+      // If "All" is not selected, check it (set to true and clear selection)
+      const newSelectAll = !current.selectAll;
+      return {
+        ...prev,
+        [filterKey]: {
+          selectAll: newSelectAll,
+          selected: newSelectAll ? [] : current.selected, // Keep existing selection when unchecking "All"
+        },
+      };
+    });
   };
 
   const handleApply = () => {
@@ -397,7 +403,9 @@ function MultiSelectFilterControl({
         {options.map(option => (
           <label 
             key={option.value}
-            className="flex items-center px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+            className={`flex items-center px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-700 ${
+              filter.selectAll ? 'opacity-50' : 'cursor-pointer'
+            }`}
           >
             <input
               type="checkbox"
