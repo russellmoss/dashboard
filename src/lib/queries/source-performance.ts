@@ -1,12 +1,20 @@
 import { runQuery } from '../bigquery';
 import { SourcePerformance, ChannelPerformance } from '@/types/dashboard';
-import { DashboardFilters } from '@/types/filters';
+import { DashboardFilters, DEFAULT_ADVANCED_FILTERS } from '@/types/filters';
+import { buildAdvancedFilterClauses } from '../utils/filter-helpers';
 import { buildDateRangeFromFilters } from '../utils/date-helpers';
 import { RawSourcePerformanceResult, toNumber, toString } from '@/types/bigquery-raw';
 import { FULL_TABLE, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
 
 export async function getChannelPerformance(filters: DashboardFilters): Promise<ChannelPerformance[]> {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
+  
+  // Extract advancedFilters from filters object
+  const advancedFilters = filters.advancedFilters || DEFAULT_ADVANCED_FILTERS;
+  
+  // Build advanced filter clauses
+  const { whereClauses: advFilterClauses, params: advFilterParams } = 
+    buildAdvancedFilterClauses(advancedFilters, 'adv');
   
   // Build conditions manually since we need table aliases
   const conditions: string[] = [];
@@ -24,6 +32,10 @@ export async function getChannelPerformance(filters: DashboardFilters): Promise<
     conditions.push('v.SGM_Owner_Name__c = @sgm');
     params.sgm = filters.sgm;
   }
+  
+  // Add advanced filter clauses to existing conditions
+  conditions.push(...advFilterClauses);
+  Object.assign(params, advFilterParams);
   
   // Use mapped channel from new_mapping table
   conditions.push('COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, \'Other\') IS NOT NULL');
@@ -194,6 +206,13 @@ export async function getChannelPerformance(filters: DashboardFilters): Promise<
 export async function getSourcePerformance(filters: DashboardFilters): Promise<SourcePerformance[]> {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
   
+  // Extract advancedFilters from filters object
+  const advancedFilters = filters.advancedFilters || DEFAULT_ADVANCED_FILTERS;
+  
+  // Build advanced filter clauses
+  const { whereClauses: advFilterClauses, params: advFilterParams } = 
+    buildAdvancedFilterClauses(advancedFilters, 'adv');
+  
   // Build conditions manually since we need table aliases
   const conditions: string[] = [];
   const params: Record<string, any> = {
@@ -215,6 +234,10 @@ export async function getSourcePerformance(filters: DashboardFilters): Promise<S
     conditions.push('v.SGM_Owner_Name__c = @sgm');
     params.sgm = filters.sgm;
   }
+  
+  // Add advanced filter clauses to existing conditions
+  conditions.push(...advFilterClauses);
+  Object.assign(params, advFilterParams);
   
   conditions.push('v.Original_source IS NOT NULL');
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

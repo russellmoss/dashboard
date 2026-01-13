@@ -1,6 +1,7 @@
 import { runQuery } from '../bigquery';
 import { ConversionRates, TrendDataPoint, ConversionRatesResponse } from '@/types/dashboard';
-import { DashboardFilters } from '@/types/filters';
+import { DashboardFilters, DEFAULT_ADVANCED_FILTERS } from '@/types/filters';
+import { buildAdvancedFilterClauses } from '../utils/filter-helpers';
 import { 
   buildDateRangeFromFilters,
   getQuarterFromDate,
@@ -45,6 +46,13 @@ export async function getConversionRates(
 ): Promise<ConversionRatesResponse> {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
   
+  // Extract advancedFilters from filters object
+  const advancedFilters = filters.advancedFilters || DEFAULT_ADVANCED_FILTERS;
+  
+  // Build advanced filter clauses
+  const { whereClauses: advFilterClauses, params: advFilterParams } = 
+    buildAdvancedFilterClauses(advancedFilters, 'adv');
+  
   const params: Record<string, any> = {
     startDate,
     endDate: endDate + ' 23:59:59',
@@ -69,6 +77,10 @@ export async function getConversionRates(
     conditions.push('v.SGM_Owner_Name__c = @sgm');
     params.sgm = filters.sgm;
   }
+  
+  // Add advanced filter clauses to existing conditions
+  conditions.push(...advFilterClauses);
+  Object.assign(params, advFilterParams);
 
   const filterWhereClause = conditions.length > 0 
     ? 'AND ' + conditions.join(' AND ') 
@@ -436,6 +448,13 @@ export async function getConversionTrends(
   // BUILD FILTER CONDITIONS
   // These are applied in each CTE to filter by channel, source, SGA, SGM
   // ═══════════════════════════════════════════════════════════════════════════
+  // Extract advancedFilters from filters object
+  const advancedFilters = filters.advancedFilters || DEFAULT_ADVANCED_FILTERS;
+  
+  // Build advanced filter clauses
+  const { whereClauses: advFilterClauses, params: advFilterParams } = 
+    buildAdvancedFilterClauses(advancedFilters, 'adv');
+  
   const conditions: string[] = [];
   const params: Record<string, any> = {
     trendStartDate,
@@ -459,6 +478,10 @@ export async function getConversionTrends(
     conditions.push('v.SGM_Owner_Name__c = @sgm');
     params.sgm = filters.sgm;
   }
+  
+  // Add advanced filter clauses to existing conditions
+  conditions.push(...advFilterClauses);
+  Object.assign(params, advFilterParams);
   
   // Build WHERE clause for filters (applied in each CTE after date filter)
   const filterWhereClause = conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : '';

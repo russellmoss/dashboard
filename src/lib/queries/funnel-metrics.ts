@@ -1,12 +1,20 @@
 import { runQuery, buildQueryParams } from '../bigquery';
 import { FunnelMetrics } from '@/types/dashboard';
-import { DashboardFilters } from '@/types/filters';
+import { DashboardFilters, DEFAULT_ADVANCED_FILTERS } from '@/types/filters';
 import { buildDateRangeFromFilters } from '../utils/date-helpers';
+import { buildAdvancedFilterClauses } from '../utils/filter-helpers';
 import { RawFunnelMetricsResult, RawOpenPipelineResult, toNumber } from '@/types/bigquery-raw';
 import { FULL_TABLE, OPEN_PIPELINE_STAGES, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
 
 export async function getFunnelMetrics(filters: DashboardFilters): Promise<FunnelMetrics> {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
+  
+  // Extract advancedFilters from filters object
+  const advancedFilters = filters.advancedFilters || DEFAULT_ADVANCED_FILTERS;
+  
+  // Build advanced filter clauses
+  const { whereClauses: advFilterClauses, params: advFilterParams } = 
+    buildAdvancedFilterClauses(advancedFilters, 'adv');
   
   // Build parameterized query conditions (EXCLUDE FilterDate - we count by specific date fields)
   // Only include channel, source, sga, sgm filters - NOT date filters
@@ -30,6 +38,10 @@ export async function getFunnelMetrics(filters: DashboardFilters): Promise<Funne
     conditions.push('v.SGM_Owner_Name__c = @sgm');
     params.sgm = filters.sgm;
   }
+  
+  // Add advanced filter clauses to existing conditions
+  conditions.push(...advFilterClauses);
+  Object.assign(params, advFilterParams);
   
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   
