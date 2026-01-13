@@ -44,7 +44,7 @@ export function InfoTooltip({ content, className = '' }: InfoTooltipProps) {
       />
       {isVisible && (
         <div
-          className={`absolute z-50 w-80 p-3 text-sm bg-gray-900 text-white rounded-lg shadow-lg -translate-x-1/2 left-1/2 ${
+          className={`absolute z-50 w-80 max-w-[320px] p-3 text-sm bg-gray-900 text-white rounded-lg shadow-lg -translate-x-1/2 left-1/2 ${
             position === 'above' 
               ? 'bottom-full mb-2' 
               : 'top-full mt-2'
@@ -57,7 +57,9 @@ export function InfoTooltip({ content, className = '' }: InfoTooltipProps) {
                 : '-top-1.5'
             }`}
           />
-          {content}
+          <div className="break-words whitespace-normal overflow-hidden">
+            {content}
+          </div>
         </div>
       )}
     </div>
