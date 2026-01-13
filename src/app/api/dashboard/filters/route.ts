@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { runQuery } from '@/lib/bigquery';
-import { FULL_TABLE } from '@/config/constants';
+import { FULL_TABLE, MAPPING_TABLE } from '@/config/constants';
 import { FilterOptions } from '@/types/filters';
-import { RawSgaResult, RawSgmResult } from '@/types/bigquery-raw';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,66 +14,58 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     
-    // Get distinct filter options from BigQuery
+    // Get distinct filter options from BigQuery with counts
     // Use new_mapping table for latest channel mappings
     const channelsQuery = `
-      SELECT DISTINCT COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel
+      SELECT 
+        COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+        COUNT(*) AS record_count
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.new_mapping\` nm
+      LEFT JOIN \`${MAPPING_TABLE}\` nm
         ON v.Original_source = nm.original_source
       WHERE COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') IS NOT NULL
-      ORDER BY channel
+        AND stage_entered_contacting__c >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
+      GROUP BY COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other')
+      ORDER BY record_count DESC
     `;
     
     const sourcesQuery = `
-      SELECT DISTINCT Original_source as source
+      SELECT 
+        Original_source as source,
+        COUNT(*) AS record_count
       FROM \`${FULL_TABLE}\`
       WHERE Original_source IS NOT NULL
-      ORDER BY Original_source
+        AND stage_entered_contacting__c >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
+      GROUP BY Original_source
+      ORDER BY record_count DESC
     `;
     
-    // Special list of people who should always appear as inactive SGAs in "All" mode
-    // These are people who are marked as "active" but should be treated as inactive
-    const alwaysInactiveSgas = [
-      'Russell Moss',
-      'Anett Diaz',
-      'Bre McDaniel',
-      'Bryan Belville',
-      'GinaRose Galli',
-      'Jed Entin',
-      'Savvy Marketing',
-      'Savvy Operations',
-      'Ariana Butler'
-    ];
-    
+    // Get all SGAs who appear in the data (not filtered by role flag)
+    // Query directly from view without User table JOIN
     const sgasQuery = `
-      SELECT DISTINCT 
-        v.SGA_Owner_Name__c as sga,
-        CASE 
-          WHEN v.SGA_Owner_Name__c IN (${alwaysInactiveSgas.map(name => `'${name.replace(/'/g, "''")}'`).join(', ')}) THEN FALSE
-          ELSE COALESCE(u.IsActive, FALSE)
-        END as isActive
-      FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` u 
-        ON v.SGA_Owner_Name__c = u.Name
-      WHERE v.SGA_Owner_Name__c IS NOT NULL
-        AND (
-          u.IsSGA__c = TRUE 
-          OR v.SGA_Owner_Name__c IN (${alwaysInactiveSgas.map(name => `'${name.replace(/'/g, "''")}'`).join(', ')})
-        )
-      ORDER BY v.SGA_Owner_Name__c
+      SELECT 
+        SGA_Owner_Name__c AS value,
+        COUNT(*) AS record_count
+      FROM \`${FULL_TABLE}\`
+      WHERE SGA_Owner_Name__c IS NOT NULL
+        AND SGA_Owner_Name__c != 'Savvy Operations'
+        AND stage_entered_contacting__c >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
+      GROUP BY SGA_Owner_Name__c
+      ORDER BY record_count DESC
     `;
     
+    // Get all SGMs who appear in the data (not filtered by role flag)
+    // Query directly from view without User table JOIN
     const sgmsQuery = `
-      SELECT DISTINCT 
-        v.SGM_Owner_Name__c as sgm,
-        COALESCE(u.IsActive, FALSE) as isActive
-      FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` u 
-        ON v.SGM_Owner_Name__c = u.Name
-      WHERE v.SGM_Owner_Name__c IS NOT NULL
-        AND u.Is_SGM__c = TRUE
-      ORDER BY v.SGM_Owner_Name__c
+      SELECT 
+        SGM_Owner_Name__c AS value,
+        COUNT(DISTINCT Full_Opportunity_ID__c) AS record_count
+      FROM \`${FULL_TABLE}\`
+      WHERE SGM_Owner_Name__c IS NOT NULL
+        AND Full_Opportunity_ID__c IS NOT NULL
+        AND Opp_CreatedDate >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
+      GROUP BY SGM_Owner_Name__c
+      ORDER BY record_count DESC
     `;
     
     const stagesQuery = `
@@ -92,10 +83,10 @@ export async function GET() {
     `;
     
     const [channels, sources, sgas, sgms, stages, years] = await Promise.all([
-      runQuery<{ channel: string | null }>(channelsQuery),
-      runQuery<{ source: string | null }>(sourcesQuery),
-      runQuery<RawSgaResult>(sgasQuery),
-      runQuery<RawSgmResult>(sgmsQuery),
+      runQuery<{ channel: string | null; record_count: number | string }>(channelsQuery),
+      runQuery<{ source: string | null; record_count: number | string }>(sourcesQuery),
+      runQuery<{ value: string | null; record_count: number | string }>(sgasQuery),
+      runQuery<{ value: string | null; record_count: number | string }>(sgmsQuery),
       runQuery<{ stage: string | null }>(stagesQuery),
       runQuery<{ year: number | null }>(yearsQuery),
     ]);
@@ -104,18 +95,20 @@ export async function GET() {
       channels: channels.map(r => r.channel || '').filter(Boolean),
       sources: sources.map(r => r.source || '').filter(Boolean),
       sgas: sgas
-        .filter(r => r.sga)
+        .filter(r => r.value)
         .map(r => ({
-          value: r.sga!,
-          label: r.sga!,
-          isActive: r.isActive === true || r.isActive === 'true' || r.isActive === 1,
+          value: r.value!,
+          label: r.value!,
+          isActive: true,  // Default to true for dropdown (active/inactive toggle handled in GlobalFilters)
+          count: parseInt((r.record_count?.toString() || '0'), 10),
         })),
       sgms: sgms
-        .filter(r => r.sgm)
+        .filter(r => r.value)
         .map(r => ({
-          value: r.sgm!,
-          label: r.sgm!,
-          isActive: r.isActive === true || r.isActive === 'true' || r.isActive === 1,
+          value: r.value!,
+          label: r.value!,
+          isActive: true,  // Default to true for dropdown (active/inactive toggle handled in GlobalFilters)
+          count: parseInt((r.record_count?.toString() || '0'), 10),
         })),
       stages: stages.map(r => r.stage || '').filter(Boolean),
       years: years.map(r => r.year || 0).filter(y => y > 0),
