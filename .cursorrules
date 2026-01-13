@@ -62,6 +62,12 @@ You are working on the **Savvy Funnel Analytics Dashboard**, a Next.js 14 applic
 - `src/components/dashboard/ConversionRateCards.tsx` - Scorecard cards
 - `src/app/dashboard/page.tsx` - Main dashboard with data fetching
 
+### Documentation
+- `docs/GLOSSARY.md` - Business definitions and terminology
+- `docs/CALCULATIONS.md` - Detailed calculation formulas (period vs cohort modes)
+- `docs/FILTER-MATRIX.md` - Filter application by metric type
+- `vw_funnel_master.sql` - BigQuery view definition with all flags
+
 ## Development Guidelines
 
 ### When Working with Conversion Rates
@@ -82,9 +88,10 @@ You are working on the **Savvy Funnel Analytics Dashboard**, a Next.js 14 applic
 ### When Debugging
 
 1. **Check BigQuery View**: Verify logic against `vw_funnel_master.sql` structure
-2. **Use Console Logs**: Add strategic console.logs to track data flow
+2. **Use Logger**: Use `logger.debug()` from `@/lib/logger` to track data flow (not console.log)
 3. **Test Queries**: Test BigQuery queries directly before implementing in code
 4. **Compare Scorecard**: If chart values differ, compare with scorecard calculation
+5. **Check Documentation**: Refer to `docs/CALCULATIONS.md` and `docs/GLOSSARY.md` for definitions
 
 ## Important Constants
 
@@ -124,10 +131,10 @@ Use these as test cases when debugging:
 
 ## Priority Focus Areas
 
-1. **Fix Conversion Trends Chart**: This is the current blocker - align trend calculations with scorecard logic
-2. **Maintain Data Accuracy**: Ensure all metrics match BigQuery view calculations
-3. **Performance**: Optimize queries and add caching where appropriate
-4. **User Experience**: Improve error messages and loading states
+1. **Maintain Data Accuracy**: Ensure all metrics match BigQuery view calculations
+2. **Performance**: Optimize queries and add caching where appropriate
+3. **User Experience**: Improve error messages and loading states
+4. **Documentation**: Keep `docs/GLOSSARY.md`, `docs/CALCULATIONS.md`, and `docs/FILTER-MATRIX.md` updated
 
 ## Questions to Ask Before Making Changes
 
@@ -136,6 +143,58 @@ Use these as test cases when debugging:
 - Are we properly deduplicating opportunity-level metrics?
 - Are we filtering by the correct record type for SQO calculations?
 - Does this maintain consistency with the scorecard calculations?
+
+## Common Pitfalls - AVOID THESE
+
+### ❌ Using Wrong Deduplication Field
+- **WRONG**: `COUNT(*) WHERE is_sqo = 1`
+- **RIGHT**: `COUNT(*) WHERE is_sqo_unique = 1`
+- **WHY**: Multiple leads can convert to one opportunity. Use `is_sqo_unique` for volume counts, `is_sqo` for progression flags.
+
+### ❌ Missing Record Type Filter for SQOs
+- **WRONG**: `WHERE is_sqo_unique = 1`
+- **RIGHT**: `WHERE is_sqo_unique = 1 AND recordtypeid = '012Dn000000mrO3IAI'`
+- **WHY**: Re-engagement opportunities have different record type. SQO/Joined metrics only count Recruiting opportunities.
+
+### ❌ Using Wrong Date Field for Trend Grouping
+- **WRONG**: Grouping numerator and denominator by different dates without proper joining
+- **RIGHT**: Both must use same date field OR be properly joined with period alignment
+- **WHY**: Mismatched periods give nonsensical rates. Period mode requires entry AND resolution in same period.
+
+### ❌ Cohort Restrictions on Conversions
+- **WRONG**: Only counting conversions where both dates are in same period
+- **RIGHT**: Count all conversions where the ACTION date is in period (cohort mode allows cross-period conversions)
+- **WHY**: A Q3 SQL can become a Q4 SQO - that's a valid Q4 conversion in cohort mode.
+
+### ❌ Confusing SQL__c Field
+- **WRONG**: Assuming `SQL__c` field means SQL status
+- **RIGHT**: `SQL__c = 'Yes'` actually means SQO status (legacy naming)
+- **WHY**: This is a Salesforce legacy naming issue. Always check the value, not the field name.
+
+### ❌ Using Wrong SGA Field
+- **WRONG**: Using `SGA_Owner_Name__c` for opportunity metrics
+- **RIGHT**: Use `SGA_Owner_Name__c` for lead metrics, `Opp_SGA_Name__c` for opportunity metrics
+- **WHY**: SGA attribution changes from Lead to Opportunity after conversion.
+
+### ❌ Filtering by FilterDate for Volume Metrics
+- **WRONG**: `WHERE FilterDate IN date_range` for volume counts
+- **RIGHT**: Use specific date fields (`mql_stage_entered_ts`, `converted_date_raw`, `Date_Became_SQO__c`, etc.)
+- **WHY**: Each metric has its own date field. `FilterDate` is for general filtering, not metric-specific dates.
+
+### ❌ Period Mode Without Resolution Check
+- **WRONG**: Counting all records that entered stage in period
+- **RIGHT**: Count only records that entered AND resolved (progressed or closed) in same period
+- **WHY**: Period mode excludes in-flight records. Both entry and resolution must be in period.
+
+### ❌ Cohort Mode Including Open Records
+- **WRONG**: Including open records in cohort denominators
+- **RIGHT**: Use `eligible_for_*_conversions` flags which only include resolved records
+- **WHY**: Cohort mode measures efficiency of resolved records only. Open records skew results.
+
+### ❌ Missing Opportunity-Level Resolution
+- **WRONG**: Using `lead_closed_date` for SQL→SQO resolution
+- **RIGHT**: Use `StageName = 'Closed Lost'` and `Stage_Entered_Closed__c` for opportunity closure
+- **WHY**: Once converted, resolution is tracked at Opportunity level, not Lead level.
 
 ## Rules and Commands
 
