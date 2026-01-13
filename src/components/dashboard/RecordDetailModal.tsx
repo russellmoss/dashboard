@@ -326,7 +326,7 @@ export function RecordDetailModal({
               {/* Stage Entry Dates - Collapsible/Secondary */}
               {(record.stageEnteredDiscovery || record.stageEnteredSalesProcess || 
                 record.stageEnteredNegotiating || record.stageEnteredSigned || 
-                record.stageEnteredOnHold) && (
+                record.stageEnteredOnHold || record.joinedDate) && (
                 <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4">
                   <SectionHeader icon={Calendar} title="Stage Entry Dates" />
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
@@ -336,6 +336,7 @@ export function RecordDetailModal({
                     <DateRow label="Signed" value={record.stageEnteredSigned} />
                     <DateRow label="On Hold" value={record.stageEnteredOnHold} />
                     <DateRow label="Closed" value={record.stageEnteredClosed} />
+                    <DateRow label="Advisor Joined" value={record.joinedDate} />
                   </div>
                 </div>
               )}
