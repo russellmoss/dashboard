@@ -16,6 +16,7 @@ This document shows which filters apply to which metrics and how they're applied
 
 | Metric | Date Field | Channel Filter | Source Filter | SGA Filter | SGM Filter | Record Type |
 |--------|------------|----------------|---------------|------------|------------|-------------|
+| **Prospect** | `FilterDate` | ✅ | ✅ | `SGA_Owner_Name__c` (Lead) | ❌ | ❌ |
 | **Contacted** | `stage_entered_contacting__c` | ✅ | ✅ | `SGA_Owner_Name__c` (Lead) | ❌ | ❌ |
 | **MQL** | `mql_stage_entered_ts` | ✅ | ✅ | `SGA_Owner_Name__c` (Lead) | ❌ | ❌ |
 | **SQL** | `converted_date_raw` | ✅ | ✅ | `SGA_Owner_Name__c` (Lead) | ❌ | ❌ |
@@ -98,11 +99,12 @@ WHERE v.recordtypeid = @recruitingRecordType
 
 Date filters are applied to **specific date fields** per metric, NOT to a generic `FilterDate`:
 
-| Metric | Date Field Used |
-|--------|----------------|
-| Contacted | `stage_entered_contacting__c` |
-| MQL | `mql_stage_entered_ts` |
-| SQL | `converted_date_raw` |
+| Metric | Date Field Used | Additional Conditions |
+|--------|----------------|----------------------|
+| Prospect | `FilterDate` | None (all records with FilterDate in range) |
+| Contacted | `stage_entered_contacting__c` | `is_contacted = 1` |
+| MQL | `mql_stage_entered_ts` | `is_mql = 1` |
+| SQL | `converted_date_raw` | `is_sql = 1` |
 | SQO | `Date_Became_SQO__c` |
 | Joined | `advisor_join_date__c` |
 | Open Pipeline AUM | N/A (no date filter) |

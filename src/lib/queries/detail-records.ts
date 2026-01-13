@@ -7,7 +7,7 @@ import { FULL_TABLE, OPEN_PIPELINE_STAGES, RECRUITING_RECORD_TYPE, MAPPING_TABLE
 
 export async function getDetailRecords(
   filters: DashboardFilters,
-  limit: number = 500
+  limit: number = 50000
 ): Promise<DetailRecord[]> {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
   
@@ -44,6 +44,33 @@ export async function getDetailRecords(
   let metricCondition = '';
   
   switch (filters.metricFilter) {
+    case 'prospect':
+      // Prospects: Filter by FilterDate within date range (all records)
+      dateField = 'FilterDate';
+      dateFieldAlias = 'relevant_date';
+      conditions.push('FilterDate IS NOT NULL');
+      conditions.push('TIMESTAMP(FilterDate) >= TIMESTAMP(@startDate)');
+      conditions.push('TIMESTAMP(FilterDate) <= TIMESTAMP(@endDate)');
+      // No additional filters needed
+      break;
+    case 'contacted':
+      // Contacted: Filter by stage_entered_contacting__c within date range AND is_contacted = 1
+      dateField = 'stage_entered_contacting__c';
+      dateFieldAlias = 'relevant_date';
+      conditions.push('is_contacted = 1');
+      conditions.push('stage_entered_contacting__c IS NOT NULL');
+      conditions.push('TIMESTAMP(stage_entered_contacting__c) >= TIMESTAMP(@startDate)');
+      conditions.push('TIMESTAMP(stage_entered_contacting__c) <= TIMESTAMP(@endDate)');
+      break;
+    case 'mql':
+      // MQLs: Filter by mql_stage_entered_ts within date range AND is_mql = 1
+      dateField = 'mql_stage_entered_ts';
+      dateFieldAlias = 'relevant_date';
+      conditions.push('is_mql = 1');
+      conditions.push('mql_stage_entered_ts IS NOT NULL');
+      conditions.push('TIMESTAMP(mql_stage_entered_ts) >= TIMESTAMP(@startDate)');
+      conditions.push('TIMESTAMP(mql_stage_entered_ts) <= TIMESTAMP(@endDate)');
+      break;
     case 'sql':
       // SQLs: Filter by converted_date_raw within date range
       dateField = 'converted_date_raw';
@@ -111,6 +138,8 @@ export async function getDetailRecords(
       v.Opportunity_AUM as aum,
       v.salesforce_url,
       ${dateField} as relevant_date,
+      v.is_contacted,
+      v.is_mql,
       v.is_sql,
       v.is_sqo_unique as is_sqo,
       v.is_joined_unique as is_joined
@@ -148,6 +177,8 @@ export async function getDetailRecords(
       aumFormatted: formatCurrency(r.aum),
       salesforceUrl: toString(r.salesforce_url) || '',
       relevantDate: dateValue,
+      isContacted: r.is_contacted === 1,
+      isMql: r.is_mql === 1,
       isSql: r.is_sql === 1,
       isSqo: r.is_sqo === 1,
       isJoined: r.is_joined === 1,

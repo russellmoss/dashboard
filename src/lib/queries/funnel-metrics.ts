@@ -41,6 +41,27 @@ export async function getFunnelMetrics(filters: DashboardFilters): Promise<Funne
   // NOTE: We do NOT filter by FilterDate in WHERE clause - we count by specific date fields
   const metricsQuery = `
     SELECT
+      -- Prospects: Count records where FilterDate is in range (no additional conditions)
+      SUM(
+        CASE 
+          WHEN v.FilterDate IS NOT NULL
+            AND TIMESTAMP(v.FilterDate) >= TIMESTAMP(@startDate) 
+            AND TIMESTAMP(v.FilterDate) <= TIMESTAMP(@endDate)
+          THEN 1 
+          ELSE 0 
+        END
+      ) as prospects,
+      -- Contacted: Count records where stage_entered_contacting__c is in range AND is_contacted = 1
+      SUM(
+        CASE 
+          WHEN v.stage_entered_contacting__c IS NOT NULL
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate) 
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+            AND v.is_contacted = 1
+          THEN 1 
+          ELSE 0 
+        END
+      ) as contacted,
       -- FIX: MQLs use mql_stage_entered_ts (Call Scheduled), NOT stage_entered_contacting__c
       SUM(
         CASE 
@@ -134,6 +155,9 @@ export async function getFunnelMetrics(filters: DashboardFilters): Promise<Funne
   const [openPipeline] = await runQuery<RawOpenPipelineResult>(openPipelineQuery, openPipelineParams);
   
   return {
+    prospects: toNumber(metrics.prospects),
+    contacted: toNumber(metrics.contacted),
+    mqls: toNumber(metrics.mqls),
     sqls: toNumber(metrics.sqls),
     sqos: toNumber(metrics.sqos),
     joined: toNumber(metrics.joined),

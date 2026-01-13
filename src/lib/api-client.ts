@@ -9,7 +9,8 @@ import {
   SourcePerformance, 
   SourcePerformanceWithGoals,
   DetailRecord, 
-  TrendDataPoint 
+  TrendDataPoint,
+  ViewMode
 } from '@/types/dashboard';
 
 export class ApiError extends Error {
@@ -86,11 +87,11 @@ async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T> 
 export const dashboardApi = {
   getFilterOptions: () => apiFetch<FilterOptions>('/api/dashboard/filters'),
 
-  // Updated to return FunnelMetricsWithGoals
-  getFunnelMetrics: (filters: DashboardFilters) =>
+  // Updated to return FunnelMetricsWithGoals and accept optional viewMode
+  getFunnelMetrics: (filters: DashboardFilters, viewMode?: ViewMode) =>
     apiFetch<FunnelMetricsWithGoals>('/api/dashboard/funnel-metrics', {
       method: 'POST',
-      body: JSON.stringify(filters),
+      body: JSON.stringify({ filters, ...(viewMode && { viewMode }) }),
     }),
 
   getConversionRates: (
@@ -115,21 +116,21 @@ export const dashboardApi = {
       }),
     }),
 
-  // Updated to return ChannelPerformanceWithGoals[]
-  getChannelPerformance: (filters: DashboardFilters) =>
+  // Updated to return ChannelPerformanceWithGoals[] and accept optional viewMode
+  getChannelPerformance: (filters: DashboardFilters, viewMode?: ViewMode) =>
     apiFetch<{ channels: ChannelPerformanceWithGoals[] }>('/api/dashboard/source-performance', {
       method: 'POST',
-      body: JSON.stringify({ filters, groupBy: 'channel' }),
+      body: JSON.stringify({ filters, groupBy: 'channel', ...(viewMode && { viewMode }) }),
     }),
 
-  // Updated to return SourcePerformanceWithGoals[]
-  getSourcePerformance: (filters: DashboardFilters) =>
+  // Updated to return SourcePerformanceWithGoals[] and accept optional viewMode
+  getSourcePerformance: (filters: DashboardFilters, viewMode?: ViewMode) =>
     apiFetch<{ sources: SourcePerformanceWithGoals[] }>('/api/dashboard/source-performance', {
       method: 'POST',
-      body: JSON.stringify({ filters, groupBy: 'source' }),
+      body: JSON.stringify({ filters, groupBy: 'source', ...(viewMode && { viewMode }) }),
     }),
 
-  getDetailRecords: (filters: DashboardFilters, limit = 500) =>
+  getDetailRecords: (filters: DashboardFilters, limit = 50000) =>
     apiFetch<{ records: DetailRecord[] }>('/api/dashboard/detail-records', {
       method: 'POST',
       body: JSON.stringify({ filters, limit }),

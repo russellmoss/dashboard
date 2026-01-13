@@ -8,7 +8,7 @@ export interface DashboardFilters {
   sga: string | null;
   sgm: string | null;
   stage: string | null;
-  metricFilter: 'all' | 'sql' | 'sqo' | 'joined' | 'openPipeline';
+  metricFilter: 'all' | 'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'joined' | 'openPipeline';
 }
 
 export interface FilterOptions {

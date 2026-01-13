@@ -1,7 +1,13 @@
 export type ConversionTrendMode = 'period' | 'cohort';
 export type TrendMode = 'period' | 'cohort'; // Alias for compatibility
 
+// View mode for funnel display
+export type ViewMode = 'focused' | 'fullFunnel';
+
 export interface FunnelMetrics {
+  prospects: number;  // Count by FilterDate
+  contacted: number; // Count by stage_entered_contacting__c with is_contacted=1
+  mqls: number;       // Already calculated in query, just add to type
   sqls: number;
   sqos: number;
   joined: number;
@@ -119,6 +125,8 @@ export interface DetailRecord {
   aumFormatted: string;
   salesforceUrl: string;
   relevantDate: string; // The relevant date field based on metric filter (Date_Became_SQO__c, converted_date_raw, advisor_join_date__c, etc.)
+  isContacted: boolean;
+  isMql: boolean;
   isSql: boolean;
   isSqo: boolean;
   isJoined: boolean;

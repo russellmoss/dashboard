@@ -7,6 +7,7 @@ A Next.js 14 dashboard application that replaces Tableau for funnel analytics, p
 This dashboard connects directly to BigQuery to visualize data from the `vw_funnel_master` view, which serves as the single source of truth for all funnel analytics. The application provides:
 
 - **Real-time Funnel Metrics**: SQLs, SQOs, Joined advisors, and pipeline AUM
+- **Full Funnel View**: Toggle between Focused View (SQL, SQO, Joined) and Full Funnel View (Prospects, Contacted, MQL, SQL, SQO, Joined)
 - **Conversion Rate Analysis**: Track conversion rates across all funnel stages (Contacted→MQL→SQL→SQO→Joined)
 - **Trend Visualization**: Monthly and quarterly trend charts for conversion rates and volumes
 - **Channel & Source Performance**: Drill down into performance by marketing channel and lead source
@@ -76,6 +77,9 @@ src/
 - ✅ **Phase 4**: All API routes (funnel-metrics, conversion-rates, source-performance, detail-records, forecast, open-pipeline, filters)
 - ✅ **Phase 5**: All dashboard components (Scorecards, ConversionRateCards, ConversionTrendChart, tables, filters)
 - ✅ **Phase 6**: Main dashboard page with data fetching and state management
+- ✅ **Phase 6.5**: Post-implementation enhancements (pagination, sorting, multi-field search, Full Funnel View badges, MQLs/goal columns)
+- ✅ **Phase 7**: Integration testing and verification
+- ✅ **Phase 8**: Tech debt cleanup and documentation updates
 
 ### Known Issues
 

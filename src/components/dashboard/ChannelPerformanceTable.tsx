@@ -14,6 +14,7 @@ interface ChannelPerformanceTableProps {
   channels: ChannelPerformanceWithGoals[];
   selectedChannel?: string | null;
   onChannelClick?: (channel: string | null) => void;
+  viewMode?: 'focused' | 'fullFunnel';
 }
 
 // Helper component for displaying metric with goal
@@ -47,14 +48,23 @@ function MetricWithGoal({
 export function ChannelPerformanceTable({ 
   channels, 
   selectedChannel, 
-  onChannelClick 
+  onChannelClick,
+  viewMode = 'focused'
 }: ChannelPerformanceTableProps) {
   // Check if any channel has goals to determine if we show goal info
-  const hasGoals = channels.some(c => c.goals && (c.goals.sqls > 0 || c.goals.sqos > 0));
+  const hasGoals = channels.some(c => c.goals && (c.goals.mqls > 0 || c.goals.sqls > 0 || c.goals.sqos > 0));
   
   // Prepare data for CSV export
   const exportData = channels.map(channel => ({
     Channel: channel.channel,
+    ...(viewMode === 'fullFunnel' && {
+      Prospects: channel.prospects,
+      Contacted: channel.contacted,
+      MQLs: channel.mqls,
+      'MQLs Goal': channel.goals?.mqls ?? '',
+      'Contacted→MQL Rate': (channel.contactedToMqlRate * 100).toFixed(2) + '%',
+      'MQL→SQL Rate': (channel.mqlToSqlRate * 100).toFixed(2) + '%',
+    }),
     SQLs: channel.sqls,
     'SQLs Goal': channel.goals?.sqls ?? '',
     SQOs: channel.sqos,
@@ -88,6 +98,25 @@ export function ChannelPerformanceTable({
               <TableHeaderCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
                 Channel
               </TableHeaderCell>
+              {viewMode === 'fullFunnel' && (
+                <>
+                  <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
+                    Prospects
+                  </TableHeaderCell>
+                  <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
+                    Contacted
+                  </TableHeaderCell>
+                  <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
+                    MQLs{hasGoals && ' / Goal'}
+                  </TableHeaderCell>
+                  <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
+                    Contacted→MQL
+                  </TableHeaderCell>
+                  <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
+                    MQL→SQL
+                  </TableHeaderCell>
+                </>
+              )}
               <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
                 SQLs{hasGoals && ' / Goal'}
               </TableHeaderCell>
@@ -134,6 +163,35 @@ export function ChannelPerformanceTable({
                       {channel.channel}
                     </span>
                   </TableCell>
+                  {viewMode === 'fullFunnel' && (
+                    <>
+                      <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
+                        {formatNumber(channel.prospects)}
+                      </TableCell>
+                      <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
+                        {formatNumber(channel.contacted)}
+                      </TableCell>
+                      <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
+                        <MetricWithGoal actual={channel.mqls} goal={channel.goals?.mqls} />
+                      </TableCell>
+                      <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
+                        <Badge 
+                          size="sm" 
+                          color={channel.contactedToMqlRate >= 0.05 ? 'green' : channel.contactedToMqlRate >= 0.03 ? 'yellow' : 'red'}
+                        >
+                          {formatPercent(channel.contactedToMqlRate)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
+                        <Badge 
+                          size="sm" 
+                          color={channel.mqlToSqlRate >= 0.3 ? 'green' : channel.mqlToSqlRate >= 0.2 ? 'yellow' : 'red'}
+                        >
+                          {formatPercent(channel.mqlToSqlRate)}
+                        </Badge>
+                      </TableCell>
+                    </>
+                  )}
                   <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
                     <MetricWithGoal actual={channel.sqls} goal={channel.goals?.sqls} />
                   </TableCell>

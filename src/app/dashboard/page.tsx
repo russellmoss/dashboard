@@ -25,8 +25,11 @@ import {
   SourcePerformanceWithGoals,   // Changed from SourcePerformance
   DetailRecord, 
   TrendDataPoint, 
-  ConversionTrendMode 
+  ConversionTrendMode,
+  ViewMode
 } from '@/types/dashboard';
+import { ViewModeToggle } from '@/components/dashboard/ViewModeToggle';
+import { FullFunnelScorecards } from '@/components/dashboard/FullFunnelScorecards';
 import { buildDateRangeFromFilters } from '@/lib/utils/date-helpers';
 import { getSessionPermissions } from '@/types/auth';
 
@@ -78,6 +81,7 @@ export default function DashboardPage() {
   const [detailRecords, setDetailRecords] = useState<DetailRecord[]>([]);
   
   // UI state
+  const [viewMode, setViewMode] = useState<ViewMode>('focused');
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
@@ -119,11 +123,11 @@ export default function DashboardPage() {
       
       // Fetch all data in parallel
       const [metricsData, conversionData, channelsData, sourcesData, recordsData] = await Promise.all([
-        dashboardApi.getFunnelMetrics(currentFilters),
+        dashboardApi.getFunnelMetrics(currentFilters, viewMode),
         dashboardApi.getConversionRates(currentFilters, { includeTrends: true, granularity: trendGranularity, mode: trendMode }),
-        dashboardApi.getChannelPerformance(currentFilters),
-        dashboardApi.getSourcePerformance(currentFilters),
-        dashboardApi.getDetailRecords(currentFilters, 500),
+        dashboardApi.getChannelPerformance(currentFilters, viewMode),
+        dashboardApi.getSourcePerformance(currentFilters, viewMode),
+        dashboardApi.getDetailRecords(currentFilters, 50000), // Increased limit to fetch all records
       ]);
       
       setMetrics(metricsData);
@@ -141,7 +145,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters, selectedMetric, trendGranularity, trendMode, filterOptions]);
+  }, [filters, selectedMetric, trendGranularity, trendMode, filterOptions, viewMode]);
   
   useEffect(() => {
     if (filterOptions) {
@@ -159,6 +163,16 @@ export default function DashboardPage() {
       ...prev,
       metricFilter: (newMetric || 'all') as DashboardFilters['metricFilter'],
     }));
+  };
+
+  // Handle view mode changes to clear full-funnel metric selections when switching to focused view
+  const handleViewModeChange = (mode: ViewMode) => {
+    setViewMode(mode);
+    // When switching from fullFunnel to focused, clear selection if it's a full-funnel metric
+    if (mode === 'focused' && ['prospect', 'contacted', 'mql'].includes(selectedMetric || '')) {
+      setSelectedMetric(null);
+      setFilters(prev => ({ ...prev, metricFilter: 'all' }));
+    }
   };
   
   // Handle channel row click - update filters directly
@@ -192,10 +206,27 @@ export default function DashboardPage() {
   // Build detail table description
   const getDetailDescription = () => {
     const parts = [];
-    if (selectedMetric) parts.push(selectedMetric.toUpperCase());
+    if (selectedMetric) {
+      const metricLabels: Record<string, string> = {
+        prospect: 'Prospects',
+        contacted: 'Contacted',
+        mql: 'MQLs',
+        sql: 'SQLs',
+        sqo: 'SQOs',
+        joined: 'Joined',
+        openPipeline: 'Open Pipeline',
+      };
+      parts.push(metricLabels[selectedMetric] || selectedMetric.toUpperCase());
+    }
     if (selectedChannel) parts.push(`Channel: ${selectedChannel}`);
     if (selectedSource) parts.push(`Source: ${selectedSource}`);
-    return parts.length > 0 ? `Filtered by: ${parts.join(', ')}` : 'All SQLs';
+    
+    if (parts.length > 0) {
+      return `Filtered by: ${parts.join(', ')}`;
+    }
+    
+    // Default description based on view mode
+    return viewMode === 'fullFunnel' ? 'All Records' : 'All SQLs';
   };
 
   if (!filterOptions) {
@@ -205,8 +236,13 @@ export default function DashboardPage() {
   return (
     <div className="w-full max-w-full overflow-x-hidden">
       <div className="mb-6">
-        <Title>Funnel Performance & Efficiency</Title>
-        <Text>Track volume, conversion rates, and pipeline health</Text>
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <Title>Funnel Performance & Efficiency</Title>
+            <Text>Track volume, conversion rates, and pipeline health</Text>
+          </div>
+          <ViewModeToggle value={viewMode} onChange={handleViewModeChange} />
+        </div>
       </div>
       
       <FilterErrorBoundary>
@@ -232,6 +268,18 @@ export default function DashboardPage() {
         <LoadingSpinner />
       ) : (
         <>
+          {/* Full Funnel Scorecards (only shown in fullFunnel view) */}
+          {viewMode === 'fullFunnel' && metrics && (
+            <CardErrorBoundary>
+              <FullFunnelScorecards
+                metrics={metrics}
+                selectedMetric={selectedMetric}
+                onMetricClick={handleMetricClick}
+                loading={loading}
+              />
+            </CardErrorBoundary>
+          )}
+
           {/* Volume Scorecards */}
           {metrics && (
             <CardErrorBoundary>
@@ -268,6 +316,7 @@ export default function DashboardPage() {
               channels={channels}
               selectedChannel={selectedChannel}
               onChannelClick={handleChannelClick}
+              viewMode={viewMode}
             />
           </TableErrorBoundary>
           
@@ -278,6 +327,7 @@ export default function DashboardPage() {
               selectedSource={selectedSource}
               onSourceClick={handleSourceClick}
               channelFilter={selectedChannel}
+              viewMode={viewMode}
             />
           </TableErrorBoundary>
           
@@ -288,6 +338,7 @@ export default function DashboardPage() {
               title="Record Details"
               filterDescription={getDetailDescription()}
               canExport={permissions?.canExport ?? false}
+              viewMode={viewMode}
             />
           </TableErrorBoundary>
         </>

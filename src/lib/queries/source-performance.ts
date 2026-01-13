@@ -42,12 +42,13 @@ export async function getChannelPerformance(filters: DashboardFilters): Promise<
           ELSE 0 
         END
       ) as prospects,
-      -- FIX: contacted filtered by stage_entered_contacting__c (Contacting stage)
+      -- FIX: contacted filtered by stage_entered_contacting__c (Contacting stage) AND is_contacted = 1
       SUM(
         CASE 
           WHEN v.stage_entered_contacting__c IS NOT NULL
             AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate) 
             AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+            AND v.is_contacted = 1
           THEN 1 
           ELSE 0 
         END
@@ -232,12 +233,13 @@ export async function getSourcePerformance(filters: DashboardFilters): Promise<S
           ELSE 0 
         END
       ) as prospects,
-      -- FIX: contacted filtered by stage_entered_contacting__c (Contacting stage)
+      -- FIX: contacted filtered by stage_entered_contacting__c (Contacting stage) AND is_contacted = 1
       SUM(
         CASE 
           WHEN v.stage_entered_contacting__c IS NOT NULL
             AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate) 
             AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+            AND v.is_contacted = 1
           THEN 1 
           ELSE 0 
         END

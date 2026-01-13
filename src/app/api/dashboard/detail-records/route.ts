@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     
     const body = await request.json();
     const filters: DashboardFilters = body.filters;
-    const limit = body.limit || 500;
+    const limit = body.limit || 50000; // Increased default limit to fetch all records
     
     // Apply permission-based filters
     const permissions = await getUserPermissions(session.user?.email || '');

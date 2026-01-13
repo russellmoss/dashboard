@@ -5,6 +5,7 @@ import { getFunnelMetrics } from '@/lib/queries/funnel-metrics';
 import { getAggregateForecastGoals } from '@/lib/queries/forecast-goals';
 import { getUserPermissions } from '@/lib/permissions';
 import { DashboardFilters } from '@/types/filters';
+import { ViewMode } from '@/types/dashboard';
 import { buildDateRangeFromFilters } from '@/lib/utils/date-helpers';
 import { logger } from '@/lib/logger';
 
@@ -15,7 +16,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     
-    const filters: DashboardFilters = await request.json();
+    // Handle both old format (just filters) and new format ({ filters, viewMode })
+    const body = await request.json();
+    const filters: DashboardFilters = body.filters || body; // Backward compatibility
+    const viewMode: ViewMode | undefined = body.viewMode;
     
     // Apply permission-based filters
     const permissions = await getUserPermissions(session.user?.email || '');
@@ -27,9 +31,11 @@ export async function POST(request: NextRequest) {
     }
     
     const { startDate, endDate } = buildDateRangeFromFilters(filters);
-    logger.debug('[Funnel Metrics API] Date range', { startDate, endDate, datePreset: filters.datePreset, year: filters.year });
+    logger.debug('[Funnel Metrics API] Date range', { startDate, endDate, datePreset: filters.datePreset, year: filters.year, viewMode });
     
     // Fetch metrics and goals in parallel
+    // getFunnelMetrics now returns prospects, contacted, mqls (always)
+    // getAggregateForecastGoals already includes prospects, mqls, sqls, sqos, joined
     // Use allSettled so goals failure doesn't break the entire request
     const [metricsResult, goalsResult] = await Promise.allSettled([
       getFunnelMetrics(filters),
@@ -54,7 +60,7 @@ export async function POST(request: NextRequest) {
       sqos: goals?.sqos 
     });
     
-    // Return combined response
+    // Return combined response (always includes all fields, frontend decides what to show)
     return NextResponse.json({
       ...metrics,
       goals,

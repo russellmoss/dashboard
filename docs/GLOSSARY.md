@@ -4,12 +4,20 @@ This document defines business terms and concepts used in the Savvy Funnel Analy
 
 ## Funnel Stages
 
+### Prospect
+- **Definition**: A record that entered the funnel (new or recycled) based on FilterDate
+- **Trigger**: `FilterDate` is set and within the selected date range
+- **Business Context**: All records that are part of the funnel, regardless of stage
+- **Date Field**: `FilterDate` (used for period grouping)
+- **Note**: This is the broadest stage - includes all records in the funnel
+
 ### Contacted
-- **Definition**: A lead that has been reached out to by the sales team (SGA)
-- **Trigger**: `stage_entered_contacting__c` timestamp is set
+- **Definition**: A lead that has been reached out to by the sales team (SGA) and has been contacted
+- **Trigger**: `stage_entered_contacting__c` timestamp is set AND `is_contacted = 1`
 - **Owner**: SGA (Sales Growth Advisor) via `SGA_Owner_Name__c` on Lead
 - **Business Context**: First meaningful engagement with a prospect
 - **Date Field**: `stage_entered_contacting__c` (used for both period and cohort grouping)
+- **Filter Condition**: Must have `is_contacted = 1` flag set
 
 ### MQL (Marketing Qualified Lead)
 - **Definition**: A contacted lead that has scheduled a call (shows buying intent)
@@ -125,3 +133,23 @@ All metrics are calculated from the `vw_funnel_master` view:
    - Each stage has a specific date field for grouping
    - Period and cohort modes use the same date fields for grouping
    - Numerators and denominators may use different date fields in period mode
+
+---
+
+## View Modes
+
+### Focused View
+- **Definition**: Executive view showing SQL, SQO, and Joined metrics only
+- **Purpose**: Provides a streamlined view for executive-level reporting
+- **Metrics Shown**: SQLs, SQOs, Joined, and their associated conversion rates
+- **Use Case**: High-level performance tracking and executive dashboards
+
+### Full Funnel View
+- **Definition**: Complete funnel view including all stages from Prospect to Joined
+- **Purpose**: Provides comprehensive visibility into the entire funnel
+- **Metrics Shown**: Prospects, Contacted, MQLs, SQLs, SQOs, Joined, and all conversion rates
+- **Use Case**: Detailed analysis, funnel optimization, and marketing performance tracking
+- **Additional Features**: 
+  - Extended table columns showing top-of-funnel metrics
+  - MQLs/goal tracking in Channel and Source Performance tables
+  - Contacted and MQL badges in Detail Records table

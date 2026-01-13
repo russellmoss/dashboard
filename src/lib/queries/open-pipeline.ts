@@ -55,7 +55,9 @@ export async function getOpenPipelineRecords(
       v.SGM_Owner_Name__c as sgm,
       v.Opportunity_AUM as aum,
       v.salesforce_url,
-      v.FilterDate as relevant_date
+      v.FilterDate as relevant_date,
+      v.is_contacted,
+      v.is_mql
     FROM \`${FULL_TABLE}\` v
     LEFT JOIN \`${MAPPING_TABLE}\` nm
       ON v.Original_source = nm.original_source
@@ -89,6 +91,8 @@ export async function getOpenPipelineRecords(
       aumFormatted: formatCurrency(r.aum),
       salesforceUrl: toString(r.salesforce_url) || '',
       relevantDate: dateValue,
+      isContacted: r.is_contacted === 1,
+      isMql: r.is_mql === 1,
       isSql: true,
       isSqo: true,
       isJoined: false,

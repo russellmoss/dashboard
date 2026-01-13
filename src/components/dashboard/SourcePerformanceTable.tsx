@@ -15,6 +15,7 @@ interface SourcePerformanceTableProps {
   selectedSource?: string | null;
   onSourceClick?: (source: string | null) => void;
   channelFilter?: string | null;
+  viewMode?: 'focused' | 'fullFunnel';
 }
 
 // Helper component for displaying metric with goal
@@ -49,29 +50,34 @@ export function SourcePerformanceTable({
   sources, 
   selectedSource, 
   onSourceClick, 
-  channelFilter 
+  channelFilter,
+  viewMode = 'focused'
 }: SourcePerformanceTableProps) {
   const filteredSources = channelFilter 
     ? sources.filter(s => s.channel === channelFilter)
     : sources;
   
   // Check if any source has goals
-  const hasGoals = filteredSources.some(s => s.goals && (s.goals.sqls > 0 || s.goals.sqos > 0));
+  const hasGoals = filteredSources.some(s => s.goals && (s.goals.mqls > 0 || s.goals.sqls > 0 || s.goals.sqos > 0));
   
   // Prepare data for CSV export
   const exportData = filteredSources.map(source => ({
     Source: source.source,
     Channel: source.channel,
-    Prospects: source.prospects,
-    Contacted: source.contacted,
+    ...(viewMode === 'fullFunnel' && {
+      Prospects: source.prospects,
+      Contacted: source.contacted,
+      'Contacted→MQL Rate': (source.contactedToMqlRate * 100).toFixed(2) + '%',
+    }),
     MQLs: source.mqls,
+    'MQLs Goal': source.goals?.mqls ?? '',
+    'MQL→SQL Rate': (source.mqlToSqlRate * 100).toFixed(2) + '%',
     SQLs: source.sqls,
     'SQLs Goal': source.goals?.sqls ?? '',
     SQOs: source.sqos,
     'SQOs Goal': source.goals?.sqos ?? '',
     Joined: source.joined,
     'Joined Goal': source.goals?.joined ?? '',
-    'MQL→SQL Rate': (source.mqlToSqlRate * 100).toFixed(2) + '%',
     'SQL→SQO Rate': (source.sqlToSqoRate * 100).toFixed(2) + '%',
     'SQO→Joined Rate': (source.sqoToJoinedRate * 100).toFixed(2) + '%',
     AUM: source.aum,
@@ -108,9 +114,27 @@ export function SourcePerformanceTable({
               <TableHeaderCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
                 Channel
               </TableHeaderCell>
+              {viewMode === 'fullFunnel' && (
+                <>
+                  <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
+                    Prospects
+                  </TableHeaderCell>
+                  <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
+                    Contacted
+                  </TableHeaderCell>
+                  <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
+                    Contacted→MQL
+                  </TableHeaderCell>
+                </>
+              )}
               <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                MQLs
+                MQLs{viewMode === 'fullFunnel' && hasGoals && ' / Goal'}
               </TableHeaderCell>
+              {viewMode === 'fullFunnel' && (
+                <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
+                  MQL→SQL
+                </TableHeaderCell>
+              )}
               <TableHeaderCell className="text-right border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
                 SQLs{hasGoals && ' / Goal'}
               </TableHeaderCell>
@@ -160,9 +184,41 @@ export function SourcePerformanceTable({
                   <TableCell className="border-r border-gray-100 dark:border-gray-800 text-gray-600 dark:text-gray-400">
                     {source.channel}
                   </TableCell>
+                  {viewMode === 'fullFunnel' && (
+                    <>
+                      <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
+                        {formatNumber(source.prospects)}
+                      </TableCell>
+                      <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
+                        {formatNumber(source.contacted)}
+                      </TableCell>
+                      <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
+                        <Badge 
+                          size="sm" 
+                          color={source.contactedToMqlRate >= 0.05 ? 'green' : source.contactedToMqlRate >= 0.03 ? 'yellow' : 'red'}
+                        >
+                          {formatPercent(source.contactedToMqlRate)}
+                        </Badge>
+                      </TableCell>
+                    </>
+                  )}
                   <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
-                    {formatNumber(source.mqls)}
+                    {viewMode === 'fullFunnel' ? (
+                      <MetricWithGoal actual={source.mqls} goal={source.goals?.mqls} />
+                    ) : (
+                      formatNumber(source.mqls)
+                    )}
                   </TableCell>
+                  {viewMode === 'fullFunnel' && (
+                    <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
+                      <Badge 
+                        size="sm" 
+                        color={source.mqlToSqlRate >= 0.3 ? 'green' : source.mqlToSqlRate >= 0.2 ? 'yellow' : 'red'}
+                      >
+                        {formatPercent(source.mqlToSqlRate)}
+                      </Badge>
+                    </TableCell>
+                  )}
                   <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
                     <MetricWithGoal actual={source.sqls} goal={source.goals?.sqls} />
                   </TableCell>

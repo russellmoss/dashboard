@@ -1,6 +1,9 @@
 // Raw BigQuery result types for compile-time type safety
 
 export interface RawFunnelMetricsResult {
+  prospects?: number | null;
+  contacted?: number | null;
+  mqls?: number | null;
   sqls: number | null;
   sqos: number | null;
   joined: number | null;
@@ -66,6 +69,8 @@ export interface RawDetailRecordResult {
   salesforce_url: string | null;
   filter_date?: { value: string } | null; // Legacy field name
   relevant_date?: string | { value: string } | null; // The relevant date field (Date_Became_SQO__c, converted_date_raw, etc.)
+  is_contacted: number;
+  is_mql: number;
   is_sql: number;
   is_sqo: number;
   is_joined: number;
