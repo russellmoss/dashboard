@@ -2,7 +2,7 @@
 
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
-import { Sun, Moon, Monitor } from 'lucide-react';
+import { Sun, Moon } from 'lucide-react';
 
 export function ThemeToggle() {
   const { theme, setTheme, resolvedTheme } = useTheme();
@@ -12,6 +12,13 @@ export function ThemeToggle() {
     setMounted(true);
   }, []);
 
+  // If theme is 'system', convert it to the resolved theme
+  useEffect(() => {
+    if (mounted && theme === 'system') {
+      setTheme(resolvedTheme || 'light');
+    }
+  }, [mounted, theme, resolvedTheme, setTheme]);
+
   if (!mounted) {
     return (
       <button className="theme-toggle" aria-label="Toggle theme">
@@ -20,21 +27,20 @@ export function ThemeToggle() {
     );
   }
 
-  const cycleTheme = () => {
-    if (theme === 'light') {
+  // Get the current effective theme (convert 'system' to resolved theme)
+  const currentTheme = theme === 'system' ? (resolvedTheme || 'light') : theme;
+
+  const toggleTheme = () => {
+    // Only toggle between light and dark
+    if (currentTheme === 'light') {
       setTheme('dark');
-    } else if (theme === 'dark') {
-      setTheme('system');
     } else {
       setTheme('light');
     }
   };
 
   const getIcon = () => {
-    if (theme === 'system') {
-      return <Monitor className="w-5 h-5" />;
-    }
-    return resolvedTheme === 'dark' ? (
+    return currentTheme === 'dark' ? (
       <Moon className="w-5 h-5" />
     ) : (
       <Sun className="w-5 h-5" />
@@ -42,13 +48,12 @@ export function ThemeToggle() {
   };
 
   const getLabel = () => {
-    if (theme === 'system') return 'System theme';
-    return resolvedTheme === 'dark' ? 'Dark mode' : 'Light mode';
+    return currentTheme === 'dark' ? 'Dark mode' : 'Light mode';
   };
 
   return (
     <button
-      onClick={cycleTheme}
+      onClick={toggleTheme}
       className="theme-toggle group relative"
       aria-label={getLabel()}
       title={getLabel()}

@@ -155,14 +155,15 @@ export function GlobalFilters({
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900">Filters</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Filters</h3>
         <Button
           icon={RefreshCw}
           size="sm"
           variant="light"
           onClick={onReset}
+          className="text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white"
         >
           Reset
         </Button>
@@ -171,7 +172,7 @@ export function GlobalFilters({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Date Preset */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
             Date Range
           </label>
           <select
@@ -190,7 +191,7 @@ export function GlobalFilters({
         {/* Year - Only show for Q1-Q4 presets, not for QTD/YTD */}
         {['q1', 'q2', 'q3', 'q4'].includes(filters.datePreset) && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
               Year
             </label>
             <select
@@ -211,7 +212,7 @@ export function GlobalFilters({
         {filters.datePreset === 'custom' && (
           <>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                 Start Date
               </label>
               <input
@@ -222,7 +223,7 @@ export function GlobalFilters({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                 End Date
               </label>
               <input
@@ -237,7 +238,7 @@ export function GlobalFilters({
 
         {/* Channel */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
             Channel
           </label>
           <select
@@ -256,7 +257,7 @@ export function GlobalFilters({
 
         {/* Source */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
             Source
           </label>
           <select
@@ -277,7 +278,7 @@ export function GlobalFilters({
         {filterOptions.sgas.length > 0 && (
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-gray-700">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-200">
                 SGA
               </label>
               <ActiveToggle 
@@ -305,7 +306,7 @@ export function GlobalFilters({
         {filterOptions.sgms.length > 0 && (
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-gray-700">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-200">
                 SGM
               </label>
               <ActiveToggle 

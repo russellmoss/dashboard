@@ -108,6 +108,15 @@ body {
   color: rgb(var(--table-text)) !important;
 }
 
+/* Button overrides for dark mode */
+.dark .tremor-Button-root {
+  color: rgb(229, 231, 235) !important;
+}
+
+.dark .tremor-Button-root:hover {
+  color: rgb(255, 255, 255) !important;
+}
+
 /* ============================================
    Theme Toggle Button
    ============================================ */
