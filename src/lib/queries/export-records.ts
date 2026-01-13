@@ -41,10 +41,12 @@ export async function getExportDetailRecords(
   }
 
   // Date filter - include records that have any activity in the period
+  // IMPORTANT: Must include ALL date fields used in cohort/period calculations
   // Cast all date fields to TIMESTAMP to match parameter types
   conditions.push(`(
     (TIMESTAMP(v.FilterDate) >= TIMESTAMP(@startDate) AND TIMESTAMP(v.FilterDate) <= TIMESTAMP(@endDate))
     OR (TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate))
+    OR (TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate) AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate))
     OR (TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate) AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate))
     OR (TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate))
     OR (TIMESTAMP(v.advisor_join_date__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(v.advisor_join_date__c) <= TIMESTAMP(@endDate))

@@ -427,36 +427,144 @@ export class GoogleSheetsExporter {
 
   /**
    * Populate the Validation sheet
+   * Formulas match the exact cohort/period logic used in the dashboard
+   * 
+   * For COHORT mode:
+   * - Contacted → MQL: Count records where Contacted Date is in range AND eligible/progression flags match
+   * - MQL → SQL: Count records where MQL Date is in range AND eligible/progression flags match
+   * - SQL → SQO: Count records where SQL Date is in range AND eligible/progression flags match
+   * - SQO → Joined: Count records where SQO Date is in range AND eligible/progression flags match
+   * 
+   * Column mapping:
+   * M = Contacted Date, N = MQL Date, O = SQL Date, P = SQO Date, Q = Joined Date
+   * W = Contacted→MQL progression, X = MQL→SQL progression, Y = SQL→SQO progression, Z = SQO→Joined progression
+   * AA = Elig. Contacted, AB = Elig. MQL, AC = Elig. SQL, AD = Elig. SQO
+   * T = Is SQL, U = Is SQO, V = Is Joined
    */
   private async populateValidationSheet(spreadsheetId: string, data: SheetsExportData): Promise<void> {
+    const startDate = data.dateRange.start;
+    const endDate = data.dateRange.end;
+    const isCohortMode = data.mode === 'cohort';
+    
+    // Build COUNTIFS formulas with date range filtering
+    // Format: COUNTIFS(dateCol, ">=startDate", dateCol, "<=endDate", dateCol, "<>", flagCol, "YES")
+    
+    // Contacted → MQL: Filter by Contacted Date (M) in range
+    // Numerator: Contacted Date in range AND progression (W) = YES
+    // Denominator: Contacted Date in range AND eligible (AA) = YES
+    const contactedToMqlFormula = `=IFERROR(COUNTIFS('Detail Records'!M:M,">=${startDate}",'Detail Records'!M:M,"<=${endDate}",'Detail Records'!M:M,"<>",'Detail Records'!W:W,"YES")/COUNTIFS('Detail Records'!M:M,">=${startDate}",'Detail Records'!M:M,"<=${endDate}",'Detail Records'!M:M,"<>",'Detail Records'!AA:AA,"YES")*100,0)&"%"`;
+    
+    // MQL → SQL: Filter by MQL Date (N) in range
+    // Numerator: MQL Date in range AND progression (X) = YES
+    // Denominator: MQL Date in range AND eligible (AB) = YES
+    const mqlToSqlFormula = `=IFERROR(COUNTIFS('Detail Records'!N:N,">=${startDate}",'Detail Records'!N:N,"<=${endDate}",'Detail Records'!N:N,"<>",'Detail Records'!X:X,"YES")/COUNTIFS('Detail Records'!N:N,">=${startDate}",'Detail Records'!N:N,"<=${endDate}",'Detail Records'!N:N,"<>",'Detail Records'!AB:AB,"YES")*100,0)&"%"`;
+    
+    // SQL → SQO: Filter by SQL Date (O) in range
+    // Numerator: SQL Date in range AND progression (Y) = YES
+    // Denominator: SQL Date in range AND eligible (AC) = YES
+    const sqlToSqoFormula = `=IFERROR(COUNTIFS('Detail Records'!O:O,">=${startDate}",'Detail Records'!O:O,"<=${endDate}",'Detail Records'!O:O,"<>",'Detail Records'!Y:Y,"YES")/COUNTIFS('Detail Records'!O:O,">=${startDate}",'Detail Records'!O:O,"<=${endDate}",'Detail Records'!O:O,"<>",'Detail Records'!AC:AC,"YES")*100,0)&"%"`;
+    
+    // SQO → Joined: Filter by SQO Date (P) in range
+    // Numerator: SQO Date in range AND progression (Z) = YES
+    // Denominator: SQO Date in range AND eligible (AD) = YES
+    const sqoToJoinedFormula = `=IFERROR(COUNTIFS('Detail Records'!P:P,">=${startDate}",'Detail Records'!P:P,"<=${endDate}",'Detail Records'!P:P,"<>",'Detail Records'!Z:Z,"YES")/COUNTIFS('Detail Records'!P:P,">=${startDate}",'Detail Records'!P:P,"<=${endDate}",'Detail Records'!P:P,"<>",'Detail Records'!AD:AD,"YES")*100,0)&"%"`;
+
+    // Volume validation: Filter by the correct date field and additional filters to match dashboard
+    // SQLs: SQL Date (O) in range AND Is SQL (T) = YES
+    // Note: SQLs don't require record type or unique flag in getFunnelMetrics
+    const sqlsFormula = `=COUNTIFS('Detail Records'!O:O,">=${startDate}",'Detail Records'!O:O,"<=${endDate}",'Detail Records'!O:O,"<>",'Detail Records'!T:T,"YES")`;
+    
+    // SQOs: SQO Date (P) in range AND Is SQO (U) = YES AND Is SQO Unique (AE) = YES AND Record Type (AG) = "Recruiting"
+    // Column mapping: AE = Is SQO Unique, AG = Record Type
+    const sqosFormula = `=COUNTIFS('Detail Records'!P:P,">=${startDate}",'Detail Records'!P:P,"<=${endDate}",'Detail Records'!P:P,"<>",'Detail Records'!U:U,"YES",'Detail Records'!AE:AE,"YES",'Detail Records'!AG:AG,"Recruiting")`;
+    
+    // Joined: Joined Date (Q) in range AND Is Joined (V) = YES AND Is Joined Unique (AF) = YES
+    // Column mapping: AF = Is Joined Unique
+    const joinedFormula = `=COUNTIFS('Detail Records'!Q:Q,">=${startDate}",'Detail Records'!Q:Q,"<=${endDate}",'Detail Records'!Q:Q,"<>",'Detail Records'!V:V,"YES",'Detail Records'!AF:AF,"YES")`;
+
+    // Helper function to create match formula that handles percentage strings safely
+    // Compares dashboard value with validation value, accounting for rounding differences
+    // First checks if numerators and denominators match (most reliable), then falls back to percentage comparison
+    const createMatchFormula = (dashboardCell: string, validationCell: string, row: number, numCell: string, denCell: string, detailNumCell: string, detailDenCell: string) => {
+      // If numerators and denominators match, it's definitely a match (same calculation, just rounding difference)
+      // Use explicit IF statements for clarity
+      // numCell/denCell are the dashboard numerator/denominator cells (columns G and H)
+      // detailNumCell/detailDenCell are the detail records formula cells (columns E and F)
+      // Check: if (num match AND den match) OR (percentage diff <= 0.1%) then ✓ else ✗
+      return `=IF(AND(N(${numCell})=N(${detailNumCell}),N(${denCell})=N(${detailDenCell})),"✓",IFERROR(IF(ROUND(ABS(VALUE(SUBSTITUTE(${dashboardCell},"%",""))-VALUE(SUBSTITUTE(${validationCell},"%",""))),2)<=0.1,"✓","✗"),"✗"))`;
+    };
+
+    // Create debug formulas for numerator and denominator counts
+    // Contacted → MQL debug formulas
+    const c2mDebug = {
+      numerFormula: `=COUNTIFS('Detail Records'!M:M,">=${startDate}",'Detail Records'!M:M,"<=${endDate}",'Detail Records'!M:M,"<>",'Detail Records'!W:W,"YES")`,
+      denomFormula: `=COUNTIFS('Detail Records'!M:M,">=${startDate}",'Detail Records'!M:M,"<=${endDate}",'Detail Records'!M:M,"<>",'Detail Records'!AA:AA,"YES")`,
+    };
+
+    // MQL → SQL debug formulas
+    const m2sDebug = {
+      numerFormula: `=COUNTIFS('Detail Records'!N:N,">=${startDate}",'Detail Records'!N:N,"<=${endDate}",'Detail Records'!N:N,"<>",'Detail Records'!X:X,"YES")`,
+      denomFormula: `=COUNTIFS('Detail Records'!N:N,">=${startDate}",'Detail Records'!N:N,"<=${endDate}",'Detail Records'!N:N,"<>",'Detail Records'!AB:AB,"YES")`,
+    };
+
+    // SQL → SQO debug formulas
+    const s2sqDebug = {
+      numerFormula: `=COUNTIFS('Detail Records'!O:O,">=${startDate}",'Detail Records'!O:O,"<=${endDate}",'Detail Records'!O:O,"<>",'Detail Records'!Y:Y,"YES")`,
+      denomFormula: `=COUNTIFS('Detail Records'!O:O,">=${startDate}",'Detail Records'!O:O,"<=${endDate}",'Detail Records'!O:O,"<>",'Detail Records'!AC:AC,"YES")`,
+    };
+
+    // SQO → Joined debug formulas
+    const sq2jDebug = {
+      numerFormula: `=COUNTIFS('Detail Records'!P:P,">=${startDate}",'Detail Records'!P:P,"<=${endDate}",'Detail Records'!P:P,"<>",'Detail Records'!Z:Z,"YES")`,
+      denomFormula: `=COUNTIFS('Detail Records'!P:P,">=${startDate}",'Detail Records'!P:P,"<=${endDate}",'Detail Records'!P:P,"<>",'Detail Records'!AD:AD,"YES")`,
+    };
+
     const values = [
       ['CONVERSION RATE VALIDATION'],
       ['This sheet validates dashboard calculations match record-level data'],
+      [`Mode: ${isCohortMode ? 'Cohort (Resolved-only)' : 'Period (Activity-based)'}`],
+      ['Date Range:', `${startDate} to ${endDate}`],
       [''],
-      ['Metric', 'Dashboard Value', 'From Detail Records', 'Match?'],
+      ['Metric', 'Dashboard Value', 'From Detail Records', 'Match?', 'Detail Num Formula', 'Detail Den Formula', 'Dashboard Num', 'Dashboard Den'],
       [
         'Contacted → MQL',
-        `${(data.conversionRates.contactedToMql.rate * 100).toFixed(1)}%`,
-        `=IFERROR(COUNTIF('Detail Records'!W:W,"YES")/COUNTIF('Detail Records'!AA:AA,"YES")*100,0)&"%"`,
-        `=IF(ABS(VALUE(SUBSTITUTE(B5,"%",""))-VALUE(SUBSTITUTE(C5,"%","")))<0.5,"✓","✗")`,
+        `${(data.conversionRates.contactedToMql.rate * 100).toFixed(2)}%`,
+        contactedToMqlFormula,
+        createMatchFormula('B6', 'C6', 6, 'G6', 'H6', 'E6', 'F6'),
+        c2mDebug.numerFormula,
+        c2mDebug.denomFormula,
+        data.conversionRates.contactedToMql.numerator,
+        data.conversionRates.contactedToMql.denominator,
       ],
       [
         'MQL → SQL',
-        `${(data.conversionRates.mqlToSql.rate * 100).toFixed(1)}%`,
-        `=IFERROR(COUNTIF('Detail Records'!X:X,"YES")/COUNTIF('Detail Records'!AB:AB,"YES")*100,0)&"%"`,
-        `=IF(ABS(VALUE(SUBSTITUTE(B6,"%",""))-VALUE(SUBSTITUTE(C6,"%","")))<0.5,"✓","✗")`,
+        `${(data.conversionRates.mqlToSql.rate * 100).toFixed(2)}%`,
+        mqlToSqlFormula,
+        createMatchFormula('B7', 'C7', 7, 'G7', 'H7', 'E7', 'F7'),
+        m2sDebug.numerFormula,
+        m2sDebug.denomFormula,
+        data.conversionRates.mqlToSql.numerator,
+        data.conversionRates.mqlToSql.denominator,
       ],
       [
         'SQL → SQO',
-        `${(data.conversionRates.sqlToSqo.rate * 100).toFixed(1)}%`,
-        `=IFERROR(COUNTIF('Detail Records'!Y:Y,"YES")/COUNTIF('Detail Records'!AC:AC,"YES")*100,0)&"%"`,
-        `=IF(ABS(VALUE(SUBSTITUTE(B7,"%",""))-VALUE(SUBSTITUTE(C7,"%","")))<0.5,"✓","✗")`,
+        `${(data.conversionRates.sqlToSqo.rate * 100).toFixed(2)}%`,
+        sqlToSqoFormula,
+        createMatchFormula('B8', 'C8', 8, 'G8', 'H8', 'E8', 'F8'),
+        s2sqDebug.numerFormula,
+        s2sqDebug.denomFormula,
+        data.conversionRates.sqlToSqo.numerator,
+        data.conversionRates.sqlToSqo.denominator,
       ],
       [
         'SQO → Joined',
-        `${(data.conversionRates.sqoToJoined.rate * 100).toFixed(1)}%`,
-        `=IFERROR(COUNTIF('Detail Records'!Z:Z,"YES")/COUNTIF('Detail Records'!AD:AD,"YES")*100,0)&"%"`,
-        `=IF(ABS(VALUE(SUBSTITUTE(B8,"%",""))-VALUE(SUBSTITUTE(C8,"%","")))<0.5,"✓","✗")`,
+        `${(data.conversionRates.sqoToJoined.rate * 100).toFixed(2)}%`,
+        sqoToJoinedFormula,
+        createMatchFormula('B9', 'C9', 9, 'G9', 'H9', 'E9', 'F9'),
+        sq2jDebug.numerFormula,
+        sq2jDebug.denomFormula,
+        data.conversionRates.sqoToJoined.numerator,
+        data.conversionRates.sqoToJoined.denominator,
       ],
       [''],
       ['VOLUME VALIDATION'],
@@ -464,20 +572,20 @@ export class GoogleSheetsExporter {
       [
         'SQLs',
         data.metrics.sqls,
-        `=COUNTIF('Detail Records'!T:T,"YES")`,
-        `=IF(B12=C12,"✓","✗")`,
+        sqlsFormula,
+        `=IF(OR(ISBLANK(B14),ISBLANK(C14)),"",IF(B14=C14,"✓","✗"))`,
       ],
       [
         'SQOs',
         data.metrics.sqos,
-        `=COUNTIF('Detail Records'!U:U,"YES")`,
-        `=IF(B13=C13,"✓","✗")`,
+        sqosFormula,
+        `=IF(OR(ISBLANK(B15),ISBLANK(C15)),"",IF(B15=C15,"✓","✗"))`,
       ],
       [
         'Joined',
         data.metrics.joined,
-        `=COUNTIF('Detail Records'!V:V,"YES")`,
-        `=IF(B14=C14,"✓","✗")`,
+        joinedFormula,
+        `=IF(OR(ISBLANK(B16),ISBLANK(C16)),"",IF(B16=C16,"✓","✗"))`,
       ],
     ];
 
