@@ -61,6 +61,9 @@ export interface ExportDetailRecord {
   // Record Type
   recordTypeId: string | null;
   recordTypeName: string;
+  
+  // Export Reason (why this record was included in the export)
+  exportReason?: string;  // 'contacted_in_period', 'mql_in_period', 'sql_in_period', 'sqo_in_period', 'joined_in_period', or comma-separated combination
 }
 
 /**

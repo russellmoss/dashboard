@@ -274,6 +274,7 @@ export class GoogleSheetsExporter {
       'Contacted→MQL', 'MQL→SQL', 'SQL→SQO', 'SQO→Joined',
       'Elig. Contacted', 'Elig. MQL', 'Elig. SQL', 'Elig. SQO',
       'Is SQO Unique', 'Is Joined Unique', 'Record Type',
+      'Export Reason',  // Added: tracks which cohort(s) this record belongs to
     ];
 
     const rows = records.map(r => [
@@ -309,7 +310,8 @@ export class GoogleSheetsExporter {
       r.eligibleForSqoConversions ? 'YES' : 'NO',
       r.isSqoUnique ? 'YES' : 'NO',
       r.isJoinedUnique ? 'YES' : 'NO',
-      r.recordTypeName,
+      r.recordTypeName || '',
+      r.exportReason || '',  // Added: export reason (e.g., 'contacted_in_period', 'sql_in_period', or comma-separated)
     ]);
 
     const values = [headers, ...rows];

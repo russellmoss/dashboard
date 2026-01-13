@@ -5,16 +5,23 @@ import { buildDateRangeFromFilters } from '../utils/date-helpers';
 import { FULL_TABLE, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
 
 /**
- * Get all detail records for export with full field set
- * This query retrieves ALL fields needed for conversion rate validation
+ * Get all detail records for export with correct cohort-based date filtering
+ * 
+ * This query uses UNION to capture 5 distinct cohorts needed for validation:
+ * 1. Contacted cohort - for Contacted→MQL conversion rate
+ * 2. MQL cohort - for MQL→SQL conversion rate  
+ * 3. SQL cohort - for SQL→SQO conversion rate AND SQL volume metric
+ * 4. SQO cohort - for SQO→Joined conversion rate AND SQO volume metric
+ * 5. Joined cohort - for Joined volume metric
  */
 export async function getExportDetailRecords(
   filters: DashboardFilters,
-  limit: number = 10000
+  limit: number = 50000  // Increased from 10000 to ensure all records included
 ): Promise<ExportDetailRecord[]> {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
   
-  const conditions: string[] = [];
+  // Build optional filter conditions (channel, source, sga, sgm)
+  const filterConditions: string[] = [];
   const params: Record<string, any> = {
     startDate,
     endDate: endDate + ' 23:59:59',
@@ -22,104 +29,184 @@ export async function getExportDetailRecords(
     limit,
   };
 
-  // Apply filters
   if (filters.channel) {
-    conditions.push('COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, \'Other\') = @channel');
+    filterConditions.push('COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, \'Other\') = @channel');
     params.channel = filters.channel;
   }
   if (filters.source) {
-    conditions.push('v.Original_source = @source');
+    filterConditions.push('v.Original_source = @source');
     params.source = filters.source;
   }
   if (filters.sga) {
-    conditions.push('v.SGA_Owner_Name__c = @sga');
+    filterConditions.push('v.SGA_Owner_Name__c = @sga');
     params.sga = filters.sga;
   }
   if (filters.sgm) {
-    conditions.push('v.SGM_Owner_Name__c = @sgm');
+    filterConditions.push('v.SGM_Owner_Name__c = @sgm');
     params.sgm = filters.sgm;
   }
 
-  // Date filter - include records that have any activity in the period
-  // IMPORTANT: Must include ALL date fields used in cohort/period calculations
-  // Cast all date fields to TIMESTAMP to match parameter types
-  conditions.push(`(
-    (TIMESTAMP(v.FilterDate) >= TIMESTAMP(@startDate) AND TIMESTAMP(v.FilterDate) <= TIMESTAMP(@endDate))
-    OR (TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate))
-    OR (TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate) AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate))
-    OR (TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate) AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate))
-    OR (TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate))
-    OR (TIMESTAMP(v.advisor_join_date__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(v.advisor_join_date__c) <= TIMESTAMP(@endDate))
-  )`);
-
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const optionalFilters = filterConditions.length > 0 
+    ? 'AND ' + filterConditions.join(' AND ') 
+    : '';
 
   const query = `
-    SELECT
-      -- Identifiers
-      v.Full_prospect_id__c as lead_id,
-      NULL as contact_id,  -- Contact ID not available in vw_funnel_master
-      v.Full_Opportunity_ID__c as opportunity_id,
-      v.primary_key,
-      
-      -- Advisor Info
-      v.advisor_name,
-      v.salesforce_url,
-      
-      -- Attribution
-      v.Original_source as original_source,
-      COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
-      v.SGA_Owner_Name__c as sga,
-      v.SGM_Owner_Name__c as sgm,
-      
-      -- Stage Info
-      v.StageName as stage_name,
-      COALESCE(v.Underwritten_AUM__c, v.Amount, 0) as aum,
-      
-      -- Date Fields
-      FORMAT_TIMESTAMP('%Y-%m-%d', v.FilterDate) as filter_date,
-      FORMAT_TIMESTAMP('%Y-%m-%d', v.stage_entered_contacting__c) as contacted_date,
-      FORMAT_TIMESTAMP('%Y-%m-%d', v.mql_stage_entered_ts) as mql_date,
-      FORMAT_TIMESTAMP('%Y-%m-%d', v.converted_date_raw) as sql_date,
-      FORMAT_TIMESTAMP('%Y-%m-%d', v.Date_Became_SQO__c) as sqo_date,
-      FORMAT_TIMESTAMP('%Y-%m-%d', v.advisor_join_date__c) as joined_date,
-      
-      -- Stage Flags
-      v.is_contacted,
-      v.is_mql,
-      v.is_sql,
-      CASE WHEN LOWER(v.SQO_raw) = 'yes' THEN 1 ELSE 0 END as is_sqo,
-      CASE WHEN v.advisor_join_date__c IS NOT NULL OR v.StageName = 'Joined' THEN 1 ELSE 0 END as is_joined,
-      
-      -- Progression Flags (Numerators)
-      v.contacted_to_mql_progression,
-      v.mql_to_sql_progression,
-      v.sql_to_sqo_progression,
-      v.sqo_to_joined_progression,
-      
-      -- Eligibility Flags (Denominators)
-      v.eligible_for_contacted_conversions,
-      v.eligible_for_mql_conversions,
-      v.eligible_for_sql_conversions,
-      v.eligible_for_sqo_conversions,
-      
-      -- Deduplication Flags
-      v.is_sqo_unique,
-      v.is_joined_unique,
-      v.is_primary_opp_record,
-      
-      -- Record Type
-      v.recordtypeid as record_type_id,
-      CASE 
-        WHEN v.recordtypeid = @recruitingRecordType THEN 'Recruiting'
-        WHEN v.recordtypeid = '012VS000009VoxrYAC' THEN 'Re-Engagement'
-        ELSE 'Unknown'
-      END as record_type_name
+    WITH base_select AS (
+      SELECT
+        -- Identifiers
+        v.Full_prospect_id__c as lead_id,
+        NULL as contact_id,  -- Contact ID not available in vw_funnel_master
+        v.Full_Opportunity_ID__c as opportunity_id,
+        v.primary_key,
+        
+        -- Advisor Info
+        v.advisor_name,
+        v.salesforce_url,
+        
+        -- Attribution
+        v.Original_source as original_source,
+        COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+        v.SGA_Owner_Name__c as sga,
+        v.SGM_Owner_Name__c as sgm,
+        
+        -- Stage Info
+        v.StageName as stage_name,
+        COALESCE(v.Underwritten_AUM__c, v.Amount, 0) as aum,
+        
+        -- Date Fields (formatted for export)
+        FORMAT_TIMESTAMP('%Y-%m-%d', v.FilterDate) as filter_date,
+        FORMAT_TIMESTAMP('%Y-%m-%d', v.stage_entered_contacting__c) as contacted_date,
+        FORMAT_TIMESTAMP('%Y-%m-%d', v.mql_stage_entered_ts) as mql_date,
+        FORMAT_TIMESTAMP('%Y-%m-%d', TIMESTAMP(v.converted_date_raw)) as sql_date,  -- converted_date_raw is DATE, cast to TIMESTAMP
+        FORMAT_TIMESTAMP('%Y-%m-%d', v.Date_Became_SQO__c) as sqo_date,
+        FORMAT_TIMESTAMP('%Y-%m-%d', TIMESTAMP(v.advisor_join_date__c)) as joined_date,  -- advisor_join_date__c is DATE, cast to TIMESTAMP
+        
+        -- Stage Flags
+        v.is_contacted,
+        v.is_mql,
+        v.is_sql,
+        CASE WHEN LOWER(v.SQO_raw) = 'yes' THEN 1 ELSE 0 END as is_sqo,
+        CASE WHEN v.advisor_join_date__c IS NOT NULL OR v.StageName = 'Joined' THEN 1 ELSE 0 END as is_joined,
+        
+        -- Progression Flags (Numerators for conversion rates)
+        v.contacted_to_mql_progression,
+        v.mql_to_sql_progression,
+        v.sql_to_sqo_progression,
+        v.sqo_to_joined_progression,
+        
+        -- Eligibility Flags (Denominators for conversion rates)
+        v.eligible_for_contacted_conversions,
+        v.eligible_for_mql_conversions,
+        v.eligible_for_sql_conversions,
+        v.eligible_for_sqo_conversions,
+        
+        -- Deduplication Flags
+        v.is_sqo_unique,
+        v.is_joined_unique,
+        v.is_primary_opp_record,
+        
+        -- Record Type
+        v.recordtypeid as record_type_id,
+        CASE 
+          WHEN v.recordtypeid = @recruitingRecordType THEN 'Recruiting'
+          WHEN v.recordtypeid = '012VS000009VoxrYAC' THEN 'Re-Engagement'
+          ELSE 'Unknown'
+        END as record_type_name,
+        
+        -- Raw date fields for cohort filtering (kept for UNION logic)
+        v.stage_entered_contacting__c as _contacted_ts,
+        v.mql_stage_entered_ts as _mql_ts,
+        v.converted_date_raw as _sql_date,
+        v.Date_Became_SQO__c as _sqo_ts,
+        v.advisor_join_date__c as _joined_date
 
-    FROM \`${FULL_TABLE}\` v
-    LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
-    ${whereClause}
-    ORDER BY v.FilterDate DESC
+      FROM \`${FULL_TABLE}\` v
+      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
+      WHERE 1=1 ${optionalFilters}
+    ),
+    
+    -- Cohort 1: Contacted in period (for Contacted→MQL rate)
+    contacted_cohort AS (
+      SELECT *, 'contacted_in_period' as export_reason
+      FROM base_select
+      WHERE DATE(_contacted_ts) >= DATE(@startDate) 
+        AND DATE(_contacted_ts) <= DATE(@endDate)
+    ),
+    
+    -- Cohort 2: MQL in period (for MQL→SQL rate)
+    mql_cohort AS (
+      SELECT *, 'mql_in_period' as export_reason
+      FROM base_select
+      WHERE DATE(_mql_ts) >= DATE(@startDate) 
+        AND DATE(_mql_ts) <= DATE(@endDate)
+    ),
+    
+    -- Cohort 3: SQL in period (for SQL→SQO rate AND SQL volume)
+    sql_cohort AS (
+      SELECT *, 'sql_in_period' as export_reason
+      FROM base_select
+      WHERE DATE(_sql_date) >= DATE(@startDate) 
+        AND DATE(_sql_date) <= DATE(@endDate)
+    ),
+    
+    -- Cohort 4: SQO in period (for SQO→Joined rate AND SQO volume)
+    sqo_cohort AS (
+      SELECT *, 'sqo_in_period' as export_reason
+      FROM base_select
+      WHERE DATE(_sqo_ts) >= DATE(@startDate) 
+        AND DATE(_sqo_ts) <= DATE(@endDate)
+    ),
+    
+    -- Cohort 5: Joined in period (for Joined volume)
+    joined_cohort AS (
+      SELECT *, 'joined_in_period' as export_reason
+      FROM base_select
+      WHERE DATE(_joined_date) >= DATE(@startDate) 
+        AND DATE(_joined_date) <= DATE(@endDate)
+    ),
+    
+    -- Combine all cohorts (a record may appear in multiple cohorts)
+    all_cohorts AS (
+      SELECT * FROM contacted_cohort
+      UNION ALL
+      SELECT * FROM mql_cohort
+      UNION ALL
+      SELECT * FROM sql_cohort
+      UNION ALL
+      SELECT * FROM sqo_cohort
+      UNION ALL
+      SELECT * FROM joined_cohort
+    ),
+    
+    -- Deduplicate by primary_key, keeping the most "advanced" export_reason
+    deduplicated AS (
+      SELECT 
+        * EXCEPT(export_reason, _contacted_ts, _mql_ts, _sql_date, _sqo_ts, _joined_date),
+        -- Aggregate export reasons for records in multiple cohorts
+        STRING_AGG(DISTINCT export_reason, ', ') as export_reason
+      FROM all_cohorts
+      GROUP BY 
+        lead_id, contact_id, opportunity_id, primary_key,
+        advisor_name, salesforce_url, original_source, channel, sga, sgm,
+        stage_name, aum, filter_date, contacted_date, mql_date, sql_date, sqo_date, joined_date,
+        is_contacted, is_mql, is_sql, is_sqo, is_joined,
+        contacted_to_mql_progression, mql_to_sql_progression, sql_to_sqo_progression, sqo_to_joined_progression,
+        eligible_for_contacted_conversions, eligible_for_mql_conversions, eligible_for_sql_conversions, eligible_for_sqo_conversions,
+        is_sqo_unique, is_joined_unique, is_primary_opp_record,
+        record_type_id, record_type_name
+    )
+    
+    SELECT * FROM deduplicated
+    ORDER BY 
+      -- Prioritize records that progressed further in funnel
+      CASE 
+        WHEN is_joined = 1 THEN 1
+        WHEN is_sqo = 1 THEN 2
+        WHEN is_sql = 1 THEN 3
+        WHEN is_mql = 1 THEN 4
+        ELSE 5
+      END,
+      contacted_date DESC
     LIMIT @limit
   `;
 
@@ -160,6 +247,7 @@ export async function getExportDetailRecords(
     is_primary_opp_record: number;
     record_type_id: string | null;
     record_type_name: string;
+    export_reason: string;
   }
 
   const results = await runQuery<RawExportRecord>(query, params);
@@ -202,6 +290,7 @@ export async function getExportDetailRecords(
     isPrimaryOppRecord: r.is_primary_opp_record,
     recordTypeId: r.record_type_id,
     recordTypeName: r.record_type_name,
+    exportReason: r.export_reason,
   }));
 }
 
