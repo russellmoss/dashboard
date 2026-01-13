@@ -6,6 +6,7 @@ import { DetailRecord, ViewMode } from '@/types/dashboard';
 import { AdvancedFilters } from '@/types/filters';
 import { ExternalLink, Search, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import { ExportButton } from '@/components/ui/ExportButton';
+import { InfoTooltip } from '@/components/ui/InfoTooltip';
 
 type SortColumn = 'advisor' | 'source' | 'channel' | 'stage' | 'date' | 'sga' | 'sgm' | 'aum' | null;
 type SortDirection = 'asc' | 'desc';
@@ -18,6 +19,7 @@ interface DetailRecordsTableProps {
   canExport?: boolean;
   viewMode?: ViewMode;
   advancedFilters?: AdvancedFilters; // To determine which date columns to show
+  metricFilter?: 'all' | 'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'joined' | 'openPipeline'; // To determine what date is shown
 }
 
 /**
@@ -135,7 +137,7 @@ function sortRecords(records: DetailRecord[], sortColumn: SortColumn, sortDirect
   });
 }
 
-export function DetailRecordsTable({ records, title = 'Detail Records', filterDescription, canExport = false, viewMode = 'focused', advancedFilters }: DetailRecordsTableProps) {
+export function DetailRecordsTable({ records, title = 'Detail Records', filterDescription, canExport = false, viewMode = 'focused', advancedFilters, metricFilter = 'all' }: DetailRecordsTableProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchField, setSearchField] = useState<SearchField>('advisor');
   const [currentPage, setCurrentPage] = useState(1);
@@ -146,6 +148,37 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
   // Determine which date columns to show based on active advanced filters
   const showInitialCallColumn = advancedFilters?.initialCallScheduled?.enabled ?? false;
   const showQualCallColumn = advancedFilters?.qualificationCallDate?.enabled ?? false;
+  
+  // Determine what date description to show in tooltip
+  const getDateColumnDescription = (): string => {
+    // Check advanced filters first
+    if (advancedFilters?.initialCallScheduled?.enabled) {
+      return 'Shows the Initial Call Scheduled Date for each record. This is the date when the initial call was scheduled, regardless of when they entered other stages.';
+    }
+    if (advancedFilters?.qualificationCallDate?.enabled) {
+      return 'Shows the Opportunity Created Date for each record. This is the date when the opportunity was created, filtered by Qualification Call Date.';
+    }
+    
+    // Then check metric filter
+    switch (metricFilter) {
+      case 'prospect':
+        return 'Shows the Filter Date (cohort date) for each prospect. This is the date when they became a prospect in the system.';
+      case 'contacted':
+        return 'Shows the date when each person entered the Contacting stage. This is when they were first contacted.';
+      case 'mql':
+        return 'Shows the date when each person became an MQL (Marketing Qualified Lead). This is when they entered the Call Scheduled stage.';
+      case 'sql':
+        return 'Shows the conversion date for each SQL (Sales Qualified Lead). This is when they converted from MQL to SQL.';
+      case 'sqo':
+        return 'Shows the date when each person became an SQO (Sales Qualified Opportunity). This is when they entered the SQO stage.';
+      case 'joined':
+        return 'Shows the advisor join date for each person who joined. This is when they officially joined as an advisor.';
+      case 'openPipeline':
+        return 'Shows the Filter Date for open pipeline records. These are current opportunities in active stages.';
+      default:
+        return 'Shows the SQL conversion date (when they converted from MQL to SQL). When advanced filters are active, this may show different dates.';
+    }
+  };
   
   /**
    * Get search value from record based on selected field
@@ -351,7 +384,12 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
                 <SortableHeader column="source">Source</SortableHeader>
                 <SortableHeader column="channel">Channel</SortableHeader>
                 <SortableHeader column="stage">Stage</SortableHeader>
-                <SortableHeader column="date">Date</SortableHeader>
+                <SortableHeader column="date">
+                  <div className="flex items-center gap-1">
+                    Date
+                    <InfoTooltip content={getDateColumnDescription()} />
+                  </div>
+                </SortableHeader>
                 {showInitialCallColumn && (
                   <SortableHeader column={null}>Initial Call Scheduled</SortableHeader>
                 )}
