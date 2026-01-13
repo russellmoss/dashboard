@@ -135,7 +135,7 @@ export interface RecordDetailRaw {
   Initial_Call_Scheduled_Date__c: string | null;  // DATE type
   Qualification_Call_Date__c: string | null;  // DATE type
   Stage_Entered_Discovery__c: { value: string } | string | null;
-  Stage_Entered_Sales_Process__c: { value: string } | string | null;
+  // NOTE: Stage_Entered_Sales_Process__c is not in the final view output
   Stage_Entered_Negotiating__c: { value: string } | string | null;
   Stage_Entered_Signed__c: { value: string } | string | null;
   Stage_Entered_On_Hold__c: { value: string } | string | null;
