@@ -204,7 +204,7 @@ The dashboard has been tested against Q4 2025 data with the following expected v
 
 ## 📚 Documentation
 
-- **[Build Instructions](./savvy-dashboard-build-instructions.md)**: Comprehensive guide for building and deploying the dashboard
+- **[Build Instructions](./docs/savvy-dashboard-build-instructions.md)**: Comprehensive guide for building and deploying the dashboard
 - **[Conversion Chart Bug](./conversion-rates-chart-bug.md)**: Detailed documentation of the known conversion trends chart issue
 - **[BigQuery View](./vw_funnel_master.sql)**: SQL definition of the `vw_funnel_master` view
 
