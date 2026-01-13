@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Badge } from '@tremor/react';
+import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell } from '@tremor/react';
 import { ChannelPerformanceWithGoals } from '@/types/dashboard';
 import { formatCurrency, formatPercent, formatNumber } from '@/lib/utils/date-helpers';
 import { 
@@ -281,21 +281,11 @@ export function ChannelPerformanceTable({
                       <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
                         <MetricWithGoal actual={channel.mqls} goal={channel.goals?.mqls} />
                       </TableCell>
-                      <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
-                        <Badge 
-                          size="sm" 
-                          color={channel.contactedToMqlRate >= 0.05 ? 'green' : channel.contactedToMqlRate >= 0.03 ? 'yellow' : 'red'}
-                        >
-                          {formatPercent(channel.contactedToMqlRate)}
-                        </Badge>
+                      <TableCell className="text-right border-r border-gray-100 dark:border-gray-800 text-gray-900 dark:text-white">
+                        {formatPercent(channel.contactedToMqlRate)}
                       </TableCell>
-                      <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
-                        <Badge 
-                          size="sm" 
-                          color={channel.mqlToSqlRate >= 0.3 ? 'green' : channel.mqlToSqlRate >= 0.2 ? 'yellow' : 'red'}
-                        >
-                          {formatPercent(channel.mqlToSqlRate)}
-                        </Badge>
+                      <TableCell className="text-right border-r border-gray-100 dark:border-gray-800 text-gray-900 dark:text-white">
+                        {formatPercent(channel.mqlToSqlRate)}
                       </TableCell>
                     </>
                   )}
@@ -305,24 +295,14 @@ export function ChannelPerformanceTable({
                   <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
                     <MetricWithGoal actual={channel.sqos} goal={channel.goals?.sqos} />
                   </TableCell>
-                  <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
-                    <Badge 
-                      size="sm" 
-                      color={channel.sqlToSqoRate >= 0.5 ? 'green' : channel.sqlToSqoRate >= 0.3 ? 'yellow' : 'red'}
-                    >
-                      {formatPercent(channel.sqlToSqoRate)}
-                    </Badge>
+                  <TableCell className="text-right border-r border-gray-100 dark:border-gray-800 text-gray-900 dark:text-white">
+                    {formatPercent(channel.sqlToSqoRate)}
                   </TableCell>
                   <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
                     <MetricWithGoal actual={channel.joined} goal={channel.goals?.joined} />
                   </TableCell>
-                  <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
-                    <Badge 
-                      size="sm" 
-                      color={channel.sqoToJoinedRate >= 0.15 ? 'green' : channel.sqoToJoinedRate >= 0.08 ? 'yellow' : 'red'}
-                    >
-                      {formatPercent(channel.sqoToJoinedRate)}
-                    </Badge>
+                  <TableCell className="text-right border-r border-gray-100 dark:border-gray-800 text-gray-900 dark:text-white">
+                    {formatPercent(channel.sqoToJoinedRate)}
                   </TableCell>
                   <TableCell className="text-right font-medium text-gray-900 dark:text-white">
                     {formatCurrency(channel.aum)}

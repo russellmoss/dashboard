@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Badge } from '@tremor/react';
+import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell } from '@tremor/react';
 import { SourcePerformanceWithGoals } from '@/types/dashboard';
 import { formatCurrency, formatPercent, formatNumber } from '@/lib/utils/date-helpers';
 import { 
@@ -317,13 +317,8 @@ export function SourcePerformanceTable({
                       <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
                         {formatNumber(source.contacted)}
                       </TableCell>
-                      <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
-                        <Badge 
-                          size="sm" 
-                          color={source.contactedToMqlRate >= 0.05 ? 'green' : source.contactedToMqlRate >= 0.03 ? 'yellow' : 'red'}
-                        >
-                          {formatPercent(source.contactedToMqlRate)}
-                        </Badge>
+                      <TableCell className="text-right border-r border-gray-100 dark:border-gray-800 text-gray-900 dark:text-white">
+                        {formatPercent(source.contactedToMqlRate)}
                       </TableCell>
                     </>
                   )}
@@ -335,13 +330,8 @@ export function SourcePerformanceTable({
                     )}
                   </TableCell>
                   {viewMode === 'fullFunnel' && (
-                    <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
-                      <Badge 
-                        size="sm" 
-                        color={source.mqlToSqlRate >= 0.3 ? 'green' : source.mqlToSqlRate >= 0.2 ? 'yellow' : 'red'}
-                      >
-                        {formatPercent(source.mqlToSqlRate)}
-                      </Badge>
+                    <TableCell className="text-right border-r border-gray-100 dark:border-gray-800 text-gray-900 dark:text-white">
+                      {formatPercent(source.mqlToSqlRate)}
                     </TableCell>
                   )}
                   <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
@@ -350,24 +340,14 @@ export function SourcePerformanceTable({
                   <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
                     <MetricWithGoal actual={source.sqos} goal={source.goals?.sqos} />
                   </TableCell>
-                  <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
-                    <Badge 
-                      size="sm" 
-                      color={source.sqlToSqoRate >= 0.5 ? 'green' : source.sqlToSqoRate >= 0.3 ? 'yellow' : 'red'}
-                    >
-                      {formatPercent(source.sqlToSqoRate)}
-                    </Badge>
+                  <TableCell className="text-right border-r border-gray-100 dark:border-gray-800 text-gray-900 dark:text-white">
+                    {formatPercent(source.sqlToSqoRate)}
                   </TableCell>
                   <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
                     <MetricWithGoal actual={source.joined} goal={source.goals?.joined} />
                   </TableCell>
-                  <TableCell className="text-right border-r border-gray-100 dark:border-gray-800">
-                    <Badge 
-                      size="sm" 
-                      color={source.sqoToJoinedRate >= 0.15 ? 'green' : source.sqoToJoinedRate >= 0.08 ? 'yellow' : 'red'}
-                    >
-                      {formatPercent(source.sqoToJoinedRate)}
-                    </Badge>
+                  <TableCell className="text-right border-r border-gray-100 dark:border-gray-800 text-gray-900 dark:text-white">
+                    {formatPercent(source.sqoToJoinedRate)}
                   </TableCell>
                   <TableCell className="text-right font-medium text-gray-900 dark:text-white">
                     {formatCurrency(source.aum)}
