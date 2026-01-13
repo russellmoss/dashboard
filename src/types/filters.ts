@@ -1,3 +1,12 @@
+/**
+ * Represents a filter option with active status for SGA/SGM dropdowns
+ */
+export interface FilterOption {
+  value: string;
+  label: string;
+  isActive: boolean;
+}
+
 export interface DashboardFilters {
   startDate: string;
   endDate: string;
@@ -14,8 +23,8 @@ export interface DashboardFilters {
 export interface FilterOptions {
   channels: string[];
   sources: string[];
-  sgas: string[];
-  sgms: string[];
+  sgas: FilterOption[];
+  sgms: FilterOption[];
   stages: string[];
   years: number[];
 }

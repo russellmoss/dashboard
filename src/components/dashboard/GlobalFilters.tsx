@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useMemo } from 'react';
 import { Button } from '@tremor/react';
 import { FilterOptions, DashboardFilters } from '@/types/filters';
 import { RefreshCw } from 'lucide-react';
@@ -23,12 +24,70 @@ const DATE_PRESETS = [
   { value: 'custom', label: 'Custom Range' },
 ];
 
+/**
+ * Small toggle switch for Active/All filter
+ */
+const ActiveToggle = ({ 
+  isActiveOnly, 
+  onToggle, 
+  label 
+}: { 
+  isActiveOnly: boolean; 
+  onToggle: () => void; 
+  label: string;
+}) => (
+  <div className="flex items-center gap-1.5 ml-2">
+    <span className={`text-xs ${isActiveOnly ? 'text-blue-600 font-medium' : 'text-gray-400'}`}>
+      Active
+    </span>
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
+        isActiveOnly ? 'bg-blue-600' : 'bg-gray-300'
+      }`}
+      role="switch"
+      aria-checked={isActiveOnly}
+      aria-label={`Toggle ${label} active filter`}
+    >
+      <span
+        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+          isActiveOnly ? 'translate-x-0' : 'translate-x-4'
+        }`}
+      />
+    </button>
+    <span className={`text-xs ${!isActiveOnly ? 'text-gray-600 font-medium' : 'text-gray-400'}`}>
+      All
+    </span>
+  </div>
+);
+
 export function GlobalFilters({ 
   filters, 
   filterOptions, 
   onFiltersChange, 
   onReset 
 }: GlobalFiltersProps) {
+  // Toggle state for showing only active SGAs/SGMs (default: true = active only)
+  const [sgaActiveOnly, setSgaActiveOnly] = useState<boolean>(true);
+  const [sgmActiveOnly, setSgmActiveOnly] = useState<boolean>(true);
+
+  // Filter SGA options based on active toggle
+  const filteredSgaOptions = useMemo(() => {
+    if (!filterOptions.sgas || filterOptions.sgas.length === 0) return [];
+    return sgaActiveOnly 
+      ? filterOptions.sgas.filter(opt => opt.isActive) 
+      : filterOptions.sgas;
+  }, [filterOptions.sgas, sgaActiveOnly]);
+
+  // Filter SGM options based on active toggle
+  const filteredSgmOptions = useMemo(() => {
+    if (!filterOptions.sgms || filterOptions.sgms.length === 0) return [];
+    return sgmActiveOnly 
+      ? filterOptions.sgms.filter(opt => opt.isActive) 
+      : filterOptions.sgms;
+  }, [filterOptions.sgms, sgmActiveOnly]);
+
   const handleDatePresetChange = (preset: string) => {
     const currentYear = new Date().getFullYear();
     const updatedFilters: DashboardFilters = {
@@ -216,19 +275,26 @@ export function GlobalFilters({
 
         {/* SGA */}
         {filterOptions.sgas.length > 0 && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              SGA
-            </label>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-gray-700">
+                SGA
+              </label>
+              <ActiveToggle 
+                isActiveOnly={sgaActiveOnly} 
+                onToggle={() => setSgaActiveOnly(!sgaActiveOnly)} 
+                label="SGA"
+              />
+            </div>
             <select
               value={filters.sga || ''}
               onChange={(e) => handleSgaChange(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
             >
               <option value="">All SGAs</option>
-              {filterOptions.sgas.map((sga) => (
-                <option key={sga} value={sga}>
-                  {sga}
+              {filteredSgaOptions.map((sga) => (
+                <option key={sga.value} value={sga.value}>
+                  {sga.label}{!sgaActiveOnly && !sga.isActive ? ' (Inactive)' : ''}
                 </option>
               ))}
             </select>
@@ -237,19 +303,26 @@ export function GlobalFilters({
 
         {/* SGM */}
         {filterOptions.sgms.length > 0 && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              SGM
-            </label>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-gray-700">
+                SGM
+              </label>
+              <ActiveToggle 
+                isActiveOnly={sgmActiveOnly} 
+                onToggle={() => setSgmActiveOnly(!sgmActiveOnly)} 
+                label="SGM"
+              />
+            </div>
             <select
               value={filters.sgm || ''}
               onChange={(e) => handleSgmChange(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
             >
               <option value="">All SGMs</option>
-              {filterOptions.sgms.map((sgm) => (
-                <option key={sgm} value={sgm}>
-                  {sgm}
+              {filteredSgmOptions.map((sgm) => (
+                <option key={sgm.value} value={sgm.value}>
+                  {sgm.label}{!sgmActiveOnly && !sgm.isActive ? ' (Inactive)' : ''}
                 </option>
               ))}
             </select>

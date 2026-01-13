@@ -94,6 +94,17 @@ export interface RawSourceForecastResult extends RawForecastGoalsResult {
   channel_grouping_name: string | null;
 }
 
+// Filter Options Raw Results
+export interface RawSgaResult {
+  sga: string | null;
+  isActive: boolean | string | number | null;
+}
+
+export interface RawSgmResult {
+  sgm: string | null;
+  isActive: boolean | string | number | null;
+}
+
 export function toNumber(value: number | null | undefined): number {
   return Number(value) || 0;
 }
