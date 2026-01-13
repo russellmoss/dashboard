@@ -127,13 +127,36 @@ export async function getDetailRecords(
       // No date filter for open pipeline - it's current state
       break;
     default:
-      // 'all' - Show SQLs filtered by converted_date_raw
-      dateField = 'converted_date_raw';
-      dateFieldAlias = 'relevant_date';
-      conditions.push('is_sql = 1');
-      conditions.push('converted_date_raw IS NOT NULL');
-      conditions.push('TIMESTAMP(converted_date_raw) >= TIMESTAMP(@startDate)');
-      conditions.push('TIMESTAMP(converted_date_raw) <= TIMESTAMP(@endDate)');
+      // 'all' - Default behavior depends on active advanced filters
+      // If Initial Call Scheduled filter is active, show all records with Initial_Call_Scheduled_Date__c in range
+      // If Qualification Call filter is active, show all opportunities with Qualification_Call_Date__c in range
+      // Otherwise, default to SQLs filtered by converted_date_raw
+      if (advancedFilters.initialCallScheduled.enabled) {
+        // Show all records with Initial_Call_Scheduled_Date__c in the date range
+        // The advanced filter already filters by Initial_Call_Scheduled_Date__c, so we just need to set the display date
+        // Use Initial_Call_Scheduled_Date__c as the display date (the actual date we're filtering by)
+        dateField = 'Initial_Call_Scheduled_Date__c';
+        dateFieldAlias = 'relevant_date';
+        // No additional date filters needed - the advanced filter handles Initial_Call_Scheduled_Date__c filtering
+        // We want to show ALL records with initial calls in the period, regardless of when they entered contacting
+        // This includes records that were MQL'd in previous quarters but had initial calls scheduled in this period
+      } else if (advancedFilters.qualificationCallDate.enabled) {
+        // Show all opportunities with Qualification_Call_Date__c in the date range
+        // The advanced filter already filters by Qualification_Call_Date__c, so we just need to set the display date
+        // Use Opp_CreatedDate as the display date
+        dateField = 'Opp_CreatedDate';
+        dateFieldAlias = 'relevant_date';
+        conditions.push('Full_Opportunity_ID__c IS NOT NULL'); // Only opportunities
+        // No additional date filters needed - the advanced filter handles Qualification_Call_Date__c filtering
+      } else {
+        // Default: Show SQLs filtered by converted_date_raw
+        dateField = 'converted_date_raw';
+        dateFieldAlias = 'relevant_date';
+        conditions.push('is_sql = 1');
+        conditions.push('converted_date_raw IS NOT NULL');
+        conditions.push('TIMESTAMP(converted_date_raw) >= TIMESTAMP(@startDate)');
+        conditions.push('TIMESTAMP(converted_date_raw) <= TIMESTAMP(@endDate)');
+      }
   }
   
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
