@@ -7,16 +7,104 @@ You are working on the **Savvy Funnel Analytics Dashboard**, a Next.js 14 applic
 **Repository**: https://github.com/russellmoss/dashboard  
 **Current Status**: All core phases complete (1-8), Full Funnel View implemented, SGA/SGM Active Filter implemented, Column sorting added
 
+---
+
+## ⚠️ VERIFICATION PROTOCOL - MANDATORY
+
+### Before Making ANY Calculation Changes
+
+1. **READ `docs/GROUND-TRUTH.md` FIRST** - Contains verified values with cohort maturity tiers
+2. **Use TIER 1 cohorts (Q1/Q2 2025) for validation** - These are fully baked and immutable
+3. **Never validate calculation logic with Q4 2025** - Cohort is immature, rates WILL change
+
+### Cohort Maturity Quick Reference
+
+| Cohort | Status | Use For |
+|--------|--------|---------|
+| Q1 2025 | 🟢 STABLE (288 days) | Strict validation - values MUST match |
+| Q2 2025 | 🟢 STABLE (197 days) | Secondary validation |
+| Q3 2025 | 🟡 MATURING (105 days) | Directional checks only |
+| Q4 2025 | 🔴 CURRENT (13 days) | UI/filter testing only |
+
+### Q1 2025 Ground Truth (PRIMARY - Use This)
+
+| Metric | Expected | Tolerance |
+|--------|----------|-----------|
+| SQLs | **123** | ±0 |
+| SQOs | **96** | ±0 |
+| Joined | **12** | ±0 |
+| Contacted→MQL | **4.94%** (314/6,360) | ±0.1% |
+| MQL→SQL | **27.70%** (123/444) | ±0.1% |
+| SQL→SQO | **70.83%** (85/120) | ±0.1% |
+| SQO→Joined | **12.20%** (10/82) | ±0.1% |
+
+### Q2 2025 Ground Truth (SECONDARY)
+
+| Metric | Expected | Tolerance |
+|--------|----------|-----------|
+| SQLs | **155** | ±0 |
+| SQOs | **110** | ±0 |
+| Joined | **13** | ±0 |
+| Contacted→MQL | **4.63%** (315/6,809) | ±0.1% |
+| MQL→SQL | **37.93%** (154/406) | ±0.1% |
+| SQL→SQO | **68.63%** (105/153) | ±0.1% |
+| SQO→Joined | **13.79%** (12/87) | ±0.1% |
+
+### Verification Workflow
+
+```
+1. Read docs/GROUND-TRUTH.md for expected values
+2. Make your code changes
+3. Test with Q1 2025 filters (Jan 1 - Mar 31, 2025)
+4. Compare results to TIER 1 ground truth
+5. If mismatch → STOP and investigate (do NOT proceed)
+6. If match → Test with Q4 2025 for sanity check
+7. Document any findings
+```
+
+### Files That REQUIRE Verification After Changes
+
+If you modify ANY of these files, you MUST verify against Q1/Q2 2025 ground truth:
+- `src/lib/queries/conversion-rates.ts`
+- `src/lib/queries/funnel-metrics.ts`
+- `src/lib/queries/source-performance.ts`
+- `src/app/api/dashboard/conversion-rates/route.ts`
+- `src/app/api/dashboard/funnel-metrics/route.ts`
+- `vw_funnel_master.sql`
+
+### MCP Salesforce Verification (When Needed)
+
+Use MCP to query Salesforce directly for fresh validation:
+
+**SQOs:**
+```sql
+SELECT COUNT(Id) FROM Opportunity WHERE RecordType.Name = 'Recruiting' AND SQL__c = 'Yes' AND Date_Became_SQO__c >= [START] AND Date_Became_SQO__c <= [END]
+```
+
+**Joined:**
+```sql
+SELECT COUNT(Id) FROM Opportunity WHERE RecordType.Name = 'Recruiting' AND StageName = 'Joined' AND Advisor_Join_Date__c >= [START] AND Advisor_Join_Date__c <= [END]
+```
+
+**SQLs:**
+```sql
+SELECT COUNT(Id) FROM Lead WHERE IsConverted = true AND ConvertedDate >= [START] AND ConvertedDate <= [END]
+```
+
+---
+
 ## Key Principles
 
 1. **Data Source**: All queries must use the `vw_funnel_master` view (`savvy-gtm-analytics.Tableau_Views.vw_funnel_master`)
 2. **Security**: Always use BigQuery parameterized queries (`@paramName` syntax) - never string interpolation
 3. **Type Safety**: Use TypeScript types from `src/types/` - maintain type consistency
-4. **Date Dimensions**: Each conversion rate has a specific date field:
-   - Contacted→MQL: `stage_entered_contacting__c`
-   - MQL→SQL: `converted_date_raw` (numerator), `stage_entered_contacting__c` (denominator)
-   - SQL→SQO: `Date_Became_SQO__c` (numerator), `converted_date_raw` (denominator)
-   - SQO→Joined: `advisor_join_date__c` (numerator), `Date_Became_SQO__c` (denominator)
+4. **Date Dimensions & Flags**: Each conversion rate uses specific cohort dates and pre-calculated flags:
+   | Conversion | Cohort Date | Numerator Flag | Denominator Flag |
+   |------------|-------------|----------------|------------------|
+   | Contacted→MQL | `stage_entered_contacting__c` | `contacted_to_mql_progression` | `eligible_for_contacted_conversions` |
+   | MQL→SQL | `mql_stage_entered_ts` | `mql_to_sql_progression` | `eligible_for_mql_conversions` |
+   | SQL→SQO | `converted_date_raw` | `sql_to_sqo_progression` | `eligible_for_sql_conversions` |
+   | SQO→Joined | `Date_Became_SQO__c` | `sqo_to_joined_progression` | `eligible_for_sqo_conversions` |
 5. **Deduplication**: Use `is_sqo_unique` and `is_joined_unique` for opportunity-level metrics
 6. **Record Type**: SQO calculations must filter by `recordtypeid = '012Dn000000mrO3IAI'` (Recruiting)
 
@@ -63,20 +151,23 @@ You are working on the **Savvy Funnel Analytics Dashboard**, a Next.js 14 applic
 - `src/app/dashboard/page.tsx` - Main dashboard with data fetching
 
 ### Documentation
+- `docs/GROUND-TRUTH.md` - **Verified values with cohort maturity tiers (READ FIRST)**
 - `docs/GLOSSARY.md` - Business definitions and terminology
 - `docs/CALCULATIONS.md` - Detailed calculation formulas (period vs cohort modes)
 - `docs/FILTER-MATRIX.md` - Filter application by metric type
+- `conversion_rate_explanation.md` - Cohort mode explanation
 - `vw_funnel_master.sql` - BigQuery view definition with all flags
 
 ## Development Guidelines
 
 ### When Working with Conversion Rates
 
-1. **Compare Logic**: Always compare `getConversionTrends()` with `getConversionRates()` to ensure consistency
-2. **Test with Q4 2025**: Use Q4 2025 as test case (expected: 3.6% Contacted→MQL, 74.6% SQL→SQO, 11.6% SQO→Joined)
-3. **Verify Volumes**: Ensure volumes match scorecard (144 SQOs, 17 Joined for Q4 2025)
-4. **Period Alignment**: Group numerators and denominators by the same date field, or properly join them
-5. **No Cohort Restrictions**: Don't restrict conversions to same-period only - count all valid conversions
+1. **Read Ground Truth First**: Check `docs/GROUND-TRUTH.md` for expected values and cohort maturity
+2. **Use TIER 1 for Validation**: Test with Q1 2025 (primary) or Q2 2025 (secondary)
+3. **Use Pre-calculated Flags**: Always use `*_progression` for numerators, `eligible_for_*` for denominators
+4. **Understand Cohort Mode**: Denominators only include RESOLVED records (converted OR closed)
+5. **Never Restrict Cross-Period**: A Q4 SQL can become Q1 SQO - that's valid cohort behavior
+6. **Verify After Changes**: Run BigQuery verification query against Q1/Q2 2025
 
 ### When Adding Features
 
@@ -100,17 +191,64 @@ You are working on the **Savvy Funnel Analytics Dashboard**, a Next.js 14 applic
 - **Mapping Table**: `'savvy-gtm-analytics.SavvyGTMData.new_mapping'`
 - **Forecast Table**: `'savvy-gtm-analytics.SavvyGTMData.q4_2025_forecast'`
 
-## Verification Values (Q4 2025)
+## Verification Values - TIERED APPROACH
 
-Use these as test cases when debugging:
-- SQLs: 193
-- SQOs: 144
-- Joined: 17
-- Contacted→MQL: 3.6%
-- MQL→SQL: 34.2%
-- SQL→SQO: 74.6%
-- SQO→Joined: 11.6%
-- Open Pipeline AUM: ~$12.3B
+### 🟢 TIER 1: Q1 2025 (STABLE - PRIMARY VALIDATION)
+
+**Use for**: Strict validation of calculation logic  
+**Status**: Fully baked (288 days) - Values are IMMUTABLE
+
+| Metric | Expected |
+|--------|----------|
+| SQLs | 123 |
+| SQOs | 96 |
+| Joined | 12 |
+| Contacted→MQL | 4.94% (314/6,360) |
+| MQL→SQL | 27.70% (123/444) |
+| SQL→SQO | 70.83% (85/120) |
+| SQO→Joined | 12.20% (10/82) |
+
+### 🟢 TIER 1: Q2 2025 (STABLE - SECONDARY VALIDATION)
+
+**Use for**: Additional validation when needed  
+**Status**: Fully baked (197 days) - Values are IMMUTABLE
+
+| Metric | Expected |
+|--------|----------|
+| SQLs | 155 |
+| SQOs | 110 |
+| Joined | 13 |
+| Contacted→MQL | 4.63% (315/6,809) |
+| MQL→SQL | 37.93% (154/406) |
+| SQL→SQO | 68.63% (105/153) |
+| SQO→Joined | 13.79% (12/87) |
+
+### 🟡 TIER 2: Q3 2025 (MATURING)
+
+**Use for**: Directional validation  
+**Status**: Mostly stable - SQO→Joined may increase
+
+| Metric | Expected |
+|--------|----------|
+| SQLs | 221 |
+| SQOs | 133 |
+| Joined | 15+ (may increase) |
+| SQL→SQO | ~67.8% |
+| SQO→Joined | ~17.5% (may increase to ~20%) |
+
+### 🔴 TIER 3: Q4 2025 (CURRENT - SANITY CHECK ONLY)
+
+**Use for**: UI testing, filter testing, sanity checks  
+**Status**: IMMATURE - Rates WILL change significantly
+
+| Metric | Value (as of Jan 13, 2026) | Notes |
+|--------|---------------------------|-------|
+| SQLs | 193 | Volume is stable |
+| SQOs | 144 | Volume is stable |
+| Joined | 17 | Will increase |
+| SQO→Joined | ~10% | Expect 15-20% when mature |
+
+⚠️ **NEVER fail a build because Q4 2025 SQO→Joined is "low"** - it hasn't baked yet!
 
 ## Code Style
 
@@ -196,6 +334,16 @@ Use these as test cases when debugging:
 - **RIGHT**: Use `StageName = 'Closed Lost'` and `Stage_Entered_Closed__c` for opportunity closure
 - **WHY**: Once converted, resolution is tracked at Opportunity level, not Lead level.
 
+### ❌ Validating with Immature Cohorts
+- **WRONG**: Testing calculation changes with Q4 2025 and expecting stable rates
+- **RIGHT**: Test with Q1/Q2 2025 (TIER 1) - these cohorts are fully baked
+- **WHY**: SQO→Joined takes 90-200 days to stabilize. Q4 2025 is only 13 days old.
+
+### ❌ Not Using Pre-calculated Flags
+- **WRONG**: `SUM(CASE WHEN is_mql = 1 AND is_sql = 1 THEN 1 END) / COUNT(*)` 
+- **RIGHT**: `SUM(mql_to_sql_progression) / SUM(eligible_for_mql_conversions)`
+- **WHY**: Flags handle edge cases (recycled leads, FilterDate checks, resolution status)
+
 ## Rules and Commands
 
 ### Code Generation Rules
@@ -215,25 +363,30 @@ Use these as test cases when debugging:
 ### Testing Commands
 
 Before committing changes that affect calculations:
+
 1. Run `npm run build` to ensure TypeScript compiles
-2. Test with Q4 2025 filters and verify values match expected:
-   - SQLs: 193
-   - SQOs: 144
-   - Joined: 17
-   - Contacted→MQL: 3.6%
-   - SQL→SQO: 74.6%
-   - SQO→Joined: 11.6%
+2. **Test with Q1 2025 filters** (TIER 1 - Primary validation):
+   - SQLs: 123
+   - SQOs: 96
+   - Joined: 12
+   - Contacted→MQL: 4.94% (314/6,360)
+   - SQL→SQO: 70.83% (85/120)
+   - SQO→Joined: 12.20% (10/82)
+3. If Q1 2025 matches, test with Q4 2025 for sanity check
+4. **Never fail validation based on Q4 2025 rates** - they're still baking
 
 ### Code Review Checklist
 
 When reviewing or modifying code:
+- [ ] Read `docs/GROUND-TRUTH.md` for expected values
 - [ ] Uses parameterized queries (no string interpolation)
 - [ ] Has proper TypeScript types
 - [ ] Handles errors gracefully
-- [ ] Uses correct date fields for each metric
+- [ ] Uses correct cohort date fields for each metric
+- [ ] Uses pre-calculated flags (`*_progression`, `eligible_for_*`)
 - [ ] Properly deduplicates opportunity-level metrics
 - [ ] Filters by correct record type for SQO calculations
-- [ ] Matches scorecard logic (if modifying conversion rates)
+- [ ] **Verified against Q1/Q2 2025 ground truth**
 
 ### Debugging Workflow
 
@@ -281,5 +434,12 @@ import { dashboardApi } from '@/lib/api-client';
 ```
 
 ---
+
+**Critical Reminders**:
+1. **Ground Truth**: `docs/GROUND-TRUTH.md` is the source of truth - Q1/Q2 2025 values are IMMUTABLE
+2. **Cohort Maturity**: Recent cohorts (Q4 2025) have artificially low SQO→Joined rates - this is expected
+3. **Pre-calculated Flags**: Always use `*_progression` and `eligible_for_*` flags from `vw_funnel_master`
+4. **Validation Order**: Q1 2025 first → Q2 2025 second → Q4 2025 for sanity only
+5. **Never fail on Q4**: If Q4 2025 SQO→Joined is low, that's expected - cohort isn't mature
 
 **Remember**: The scorecard calculations in `getConversionRates()` are correct. Use them as the reference implementation when fixing the trend chart.
