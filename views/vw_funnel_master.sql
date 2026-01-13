@@ -187,10 +187,23 @@ With_Channel_Mapping AS (
     ON c.Original_source = nm.original_source
 ),
 
+-- Add User lookup for Opportunity SGA names (when SGA_Owner_Name__c is NULL)
+With_SGA_Lookup AS (
+  SELECT
+    wcm.*,
+    u.Name AS Opp_SGA_User_Name
+  FROM With_Channel_Mapping wcm
+  LEFT JOIN `savvy-gtm-analytics.SavvyGTMData.User` u
+    ON wcm.Opp_SGA_Name__c = u.Id
+),
+
 -- Final transformation with all derived fields
 Final AS (
   SELECT
-    wcm.*,
+    wsl.* EXCEPT(SGA_Owner_Name__c),
+    -- Override SGA_Owner_Name__c to use Opp_SGA_User_Name when Lead SGA is NULL
+    -- This handles opportunities created directly (not from leads)
+    COALESCE(wsl.SGA_Owner_Name__c, wsl.Opp_SGA_User_Name) AS SGA_Owner_Name__c,
     
     -- ═══════════════════════════════════════════════════════════════════════
     -- OPPORTUNITY DEDUPLICATION FLAGS
@@ -362,7 +375,7 @@ Final AS (
       THEN 1 ELSE 0 
     END AS sqo_to_joined_progression
     
-  FROM With_Channel_Mapping wcm
+  FROM With_SGA_Lookup wsl
 )
 
 SELECT * FROM Final
