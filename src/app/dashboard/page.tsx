@@ -11,10 +11,11 @@ import { ChannelPerformanceTable } from '@/components/dashboard/ChannelPerforman
 import { SourcePerformanceTable } from '@/components/dashboard/SourcePerformanceTable';
 import { DetailRecordsTable } from '@/components/dashboard/DetailRecordsTable';
 import { ExportToSheetsButton } from '@/components/dashboard/ExportToSheetsButton';
+import { AdvancedFilters, AdvancedFiltersButton } from '@/components/dashboard/AdvancedFilters';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ChartErrorBoundary, TableErrorBoundary, CardErrorBoundary, FilterErrorBoundary } from '@/components/ui';
 import { dashboardApi, handleApiError } from '@/lib/api-client';
-import { DashboardFilters, FilterOptions } from '@/types/filters';
+import { DashboardFilters, FilterOptions, DEFAULT_ADVANCED_FILTERS, countActiveAdvancedFilters } from '@/types/filters';
 import { 
   FunnelMetrics, 
   FunnelMetricsWithGoals,  // Changed from FunnelMetrics
@@ -61,6 +62,7 @@ const DEFAULT_FILTERS: DashboardFilters = {
   sgm: null,
   stage: null,
   metricFilter: 'all',
+  advancedFilters: DEFAULT_ADVANCED_FILTERS,
 };
 
 export default function DashboardPage() {
@@ -87,6 +89,7 @@ export default function DashboardPage() {
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [trendGranularity, setTrendGranularity] = useState<'month' | 'quarter'>('quarter');
   const [trendMode, setTrendMode] = useState<ConversionTrendMode>('cohort');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   
   // Fetch filter options on mount
   useEffect(() => {
@@ -246,12 +249,20 @@ export default function DashboardPage() {
       </div>
       
       <FilterErrorBoundary>
-        <GlobalFilters
-          filters={filters}
-          filterOptions={filterOptions}
-          onFiltersChange={setFilters}
-          onReset={handleFilterReset}
-        />
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex-1">
+            <GlobalFilters
+              filters={filters}
+              filterOptions={filterOptions}
+              onFiltersChange={setFilters}
+              onReset={handleFilterReset}
+            />
+          </div>
+          <AdvancedFiltersButton
+            onClick={() => setShowAdvancedFilters(true)}
+            activeCount={countActiveAdvancedFilters(filters.advancedFilters || DEFAULT_ADVANCED_FILTERS)}
+          />
+        </div>
       </FilterErrorBoundary>
 
       {/* Export Button */}
@@ -342,6 +353,20 @@ export default function DashboardPage() {
             />
           </TableErrorBoundary>
         </>
+      )}
+      
+      {/* Advanced Filters Modal */}
+      {filterOptions && (
+        <AdvancedFilters
+          filters={filters.advancedFilters || DEFAULT_ADVANCED_FILTERS}
+          onFiltersChange={(newAdvancedFilters) => {
+            setFilters(prev => ({ ...prev, advancedFilters: newAdvancedFilters }));
+          }}
+          viewMode={viewMode}
+          onClose={() => setShowAdvancedFilters(false)}
+          isOpen={showAdvancedFilters}
+          filterOptions={filterOptions}
+        />
       )}
     </div>
   );
