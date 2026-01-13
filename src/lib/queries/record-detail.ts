@@ -148,13 +148,13 @@ function transformToRecordDetail(r: RecordDetailRaw): RecordDetailFull {
     filterDate: extractDateValue(r.FilterDate),
     contactedDate: extractDateValue(r.stage_entered_contacting__c),
     mqlDate: extractDateValue(r.mql_stage_entered_ts),
-    sqlDate: r.converted_date_raw ? toString(r.converted_date_raw) : null,  // DATE type - already string
+    sqlDate: extractDateValue(r.converted_date_raw),  // DATE type - can be string or object
     sqoDate: extractDateValue(r.Date_Became_SQO__c),
-    joinedDate: r.advisor_join_date__c ? toString(r.advisor_join_date__c) : null,  // DATE type - already string
+    joinedDate: extractDateValue(r.advisor_join_date__c),  // DATE type - can be string or object
 
-    // Dates - Calls (DATE types - already strings)
-    initialCallScheduledDate: r.Initial_Call_Scheduled_Date__c ? toString(r.Initial_Call_Scheduled_Date__c) : null,
-    qualificationCallDate: r.Qualification_Call_Date__c ? toString(r.Qualification_Call_Date__c) : null,
+    // Dates - Calls (DATE types - can be string or object)
+    initialCallScheduledDate: extractDateValue(r.Initial_Call_Scheduled_Date__c),
+    qualificationCallDate: extractDateValue(r.Qualification_Call_Date__c),
 
     // Dates - Stage Entry
     stageEnteredDiscovery: extractDateValue(r.Stage_Entered_Discovery__c),

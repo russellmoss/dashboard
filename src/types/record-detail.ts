@@ -129,11 +129,11 @@ export interface RecordDetailRaw {
   FilterDate: { value: string } | string | null;
   stage_entered_contacting__c: { value: string } | string | null;
   mql_stage_entered_ts: { value: string } | string | null;
-  converted_date_raw: string | null;  // DATE type
+  converted_date_raw: string | { value: string } | null;  // DATE type - can be string or object
   Date_Became_SQO__c: { value: string } | string | null;
-  advisor_join_date__c: string | null;  // DATE type
-  Initial_Call_Scheduled_Date__c: string | null;  // DATE type
-  Qualification_Call_Date__c: string | null;  // DATE type
+  advisor_join_date__c: string | { value: string } | null;  // DATE type - can be string or object
+  Initial_Call_Scheduled_Date__c: string | { value: string } | null;  // DATE type - can be string or object
+  Qualification_Call_Date__c: string | { value: string } | null;  // DATE type - can be string or object
   Stage_Entered_Discovery__c: { value: string } | string | null;
   Stage_Entered_Sales_Process__c: { value: string } | string | null;
   Stage_Entered_Negotiating__c: { value: string } | string | null;
