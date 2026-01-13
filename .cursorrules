@@ -5,7 +5,7 @@
 You are working on the **Savvy Funnel Analytics Dashboard**, a Next.js 14 application that replaces Tableau for funnel analytics. The dashboard connects to BigQuery and visualizes data from the `vw_funnel_master` view.
 
 **Repository**: https://github.com/russellmoss/dashboard  
-**Current Status**: Phases 1-6 Complete, Conversion Trends Chart Bug Under Investigation
+**Current Status**: Phases 1-6 Complete
 
 ## Key Principles
 
@@ -19,24 +19,6 @@ You are working on the **Savvy Funnel Analytics Dashboard**, a Next.js 14 applic
    - SQO→Joined: `advisor_join_date__c` (numerator), `Date_Became_SQO__c` (denominator)
 5. **Deduplication**: Use `is_sqo_unique` and `is_joined_unique` for opportunity-level metrics
 6. **Record Type**: SQO calculations must filter by `recordtypeid = '012Dn000000mrO3IAI'` (Recruiting)
-
-## Current Blocker: Conversion Trends Chart Bug
-
-**Issue**: The conversion trends chart displays incorrect rates and volumes that don't match scorecard values.
-
-**Location**: `src/lib/queries/conversion-rates.ts` - `getConversionTrends()` function
-
-**Root Causes**:
-1. Period mismatch: Numerators and denominators grouped by different date fields
-2. Cohort restrictions: Only counting same-period conversions, excluding valid cross-period conversions
-3. Inconsistent denominator logic: Using `eligible_for_*` fields instead of `COUNT(*)` like scorecard
-
-**Reference**: See `conversion-rates-chart-bug.md` for comprehensive documentation
-
-**Goal**: Fix `getConversionTrends()` to match the logic in `getConversionRates()` (scorecard), ensuring:
-- Same date field grouping for numerators and denominators
-- No cohort restrictions (count all conversions, not just same-period)
-- Consistent denominator calculation with scorecard
 
 ## Architecture Patterns
 
@@ -66,7 +48,7 @@ You are working on the **Savvy Funnel Analytics Dashboard**, a Next.js 14 applic
 ## Key Files Reference
 
 ### Core Query Logic
-- `src/lib/queries/conversion-rates.ts` - Scorecard (correct) and trend chart (buggy) queries
+- `src/lib/queries/conversion-rates.ts` - Scorecard and trend chart queries
 - `src/lib/queries/funnel-metrics.ts` - Volume metrics (SQLs, SQOs, Joined, AUM)
 - `src/lib/queries/source-performance.ts` - Channel and source breakdowns
 
@@ -82,7 +64,7 @@ You are working on the **Savvy Funnel Analytics Dashboard**, a Next.js 14 applic
 
 ## Development Guidelines
 
-### When Fixing the Conversion Chart Bug
+### When Working with Conversion Rates
 
 1. **Compare Logic**: Always compare `getConversionTrends()` with `getConversionRates()` to ensure consistency
 2. **Test with Q4 2025**: Use Q4 2025 as test case (expected: 3.6% Contacted→MQL, 74.6% SQL→SQO, 11.6% SQO→Joined)

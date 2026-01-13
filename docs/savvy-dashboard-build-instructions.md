@@ -34,7 +34,6 @@ This document has been reviewed and updated for agentic development. All missing
 - ✅ All Phase 4 API routes created (funnel-metrics, conversion-rates, source-performance, detail-records, forecast, open-pipeline, filters)
 - ✅ **Phase 5 COMPLETED**: All dashboard components created and implemented
 - ✅ **Phase 6 COMPLETED**: Main dashboard page, layout, and all UI components functional
-- ⚠️ **BLOCKER**: Conversion Trends chart displaying incorrect rates and volumes - see `conversion-rates-chart-bug.md` for detailed documentation
 
 ---
 
@@ -3287,23 +3286,6 @@ export function DetailRecordsTable({
 ## PHASE 6: Main Dashboard Page
 
 **STATUS: ✅ COMPLETED** - Main dashboard page, layout, and all UI components are functional and rendering correctly.
-
-**⚠️ KNOWN ISSUE - Conversion Trends Chart Bug:**
-The Conversion Trends chart is displaying incorrect conversion rates and volumes that do not align with the scorecard values. For example, when filtering to Q4 2025:
-- Scorecard shows correct values (Contacted→MQL: 3.6%, MQL→SQL: 34.2%, SQL→SQO: 74.6%, SQO→Joined: 11.6%)
-- Chart shows incorrect values (Contacted→MQL: 8.6%, SQL→SQO: 59.1%, SQO→Joined: 4.1%)
-- Volumes are also incorrect (Chart shows 114 SQOs vs 144 actual, 6 Joined vs 17 actual)
-
-**See `conversion-rates-chart-bug.md` in the project root for comprehensive documentation of:**
-- Detailed issue description
-- How scorecards are built (correct implementation)
-- How trend charts are built (incorrect implementation)
-- Root cause analysis
-- All debugging attempts made
-- Proposed solutions
-- Files involved
-
-**Next Steps:** Debug the `getConversionTrends()` function in `src/lib/queries/conversion-rates.ts` to align trend chart calculations with scorecard logic.
 
 ### Step 6.1: Create Dashboard Layout
 

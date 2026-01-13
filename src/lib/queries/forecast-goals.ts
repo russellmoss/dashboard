@@ -45,12 +45,8 @@ export async function getAggregateForecastGoals(
 ): Promise<ForecastGoals | null> {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
   
-  // Debug logging
-  console.log('[Forecast Goals] Date range:', { startDate, endDate, datePreset: filters.datePreset, year: filters.year });
-  
   // Check if we have forecast data for this date range
   if (!hasForecastData(startDate)) {
-    console.log('[Forecast Goals] Date range before forecast start date (2025-10-01), returning null');
     return null;
   }
   
@@ -66,8 +62,6 @@ export async function getAggregateForecastGoals(
   `;
   
   const params = { startDate, endDate };
-  
-  console.log('[Forecast Goals] Executing query with params:', params);
   
   const results = await runQuery<RawForecastGoalsResult>(query, params);
   

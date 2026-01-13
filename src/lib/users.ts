@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import prisma from './prisma';
+import { logger } from './logger';
 
 export interface User {
   id: string;
@@ -17,7 +18,7 @@ export async function validateUser(
   password: string
 ): Promise<User | null> {
   const normalizedEmail = email.toLowerCase();
-  console.log('[validateUser] Looking up user with email (Prisma):', normalizedEmail);
+  logger.debug('[validateUser] Looking up user', { email: normalizedEmail });
 
   try {
     const user = await prisma.user.findUnique({
@@ -25,25 +26,25 @@ export async function validateUser(
     });
 
     if (!user) {
-      console.error('[validateUser] User not found in database:', normalizedEmail);
+      logger.warn('[validateUser] User not found in database', { email: normalizedEmail });
       return null;
     }
 
     // Check if user is active
     if (user.isActive === false) {
-      console.error('[validateUser] User is inactive:', normalizedEmail);
+      logger.warn('[validateUser] User is inactive', { email: normalizedEmail });
       return null;
     }
 
-    console.log('[validateUser] User found, comparing password...');
+    logger.debug('[validateUser] User found, comparing password', { email: normalizedEmail });
     const isValid = await bcrypt.compare(password, user.passwordHash);
 
     if (!isValid) {
-      console.error('[validateUser] Password comparison failed for:', normalizedEmail);
+      logger.warn('[validateUser] Password comparison failed', { email: normalizedEmail });
       return null;
     }
 
-    console.log('[validateUser] Password valid, returning user:', user.email);
+    logger.debug('[validateUser] Password valid, returning user', { email: user.email });
     return {
       id: user.id,
       email: user.email,
@@ -55,7 +56,7 @@ export async function validateUser(
       createdBy: user.createdBy,
     };
   } catch (error) {
-    console.error('[validateUser] Database error:', error);
+    logger.error('[validateUser] Database error', error);
     throw error;
   }
 }

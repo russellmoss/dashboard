@@ -10,6 +10,7 @@ import { getConversionRates } from '@/lib/queries/conversion-rates';
 import { getConversionTrends } from '@/lib/queries/conversion-rates';
 import { getFunnelMetrics } from '@/lib/queries/funnel-metrics';
 import { buildDateRangeFromFilters } from '@/lib/utils/date-helpers';
+import { logger } from '@/lib/logger';
 
 export const maxDuration = 60; // Allow up to 60 seconds for export
 
@@ -49,7 +50,8 @@ export async function POST(request: NextRequest) {
     // Step 3: Fetch all data in parallel
     const { startDate, endDate } = buildDateRangeFromFilters(filters);
     
-    console.log(`[Export] Starting export for ${session.user.email}`, {
+    logger.info('[Export] Starting export', {
+      user: session.user.email,
       dateRange: `${startDate} to ${endDate}`,
       mode,
       filters: { channel: filters.channel, source: filters.source, sga: filters.sga, sgm: filters.sgm },
@@ -67,7 +69,7 @@ export async function POST(request: NextRequest) {
       getExportDetailRecords(filters, maxRecords),
     ]);
 
-    console.log(`[Export] Data fetched: ${detailRecords.length} records`);
+    logger.debug('[Export] Data fetched', { recordCount: detailRecords.length });
 
     // Step 4: Build conversion analysis from detail records
     const conversionAnalysis = buildConversionAnalysis(detailRecords);
@@ -120,19 +122,19 @@ export async function POST(request: NextRequest) {
     };
 
     // Step 6: Export to Google Sheets
-    console.log(`[Export] Creating Google Sheet...`);
+    logger.info('[Export] Creating Google Sheet');
     const exporter = new GoogleSheetsExporter();
     const result = await exporter.exportToSheets(exportData);
 
     if (!result.success) {
-      console.error(`[Export] Failed:`, result.error);
+      logger.error('[Export] Failed', result.error);
       return NextResponse.json(
         { error: result.error || 'Export failed' },
         { status: 500 }
       );
     }
 
-    console.log(`[Export] Success: ${result.spreadsheetUrl}`);
+    logger.info('[Export] Success', { spreadsheetUrl: result.spreadsheetUrl });
 
     return NextResponse.json({
       success: true,
@@ -141,7 +143,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('[Export] Error:', error);
+    logger.error('[Export] Error', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Export failed' },
       { status: 500 }

@@ -7,6 +7,7 @@ import {
 } from './sheets-types';
 import fs from 'fs';
 import path from 'path';
+import { logger } from '../logger';
 
 /**
  * Google Sheets Exporter
@@ -101,7 +102,7 @@ export class GoogleSheetsExporter {
         spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
       };
     } catch (error) {
-      console.error('Google Sheets export error:', error);
+      logger.error('Google Sheets export error', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error during export',
@@ -121,7 +122,7 @@ export class GoogleSheetsExporter {
     const filterStr = this.buildFilterString(data);
     const title = `Savvy Dashboard Export - ${data.dateRange.start} to ${data.dateRange.end}${filterStr ? ` - ${filterStr}` : ''} - ${dateStr}`;
 
-    console.log('[Export] Calling Apps Script to copy template...');
+    logger.debug('[Export] Calling Apps Script to copy template');
     
     try {
       const response = await fetch(this.webAppUrl, {
@@ -135,14 +136,14 @@ export class GoogleSheetsExporter {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('[Export] Apps Script HTTP error:', response.status, errorText);
+        logger.error('[Export] Apps Script HTTP error', new Error(errorText), { status: response.status });
         throw new Error(`Apps Script web app returned ${response.status}: ${errorText}`);
       }
 
       const result = await response.json();
       
       if (!result.success) {
-        console.error('[Export] Apps Script error:', result.error);
+        logger.error('[Export] Apps Script error', result.error);
         throw new Error(result.error || 'Failed to create spreadsheet');
       }
 
@@ -150,10 +151,10 @@ export class GoogleSheetsExporter {
         throw new Error('Apps Script succeeded but no spreadsheet ID returned');
       }
 
-      console.log('[Export] Spreadsheet created:', result.spreadsheetId);
+      logger.info('[Export] Spreadsheet created', { spreadsheetId: result.spreadsheetId });
       return { id: result.spreadsheetId };
     } catch (error: any) {
-      console.error('[Export] Apps Script call failed:', error);
+      logger.error('[Export] Apps Script call failed', error);
       if (error instanceof Error) {
         throw error;
       }
@@ -180,7 +181,7 @@ export class GoogleSheetsExporter {
    */
   private async shareWithUser(spreadsheetId: string, userEmail: string): Promise<void> {
     // Sharing is handled by Apps Script web app
-    console.log(`[Export] Sharing handled by Apps Script for ${userEmail}`);
+    logger.debug('[Export] Sharing handled by Apps Script', { userEmail });
   }
 
   /**
@@ -496,26 +497,26 @@ export class GoogleSheetsExporter {
       return `=IF(AND(N(${numCell})=N(${detailNumCell}),N(${denCell})=N(${detailDenCell})),"✓",IFERROR(IF(ROUND(ABS(VALUE(SUBSTITUTE(${dashboardCell},"%",""))-VALUE(SUBSTITUTE(${validationCell},"%",""))),2)<=0.1,"✓","✗"),"✗"))`;
     };
 
-    // Create debug formulas for numerator and denominator counts
-    // Contacted → MQL debug formulas
+    // Validation formulas for numerator and denominator counts
+    // Contacted → MQL validation formulas
     const c2mDebug = {
       numerFormula: `=COUNTIFS('Detail Records'!M:M,">=${startDate}",'Detail Records'!M:M,"<=${endDate}",'Detail Records'!M:M,"<>",'Detail Records'!W:W,"YES")`,
       denomFormula: `=COUNTIFS('Detail Records'!M:M,">=${startDate}",'Detail Records'!M:M,"<=${endDate}",'Detail Records'!M:M,"<>",'Detail Records'!AA:AA,"YES")`,
     };
 
-    // MQL → SQL debug formulas
+    // MQL → SQL validation formulas
     const m2sDebug = {
       numerFormula: `=COUNTIFS('Detail Records'!N:N,">=${startDate}",'Detail Records'!N:N,"<=${endDate}",'Detail Records'!N:N,"<>",'Detail Records'!X:X,"YES")`,
       denomFormula: `=COUNTIFS('Detail Records'!N:N,">=${startDate}",'Detail Records'!N:N,"<=${endDate}",'Detail Records'!N:N,"<>",'Detail Records'!AB:AB,"YES")`,
     };
 
-    // SQL → SQO debug formulas
+    // SQL → SQO validation formulas
     const s2sqDebug = {
       numerFormula: `=COUNTIFS('Detail Records'!O:O,">=${startDate}",'Detail Records'!O:O,"<=${endDate}",'Detail Records'!O:O,"<>",'Detail Records'!Y:Y,"YES")`,
       denomFormula: `=COUNTIFS('Detail Records'!O:O,">=${startDate}",'Detail Records'!O:O,"<=${endDate}",'Detail Records'!O:O,"<>",'Detail Records'!AC:AC,"YES")`,
     };
 
-    // SQO → Joined debug formulas
+    // SQO → Joined validation formulas
     const sq2jDebug = {
       numerFormula: `=COUNTIFS('Detail Records'!P:P,">=${startDate}",'Detail Records'!P:P,"<=${endDate}",'Detail Records'!P:P,"<>",'Detail Records'!Z:Z,"YES")`,
       denomFormula: `=COUNTIFS('Detail Records'!P:P,">=${startDate}",'Detail Records'!P:P,"<=${endDate}",'Detail Records'!P:P,"<>",'Detail Records'!AD:AD,"YES")`,
