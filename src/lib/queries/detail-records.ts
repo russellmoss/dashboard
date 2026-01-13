@@ -1,6 +1,7 @@
 import { runQuery } from '../bigquery';
 import { DetailRecord } from '@/types/dashboard';
-import { DashboardFilters } from '@/types/filters';
+import { DashboardFilters, DEFAULT_ADVANCED_FILTERS } from '@/types/filters';
+import { buildAdvancedFilterClauses } from '../utils/filter-helpers';
 import { buildDateRangeFromFilters, formatCurrency } from '../utils/date-helpers';
 import { RawDetailRecordResult, toNumber, toString } from '@/types/bigquery-raw';
 import { FULL_TABLE, OPEN_PIPELINE_STAGES, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
@@ -10,6 +11,13 @@ export async function getDetailRecords(
   limit: number = 50000
 ): Promise<DetailRecord[]> {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
+  
+  // Extract advancedFilters from filters object
+  const advancedFilters = filters.advancedFilters || DEFAULT_ADVANCED_FILTERS;
+  
+  // Build advanced filter clauses
+  const { whereClauses: advFilterClauses, params: advFilterParams } = 
+    buildAdvancedFilterClauses(advancedFilters, 'adv');
   
   // Build parameterized query conditions
   const conditions: string[] = [];
@@ -37,6 +45,10 @@ export async function getDetailRecords(
     conditions.push('v.SGM_Owner_Name__c = @sgm');
     params.sgm = filters.sgm;
   }
+  
+  // Add advanced filter clauses to existing conditions
+  conditions.push(...advFilterClauses);
+  Object.assign(params, advFilterParams);
   
   // Determine date field and metric filter based on metricFilter
   let dateField = '';
@@ -138,6 +150,8 @@ export async function getDetailRecords(
       v.Opportunity_AUM as aum,
       v.salesforce_url,
       ${dateField} as relevant_date,
+      v.Initial_Call_Scheduled_Date__c as initial_call_scheduled_date,
+      v.Qualification_Call_Date__c as qualification_call_date,
       v.is_contacted,
       v.is_mql,
       v.is_sql,
@@ -165,6 +179,26 @@ export async function getDetailRecords(
       }
     }
     
+    // Extract Initial Call Scheduled Date (DATE field - direct string)
+    let initialCallDate: string | null = null;
+    if (r.initial_call_scheduled_date) {
+      if (typeof r.initial_call_scheduled_date === 'string') {
+        initialCallDate = r.initial_call_scheduled_date;
+      } else if (typeof r.initial_call_scheduled_date === 'object' && r.initial_call_scheduled_date.value) {
+        initialCallDate = r.initial_call_scheduled_date.value;
+      }
+    }
+    
+    // Extract Qualification Call Date (DATE field - direct string)
+    let qualCallDate: string | null = null;
+    if (r.qualification_call_date) {
+      if (typeof r.qualification_call_date === 'string') {
+        qualCallDate = r.qualification_call_date;
+      } else if (typeof r.qualification_call_date === 'object' && r.qualification_call_date.value) {
+        qualCallDate = r.qualification_call_date.value;
+      }
+    }
+    
     return {
       id: toString(r.id),
       advisorName: toString(r.advisor_name) || 'Unknown',
@@ -177,6 +211,8 @@ export async function getDetailRecords(
       aumFormatted: formatCurrency(r.aum),
       salesforceUrl: toString(r.salesforce_url) || '',
       relevantDate: dateValue,
+      initialCallScheduledDate: initialCallDate,
+      qualificationCallDate: qualCallDate,
       isContacted: r.is_contacted === 1,
       isMql: r.is_mql === 1,
       isSql: r.is_sql === 1,

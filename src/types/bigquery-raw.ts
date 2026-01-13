@@ -69,6 +69,8 @@ export interface RawDetailRecordResult {
   salesforce_url: string | null;
   filter_date?: { value: string } | null; // Legacy field name
   relevant_date?: string | { value: string } | null; // The relevant date field (Date_Became_SQO__c, converted_date_raw, etc.)
+  initial_call_scheduled_date?: string | { value: string } | null; // Initial_Call_Scheduled_Date__c (DATE field)
+  qualification_call_date?: string | { value: string } | null; // Qualification_Call_Date__c (DATE field)
   is_contacted: number;
   is_mql: number;
   is_sql: number;

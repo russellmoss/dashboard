@@ -350,6 +350,7 @@ export default function DashboardPage() {
               filterDescription={getDetailDescription()}
               canExport={permissions?.canExport ?? false}
               viewMode={viewMode}
+              advancedFilters={filters.advancedFilters}
             />
           </TableErrorBoundary>
         </>

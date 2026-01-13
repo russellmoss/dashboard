@@ -56,6 +56,8 @@ export async function getOpenPipelineRecords(
       v.Opportunity_AUM as aum,
       v.salesforce_url,
       v.FilterDate as relevant_date,
+      v.Initial_Call_Scheduled_Date__c as initial_call_scheduled_date,
+      v.Qualification_Call_Date__c as qualification_call_date,
       v.is_contacted,
       v.is_mql
     FROM \`${FULL_TABLE}\` v
@@ -79,6 +81,26 @@ export async function getOpenPipelineRecords(
       }
     }
     
+    // Extract Initial Call Scheduled Date (DATE field - direct string)
+    let initialCallDate: string | null = null;
+    if (r.initial_call_scheduled_date) {
+      if (typeof r.initial_call_scheduled_date === 'string') {
+        initialCallDate = r.initial_call_scheduled_date;
+      } else if (typeof r.initial_call_scheduled_date === 'object' && r.initial_call_scheduled_date.value) {
+        initialCallDate = r.initial_call_scheduled_date.value;
+      }
+    }
+    
+    // Extract Qualification Call Date (DATE field - direct string)
+    let qualCallDate: string | null = null;
+    if (r.qualification_call_date) {
+      if (typeof r.qualification_call_date === 'string') {
+        qualCallDate = r.qualification_call_date;
+      } else if (typeof r.qualification_call_date === 'object' && r.qualification_call_date.value) {
+        qualCallDate = r.qualification_call_date.value;
+      }
+    }
+    
     return {
       id: toString(r.id),
       advisorName: toString(r.advisor_name) || 'Unknown',
@@ -91,6 +113,8 @@ export async function getOpenPipelineRecords(
       aumFormatted: formatCurrency(r.aum),
       salesforceUrl: toString(r.salesforce_url) || '',
       relevantDate: dateValue,
+      initialCallScheduledDate: initialCallDate,
+      qualificationCallDate: qualCallDate,
       isContacted: r.is_contacted === 1,
       isMql: r.is_mql === 1,
       isSql: true,

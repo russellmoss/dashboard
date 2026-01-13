@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Badge, Button, TextInput } from '@tremor/react';
 import { DetailRecord, ViewMode } from '@/types/dashboard';
+import { AdvancedFilters } from '@/types/filters';
 import { ExternalLink, Search, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import { ExportButton } from '@/components/ui/ExportButton';
 
@@ -16,6 +17,7 @@ interface DetailRecordsTableProps {
   filterDescription?: string;
   canExport?: boolean;
   viewMode?: ViewMode;
+  advancedFilters?: AdvancedFilters; // To determine which date columns to show
 }
 
 /**
@@ -133,13 +135,17 @@ function sortRecords(records: DetailRecord[], sortColumn: SortColumn, sortDirect
   });
 }
 
-export function DetailRecordsTable({ records, title = 'Detail Records', filterDescription, canExport = false, viewMode = 'focused' }: DetailRecordsTableProps) {
+export function DetailRecordsTable({ records, title = 'Detail Records', filterDescription, canExport = false, viewMode = 'focused', advancedFilters }: DetailRecordsTableProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchField, setSearchField] = useState<SearchField>('advisor');
   const [currentPage, setCurrentPage] = useState(1);
   const [sortColumn, setSortColumn] = useState<SortColumn>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const recordsPerPage = 50;
+  
+  // Determine which date columns to show based on active advanced filters
+  const showInitialCallColumn = advancedFilters?.initialCallScheduled?.enabled ?? false;
+  const showQualCallColumn = advancedFilters?.qualificationCallDate?.enabled ?? false;
   
   /**
    * Get search value from record based on selected field
@@ -346,6 +352,12 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
                 <SortableHeader column="channel">Channel</SortableHeader>
                 <SortableHeader column="stage">Stage</SortableHeader>
                 <SortableHeader column="date">Date</SortableHeader>
+                {showInitialCallColumn && (
+                  <SortableHeader column={null}>Initial Call Scheduled</SortableHeader>
+                )}
+                {showQualCallColumn && (
+                  <SortableHeader column={null}>Qualification Call</SortableHeader>
+                )}
                 <SortableHeader column="sga">SGA</SortableHeader>
                 <SortableHeader column="sgm">SGM</SortableHeader>
                 <SortableHeader column="aum" alignRight>
@@ -357,7 +369,7 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
             <TableBody>
             {paginatedRecords.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center text-gray-500 dark:text-gray-400 py-8">
+                <TableCell colSpan={9 + (showInitialCallColumn ? 1 : 0) + (showQualCallColumn ? 1 : 0)} className="text-center text-gray-500 dark:text-gray-400 py-8">
                   {searchQuery ? 'No records found matching your search' : 'No records found'}
                 </TableCell>
               </TableRow>
@@ -383,6 +395,16 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
                   <TableCell className="text-sm border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
                     {record.relevantDate ? new Date(record.relevantDate).toLocaleDateString() : '-'}
                   </TableCell>
+                  {showInitialCallColumn && (
+                    <TableCell className="text-sm border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
+                      {record.initialCallScheduledDate ? new Date(record.initialCallScheduledDate).toLocaleDateString() : '-'}
+                    </TableCell>
+                  )}
+                  {showQualCallColumn && (
+                    <TableCell className="text-sm border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
+                      {record.qualificationCallDate ? new Date(record.qualificationCallDate).toLocaleDateString() : '-'}
+                    </TableCell>
+                  )}
                   <TableCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">{record.sga || '-'}</TableCell>
                   <TableCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">{record.sgm || '-'}</TableCell>
                   <TableCell className="text-right font-semibold border-r border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white">{record.aumFormatted}</TableCell>

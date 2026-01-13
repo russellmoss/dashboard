@@ -125,6 +125,8 @@ export interface DetailRecord {
   aumFormatted: string;
   salesforceUrl: string;
   relevantDate: string; // The relevant date field based on metric filter (Date_Became_SQO__c, converted_date_raw, advisor_join_date__c, etc.)
+  initialCallScheduledDate: string | null; // Initial_Call_Scheduled_Date__c (DATE field)
+  qualificationCallDate: string | null; // Qualification_Call_Date__c (DATE field)
   isContacted: boolean;
   isMql: boolean;
   isSql: boolean;
