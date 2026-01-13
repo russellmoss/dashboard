@@ -73,6 +73,7 @@ Opp_Base AS (
     Stage_Entered_Signed__c,
     Stage_Entered_On_Hold__c,
     Stage_Entered_Closed__c,
+    Qualification_Call_Date__c,
     Experimentation_Tag__c AS Opportunity_Experimentation_Tag__c,
     External_Agency__c AS Opp_External_Agency__c
     
@@ -131,9 +132,11 @@ Combined AS (
     l.stage_entered_contacting__c,
     l.mql_stage_entered_ts,
     l.converted_date_raw,
+    l.Initial_Call_Scheduled_Date__c,
     o.Opp_CreatedDate,
     o.Date_Became_SQO__c,
     o.advisor_join_date__c,
+    o.Qualification_Call_Date__c,
     o.Stage_Entered_Signed__c,
     o.Stage_Entered_Discovery__c,
     o.Stage_Entered_Negotiating__c,

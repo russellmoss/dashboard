@@ -7,8 +7,9 @@ This document shows which filters apply to which metrics and how they're applied
 1. **Date Filters**: Applied to specific date fields per metric
 2. **Channel Filters**: Applied via `Channel_Grouping_Name` from `new_mapping` table
 3. **Source Filters**: Applied via `Original_source` field
-4. **SGA Filters**: Applied based on metric type (Lead vs Opportunity)
-5. **SGM Filters**: Applied only to opportunity-level metrics
+4. **SGA Filters**: Applied based on metric type (Lead vs Opportunity), filtered by `IsSGA__c = TRUE` from User table
+5. **SGM Filters**: Applied only to opportunity-level metrics, filtered by `Is_SGM__c = TRUE` from User table
+6. **Active/All Toggle**: SGA and SGM dropdowns include Active/All toggle to show only active team members (default) or all team members
 
 ---
 
@@ -27,6 +28,21 @@ This document shows which filters apply to which metrics and how they're applied
 ---
 
 ## SGA Filter Logic
+
+### Dropdown Population
+SGA dropdown options are populated from `vw_funnel_master` and filtered by the User table:
+```sql
+SELECT DISTINCT 
+  v.SGA_Owner_Name__c as sga,
+  COALESCE(u.IsActive, FALSE) as isActive
+FROM vw_funnel_master v
+LEFT JOIN savvy-gtm-analytics.SavvyGTMData.User u 
+  ON v.SGA_Owner_Name__c = u.Name
+WHERE v.SGA_Owner_Name__c IS NOT NULL
+  AND u.IsSGA__c = TRUE  -- Only include users marked as SGAs
+```
+- **Active/All Toggle**: Default shows only active SGAs (`isActive = TRUE`), toggle to "All" shows all SGAs
+- **Special List**: Certain SGAs always appear as inactive in "All" mode (Russell Moss, Anett Diaz, Bre McDaniel, Bryan Belville, GinaRose Galli, Jed Entin, Savvy Marketing, Savvy Operations, Ariana Butler)
 
 ### Lead-Level Metrics (Contacted, MQL, SQL)
 ```sql
@@ -48,6 +64,20 @@ WHERE v.Opp_SGA_Name__c = @sga
 ---
 
 ## SGM Filter Logic
+
+### Dropdown Population
+SGM dropdown options are populated from `vw_funnel_master` and filtered by the User table:
+```sql
+SELECT DISTINCT 
+  v.SGM_Owner_Name__c as sgm,
+  COALESCE(u.IsActive, FALSE) as isActive
+FROM vw_funnel_master v
+LEFT JOIN savvy-gtm-analytics.SavvyGTMData.User u 
+  ON v.SGM_Owner_Name__c = u.Name
+WHERE v.SGM_Owner_Name__c IS NOT NULL
+  AND u.Is_SGM__c = TRUE  -- Only include users marked as SGMs
+```
+- **Active/All Toggle**: Default shows only active SGMs (`isActive = TRUE`), toggle to "All" shows all SGMs
 
 ### Opportunity-Level Metrics Only
 ```sql

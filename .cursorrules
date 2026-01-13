@@ -5,7 +5,7 @@
 You are working on the **Savvy Funnel Analytics Dashboard**, a Next.js 14 application that replaces Tableau for funnel analytics. The dashboard connects to BigQuery and visualizes data from the `vw_funnel_master` view.
 
 **Repository**: https://github.com/russellmoss/dashboard  
-**Current Status**: Phases 1-6 Complete
+**Current Status**: All core phases complete (1-8), Full Funnel View implemented, SGA/SGM Active Filter implemented, Column sorting added
 
 ## Key Principles
 
