@@ -139,6 +139,7 @@ Combined AS (
     o.Qualification_Call_Date__c,
     o.Stage_Entered_Signed__c,
     o.Stage_Entered_Discovery__c,
+    o.Stage_Entered_Sales_Process__c,
     o.Stage_Entered_Negotiating__c,
     o.Stage_Entered_On_Hold__c,
     o.Stage_Entered_Closed__c,

@@ -42,8 +42,8 @@ export async function getRecordDetail(id: string): Promise<RecordDetailFull | nu
       v.Qualification_Call_Date__c,
       
       -- Dates - Stage Entry
-      -- NOTE: Stage_Entered_Sales_Process__c is not available in the final view output
       v.Stage_Entered_Discovery__c,
+      v.Stage_Entered_Sales_Process__c,
       v.Stage_Entered_Negotiating__c,
       v.Stage_Entered_Signed__c,
       v.Stage_Entered_On_Hold__c,
@@ -157,9 +157,8 @@ function transformToRecordDetail(r: RecordDetailRaw): RecordDetailFull {
     qualificationCallDate: r.Qualification_Call_Date__c ? toString(r.Qualification_Call_Date__c) : null,
 
     // Dates - Stage Entry
-    // NOTE: stageEnteredSalesProcess is not available in the view, set to null
     stageEnteredDiscovery: extractDateValue(r.Stage_Entered_Discovery__c),
-    stageEnteredSalesProcess: null, // Field not available in final view output
+    stageEnteredSalesProcess: extractDateValue(r.Stage_Entered_Sales_Process__c),
     stageEnteredNegotiating: extractDateValue(r.Stage_Entered_Negotiating__c),
     stageEnteredSigned: extractDateValue(r.Stage_Entered_Signed__c),
     stageEnteredOnHold: extractDateValue(r.Stage_Entered_On_Hold__c),
