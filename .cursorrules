@@ -20,24 +20,6 @@ You are working on the **Savvy Funnel Analytics Dashboard**, a Next.js 14 applic
 5. **Deduplication**: Use `is_sqo_unique` and `is_joined_unique` for opportunity-level metrics
 6. **Record Type**: SQO calculations must filter by `recordtypeid = '012Dn000000mrO3IAI'` (Recruiting)
 
-## Current Blocker: Conversion Trends Chart Bug
-
-**Issue**: The conversion trends chart displays incorrect rates and volumes that don't match scorecard values.
-
-**Location**: `src/lib/queries/conversion-rates.ts` - `getConversionTrends()` function
-
-**Root Causes**:
-1. Period mismatch: Numerators and denominators grouped by different date fields
-2. Cohort restrictions: Only counting same-period conversions, excluding valid cross-period conversions
-3. Inconsistent denominator logic: Using `eligible_for_*` fields instead of `COUNT(*)` like scorecard
-
-**Reference**: See `conversion-rates-chart-bug.md` for comprehensive documentation
-
-**Goal**: Fix `getConversionTrends()` to match the logic in `getConversionRates()` (scorecard), ensuring:
-- Same date field grouping for numerators and denominators
-- No cohort restrictions (count all conversions, not just same-period)
-- Consistent denominator calculation with scorecard
-
 ## Architecture Patterns
 
 ### Query Functions (`src/lib/queries/`)

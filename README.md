@@ -79,14 +79,7 @@ src/
 
 ### Known Issues
 
-⚠️ **Conversion Trends Chart Bug**: The trend chart is displaying incorrect conversion rates and volumes that don't align with scorecard values. See [`conversion-rates-chart-bug.md`](./conversion-rates-chart-bug.md) for detailed documentation.
-
-**Example Discrepancy (Q4 2025)**:
-- Scorecard (correct): Contacted→MQL: 3.6%, SQL→SQO: 74.6%, SQO→Joined: 11.6%
-- Chart (incorrect): Contacted→MQL: 8.6%, SQL→SQO: 59.1%, SQO→Joined: 4.1%
-- Volumes: Chart shows 114 SQOs vs 144 actual, 6 Joined vs 17 actual
-
-**Root Cause**: The `getConversionTrends()` function uses different date field groupings for numerators and denominators, causing period mismatches. Cohort restrictions also exclude valid conversions that span multiple periods.
+_No known issues at this time._
 
 ## 🎯 Goals & Objectives
 
@@ -205,18 +198,14 @@ The dashboard has been tested against Q4 2025 data with the following expected v
 ## 📚 Documentation
 
 - **[Build Instructions](./docs/savvy-dashboard-build-instructions.md)**: Comprehensive guide for building and deploying the dashboard
-- **[Conversion Chart Bug](./conversion-rates-chart-bug.md)**: Detailed documentation of the known conversion trends chart issue
 - **[BigQuery View](./vw_funnel_master.sql)**: SQL definition of the `vw_funnel_master` view
 
 ## 🐛 Known Issues
 
-1. **Conversion Trends Chart**: Rates and volumes don't match scorecard values (see `conversion-rates-chart-bug.md`)
-2. **Period Alignment**: Trend chart uses different date field groupings causing period mismatches
-3. **Cohort Restrictions**: Some conversion rates only count same-period conversions, excluding valid cross-period conversions
+_No known issues at this time._
 
 ## 🔮 Future Enhancements
 
-- Fix conversion trends chart calculation logic
 - Add forecast comparison charts
 - Implement caching for API routes
 - Add export functionality for all tables
@@ -239,4 +228,4 @@ Proprietary - Savvy Wealth Internal Use Only
 ---
 
 **Last Updated**: January 2026  
-**Status**: Phase 5 & 6 Complete, Conversion Chart Bug Under Investigation
+**Status**: Phase 5 & 6 Complete
