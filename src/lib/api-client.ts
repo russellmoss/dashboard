@@ -12,6 +12,7 @@ import {
   TrendDataPoint,
   ViewMode
 } from '@/types/dashboard';
+import { RecordDetailFull } from '@/types/record-detail';
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public endpoint: string) {
@@ -135,6 +136,12 @@ export const dashboardApi = {
       method: 'POST',
       body: JSON.stringify({ filters, limit }),
     }),
+
+  // Get single record detail by ID (GET method, not POST)
+  getRecordDetail: (id: string) =>
+    apiFetch<{ record: RecordDetailFull | null }>(`/api/dashboard/record-detail/${encodeURIComponent(id)}`, {
+      method: 'GET',
+    }).then(data => data.record || null),
 
   getOpenPipeline: (filters?: Partial<DashboardFilters>) =>
     apiFetch<{ records: DetailRecord[]; summary: any }>('/api/dashboard/open-pipeline', {
