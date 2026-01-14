@@ -1,0 +1,2420 @@
+# SGA Hub Feature - Agentic Implementation Plan
+
+**Created:** January 2026
+**Last Updated:** January 27, 2026
+**Status:** Ready for Implementation (Corrected)
+
+**Estimated Duration:** 25-35 hours
+
+**Prerequisites:** SGA_HUB_FINDINGS.md review complete
+
+> [!IMPORTANT]
+> ### ⚠️ CRITICAL INSTRUCTIONS FOR CURSOR.AI
+> 
+> 
+> * **ALWAYS** run `npx tsc --noEmit` after creating/modifying TypeScript files.
+> * **ALWAYS** run `npm run lint` before committing.
+> * Use **MCP** to verify BigQuery queries against actual data.
+> * Follow existing codebase patterns exactly—reference files mentioned.
+> * **Commit** after each phase with the provided commit message.
+> * **Do NOT** proceed to the next phase if verification fails.
+> 
+> ### ⚠️ CRITICAL CORRECTIONS APPLIED (January 27, 2026)
+> 
+> **1. DATE vs TIMESTAMP Field Handling:**
+> - `Initial_Call_Scheduled_Date__c` and `Qualification_Call_Date__c` are **DATE** fields - use direct comparison (NO TIMESTAMP wrapper)
+>   - Correct: `Initial_Call_Scheduled_Date__c >= @startDate`
+>   - Wrong: `TIMESTAMP(Initial_Call_Scheduled_Date__c) >= TIMESTAMP(@startDate)`
+> - `Date_Became_SQO__c` is a **TIMESTAMP** field - MUST use `TIMESTAMP()` wrapper for date comparisons
+>   - Correct: `Date_Became_SQO__c >= TIMESTAMP(@startDate) AND Date_Became_SQO__c <= TIMESTAMP(CONCAT(@endDate, ' 23:59:59'))`
+> - When joining week_start values, cast TIMESTAMP results to DATE: `DATE(DATE_TRUNC(Date_Became_SQO__c, WEEK(MONDAY)))`
+> 
+> **2. Week Calculation & Type Consistency:**
+> - `DATE_TRUNC(..., WEEK(MONDAY))` returns DATE for DATE fields, TIMESTAMP for TIMESTAMP fields
+> - Always cast TIMESTAMP week_start to DATE when joining: `DATE(DATE_TRUNC(Date_Became_SQO__c, WEEK(MONDAY)))`
+> - This ensures all week_start values are DATE type for consistent joins
+> 
+> **3. Constants:**
+> - Use `RECRUITING_RECORD_TYPE` from `@/config/constants.ts` (value: '012Dn000000mrO3IAI')
+> - Use `FULL_TABLE` constant: 'savvy-gtm-analytics.Tableau_Views.vw_funnel_master'
+> 
+> **4. SGA Name Matching:**
+> - Use `user.name` from Prisma User table to match `SGA_Owner_Name__c` in BigQuery (exact match, case-sensitive)
+> - Query: `WHERE SGA_Owner_Name__c = @sgaName` (not case-insensitive)
+> 
+> **5. Edit Permissions:**
+> - SGAs can ONLY edit current/future weeks (not past weeks)
+> - Validation in POST handler: Check if `weekStartDate < currentWeekMonday` for SGA role
+> - Admins can edit any week for any SGA
+> - Use `getWeekInfo()` helper to determine `canEdit` in UI
+> 
+> **6. Date Range Handling:**
+> - For DATE fields: `<= @endDate` is sufficient (includes full day)
+> - For TIMESTAMP fields: `<= TIMESTAMP(CONCAT(@endDate, ' 23:59:59'))` to include full day
+> 
+> **7. Prisma Date Handling:**
+> - `weekStartDate` uses `@db.Date` - stored as DATE only (no time)
+> - Transform function should handle Date object: `goal.weekStartDate.toISOString().split('T')[0]`
+> - Always extract date part (YYYY-MM-DD) for API responses
+> 
+> **8. Closed Lost View:**
+> - View name: `savvy-gtm-analytics.savvy_analytics.vw_sga_closed_lost_sql_followup`
+> - Filter by `sga_name` field (exact match to `user.name`)
+> - Construct `lead_url` in query or application code (not in view)
+> 
+> **9. Quarterly SQO Queries:**
+> - Use `Date_Became_SQO__c` (TIMESTAMP) with `TIMESTAMP()` wrapper
+> - Filter by `is_sqo_unique = 1` AND `recordtypeid = @recruitingRecordType`
+> - Format quarter as: `CONCAT(CAST(EXTRACT(YEAR FROM Date_Became_SQO__c) AS STRING), '-Q', CAST(EXTRACT(QUARTER FROM Date_Became_SQO__c) AS STRING))`
+> 
+> 
+
+---
+
+## Table of Contents
+
+1. Phase 0: Pre-Flight Checks
+2. Phase 1: Database Schema
+3. Phase 2: Types & Interfaces
+4. Phase 3: Weekly Goals API Routes
+5. Phase 4: Weekly Actuals BigQuery
+6. Phase 5: SGA Hub Page - Weekly Goals Tab
+7. Phase 6: Closed Lost Tab
+8. Phase 7: Quarterly Progress Tab
+9. Phase 8: Admin SGA Management Page
+10. Phase 9: Navigation & Permissions
+11. Phase 10: Final Integration & Testing
+
+---
+
+## Phase 0: Pre-Flight Checks
+
+### Step 0.1: Verify Development Environment
+
+**Cursor.ai Prompt:**
+Before starting the SGA Hub implementation, verify the development environment is ready:
+
+1. Run `npm run build` to ensure the project builds successfully.
+2. Run `npx tsc --noEmit` to check for TypeScript errors.
+3. Run `npm run lint` to check for linting errors.
+4. Verify Prisma is working: `npx prisma db pull` (should complete without errors).
+5. Check that the dev server starts: `npm run dev`.
+
+Report any errors found. **Do NOT proceed** if there are existing errors.
+
+### Step 0.2: Verify BigQuery Access (MCP)
+
+**Cursor.ai Prompt:**
+Use MCP to verify BigQuery access by running this test query:
+
+```sql
+SELECT 
+  SGA_Owner_Name__c,
+  COUNT(*) as record_count
+FROM `savvy-gtm-analytics.Tableau_Views.vw_funnel_master`
+WHERE SGA_Owner_Name__c IS NOT NULL
+  AND Initial_Call_Scheduled_Date__c >= '2025-01-01'
+GROUP BY SGA_Owner_Name__c
+ORDER BY record_count DESC
+LIMIT 5
+
+```
+
+**Verify:**
+
+* Query executes successfully.
+* Returns SGA names matching User table names.
+* Data exists for recent dates.
+
+**Also verify the closed lost view:**
+
+```sql
+SELECT COUNT(*) as total_records
+FROM `savvy-gtm-analytics.savvy_analytics.vw_sga_closed_lost_sql_followup`
+
+```
+
+Report results before proceeding.
+
+### Step 0.3: Verify SGA Name Mapping
+
+**Cursor.ai Prompt:**
+Use MCP to verify the test users' SGA names exist in BigQuery:
+
+```sql
+SELECT DISTINCT
+  u.Name as user_name,
+  u.Email as user_email,
+  (SELECT COUNT(*) FROM `savvy-gtm-analytics.Tableau_Views.vw_funnel_master` 
+   WHERE SGA_Owner_Name__c = u.Name) as funnel_records
+FROM `savvy-gtm-analytics.SavvyGTMData.User` u
+WHERE u.Email IN (
+  'eleni@savvywealth.com',
+  'perry.kalmeta@savvywealth.com',
+  'russell.armitage@savvywealth.com'
+)
+
+```
+
+Document the exact Name values for each email - these **MUST** match exactly for filtering to work.
+
+### Verification Gate 0:
+
+* [ ] `npm run build` succeeds
+* [ ] `npx tsc --noEmit` has no errors
+* [ ] `npm run lint` has no errors
+* [ ] BigQuery queries execute successfully
+* [ ] Test user names verified
+
+---
+
+## Phase 1: Database Schema
+
+### Step 1.1: Add Prisma Models
+
+**Cursor.ai Prompt:**
+Add the WeeklyGoal and QuarterlyGoal models to `prisma/schema.prisma`.
+
+Reference the existing User model pattern in the file. Add the new models **AFTER** the User model.
+
+**Requirements:**
+
+1. **WeeklyGoal:** userEmail, weekStartDate, three goal fields, audit fields, unique constraint.
+2. **QuarterlyGoal:** userEmail, quarter string, sqoGoal, audit fields, unique constraint.
+3. Use the same patterns as User model (@id, @default, etc.).
+4. Add appropriate indexes for query performance.
+
+**Code to Add (append to prisma/schema.prisma):**
+
+```prisma
+model WeeklyGoal {
+  id                     String   @id @default(cuid())
+  userEmail              String   // Links to User.email - matches SGA_Owner_Name__c via User.name
+  weekStartDate          DateTime @db.Date // Monday of the week (DATE only)
+  initialCallsGoal       Int      @default(0)
+  qualificationCallsGoal Int      @default(0)
+  sqoGoal                Int      @default(0)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  createdBy              String?  // Email of user who created
+  updatedBy              String?  // Email of user who last updated
+
+  @@unique([userEmail, weekStartDate])
+  @@index([userEmail])
+  @@index([weekStartDate])
+}
+
+model QuarterlyGoal {
+  id        String   @id @default(cuid())
+  userEmail String   // Links to User.email
+  quarter   String   // Format: "2026-Q1", "2026-Q2", etc.
+  sqoGoal   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?  // Email of admin who set it
+  updatedBy String?  // Email of admin who last updated
+
+  @@unique([userEmail, quarter])
+  @@index([userEmail])
+  @@index([quarter])
+}
+
+```
+
+### Step 1.2: Run Migration
+
+**Cursor.ai Prompt:**
+Run the Prisma migration to create the new tables:
+
+1. Run: `npx prisma migrate dev --name add_sga_hub_goals`
+2. If prompted, confirm the migration.
+3. Run: `npx prisma generate`
+4. Verify the migration was successful.
+
+If there are any errors, report them and **do NOT proceed**.
+
+### Step 1.3: Verify Database Tables
+
+**Cursor.ai Prompt:**
+Verify the new tables were created correctly:
+
+1. Run: `npx prisma db pull` (should complete without changes).
+2. Check that `prisma/schema.prisma` still has the new models.
+3. Run a quick test to ensure Prisma client works:
+
+**Create a temporary test file `test-prisma.ts` in the root:**
+
+```typescript
+import { prisma } from './src/lib/prisma';
+
+async function test() {
+  // Test WeeklyGoal
+  const weeklyGoals = await prisma.weeklyGoal.findMany({ take: 1 });
+  console.log('WeeklyGoal table accessible:', weeklyGoals.length >= 0);
+  
+  // Test QuarterlyGoal
+  const quarterlyGoals = await prisma.quarterlyGoal.findMany({ take: 1 });
+  console.log('QuarterlyGoal table accessible:', quarterlyGoals.length >= 0);
+}
+
+test().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });
+
+```
+
+Run: `npx ts-node test-prisma.ts`
+
+Then **DELETE** the test file after verification.
+
+### Verification Gate 1:
+
+* [ ] Migration completed successfully
+* [ ] `npx prisma generate` succeeded
+* [ ] Test script confirms tables are accessible
+* [ ] `npx tsc --noEmit` passes
+* [ ] Test file deleted
+
+**Checkpoint:**
+
+```bash
+git add -A && git commit -m "Phase 1: Add WeeklyGoal and QuarterlyGoal Prisma models"
+
+```
+
+---
+
+## Phase 2: Types & Interfaces
+
+### Step 2.1: Create SGA Hub Types
+
+**Cursor.ai Prompt:**
+Create a new types file for the SGA Hub feature: `src/types/sga-hub.ts`
+
+Reference existing type patterns in:
+
+* `src/types/dashboard.ts`
+* `src/types/user.ts`
+* `src/types/filters.ts`
+
+Include types for:
+
+1. WeeklyGoal (from database)
+2. WeeklyActual (from BigQuery)
+3. WeeklyGoalWithActuals (combined for display)
+4. QuarterlyGoal (from database)
+5. QuarterlyProgress (with pacing calculation)
+6. ClosedLostRecord (from BigQuery view)
+7. API request/response types
+
+**Code to Create (src/types/sga-hub.ts):**
+
+```typescript
+// src/types/sga-hub.ts
+
+/**
+ * SGA Hub Feature Types
+ * Types for weekly goals, quarterly progress, and closed lost tracking
+ */
+
+// ============================================================================
+// WEEKLY GOALS
+// ============================================================================
+
+/** Weekly goal from database */
+export interface WeeklyGoal {
+  id: string;
+  userEmail: string;
+  weekStartDate: string; // ISO date string (Monday)
+  initialCallsGoal: number;
+  qualificationCallsGoal: number;
+  sqoGoal: number;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string | null;
+  updatedBy: string | null;
+}
+
+/** Weekly goal input for create/update */
+export interface WeeklyGoalInput {
+  weekStartDate: string; // ISO date string (Monday)
+  initialCallsGoal: number;
+  qualificationCallsGoal: number;
+  sqoGoal: number;
+}
+
+/** Weekly actuals from BigQuery */
+export interface WeeklyActual {
+  weekStartDate: string; // ISO date string (Monday) - YYYY-MM-DD format
+  initialCalls: number;
+  qualificationCalls: number;
+  sqos: number;
+}
+
+/** Combined goal and actual for display */
+export interface WeeklyGoalWithActuals {
+  weekStartDate: string;
+  weekEndDate: string; // Sunday
+  weekLabel: string; // e.g., "Jan 13 - Jan 19, 2026"
+  
+  // Goals (null if not set)
+  initialCallsGoal: number | null;
+  qualificationCallsGoal: number | null;
+  sqoGoal: number | null;
+  
+  // Actuals
+  initialCallsActual: number;
+  qualificationCallsActual: number;
+  sqoActual: number;
+  
+  // Differences (null if goal not set)
+  initialCallsDiff: number | null;
+  qualificationCallsDiff: number | null;
+  sqoDiff: number | null;
+  
+  // Status
+  hasGoal: boolean;
+  canEdit: boolean; // SGAs can only edit current/future weeks; Admins can edit any week
+}
+
+// ============================================================================
+// QUARTERLY GOALS & PROGRESS
+// ============================================================================
+
+/** Quarterly goal from database */
+export interface QuarterlyGoal {
+  id: string;
+  userEmail: string;
+  quarter: string; // "2026-Q1" format
+  sqoGoal: number;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string | null;
+  updatedBy: string | null;
+}
+
+/** Quarterly goal input for create/update */
+export interface QuarterlyGoalInput {
+  userEmail: string;
+  quarter: string;
+  sqoGoal: number;
+}
+
+/** Quarterly progress with pacing */
+export interface QuarterlyProgress {
+  quarter: string;
+  quarterLabel: string; // "Q1 2026"
+  
+  // Goal
+  sqoGoal: number | null;
+  hasGoal: boolean;
+  
+  // Actuals
+  sqoActual: number;
+  totalAum: number;
+  totalAumFormatted: string;
+  
+  // Progress percentage (actual / goal * 100)
+  progressPercent: number | null;
+  
+  // Pacing
+  quarterStartDate: string;
+  quarterEndDate: string;
+  daysInQuarter: number;
+  daysElapsed: number;
+  expectedSqos: number; // Prorated based on days elapsed
+  pacingDiff: number; // actual - expected (positive = ahead, negative = behind)
+  pacingStatus: 'ahead' | 'on-track' | 'behind' | 'no-goal';
+}
+
+/** SQO detail record for quarterly progress table */
+export interface SQODetail {
+  id: string; // primary_key
+  advisorName: string;
+  sqoDate: string;
+  aum: number;
+  aumFormatted: string;
+  aumTier: string;
+  channel: string;
+  source: string;
+  stageName: string;
+  leadUrl: string | null;
+  opportunityUrl: string | null;
+  salesforceUrl: string;
+}
+
+// ============================================================================
+// CLOSED LOST
+// ============================================================================
+
+/** Time bucket for closed lost filtering */
+export type ClosedLostTimeBucket = 
+  | '30-60' 
+  | '60-90' 
+  | '90-120' 
+  | '120-150' 
+  | '150-180'
+  | 'all';
+
+/** Closed lost record from BigQuery view */
+export interface ClosedLostRecord {
+  id: string; // Full_Opportunity_ID__c
+  oppName: string;
+  leadId: string | null;
+  opportunityId: string;
+  leadUrl: string | null;
+  opportunityUrl: string;
+  salesforceUrl: string;
+  lastContactDate: string;
+  closedLostDate: string;
+  sqlDate: string;
+  closedLostReason: string;
+  closedLostDetails: string | null;
+  timeSinceContactBucket: string;
+  daysSinceContact: number;
+}
+
+// ============================================================================
+// API REQUEST/RESPONSE TYPES
+// ============================================================================
+
+/** GET /api/sga-hub/weekly-goals query params */
+export interface WeeklyGoalsQueryParams {
+  startDate?: string; // ISO date
+  endDate?: string; // ISO date
+}
+
+/** POST /api/sga-hub/weekly-goals request body */
+export interface WeeklyGoalsPostBody extends WeeklyGoalInput {
+  // Inherits weekStartDate, initialCallsGoal, qualificationCallsGoal, sqoGoal
+}
+
+/** GET /api/sga-hub/weekly-actuals query params */
+export interface WeeklyActualsQueryParams {
+  startDate?: string;
+  endDate?: string;
+}
+
+/** GET /api/sga-hub/closed-lost query params */
+export interface ClosedLostQueryParams {
+  timeBuckets?: ClosedLostTimeBucket[]; // Multi-select
+}
+
+/** GET /api/sga-hub/quarterly-progress query params */
+export interface QuarterlyProgressQueryParams {
+  quarters?: string[]; // Multi-select, e.g., ["2026-Q1", "2025-Q4"]
+}
+
+/** GET /api/admin/sga-overview query params */
+export interface AdminSGAOverviewQueryParams {
+  weekStartDate?: string;
+  quarter?: string;
+}
+
+/** Admin SGA overview response item */
+export interface AdminSGAOverview {
+  userEmail: string;
+  userName: string;
+  isActive: boolean;
+  
+  // Current week
+  currentWeekGoal: WeeklyGoal | null;
+  currentWeekActual: WeeklyActual | null;
+  
+  // Current quarter
+  currentQuarterGoal: QuarterlyGoal | null;
+  currentQuarterProgress: QuarterlyProgress | null;
+  
+  // Closed lost count
+  closedLostCount: number;
+  
+  // Alerts
+  missingWeeklyGoal: boolean;
+  missingQuarterlyGoal: boolean;
+  behindPacing: boolean;
+}
+
+// ============================================================================
+// UTILITY TYPES
+// ============================================================================
+
+/** Quarter info helper */
+export interface QuarterInfo {
+  quarter: string; // "2026-Q1"
+  label: string; // "Q1 2026"
+  startDate: string;
+  endDate: string;
+  year: number;
+  quarterNumber: 1 | 2 | 3 | 4;
+}
+
+/** Week info helper */
+export interface WeekInfo {
+  weekStartDate: string; // Monday ISO date
+  weekEndDate: string; // Sunday ISO date
+  label: string; // "Jan 13 - Jan 19, 2026"
+  isCurrentWeek: boolean;
+  isFutureWeek: boolean;
+  isPastWeek: boolean;
+}
+
+```
+
+### Step 2.2: Create Date Utility Functions
+
+**Cursor.ai Prompt:**
+Create a utility file for SGA Hub date functions: `src/lib/utils/sga-hub-helpers.ts`
+
+Reference existing helpers in:
+
+* `src/lib/utils/date-helpers.ts`
+* `src/lib/utils/format-helpers.ts`
+
+Include functions for:
+
+1. `getWeekMondayDate(date)` - Get Monday of the week containing date.
+2. `getWeekSundayDate(date)` - Get Sunday of the week.
+3. `formatWeekRange(monday)` - Format as "Jan 13 - Jan 19, 2026".
+4. `getQuarterFromDate(date)` - Get "2026-Q1" format.
+5. `getQuarterDates(quarter)` - Get start/end dates for quarter.
+6. `calculateQuarterPacing(quarter, goal, actual)` - Calculate pacing.
+7. `getWeeksInRange(start, end)` - Get array of week Mondays.
+8. `isCurrentWeek(monday)` - Check if date is in current week.
+
+**Code to Create (src/lib/utils/sga-hub-helpers.ts):**
+
+```typescript
+// src/lib/utils/sga-hub-helpers.ts
+
+import { QuarterInfo, WeekInfo, QuarterlyProgress } from '@/types/sga-hub';
+
+/**
+ * Get the Monday of the week containing the given date
+ */
+export function getWeekMondayDate(date: Date | string): Date {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Sunday
+  const monday = new Date(d.setDate(diff));
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+/**
+ * Get the Sunday of the week containing the given date
+ */
+export function getWeekSundayDate(date: Date | string): Date {
+  const monday = getWeekMondayDate(date);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return sunday;
+}
+
+/**
+ * Format a week range as "Jan 13 - Jan 19, 2026"
+ */
+export function formatWeekRange(mondayDate: Date | string): string {
+  const monday = new Date(mondayDate);
+  const sunday = getWeekSundayDate(monday);
+  
+  const monthFormat = new Intl.DateTimeFormat('en-US', { month: 'short' });
+  const dayFormat = new Intl.DateTimeFormat('en-US', { day: 'numeric' });
+  const yearFormat = new Intl.DateTimeFormat('en-US', { year: 'numeric' });
+  
+  const monMonth = monthFormat.format(monday);
+  const monDay = dayFormat.format(monday);
+  const sunMonth = monthFormat.format(sunday);
+  const sunDay = dayFormat.format(sunday);
+  const year = yearFormat.format(sunday);
+  
+  // Same month
+  if (monMonth === sunMonth) {
+    return `${monMonth} ${monDay} - ${sunDay}, ${year}`;
+  }
+  // Different months
+  return `${monMonth} ${monDay} - ${sunMonth} ${sunDay}, ${year}`;
+}
+
+/**
+ * Format date as ISO string (YYYY-MM-DD)
+ */
+export function formatDateISO(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+/**
+ * Get quarter string from date (e.g., "2026-Q1")
+ */
+export function getQuarterFromDate(date: Date | string): string {
+  const d = new Date(date);
+  const year = d.getFullYear();
+  const month = d.getMonth(); // 0-11
+  const quarter = Math.floor(month / 3) + 1;
+  return `${year}-Q${quarter}`;
+}
+
+/**
+ * Get quarter info from quarter string
+ */
+export function getQuarterInfo(quarter: string): QuarterInfo {
+  const [yearStr, qStr] = quarter.split('-Q');
+  const year = parseInt(yearStr, 10);
+  const quarterNumber = parseInt(qStr, 10) as 1 | 2 | 3 | 4;
+  
+  const startMonth = (quarterNumber - 1) * 3;
+  const startDate = new Date(year, startMonth, 1);
+  const endDate = new Date(year, startMonth + 3, 0); // Last day of quarter
+  
+  return {
+    quarter,
+    label: `Q${quarterNumber} ${year}`,
+    startDate: formatDateISO(startDate),
+    endDate: formatDateISO(endDate),
+    year,
+    quarterNumber,
+  };
+}
+
+/**
+ * Get all quarters in a range (for historical view)
+ */
+export function getQuartersInRange(startQuarter: string, endQuarter: string): string[] {
+  const quarters: string[] = [];
+  const start = getQuarterInfo(startQuarter);
+  const end = getQuarterInfo(endQuarter);
+  
+  let currentYear = start.year;
+  let currentQ = start.quarterNumber;
+  
+  while (currentYear < end.year || (currentYear === end.year && currentQ <= end.quarterNumber)) {
+    quarters.push(`${currentYear}-Q${currentQ}`);
+    currentQ++;
+    if (currentQ > 4) {
+      currentQ = 1;
+      currentYear++;
+    }
+  }
+  
+  return quarters;
+}
+
+/**
+ * Calculate quarterly pacing
+ */
+export function calculateQuarterPacing(
+  quarter: string,
+  goal: number | null,
+  actual: number,
+  totalAum: number,
+  formatCurrency: (n: number) => string
+): QuarterlyProgress {
+  const info = getQuarterInfo(quarter);
+  const today = new Date();
+  const startDate = new Date(info.startDate);
+  const endDate = new Date(info.endDate);
+  
+  // Calculate days
+  const daysInQuarter = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  const daysElapsed = Math.max(0, Math.min(
+    daysInQuarter,
+    Math.ceil((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
+  ));
+  
+  // Calculate pacing
+  let expectedSqos = 0;
+  let pacingDiff = 0;
+  let pacingStatus: 'ahead' | 'on-track' | 'behind' | 'no-goal' = 'no-goal';
+  let progressPercent: number | null = null;
+  
+  if (goal !== null && goal > 0) {
+    expectedSqos = Math.round((goal / daysInQuarter) * daysElapsed * 10) / 10; // 1 decimal
+    pacingDiff = actual - expectedSqos;
+    progressPercent = Math.round((actual / goal) * 100);
+    
+    if (pacingDiff >= 0.5) {
+      pacingStatus = 'ahead';
+    } else if (pacingDiff >= -0.5) {
+      pacingStatus = 'on-track';
+    } else {
+      pacingStatus = 'behind';
+    }
+  }
+  
+  return {
+    quarter,
+    quarterLabel: info.label,
+    sqoGoal: goal,
+    hasGoal: goal !== null,
+    sqoActual: actual,
+    totalAum,
+    totalAumFormatted: formatCurrency(totalAum),
+    progressPercent,
+    quarterStartDate: info.startDate,
+    quarterEndDate: info.endDate,
+    daysInQuarter,
+    daysElapsed,
+    expectedSqos,
+    pacingDiff: Math.round(pacingDiff * 10) / 10,
+    pacingStatus,
+  };
+}
+
+/**
+ * Get week info for a given Monday date
+ */
+export function getWeekInfo(mondayDate: Date | string): WeekInfo {
+  const monday = new Date(mondayDate);
+  monday.setHours(0, 0, 0, 0);
+  const sunday = getWeekSundayDate(monday);
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const currentWeekMonday = getWeekMondayDate(today);
+  
+  const isCurrentWeek = monday.getTime() === currentWeekMonday.getTime();
+  const isFutureWeek = monday.getTime() > currentWeekMonday.getTime();
+  const isPastWeek = monday.getTime() < currentWeekMonday.getTime();
+  
+  return {
+    weekStartDate: formatDateISO(monday),
+    weekEndDate: formatDateISO(sunday),
+    label: formatWeekRange(monday),
+    isCurrentWeek,
+    isFutureWeek,
+    isPastWeek,
+  };
+}
+
+/**
+ * Get array of week Monday dates in a range
+ */
+export function getWeeksInRange(startDate: Date | string, endDate: Date | string): Date[] {
+  const weeks: Date[] = [];
+  let currentMonday = getWeekMondayDate(startDate);
+  const end = new Date(endDate);
+  
+  while (currentMonday <= end) {
+    weeks.push(new Date(currentMonday));
+    currentMonday.setDate(currentMonday.getDate() + 7);
+  }
+  
+  return weeks;
+}
+
+/**
+ * Get default date range for weekly goals view (3 past weeks + current + next week)
+ */
+export function getDefaultWeekRange(): { startDate: string; endDate: string } {
+  const today = new Date();
+  const currentMonday = getWeekMondayDate(today);
+  
+  // 3 weeks before current
+  const startMonday = new Date(currentMonday);
+  startMonday.setDate(startMonday.getDate() - 21);
+  
+  // 1 week after current (next week's Sunday)
+  const endSunday = new Date(currentMonday);
+  endSunday.setDate(endSunday.getDate() + 13); // Current Monday + 13 = next week Sunday
+  
+  return {
+    startDate: formatDateISO(startMonday),
+    endDate: formatDateISO(endSunday),
+  };
+}
+
+/**
+ * Get current quarter string
+ */
+export function getCurrentQuarter(): string {
+  return getQuarterFromDate(new Date());
+}
+
+/**
+ * Validate that a date is a Monday
+ */
+export function isMonday(date: Date | string): boolean {
+  const d = new Date(date);
+  return d.getDay() === 1;
+}
+
+/**
+ * Parse quarter string and validate
+ */
+export function parseQuarter(quarter: string): { year: number; quarter: number } | null {
+  const match = quarter.match(/^(\d{4})-Q([1-4])$/);
+  if (!match) return null;
+  return {
+    year: parseInt(match[1], 10),
+    quarter: parseInt(match[2], 10),
+  };
+}
+
+```
+
+### Step 2.3: Verify Types Compile
+
+**Cursor.ai Prompt:**
+Verify the new types and helpers compile correctly:
+
+1. Run: `npx tsc --noEmit`
+2. Check for any import errors or type issues.
+3. Fix any errors found.
+
+If there are import path issues, verify the `tsconfig.json` has the correct path mappings.
+
+### Verification Gate 2:
+
+* [ ] `src/types/sga-hub.ts` created
+* [ ] `src/lib/utils/sga-hub-helpers.ts` created
+* [ ] `npx tsc --noEmit` passes
+* [ ] `npm run lint` passes
+
+**Checkpoint:**
+
+```bash
+git add -A && git commit -m "Phase 2: Add SGA Hub types and date utility helpers"
+
+```
+
+---
+
+## Phase 3: Weekly Goals API Routes
+
+### Step 3.1: Create Weekly Goals Query Functions
+
+**Cursor.ai Prompt:**
+Create the database query functions for weekly goals: `src/lib/queries/weekly-goals.ts`
+
+Reference existing query patterns in:
+
+* `src/lib/queries/detail-records.ts`
+* `src/lib/queries/funnel-metrics.ts`
+
+Use Prisma client from `@/lib/prisma`.
+
+**Include functions:**
+
+1. `getWeeklyGoals(userEmail, startDate?, endDate?)` - Get goals for a user.
+2. `upsertWeeklyGoal(userEmail, goalInput, updatedBy)` - Create or update a goal.
+3. `getWeeklyGoalsByWeek(weekStartDate)` - Get all goals for a specific week (admin).
+4. `getAllSGAWeeklyGoals(startDate, endDate)` - Get all SGA goals (admin).
+
+**Code to Create (src/lib/queries/weekly-goals.ts):**
+
+```typescript
+// src/lib/queries/weekly-goals.ts
+
+import { prisma } from '@/lib/prisma';
+import { WeeklyGoal, WeeklyGoalInput } from '@/types/sga-hub';
+import { isMonday } from '@/lib/utils/sga-hub-helpers';
+
+/**
+ * Get weekly goals for a specific user within a date range
+ */
+export async function getWeeklyGoals(
+  userEmail: string,
+  startDate?: string,
+  endDate?: string
+): Promise<WeeklyGoal[]> {
+  const where: any = { userEmail };
+  
+  if (startDate || endDate) {
+    where.weekStartDate = {};
+    if (startDate) {
+      where.weekStartDate.gte = new Date(startDate);
+    }
+    if (endDate) {
+      where.weekStartDate.lte = new Date(endDate);
+    }
+  }
+  
+  const goals = await prisma.weeklyGoal.findMany({
+    where,
+    orderBy: { weekStartDate: 'desc' },
+  });
+  
+  return goals.map(transformWeeklyGoal);
+}
+
+/**
+ * Get a single weekly goal by user and week
+ */
+export async function getWeeklyGoalByWeek(
+  userEmail: string,
+  weekStartDate: string
+): Promise<WeeklyGoal | null> {
+  const goal = await prisma.weeklyGoal.findUnique({
+    where: {
+      userEmail_weekStartDate: {
+        userEmail,
+        weekStartDate: new Date(weekStartDate),
+      },
+    },
+  });
+  
+  return goal ? transformWeeklyGoal(goal) : null;
+}
+
+/**
+ * Create or update a weekly goal
+ */
+export async function upsertWeeklyGoal(
+  userEmail: string,
+  input: WeeklyGoalInput,
+  updatedBy: string
+): Promise<WeeklyGoal> {
+  // Validate weekStartDate is a Monday
+  if (!isMonday(input.weekStartDate)) {
+    throw new Error('weekStartDate must be a Monday');
+  }
+  
+  // Validate goals are non-negative
+  if (input.initialCallsGoal < 0 || input.qualificationCallsGoal < 0 || input.sqoGoal < 0) {
+    throw new Error('Goal values must be non-negative');
+  }
+  
+  const weekStartDate = new Date(input.weekStartDate);
+  
+  const goal = await prisma.weeklyGoal.upsert({
+    where: {
+      userEmail_weekStartDate: {
+        userEmail,
+        weekStartDate,
+      },
+    },
+    update: {
+      initialCallsGoal: input.initialCallsGoal,
+      qualificationCallsGoal: input.qualificationCallsGoal,
+      sqoGoal: input.sqoGoal,
+      updatedBy,
+    },
+    create: {
+      userEmail,
+      weekStartDate,
+      initialCallsGoal: input.initialCallsGoal,
+      qualificationCallsGoal: input.qualificationCallsGoal,
+      sqoGoal: input.sqoGoal,
+      createdBy: updatedBy,
+      updatedBy,
+    },
+  });
+  
+  return transformWeeklyGoal(goal);
+}
+
+/**
+ * Get all weekly goals for a specific week (admin view)
+ */
+export async function getWeeklyGoalsByWeek(
+  weekStartDate: string
+): Promise<WeeklyGoal[]> {
+  const goals = await prisma.weeklyGoal.findMany({
+    where: {
+      weekStartDate: new Date(weekStartDate),
+    },
+    orderBy: { userEmail: 'asc' },
+  });
+  
+  return goals.map(transformWeeklyGoal);
+}
+
+/**
+ * Get all SGA weekly goals within a date range (admin view)
+ */
+export async function getAllSGAWeeklyGoals(
+  startDate: string,
+  endDate: string
+): Promise<WeeklyGoal[]> {
+  const goals = await prisma.weeklyGoal.findMany({
+    where: {
+      weekStartDate: {
+        gte: new Date(startDate),
+        lte: new Date(endDate),
+      },
+    },
+    orderBy: [
+      { weekStartDate: 'desc' },
+      { userEmail: 'asc' },
+    ],
+  });
+  
+  return goals.map(transformWeeklyGoal);
+}
+
+/**
+ * Delete a weekly goal (admin only)
+ */
+export async function deleteWeeklyGoal(
+  userEmail: string,
+  weekStartDate: string
+): Promise<void> {
+  await prisma.weeklyGoal.delete({
+    where: {
+      userEmail_weekStartDate: {
+        userEmail,
+        weekStartDate: new Date(weekStartDate),
+      },
+    },
+  });
+}
+
+/**
+ * Copy goals from one week to another
+ */
+export async function copyWeeklyGoal(
+  userEmail: string,
+  sourceWeekStartDate: string,
+  targetWeekStartDate: string,
+  updatedBy: string
+): Promise<WeeklyGoal | null> {
+  const sourceGoal = await getWeeklyGoalByWeek(userEmail, sourceWeekStartDate);
+  
+  if (!sourceGoal) {
+    return null;
+  }
+  
+  return upsertWeeklyGoal(
+    userEmail,
+    {
+      weekStartDate: targetWeekStartDate,
+      initialCallsGoal: sourceGoal.initialCallsGoal,
+      qualificationCallsGoal: sourceGoal.qualificationCallsGoal,
+      sqoGoal: sourceGoal.sqoGoal,
+    },
+    updatedBy
+  );
+}
+
+/**
+ * Transform Prisma model to API response type
+ * weekStartDate is stored as DATE in database (via @db.Date), so it's a Date object but only contains date part
+ */
+function transformWeeklyGoal(goal: any): WeeklyGoal {
+  // Prisma Date fields (with @db.Date) return as Date objects but only contain date (no time)
+  // Convert to ISO string and extract date part (YYYY-MM-DD)
+  const weekStartDate = goal.weekStartDate instanceof Date 
+    ? goal.weekStartDate.toISOString().split('T')[0]
+    : String(goal.weekStartDate).split('T')[0];
+  
+  return {
+    id: goal.id,
+    userEmail: goal.userEmail,
+    weekStartDate,
+    initialCallsGoal: goal.initialCallsGoal,
+    qualificationCallsGoal: goal.qualificationCallsGoal,
+    sqoGoal: goal.sqoGoal,
+    createdAt: goal.createdAt.toISOString(),
+    updatedAt: goal.updatedAt.toISOString(),
+    createdBy: goal.createdBy,
+    updatedBy: goal.updatedBy,
+  };
+}
+
+```
+
+### Step 3.2: Create Quarterly Goals Query Functions
+
+**Cursor.ai Prompt:**
+Create the database query functions for quarterly goals: `src/lib/queries/quarterly-goals.ts`
+
+Follow the same patterns as `weekly-goals.ts`.
+
+**Include functions:**
+
+1. `getQuarterlyGoal(userEmail, quarter)` - Get single goal.
+2. `getQuarterlyGoals(userEmail)` - Get all goals for a user.
+3. `upsertQuarterlyGoal(userEmail, quarter, sqoGoal, updatedBy)` - Create or update.
+4. `getAllSGAQuarterlyGoals(quarter)` - Get all SGA goals for a quarter (admin).
+
+**Code to Create (src/lib/queries/quarterly-goals.ts):**
+
+```typescript
+// src/lib/queries/quarterly-goals.ts
+
+import { prisma } from '@/lib/prisma';
+import { QuarterlyGoal, QuarterlyGoalInput } from '@/types/sga-hub';
+import { parseQuarter } from '@/lib/utils/sga-hub-helpers';
+
+/**
+ * Get a quarterly goal for a specific user and quarter
+ */
+export async function getQuarterlyGoal(
+  userEmail: string,
+  quarter: string
+): Promise<QuarterlyGoal | null> {
+  const goal = await prisma.quarterlyGoal.findUnique({
+    where: {
+      userEmail_quarter: {
+        userEmail,
+        quarter,
+      },
+    },
+  });
+  
+  return goal ? transformQuarterlyGoal(goal) : null;
+}
+
+/**
+ * Get all quarterly goals for a user
+ */
+export async function getQuarterlyGoals(
+  userEmail: string
+): Promise<QuarterlyGoal[]> {
+  const goals = await prisma.quarterlyGoal.findMany({
+    where: { userEmail },
+    orderBy: { quarter: 'desc' },
+  });
+  
+  return goals.map(transformQuarterlyGoal);
+}
+
+/**
+ * Create or update a quarterly goal
+ */
+export async function upsertQuarterlyGoal(
+  input: QuarterlyGoalInput,
+  updatedBy: string
+): Promise<QuarterlyGoal> {
+  // Validate quarter format
+  const parsed = parseQuarter(input.quarter);
+  if (!parsed) {
+    throw new Error('Invalid quarter format. Use "YYYY-QN" (e.g., "2026-Q1")');
+  }
+  
+  // Validate goal is non-negative
+  if (input.sqoGoal < 0) {
+    throw new Error('SQO goal must be non-negative');
+  }
+  
+  const goal = await prisma.quarterlyGoal.upsert({
+    where: {
+      userEmail_quarter: {
+        userEmail: input.userEmail,
+        quarter: input.quarter,
+      },
+    },
+    update: {
+      sqoGoal: input.sqoGoal,
+      updatedBy,
+    },
+    create: {
+      userEmail: input.userEmail,
+      quarter: input.quarter,
+      sqoGoal: input.sqoGoal,
+      createdBy: updatedBy,
+      updatedBy,
+    },
+  });
+  
+  return transformQuarterlyGoal(goal);
+}
+
+/**
+ * Get all SGA quarterly goals for a specific quarter (admin view)
+ */
+export async function getAllSGAQuarterlyGoals(
+  quarter: string
+): Promise<QuarterlyGoal[]> {
+  const goals = await prisma.quarterlyGoal.findMany({
+    where: { quarter },
+    orderBy: { userEmail: 'asc' },
+  });
+  
+  return goals.map(transformQuarterlyGoal);
+}
+
+/**
+ * Get quarterly goals for multiple quarters (for historical view)
+ */
+export async function getQuarterlyGoalsForQuarters(
+  userEmail: string,
+  quarters: string[]
+): Promise<QuarterlyGoal[]> {
+  const goals = await prisma.quarterlyGoal.findMany({
+    where: {
+      userEmail,
+      quarter: { in: quarters },
+    },
+    orderBy: { quarter: 'desc' },
+  });
+  
+  return goals.map(transformQuarterlyGoal);
+}
+
+/**
+ * Delete a quarterly goal (admin only)
+ */
+export async function deleteQuarterlyGoal(
+  userEmail: string,
+  quarter: string
+): Promise<void> {
+  await prisma.quarterlyGoal.delete({
+    where: {
+      userEmail_quarter: {
+        userEmail,
+        quarter,
+      },
+    },
+  });
+}
+
+/**
+ * Transform Prisma model to API response type
+ */
+function transformQuarterlyGoal(goal: any): QuarterlyGoal {
+  return {
+    id: goal.id,
+    userEmail: goal.userEmail,
+    quarter: goal.quarter,
+    sqoGoal: goal.sqoGoal,
+    createdAt: goal.createdAt.toISOString(),
+    updatedAt: goal.updatedAt.toISOString(),
+    createdBy: goal.createdBy,
+    updatedBy: goal.updatedBy,
+  };
+}
+
+```
+
+### Step 3.3: Create Weekly Goals API Route
+
+**Cursor.ai Prompt:**
+Create the API route for weekly goals: `src/app/api/sga-hub/weekly-goals/route.ts`
+
+Reference existing API patterns in:
+
+* `src/app/api/users/route.ts`
+* `src/app/api/dashboard/record-detail/[id]/route.ts`
+
+**Requirements:**
+
+1. **GET** handler - get goals for logged-in user (or specific user if admin).
+2. **POST** handler - create/update goal.
+3. Authentication required.
+4. SGA role can only access own data.
+5. Admin/Manager can access any SGA's data.
+6. Proper error handling with status codes.
+
+**Code to Create (src/app/api/sga-hub/weekly-goals/route.ts):**
+
+```typescript
+// src/app/api/sga-hub/weekly-goals/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { getUserPermissions } from '@/lib/permissions';
+import { 
+  getWeeklyGoals, 
+  upsertWeeklyGoal,
+  copyWeeklyGoal,
+} from '@/lib/queries/weekly-goals';
+import { getDefaultWeekRange, getWeekMondayDate, isMonday } from '@/lib/utils/sga-hub-helpers';
+import { WeeklyGoalInput } from '@/types/sga-hub';
+
+/**
+ * GET /api/sga-hub/weekly-goals
+ * Get weekly goals for the logged-in user or a specific user (admin only)
+ */
+export async function GET(request: NextRequest) {
+  try {
+    // Authentication check
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    
+    const permissions = await getUserPermissions(session.user.email);
+    
+    // Parse query params
+    const { searchParams } = new URL(request.url);
+    const startDate = searchParams.get('startDate');
+    const endDate = searchParams.get('endDate');
+    const targetUserEmail = searchParams.get('userEmail'); // Admin only
+    
+    // Determine which user's goals to fetch
+    let userEmail = session.user.email;
+    
+    if (targetUserEmail) {
+      // Only admin/manager can view other users' goals
+      if (!['admin', 'manager'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      userEmail = targetUserEmail;
+    } else {
+      // SGA role required for own goals
+      if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
+    
+    // Use default range if not provided
+    const dateRange = startDate && endDate 
+      ? { startDate, endDate }
+      : getDefaultWeekRange();
+    
+    const goals = await getWeeklyGoals(
+      userEmail,
+      dateRange.startDate,
+      dateRange.endDate
+    );
+    
+    return NextResponse.json({ goals });
+    
+  } catch (error) {
+    console.error('[API] Error fetching weekly goals:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch weekly goals' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * POST /api/sga-hub/weekly-goals
+ * Create or update a weekly goal
+ */
+export async function POST(request: NextRequest) {
+  try {
+    // Authentication check
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    
+    const permissions = await getUserPermissions(session.user.email);
+    
+    // Parse request body
+    const body = await request.json();
+    const { 
+      weekStartDate, 
+      initialCallsGoal, 
+      qualificationCallsGoal, 
+      sqoGoal,
+      userEmail: targetUserEmail, // Admin only - to set for another user
+      copyFromWeek, // Optional - copy goals from another week
+    } = body;
+    
+    // Determine target user
+    let userEmail = session.user.email;
+    
+    if (targetUserEmail && targetUserEmail !== session.user.email) {
+      // Only admin/manager can set goals for other users
+      if (!['admin', 'manager'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      userEmail = targetUserEmail;
+    } else {
+      // SGA role required for own goals
+      if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
+    
+    // Handle copy from previous week
+    if (copyFromWeek) {
+      const copiedGoal = await copyWeeklyGoal(
+        userEmail,
+        copyFromWeek,
+        weekStartDate,
+        session.user.email
+      );
+      
+      if (!copiedGoal) {
+        return NextResponse.json(
+          { error: 'No goals found for source week' },
+          { status: 404 }
+        );
+      }
+      
+      return NextResponse.json({ goal: copiedGoal });
+    }
+    
+    // Validate required fields
+    if (!weekStartDate) {
+      return NextResponse.json(
+        { error: 'weekStartDate is required' },
+        { status: 400 }
+      );
+    }
+    
+    // Validate weekStartDate is a Monday
+    if (!isMonday(weekStartDate)) {
+      return NextResponse.json(
+        { error: 'weekStartDate must be a Monday' },
+        { status: 400 }
+      );
+    }
+    
+    // SGA role can only edit current/future weeks (not past weeks)
+    if (permissions.role === 'sga' && userEmail === session.user.email) {
+      const weekDate = new Date(weekStartDate);
+      const today = new Date();
+      const currentWeekMonday = getWeekMondayDate(today);
+      
+      if (weekDate < currentWeekMonday) {
+        return NextResponse.json(
+          { error: 'SGAs can only edit goals for current or future weeks' },
+          { status: 403 }
+        );
+      }
+    }
+    
+    const goalInput: WeeklyGoalInput = {
+      weekStartDate,
+      initialCallsGoal: initialCallsGoal ?? 0,
+      qualificationCallsGoal: qualificationCallsGoal ?? 0,
+      sqoGoal: sqoGoal ?? 0,
+    };
+    
+    const goal = await upsertWeeklyGoal(
+      userEmail,
+      goalInput,
+      session.user.email
+    );
+    
+    return NextResponse.json({ goal });
+    
+  } catch (error: any) {
+    console.error('[API] Error saving weekly goal:', error);
+    
+    // Handle validation errors
+    if (error.message?.includes('Monday') || error.message?.includes('non-negative')) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    
+    return NextResponse.json(
+      { error: 'Failed to save weekly goal' },
+      { status: 500 }
+    );
+  }
+}
+
+```
+
+### Step 3.4: Create Quarterly Goals API Route
+
+**Cursor.ai Prompt:**
+Create the API route for quarterly goals: `src/app/api/sga-hub/quarterly-goals/route.ts`
+
+Follow the same pattern as weekly-goals route.
+Only admin/manager can set quarterly goals.
+SGAs can view their own quarterly goals.
+
+**Code to Create (src/app/api/sga-hub/quarterly-goals/route.ts):**
+
+```typescript
+// src/app/api/sga-hub/quarterly-goals/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { getUserPermissions } from '@/lib/permissions';
+import { 
+  getQuarterlyGoal,
+  getQuarterlyGoals,
+  upsertQuarterlyGoal,
+  getAllSGAQuarterlyGoals,
+} from '@/lib/queries/quarterly-goals';
+import { getCurrentQuarter } from '@/lib/utils/sga-hub-helpers';
+
+/**
+ * GET /api/sga-hub/quarterly-goals
+ * Get quarterly goals for the logged-in user or all SGAs (admin)
+ */
+export async function GET(request: NextRequest) {
+  try {
+    // Authentication check
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    
+    const permissions = await getUserPermissions(session.user.email);
+    
+    // Parse query params
+    const { searchParams } = new URL(request.url);
+    const quarter = searchParams.get('quarter') || getCurrentQuarter();
+    const targetUserEmail = searchParams.get('userEmail');
+    const allSGAs = searchParams.get('allSGAs') === 'true'; // Admin only
+    
+    // Admin: Get all SGAs' goals for a quarter
+    if (allSGAs) {
+      if (!['admin', 'manager'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      
+      const goals = await getAllSGAQuarterlyGoals(quarter);
+      return NextResponse.json({ goals, quarter });
+    }
+    
+    // Get specific user's goals
+    let userEmail = session.user.email;
+    
+    if (targetUserEmail) {
+      if (!['admin', 'manager'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      userEmail = targetUserEmail;
+    } else {
+      if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
+    
+    // Get all quarters for user (for historical view)
+    const goals = await getQuarterlyGoals(userEmail);
+    
+    return NextResponse.json({ goals });
+    
+  } catch (error) {
+    console.error('[API] Error fetching quarterly goals:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch quarterly goals' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * POST /api/sga-hub/quarterly-goals
+ * Create or update a quarterly goal (admin/manager only)
+ */
+export async function POST(request: NextRequest) {
+  try {
+    // Authentication check
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    
+    const permissions = await getUserPermissions(session.user.email);
+    
+    // Only admin/manager can set quarterly goals
+    if (!['admin', 'manager'].includes(permissions.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    
+    // Parse request body
+    const body = await request.json();
+    const { userEmail, quarter, sqoGoal } = body;
+    
+    // Validate required fields
+    if (!userEmail || !quarter || sqoGoal === undefined) {
+      return NextResponse.json(
+        { error: 'userEmail, quarter, and sqoGoal are required' },
+        { status: 400 }
+      );
+    }
+    
+    const goal = await upsertQuarterlyGoal(
+      { userEmail, quarter, sqoGoal },
+      session.user.email
+    );
+    
+    return NextResponse.json({ goal });
+    
+  } catch (error: any) {
+    console.error('[API] Error saving quarterly goal:', error);
+    
+    if (error.message?.includes('Invalid quarter')) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    
+    return NextResponse.json(
+      { error: 'Failed to save quarterly goal' },
+      { status: 500 }
+    );
+  }
+}
+
+```
+
+### Step 3.5: Verify API Routes
+
+**Cursor.ai Prompt:**
+Verify the API routes compile and lint correctly:
+
+1. Run: `npx tsc --noEmit`
+2. Run: `npm run lint`
+3. Run: `npm run build`
+
+Fix any errors before proceeding.
+
+**Also verify the directory structure:**
+
+```text
+src/app/api/sga-hub/
+├── weekly-goals/
+│   └── route.ts
+└── quarterly-goals/
+    └── route.ts
+
+```
+
+### Verification Gate 3:
+
+* [ ] `src/lib/queries/weekly-goals.ts` created
+* [ ] `src/lib/queries/quarterly-goals.ts` created
+* [ ] `src/app/api/sga-hub/weekly-goals/route.ts` created
+* [ ] `src/app/api/sga-hub/quarterly-goals/route.ts` created
+* [ ] `npx tsc --noEmit` passes
+* [ ] `npm run lint` passes
+* [ ] `npm run build` passes
+
+**Checkpoint:**
+
+```bash
+git add -A && git commit -m "Phase 3: Add weekly and quarterly goals API routes"
+
+```
+
+---
+
+## Phase 4: Weekly Actuals BigQuery
+
+### Step 4.1: Create Weekly Actuals Query Function
+
+**Cursor.ai Prompt:**
+Create the BigQuery query function for weekly actuals: `src/lib/queries/weekly-actuals.ts`
+
+Reference existing BigQuery patterns in:
+
+* `src/lib/queries/funnel-metrics.ts`
+* `src/lib/queries/detail-records.ts`
+
+Use the `runQuery` function from `@/lib/bigquery`. Use constants from `@/config/constants.ts`.
+
+**The query should:**
+
+1. Get Initial Calls Scheduled grouped by week (Monday).
+2. Get Qualification Calls grouped by week.
+3. Get SQOs grouped by week (by Date_Became_SQO__c).
+4. Filter by SGA_Owner_Name__c (exact match to `user.name`).
+5. Support date range filtering.
+
+**Code to Create (src/lib/queries/weekly-actuals.ts):**
+
+```typescript
+// src/lib/queries/weekly-actuals.ts
+
+import { runQuery } from '@/lib/bigquery';
+import { FULL_TABLE, RECRUITING_RECORD_TYPE } from '@/config/constants';
+import { WeeklyActual } from '@/types/sga-hub';
+import { toNumber } from '@/types/bigquery-raw';
+
+interface RawWeeklyActualResult {
+  week_start: { value: string } | string;
+  initial_calls: number | null;
+  qualification_calls: number | null;
+  sqos: number | null;
+}
+
+/**
+ * Get weekly actuals for a specific SGA
+ * @param sgaName - Exact SGA_Owner_Name__c value (from user.name)
+ * @param startDate - Start date for range (ISO string)
+ * @param endDate - End date for range (ISO string)
+ */
+export async function getWeeklyActuals(
+  sgaName: string,
+  startDate: string,
+  endDate: string
+): Promise<WeeklyActual[]> {
+  const query = `
+    WITH initial_calls AS (
+      SELECT 
+        DATE_TRUNC(Initial_Call_Scheduled_Date__c, WEEK(MONDAY)) as week_start,
+        COUNT(DISTINCT primary_key) as count
+      FROM \`${FULL_TABLE}\`
+      WHERE SGA_Owner_Name__c = @sgaName
+        AND Initial_Call_Scheduled_Date__c IS NOT NULL
+        AND Initial_Call_Scheduled_Date__c >= @startDate
+        AND Initial_Call_Scheduled_Date__c <= @endDate
+      GROUP BY week_start
+    ),
+    qual_calls AS (
+      SELECT 
+        DATE_TRUNC(Qualification_Call_Date__c, WEEK(MONDAY)) as week_start,
+        COUNT(DISTINCT Full_Opportunity_ID__c) as count
+      FROM \`${FULL_TABLE}\`
+      WHERE SGA_Owner_Name__c = @sgaName
+        AND Qualification_Call_Date__c IS NOT NULL
+        AND Qualification_Call_Date__c >= @startDate
+        AND Qualification_Call_Date__c <= @endDate
+      GROUP BY week_start
+    ),
+    sqos AS (
+      SELECT 
+        DATE(DATE_TRUNC(Date_Became_SQO__c, WEEK(MONDAY))) as week_start,
+        COUNT(*) as count
+      FROM \`${FULL_TABLE}\`
+      WHERE SGA_Owner_Name__c = @sgaName
+        AND is_sqo_unique = 1
+        AND Date_Became_SQO__c IS NOT NULL
+        AND Date_Became_SQO__c >= TIMESTAMP(@startDate)
+        AND Date_Became_SQO__c <= TIMESTAMP(CONCAT(@endDate, ' 23:59:59'))
+        AND recordtypeid = @recruitingRecordType
+      GROUP BY week_start
+    ),
+    -- Generate all weeks in range
+    all_weeks AS (
+      SELECT week_start
+      FROM UNNEST(
+        GENERATE_DATE_ARRAY(
+          DATE_TRUNC(DATE(@startDate), WEEK(MONDAY)),
+          DATE_TRUNC(DATE(@endDate), WEEK(MONDAY)),
+          INTERVAL 1 WEEK
+        )
+      ) as week_start
+    )
+    SELECT 
+      aw.week_start,
+      COALESCE(ic.count, 0) as initial_calls,
+      COALESCE(qc.count, 0) as qualification_calls,
+      COALESCE(s.count, 0) as sqos
+    FROM all_weeks aw
+    LEFT JOIN initial_calls ic ON aw.week_start = ic.week_start
+    LEFT JOIN qual_calls qc ON aw.week_start = qc.week_start
+    LEFT JOIN sqos s ON aw.week_start = s.week_start
+    ORDER BY aw.week_start DESC
+  `;
+  
+  const params = {
+    sgaName,
+    startDate,
+    endDate,
+    recruitingRecordType: RECRUITING_RECORD_TYPE,
+  };
+  
+  const results = await runQuery<RawWeeklyActualResult>(query, params);
+  
+  return results.map(transformWeeklyActual);
+}
+
+/**
+ * Get weekly actuals for all SGAs (admin view)
+ */
+export async function getAllSGAWeeklyActuals(
+  startDate: string,
+  endDate: string
+): Promise<{ sgaName: string; actuals: WeeklyActual[] }[]> {
+  const query = `
+    WITH initial_calls AS (
+      SELECT 
+        SGA_Owner_Name__c as sga_name,
+        DATE_TRUNC(Initial_Call_Scheduled_Date__c, WEEK(MONDAY)) as week_start,
+        COUNT(DISTINCT primary_key) as count
+      FROM \`${FULL_TABLE}\`
+      WHERE SGA_Owner_Name__c IS NOT NULL
+        AND Initial_Call_Scheduled_Date__c IS NOT NULL
+        AND Initial_Call_Scheduled_Date__c >= @startDate
+        AND Initial_Call_Scheduled_Date__c <= @endDate
+      GROUP BY sga_name, week_start
+    ),
+    qual_calls AS (
+      SELECT 
+        SGA_Owner_Name__c as sga_name,
+        DATE_TRUNC(Qualification_Call_Date__c, WEEK(MONDAY)) as week_start,
+        COUNT(DISTINCT Full_Opportunity_ID__c) as count
+      FROM \`${FULL_TABLE}\`
+      WHERE SGA_Owner_Name__c IS NOT NULL
+        AND Qualification_Call_Date__c IS NOT NULL
+        AND Qualification_Call_Date__c >= @startDate
+        AND Qualification_Call_Date__c <= @endDate
+      GROUP BY sga_name, week_start
+    ),
+    sqos AS (
+      SELECT 
+        SGA_Owner_Name__c as sga_name,
+        DATE(DATE_TRUNC(Date_Became_SQO__c, WEEK(MONDAY))) as week_start,
+        COUNT(*) as count
+      FROM \`${FULL_TABLE}\`
+      WHERE SGA_Owner_Name__c IS NOT NULL
+        AND is_sqo_unique = 1
+        AND Date_Became_SQO__c IS NOT NULL
+        AND Date_Became_SQO__c >= TIMESTAMP(@startDate)
+        AND Date_Became_SQO__c <= TIMESTAMP(CONCAT(@endDate, ' 23:59:59'))
+        AND recordtypeid = @recruitingRecordType
+      GROUP BY sga_name, week_start
+    ),
+    all_sgas AS (
+      SELECT DISTINCT SGA_Owner_Name__c as sga_name
+      FROM \`${FULL_TABLE}\`
+      WHERE SGA_Owner_Name__c IS NOT NULL
+    ),
+    all_weeks AS (
+      SELECT week_start
+      FROM UNNEST(
+        GENERATE_DATE_ARRAY(
+          DATE_TRUNC(DATE(@startDate), WEEK(MONDAY)),
+          DATE_TRUNC(DATE(@endDate), WEEK(MONDAY)),
+          INTERVAL 1 WEEK
+        )
+      ) as week_start
+    )
+    SELECT 
+      s.sga_name,
+      aw.week_start,
+      COALESCE(ic.count, 0) as initial_calls,
+      COALESCE(qc.count, 0) as qualification_calls,
+      COALESCE(sq.count, 0) as sqos
+    FROM all_sgas s
+    CROSS JOIN all_weeks aw
+    LEFT JOIN initial_calls ic ON s.sga_name = ic.sga_name AND aw.week_start = ic.week_start
+    LEFT JOIN qual_calls qc ON s.sga_name = qc.sga_name AND aw.week_start = qc.week_start
+    LEFT JOIN sqos sq ON s.sga_name = sq.sga_name AND aw.week_start = sq.week_start
+    ORDER BY s.sga_name, aw.week_start DESC
+  `;
+  
+  const params = {
+    startDate,
+    endDate,
+    recruitingRecordType: RECRUITING_RECORD_TYPE,
+  };
+  
+  const results = await runQuery<RawWeeklyActualResult & { sga_name: string }>(query, params);
+  
+  // Group by SGA
+  const sgaMap = new Map<string, WeeklyActual[]>();
+  
+  for (const row of results) {
+    const sgaName = row.sga_name;
+    if (!sgaMap.has(sgaName)) {
+      sgaMap.set(sgaName, []);
+    }
+    sgaMap.get(sgaName)!.push(transformWeeklyActual(row));
+  }
+  
+  return Array.from(sgaMap.entries()).map(([sgaName, actuals]) => ({
+    sgaName,
+    actuals,
+  }));
+}
+
+/**
+ * Transform raw BigQuery result to WeeklyActual
+ * week_start is always a DATE type from BigQuery (YYYY-MM-DD format)
+ */
+function transformWeeklyActual(row: RawWeeklyActualResult): WeeklyActual {
+  let weekStartDate: string;
+  if (typeof row.week_start === 'object' && 'value' in row.week_start) {
+    // BigQuery DATE fields can return as { value: "YYYY-MM-DD" }
+    weekStartDate = row.week_start.value.split('T')[0];
+  } else if (typeof row.week_start === 'string') {
+    // Direct string format "YYYY-MM-DD"
+    weekStartDate = row.week_start.split('T')[0];
+  } else {
+    // Fallback: convert to string and extract date part
+    weekStartDate = String(row.week_start).split('T')[0];
+  }
+  
+  // Ensure format is YYYY-MM-DD (no time component)
+  if (weekStartDate.length > 10) {
+    weekStartDate = weekStartDate.substring(0, 10);
+  }
+  
+  return {
+    weekStartDate,
+    initialCalls: toNumber(row.initial_calls) || 0,
+    qualificationCalls: toNumber(row.qualification_calls) || 0,
+    sqos: toNumber(row.sqos) || 0,
+  };
+}
+
+```
+
+### Step 4.2: Create Weekly Actuals API Route
+
+**Cursor.ai Prompt:**
+Create the API route for weekly actuals: `src/app/api/sga-hub/weekly-actuals/route.ts`
+
+This route queries BigQuery and returns actuals for the logged-in SGA. Admin/Manager can query for any SGA.
+
+**Code to Create (src/app/api/sga-hub/weekly-actuals/route.ts):**
+
+```typescript
+// src/app/api/sga-hub/weekly-actuals/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { getUserPermissions } from '@/lib/permissions';
+import { getWeeklyActuals, getAllSGAWeeklyActuals } from '@/lib/queries/weekly-actuals';
+import { getDefaultWeekRange } from '@/lib/utils/sga-hub-helpers';
+import { prisma } from '@/lib/prisma';
+
+/**
+ * GET /api/sga-hub/weekly-actuals
+ * Get weekly actuals from BigQuery for the logged-in user or specified SGA
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    
+    const permissions = await getUserPermissions(session.user.email);
+    const { searchParams } = new URL(request.url);
+    const startDate = searchParams.get('startDate');
+    const endDate = searchParams.get('endDate');
+    const targetUserEmail = searchParams.get('userEmail');
+    const allSGAs = searchParams.get('allSGAs') === 'true';
+    
+    const dateRange = startDate && endDate 
+      ? { startDate, endDate }
+      : getDefaultWeekRange();
+    
+    if (allSGAs) {
+      if (!['admin', 'manager'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      
+      const allActuals = await getAllSGAWeeklyActuals(
+        dateRange.startDate,
+        dateRange.endDate
+      );
+      
+      return NextResponse.json({ 
+        actuals: allActuals,
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
+      });
+    }
+    
+    let userEmail = session.user.email;
+    if (targetUserEmail) {
+      if (!['admin', 'manager'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      userEmail = targetUserEmail;
+    } else {
+      if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
+    
+    const user = await prisma.user.findUnique({
+      where: { email: userEmail },
+      select: { name: true },
+    });
+    
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+    
+    const actuals = await getWeeklyActuals(
+      user.name,
+      dateRange.startDate,
+      dateRange.endDate
+    );
+    
+    return NextResponse.json({ 
+      actuals,
+      sgaName: user.name,
+      startDate: dateRange.startDate,
+      endDate: dateRange.endDate,
+    });
+    
+  } catch (error) {
+    console.error('[API] Error fetching weekly actuals:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch weekly actuals' },
+      { status: 500 }
+    );
+  }
+}
+
+```
+
+### Step 4.3: Verify BigQuery Query with MCP
+
+**Cursor.ai Prompt:**
+Use MCP to verify the weekly actuals query works correctly. Run this query with a known SGA name (e.g., 'Eleni Stefanopoulos'):
+
+```sql
+WITH initial_calls AS (
+  SELECT 
+    DATE_TRUNC(Initial_Call_Scheduled_Date__c, WEEK(MONDAY)) as week_start,
+    COUNT(DISTINCT primary_key) as count
+  FROM `savvy-gtm-analytics.Tableau_Views.vw_funnel_master`
+  WHERE SGA_Owner_Name__c = 'Eleni Stefanopoulos'
+    AND Initial_Call_Scheduled_Date__c IS NOT NULL
+    AND Initial_Call_Scheduled_Date__c >= '2025-01-01'
+    AND Initial_Call_Scheduled_Date__c <= '2026-01-31'
+  GROUP BY week_start
+)
+SELECT * FROM initial_calls ORDER BY week_start DESC LIMIT 10
+
+```
+
+**Verify:**
+
+1. Query executes without errors.
+2. Returns expected week_start dates (Mondays).
+3. Counts look reasonable.
+4. Week_start values are DATE type (YYYY-MM-DD format, no time component).
+
+**Also test the SQO query separately:**
+```sql
+SELECT 
+  DATE(DATE_TRUNC(Date_Became_SQO__c, WEEK(MONDAY))) as week_start,
+  COUNT(*) as count
+FROM `savvy-gtm-analytics.Tableau_Views.vw_funnel_master`
+WHERE SGA_Owner_Name__c = 'Eleni Stefanopoulos'
+  AND is_sqo_unique = 1
+  AND Date_Became_SQO__c IS NOT NULL
+  AND Date_Became_SQO__c >= TIMESTAMP('2025-01-01')
+  AND Date_Became_SQO__c <= TIMESTAMP('2026-01-31 23:59:59')
+  AND recordtypeid = '012Dn000000mrO3IAI'
+GROUP BY week_start
+ORDER BY week_start DESC
+LIMIT 5
+```
+
+**Verify:**
+- `DATE(DATE_TRUNC(...))` correctly converts TIMESTAMP to DATE
+- Week_start values match DATE format (no time component)
+- Counts are reasonable
+
+### Verification Gate 4:
+
+* [ ] `src/lib/queries/weekly-actuals.ts` created
+* [ ] `src/app/api/sga-hub/weekly-actuals/route.ts` created
+* [ ] BigQuery query verified with MCP
+* [ ] `npx tsc --noEmit` passes
+* [ ] `npm run lint` passes
+
+**Checkpoint:**
+
+```bash
+git add -A && git commit -m "Phase 4: Add weekly actuals BigQuery queries and API route"
+
+```
+
+---
+
+## Phase 5: SGA Hub Page - Weekly Goals Tab
+
+### Step 5.1: Create API Client Functions
+
+**Cursor.ai Prompt:**
+Add SGA Hub API client functions to `src/lib/api-client.ts`. Include: `getWeeklyGoals`, `saveWeeklyGoal`, `getWeeklyActuals`, `getQuarterlyGoals`, `saveQuarterlyGoal`, `getClosedLostRecords`, `getQuarterlyProgress`, and `getSQODetails`.
+
+**Reference existing patterns in `src/lib/api-client.ts`:**
+- Use `apiFetch<T>()` helper function
+- Follow the same structure as `dashboardApi` object
+- Use POST for requests with body, GET for query params
+- Handle errors with `ApiError` class
+
+**Functions to add to `dashboardApi` object:**
+```typescript
+// Weekly Goals
+getWeeklyGoals: (startDate?: string, endDate?: string, userEmail?: string) =>
+  apiFetch<{ goals: WeeklyGoal[] }>(`/api/sga-hub/weekly-goals?${new URLSearchParams({ 
+    ...(startDate && { startDate }), 
+    ...(endDate && { endDate }),
+    ...(userEmail && { userEmail })
+  }).toString()}`),
+
+saveWeeklyGoal: (goal: WeeklyGoalInput, userEmail?: string) =>
+  apiFetch<{ goal: WeeklyGoal }>('/api/sga-hub/weekly-goals', {
+    method: 'POST',
+    body: JSON.stringify({ ...goal, ...(userEmail && { userEmail }) }),
+  }),
+
+// Weekly Actuals
+getWeeklyActuals: (startDate?: string, endDate?: string, userEmail?: string) =>
+  apiFetch<{ actuals: WeeklyActual[]; sgaName?: string; startDate: string; endDate: string }>(
+    `/api/sga-hub/weekly-actuals?${new URLSearchParams({ 
+      ...(startDate && { startDate }), 
+      ...(endDate && { endDate }),
+      ...(userEmail && { userEmail })
+    }).toString()}`
+  ),
+
+// Quarterly Goals
+getQuarterlyGoals: (quarter?: string, userEmail?: string) =>
+  apiFetch<{ goals: QuarterlyGoal[]; quarter?: string }>(
+    `/api/sga-hub/quarterly-goals?${new URLSearchParams({ 
+      ...(quarter && { quarter }), 
+      ...(userEmail && { userEmail })
+    }).toString()}`
+  ),
+
+saveQuarterlyGoal: (input: QuarterlyGoalInput) =>
+  apiFetch<{ goal: QuarterlyGoal }>('/api/sga-hub/quarterly-goals', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  }),
+
+// Closed Lost
+getClosedLostRecords: (timeBuckets?: ClosedLostTimeBucket[]) =>
+  apiFetch<{ records: ClosedLostRecord[] }>('/api/sga-hub/closed-lost', {
+    method: 'POST',
+    body: JSON.stringify({ timeBuckets: timeBuckets || ['all'] }),
+  }),
+
+// Quarterly Progress
+getQuarterlyProgress: (quarter?: string) =>
+  apiFetch<QuarterlyProgress>(
+    `/api/sga-hub/quarterly-progress?${new URLSearchParams({ 
+      ...(quarter && { quarter })
+    }).toString()}`
+  ),
+
+// SQO Details
+getSQODetails: (quarter: string) =>
+  apiFetch<{ sqos: SQODetail[] }>(
+    `/api/sga-hub/sqo-details?${new URLSearchParams({ quarter }).toString()}`
+  ),
+```
+
+### Step 5.2: Create Weekly Goals Table Component
+
+**Cursor.ai Prompt:**
+Create `src/components/sga-hub/WeeklyGoalsTable.tsx`. Include goal vs actual display, differences with color coding (green ≥ 0, red < 0), and an edit button for each row.
+
+**Important Logic:**
+- Use `canEdit` property from `WeeklyGoalWithActuals` to determine if edit button should be enabled
+- For SGAs: `canEdit = isCurrentWeek || isFutureWeek` (use `getWeekInfo()` helper)
+- For Admins: `canEdit = true` (can edit any week)
+- Disable edit button and show tooltip if `!canEdit`
+- Display differences: `actual - goal` (positive = green, negative = red, null if no goal)
+
+### Step 5.3: Create Weekly Goal Editor Modal
+
+**Cursor.ai Prompt:**
+Create `src/components/sga-hub/WeeklyGoalEditor.tsx`. Include form validation for non-negative integers and a loading state during save.
+
+### Step 5.4: Create SGA Hub Tabs Component
+
+**Cursor.ai Prompt:**
+Create `src/components/sga-hub/SGAHubTabs.tsx`. Switch between Weekly Goals, Closed Lost Follow-Up, and Quarterly Progress.
+
+### Step 5.5: Create SGA Hub Page
+
+**Cursor.ai Prompt:**
+Create `src/app/dashboard/sga-hub/page.tsx`. Ensure session check and role redirection for non-SGA/Admin users.
+
+### Step 5.6: Create SGA Hub Content Client Component
+
+**Cursor.ai Prompt:**
+Create `src/app/dashboard/sga-hub/SGAHubContent.tsx`. Handle tab switching, date range state, and data fetching for the weekly view.
+
+### Verification Gate 5:
+
+* [ ] All components created in `src/components/sga-hub/`
+* [ ] SGA Hub page created at `src/app/dashboard/sga-hub/`
+* [ ] API client functions added
+* [ ] `npx tsc --noEmit` passes
+* [ ] Page loads in browser
+
+**Checkpoint:**
+
+```bash
+git add -A && git commit -m "Phase 5: Add SGA Hub page with Weekly Goals tab"
+
+```
+
+---
+
+## Phase 6: Closed Lost Tab
+
+### Step 6.1: Create Closed Lost Query Function
+
+**Cursor.ai Prompt:**
+Create `src/lib/queries/closed-lost.ts`. Query `vw_sga_closed_lost_sql_followup`, filter by SGA name, and calculate days since contact.
+
+**Important Notes:**
+- View name: `savvy-gtm-analytics.savvy_analytics.vw_sga_closed_lost_sql_followup`
+- Filter by `sga_name` field (exact match to `user.name`)
+- View already has `time_since_last_contact_bucket` field for filtering (30-60, 60-90, 90-120, 120-150, 150-180 days)
+- View has both `Full_prospect_id__c` and `Full_Opportunity_ID__c` for URL construction
+- `salesforce_url` field already exists (Opportunity URL)
+- Need to construct `lead_url` from `Full_prospect_id__c`: `CONCAT('https://savvywealth.lightning.force.com/lightning/r/Lead/', Full_prospect_id__c, '/view')`
+
+### Step 6.2: Create Closed Lost API Route
+
+**Cursor.ai Prompt:**
+Create `src/app/api/sga-hub/closed-lost/route.ts` to return records for the logged-in SGA.
+
+### Step 6.3: Create Closed Lost Table Component
+
+**Cursor.ai Prompt:**
+Create `src/components/sga-hub/ClosedLostTable.tsx`. Add sortable columns, multi-select bucket filters, and Salesforce links.
+
+### Step 6.4: Update SGA Hub Content for Closed Lost Tab
+
+**Cursor.ai Prompt:**
+Integrate `ClosedLostTable` into `SGAHubContent.tsx`. Add `RecordDetailModal` for record drilldown.
+
+### Verification Gate 6:
+
+* [ ] BigQuery query verified with MCP
+* [ ] `ClosedLostTable` functional
+* [ ] Detail modal drilldown working
+* [ ] `npm run build` passes
+
+**Checkpoint:**
+
+```bash
+git add -A && git commit -m "Phase 6: Add Closed Lost Follow-Up tab with filtering and detail modal"
+
+```
+
+---
+
+## Phase 7: Quarterly Progress Tab
+
+### Step 7.1: Create Quarterly Progress Query
+
+**Cursor.ai Prompt:**
+Create `src/lib/queries/quarterly-progress.ts` for SQO counts, AUM, and detailed SQO records.
+
+**Important Query Patterns:**
+
+1. **Quarterly SQO Count** (for progress calculation):
+   - Filter by `Date_Became_SQO__c` (TIMESTAMP field) using `TIMESTAMP(@startDate)` and `TIMESTAMP(@endDate)`
+   - Use `is_sqo_unique = 1` for deduplication
+   - Filter by `recordtypeid = @recruitingRecordType`
+   - Group by quarter using `EXTRACT(YEAR FROM Date_Became_SQO__c)` and `EXTRACT(QUARTER FROM Date_Became_SQO__c)`
+   - Format quarter as `CONCAT(CAST(EXTRACT(YEAR FROM Date_Became_SQO__c) AS STRING), '-Q', CAST(EXTRACT(QUARTER FROM Date_Became_SQO__c) AS STRING))`
+
+2. **SQO Detail Records** (for table display):
+   - Same filters as above
+   - Include: `primary_key`, `advisor_name`, `Date_Became_SQO__c`, `Opportunity_AUM`, `aum_tier`, `Channel_Grouping_Name`, `Original_source`, `salesforce_url`, `lead_url`, `opportunity_url`
+
+**Reference existing patterns in:**
+- `src/lib/queries/conversion-rates.ts` (quarterly SQO volume CTE)
+- `src/lib/queries/source-performance.ts` (SQO filtering patterns)
+
+### Step 7.2: Create Quarterly Progress API Route
+
+**Cursor.ai Prompt:**
+Create API routes for quarterly progress and SQO details.
+
+### Step 7.3: Create Quarterly Progress Components
+
+**Cursor.ai Prompt:**
+Create `QuarterlyProgressCard.tsx` (progress/pacing), `SQODetailTable.tsx`, and `QuarterlyProgressChart.tsx` (Recharts).
+
+### Step 7.4: Integrate Quarterly Progress Tab
+
+**Cursor.ai Prompt:**
+Integrate into `SGAHubContent.tsx` with a multi-select quarter dropdown and behind-pace warnings.
+
+### Verification Gate 7:
+
+* [ ] Pacing calculation working
+* [ ] Historical chart displaying
+* [ ] `npx tsc --noEmit` passes
+
+**Checkpoint:**
+
+```bash
+git add -A && git commit -m "Phase 7: Add Quarterly Progress tab with pacing and historical view"
+
+```
+
+---
+
+## Phase 8: Admin SGA Management Page
+
+### Step 8.1: Create Admin Overview API Route
+
+**Cursor.ai Prompt:**
+Create `src/app/api/admin/sga-overview/route.ts` for aggregated SGA performance data.
+
+### Step 8.2: Create Admin Page and Components
+
+**Cursor.ai Prompt:**
+Create the SGA Management page and goal editor for admins.
+
+### Step 8.3: Add Export Functionality
+
+**Cursor.ai Prompt:**
+Add CSV export functions for weekly, quarterly, and closed lost reports.
+
+### Verification Gate 8:
+
+* [ ] Admin page accessible
+* [ ] Export functionality working
+* [ ] `npm run build` passes
+
+**Checkpoint:**
+
+```bash
+git add -A && git commit -m "Phase 8: Add Admin SGA Management page with export functionality"
+
+```
+
+---
+
+## Phase 9: Navigation & Permissions
+
+### Step 9.1: Update Sidebar Navigation
+
+**Cursor.ai Prompt:**
+Add SGA Hub (ID 8) and SGA Management (ID 9) to `src/components/layout/Sidebar.tsx`.
+
+### Step 9.2: Update Permissions
+
+**Cursor.ai Prompt:**
+Update `src/lib/permissions.ts` to map new page IDs to the correct roles.
+
+### Step 9.3: Add Test Users
+
+**Cursor.ai Prompt:**
+Add Eleni, Perry, Russell, and David to the database with correct roles.
+
+### Verification Gate 9:
+
+* [ ] Sidebar shows correct pages per role
+* [ ] Permissions enforced
+* [ ] Test users can login
+
+**Checkpoint:**
+
+```bash
+git add -A && git commit -m "Phase 9: Add navigation and permissions for SGA Hub and Admin pages"
+
+```
+
+---
+
+## Phase 10: Final Integration & Testing
+
+### Step 10.1: Full Application Test
+
+**Cursor.ai Prompt:**
+Verify build and perform user role testing (Admin vs SGA vs Viewer).
+
+### Step 10.2: BigQuery Data Verification with MCP
+
+**Cursor.ai Prompt:**
+Compare manual SQL counts against application display values for test users.
+
+### Step 10.3: Error Handling & Edge Cases
+
+**Cursor.ai Prompt:**
+Test empty data states, missing goals, and date boundary cases.
+
+### Step 10.4: Final Cleanup
+
+**Cursor.ai Prompt:**
+Remove logs, add JSDoc, format code, and update `README.md`.
+
+### Verification Gate 10:
+
+* [ ] Production build successful
+* [ ] Edge cases handled
+* [ ] README updated
+
+**Final Checkpoint:**
+
+```bash
+git add -A && git commit -m "Phase 10: Final integration testing and cleanup complete"
+git tag -a v2.0.0-sga-hub -m "SGA Hub Feature Release"
+
+```
