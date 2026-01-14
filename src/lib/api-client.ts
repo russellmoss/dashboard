@@ -24,6 +24,11 @@ import {
   QuarterlyProgress,
   SQODetail
 } from '@/types/sga-hub';
+import { 
+  InitialCallRecord, 
+  QualificationCallRecord, 
+  SQODrillDownRecord 
+} from '@/types/drill-down';
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public endpoint: string) {
@@ -230,6 +235,49 @@ export const dashboardApi = {
   getSQODetails: (quarter: string) =>
     apiFetch<{ sqos: SQODetail[] }>(
       `/api/sga-hub/sqo-details?${new URLSearchParams({ quarter }).toString()}`
+    ),
+
+  // Drill-down functions
+  getInitialCallsDrillDown: (
+    sgaName: string,
+    weekStartDate: string,
+    weekEndDate: string,
+    userEmail?: string
+  ) =>
+    apiFetch<{ records: InitialCallRecord[] }>(
+      `/api/sga-hub/drill-down/initial-calls?${new URLSearchParams({
+        weekStartDate,
+        weekEndDate,
+        ...(userEmail && { userEmail }),
+      }).toString()}`
+    ),
+
+  getQualificationCallsDrillDown: (
+    sgaName: string,
+    weekStartDate: string,
+    weekEndDate: string,
+    userEmail?: string
+  ) =>
+    apiFetch<{ records: QualificationCallRecord[] }>(
+      `/api/sga-hub/drill-down/qualification-calls?${new URLSearchParams({
+        weekStartDate,
+        weekEndDate,
+        ...(userEmail && { userEmail }),
+      }).toString()}`
+    ),
+
+  getSQODrillDown: (
+    sgaName: string,
+    options: { weekStartDate?: string; weekEndDate?: string; quarter?: string },
+    userEmail?: string
+  ) =>
+    apiFetch<{ records: SQODrillDownRecord[] }>(
+      `/api/sga-hub/drill-down/sqos?${new URLSearchParams({
+        ...(options.weekStartDate && { weekStartDate: options.weekStartDate }),
+        ...(options.weekEndDate && { weekEndDate: options.weekEndDate }),
+        ...(options.quarter && { quarter: options.quarter }),
+        ...(userEmail && { userEmail }),
+      }).toString()}`
     ),
 };
 
