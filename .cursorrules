@@ -443,3 +443,301 @@ import { dashboardApi } from '@/lib/api-client';
 5. **Never fail on Q4**: If Q4 2025 SQO→Joined is low, that's expected - cohort isn't mature
 
 **Remember**: The scorecard calculations in `getConversionRates()` are correct. Use them as the reference implementation when fixing the trend chart.
+
+---
+
+## SGA Hub Feature Patterns
+
+### Overview
+
+The SGA Hub feature allows SGAs to track weekly goals, closed lost follow-ups, and quarterly progress. Admin/Manager roles can manage all SGAs via the SGA Management page.
+
+**Key Files:**
+- `src/app/dashboard/sga-hub/` - SGA Hub page and content
+- `src/app/dashboard/sga-management/` - Admin SGA Management page
+- `src/lib/queries/weekly-goals.ts` - Weekly goals Prisma queries
+- `src/lib/queries/weekly-actuals.ts` - Weekly actuals BigQuery queries
+- `src/lib/queries/quarterly-progress.ts` - Quarterly SQO progress queries
+- `src/lib/queries/closed-lost.ts` - Closed lost records queries
+- `src/types/sga-hub.ts` - SGA Hub type definitions
+- `src/lib/utils/sga-hub-helpers.ts` - Date utilities and pacing calculations
+
+### Critical Patterns
+
+#### 1. Date Parsing - ALWAYS Use Local Dates
+
+**⚠️ CRITICAL**: BigQuery `DATE` fields must be parsed as **local dates**, not UTC.
+
+**WRONG:**
+```typescript
+const date = new Date(dateString); // Parses as UTC, causes timezone shifts
+```
+
+**RIGHT:**
+```typescript
+// In sga-hub-helpers.ts pattern:
+const [year, month, day] = dateString.split('-').map(Number);
+const date = new Date(year, month - 1, day); // Local date, no timezone shift
+```
+
+**Why**: Week validation (`isMonday`) and date formatting break if dates shift due to UTC parsing. Monday dates become Sunday in some timezones.
+
+**Files using this pattern:**
+- `src/lib/utils/sga-hub-helpers.ts` - All date functions
+- `src/app/api/sga-hub/weekly-goals/route.ts` - Week validation
+- `src/components/sga-hub/WeeklyGoalEditor.tsx` - Date display
+
+#### 2. SGA Name Matching - Case-Sensitive
+
+**⚠️ CRITICAL**: User `name` field MUST match BigQuery `SGA_Owner_Name__c` **exactly** (case-sensitive).
+
+**Pattern:**
+```typescript
+// Get user name from Prisma
+const user = await prisma.user.findUnique({ where: { email }, select: { name: true } });
+
+// Use in BigQuery query
+const query = `SELECT ... WHERE SGA_Owner_Name__c = @sgaName`;
+const params = { sgaName: user.name }; // Exact match required
+```
+
+**Why**: BigQuery string matching is case-sensitive. "Eleni" ≠ "Eleni Stefanopoulos" ≠ "eleni stefanopoulos".
+
+**Common Issue**: User created with name "Eleni" but BigQuery has "Eleni Stefanopoulos" → no data returned.
+
+**Solution**: Always verify name matches exactly. Update Prisma User.name to match BigQuery if needed.
+
+#### 3. BigQuery View Column Names - Lowercase
+
+**⚠️ IMPORTANT**: BigQuery views use **lowercase** column names, not Salesforce API names.
+
+**WRONG:**
+```sql
+SELECT Opp_Name__c, Last_Contact_Date__c FROM vw_sga_closed_lost_sql_followup
+```
+
+**RIGHT:**
+```sql
+SELECT opp_name, last_contact_date FROM vw_sga_closed_lost_sql_followup
+```
+
+**Why**: BigQuery views transform Salesforce API names to lowercase. Always check view schema first using MCP.
+
+**Pattern**: Use MCP to query `INFORMATION_SCHEMA.COLUMNS` before writing queries:
+```sql
+SELECT column_name, data_type 
+FROM `savvy-gtm-analytics.savvy_analytics.INFORMATION_SCHEMA.COLUMNS` 
+WHERE table_name = 'vw_sga_closed_lost_sql_followup'
+```
+
+#### 4. BigQuery DATE Field Handling
+
+**⚠️ IMPORTANT**: BigQuery `DATE` fields can return as strings OR objects.
+
+**Pattern:**
+```typescript
+function extractDate(value: any): string {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object' && 'value' in value) {
+    return String(value.value);
+  }
+  return '';
+}
+```
+
+**Why**: BigQuery DATE fields sometimes return as `{ value: "2026-01-15" }` instead of `"2026-01-15"`. Always handle both formats.
+
+#### 5. Weekly Goals - Monday Validation
+
+**Pattern:**
+```typescript
+// Always validate weekStartDate is a Monday
+if (!isMonday(weekStartDate)) {
+  return NextResponse.json(
+    { error: 'weekStartDate must be a Monday' },
+    { status: 400 }
+  );
+}
+```
+
+**Why**: Weekly goals are stored by Monday date. Non-Monday dates break week calculations.
+
+**Helper**: `isMonday()` in `sga-hub-helpers.ts` uses local date parsing.
+
+#### 6. Quarterly Pacing Calculation
+
+**Pattern:**
+```typescript
+// Calculate expected SQOs based on days elapsed
+const daysInQuarter = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+const daysElapsed = Math.max(0, Math.min(daysInQuarter, Math.ceil((today - startDate) / (1000 * 60 * 60 * 24)) + 1));
+const expectedSqos = Math.round((goal / daysInQuarter) * daysElapsed * 10) / 10;
+const pacingDiff = actual - expectedSqos;
+```
+
+**Formula**: `expectedSqos = (goal / daysInQuarter) × daysElapsed`
+
+**Status Logic:**
+- `pacingDiff >= 0.5` → "ahead"
+- `pacingDiff >= -0.5` → "on-track"
+- `pacingDiff < -0.5` → "behind"
+
+#### 7. Permission-Based Data Filtering
+
+**Pattern:**
+```typescript
+// SGA users can only see their own data
+if (permissions.role === 'sga') {
+  // Use user.name as sgaName filter
+  const user = await prisma.user.findUnique({ where: { email }, select: { name: true } });
+  // Filter BigQuery by SGA_Owner_Name__c = user.name
+} else if (['admin', 'manager'].includes(permissions.role)) {
+  // Can view any SGA (optional userEmail param)
+  const targetEmail = searchParams.get('userEmail') || session.user.email;
+}
+```
+
+**Why**: SGAs should only see their own goals and data. Admin/Manager can view any SGA.
+
+#### 8. Closed Lost Time Buckets
+
+**Pattern:**
+```typescript
+// Normalize UI bucket format to BigQuery view format
+function normalizeTimeBucket(bucket: string): string {
+  const normalized = bucket.toLowerCase();
+  if (normalized.includes('30-60') || normalized.includes('1 month')) return '1 month since last contact';
+  if (normalized.includes('60-90') || normalized.includes('2 month')) return '2 months since last contact';
+  // ... etc
+}
+```
+
+**Why**: UI uses formats like "30-60 days" but BigQuery view uses "1 month since last contact". Must normalize.
+
+#### 9. CSV Export Pattern
+
+**Pattern:**
+```typescript
+// Generic CSV generation
+function generateCSV<T>(data: T[], columns: { key: string; header: string }[], filename: string) {
+  const headers = columns.map(col => col.header);
+  const csvContent = [
+    headers.join(','),
+    ...data.map(row => 
+      columns.map(col => {
+        const value = String(row[col.key] ?? '');
+        // Escape quotes and wrap if contains comma/quote/newline
+        if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+          return `"${value.replace(/"/g, '""')}"`;
+        }
+        return value;
+      }).join(',')
+    )
+  ].join('\n');
+  
+  // Download via Blob API
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${filename}_${new Date().toISOString().split('T')[0]}.csv`;
+  link.click();
+}
+```
+
+**Location**: `src/lib/utils/sga-hub-csv-export.ts`
+
+### Common Pitfalls - SGA Hub
+
+#### ❌ Parsing Dates as UTC
+- **WRONG**: `new Date(dateString)` for BigQuery DATE fields
+- **RIGHT**: Parse as local date: `new Date(year, month - 1, day)`
+- **WHY**: Causes week validation failures and incorrect date displays
+
+#### ❌ Using Salesforce API Names in BigQuery Views
+- **WRONG**: `SELECT Opp_Name__c FROM vw_sga_closed_lost_sql_followup`
+- **RIGHT**: `SELECT opp_name FROM vw_sga_closed_lost_sql_followup`
+- **WHY**: Views use lowercase column names, not Salesforce API names
+
+#### ❌ Case-Insensitive Name Matching
+- **WRONG**: Assuming "Eleni" matches "Eleni Stefanopoulos"
+- **RIGHT**: Exact case-sensitive match required
+- **WHY**: BigQuery string matching is case-sensitive. Always verify User.name matches SGA_Owner_Name__c exactly
+
+#### ❌ Not Handling DATE Object Format
+- **WRONG**: `value.split('-')` when value might be `{ value: "2026-01-15" }`
+- **RIGHT**: Use `extractDate()` helper to handle both string and object formats
+- **WHY**: BigQuery DATE fields can return as objects
+
+#### ❌ Auto-Selecting First SGA in Dropdowns
+- **WRONG**: Auto-selecting first SGA when data loads
+- **RIGHT**: Default to "Select an SGA..." empty value
+- **WHY**: Better UX - user explicitly chooses which SGA to view
+
+#### ❌ Using Tremor Select for Native Styling
+- **WRONG**: Using Tremor `Select` component when native `<select>` styling is needed
+- **RIGHT**: Use native HTML `<select>` with Tailwind classes for consistent styling
+- **WHY**: Tremor Select has transparent background issues. Native select matches other inputs.
+
+### SGA Hub File Structure
+
+```
+src/
+├── app/
+│   ├── api/
+│   │   ├── sga-hub/
+│   │   │   ├── weekly-goals/route.ts
+│   │   │   ├── weekly-actuals/route.ts
+│   │   │   ├── quarterly-goals/route.ts
+│   │   │   ├── quarterly-progress/route.ts
+│   │   │   ├── sqo-details/route.ts
+│   │   │   └── closed-lost/route.ts
+│   │   └── admin/
+│   │       └── sga-overview/route.ts
+│   └── dashboard/
+│       ├── sga-hub/
+│       │   ├── page.tsx
+│       │   └── SGAHubContent.tsx
+│       └── sga-management/
+│           ├── page.tsx
+│           └── SGAManagementContent.tsx
+├── components/
+│   └── sga-hub/
+│       ├── WeeklyGoalsTable.tsx
+│       ├── WeeklyGoalEditor.tsx
+│       ├── ClosedLostTable.tsx
+│       ├── QuarterlyProgressCard.tsx
+│       ├── SQODetailTable.tsx
+│       ├── QuarterlyProgressChart.tsx
+│       ├── AdminSGATable.tsx
+│       ├── BulkGoalEditor.tsx
+│       ├── IndividualGoalEditor.tsx
+│       └── SGAHubTabs.tsx
+├── lib/
+│   ├── queries/
+│   │   ├── weekly-goals.ts (Prisma)
+│   │   ├── weekly-actuals.ts (BigQuery)
+│   │   ├── quarterly-goals.ts (Prisma)
+│   │   ├── quarterly-progress.ts (BigQuery)
+│   │   └── closed-lost.ts (BigQuery)
+│   └── utils/
+│       ├── sga-hub-helpers.ts (date utils, pacing calc)
+│       └── sga-hub-csv-export.ts (CSV export functions)
+└── types/
+    └── sga-hub.ts (all SGA Hub types)
+```
+
+### Testing SGA Hub Features
+
+**Before making changes:**
+1. Verify User.name matches BigQuery SGA_Owner_Name__c exactly
+2. Test with known SGA (e.g., Eleni Stefanopoulos)
+3. Verify date parsing doesn't cause timezone shifts
+4. Check BigQuery view column names using MCP
+5. Test permission filtering (SGA sees only own data, Admin sees all)
+
+**Common Test Cases:**
+- Week validation: Monday dates only
+- Date display: Correct week ranges (no "Jan 11 - 11, 2026" issues)
+- Name matching: Exact case-sensitive match
+- Pacing calculation: Formula matches expected SQOs per day
+- CSV export: All columns included, proper escaping
