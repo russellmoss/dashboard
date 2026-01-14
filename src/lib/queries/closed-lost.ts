@@ -38,12 +38,14 @@ function normalizeTimeBucket(bucket: ClosedLostTimeBucket): string[] {
   
   // Map UI bucket values to possible view values
   // The view may have different formats, so we include common variations
+  // Note: '180+' bucket is handled separately in the query (view only includes 30-179 days)
   const bucketMap: Record<string, string[]> = {
     '30-60': ['30-60', '30-60 days', '1 month since last contact'],
     '60-90': ['60-90', '60-90 days', '2 months since last contact'],
     '90-120': ['90-120', '90-120 days', '3 months since last contact'],
     '120-150': ['120-150', '120-150 days', '4 months since last contact'],
     '150-180': ['150-180', '150-180 days', '5 months since last contact'],
+    '180+': [], // Special case: handled by days filter, not bucket matching
   };
   
   return bucketMap[bucket] || [bucket];
@@ -62,12 +64,18 @@ export async function getClosedLostRecords(
   const conditions: string[] = [`sga_name = @sgaName`];
   const params: Record<string, any> = { sgaName };
   
-  // Handle time bucket filtering
-  if (timeBuckets && timeBuckets.length > 0 && !timeBuckets.includes('all')) {
-    // Flatten all possible bucket values
+  // Check if we need to include 180+ days records (requires querying base tables)
+  const has180Plus = timeBuckets && timeBuckets.includes('180+');
+  const hasOtherBuckets = timeBuckets && timeBuckets.length > 0 && !timeBuckets.includes('all') && timeBuckets.some(b => b !== '180+');
+  
+  // Handle time bucket filtering for view buckets (30-179 days)
+  if (hasOtherBuckets) {
+    // Flatten all possible bucket values (excluding '180+')
     const allBucketValues: string[] = [];
     for (const bucket of timeBuckets) {
-      allBucketValues.push(...normalizeTimeBucket(bucket));
+      if (bucket !== '180+' && bucket !== 'all') {
+        allBucketValues.push(...normalizeTimeBucket(bucket));
+      }
     }
     
     if (allBucketValues.length > 0) {
@@ -79,7 +87,8 @@ export async function getClosedLostRecords(
   
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   
-  const query = `
+  // Base query for view records (30-179 days)
+  let query = `
     SELECT 
       Full_Opportunity_ID__c as id,
       opp_name,
@@ -101,8 +110,102 @@ export async function getClosedLostRecords(
       CAST(DATE_DIFF(CURRENT_DATE(), CAST(last_contact_date AS DATE), DAY) AS INT64) as days_since_contact
     FROM \`${CLOSED_LOST_VIEW}\`
     ${whereClause}
-    ORDER BY closed_lost_date DESC, last_contact_date DESC
   `;
+  
+  // If we need 180+ days records, we need to query the base tables and UNION
+  if (has180Plus) {
+    // Query for 180+ days from base tables (same logic as view but for 180+ days)
+    // Note: The view filters by sga_name, but we need to filter by Lead SGA or Opportunity SGA
+    // following the same logic as the view (if Lead SGA is 'Savvy Marketing', use Opp SGA)
+    const baseQuery180Plus = `
+      WITH
+        sql_opps AS (
+          SELECT
+            l.Full_prospect_id__c,
+            l.SGA_Owner_Name__c,
+            l.ConvertedDate AS sql_date,
+            o.Id AS opportunity_salesforce_id,
+            o.Full_Opportunity_ID__c,
+            o.Name AS opp_name,
+            o.StageName,
+            o.SGA__c AS opportunity_sga_id,
+            o.LastActivityDate,
+            o.CloseDate,
+            o.Closed_Lost_Reason__c,
+            o.Closed_Lost_Details__c
+          FROM
+            \`savvy-gtm-analytics.SavvyGTMData.Lead\` AS l
+          JOIN
+            \`savvy-gtm-analytics.SavvyGTMData.Opportunity\` AS o
+            ON l.ConvertedOpportunityId = o.Full_Opportunity_ID__c
+          WHERE
+            l.IsConverted = TRUE
+            AND o.StageName = 'Closed Lost'
+            AND o.recordtypeid = '012Dn000000mrO3IAI'
+            AND o.LastActivityDate IS NOT NULL
+            AND DATE_DIFF(CURRENT_DATE(), o.LastActivityDate, DAY) >= 180
+        ),
+        sga_opp_user AS (
+          SELECT Id, Name
+          FROM \`savvy-gtm-analytics.SavvyGTMData.User\`
+          WHERE IsActive = TRUE
+        ),
+        with_sga_name AS (
+          SELECT
+            CASE
+              WHEN s.SGA_Owner_Name__c = 'Savvy Marketing' THEN u.Name
+              ELSE s.SGA_Owner_Name__c
+            END AS sga_name,
+            s.opp_name,
+            CONCAT("https://savvywealth.lightning.force.com/", s.Full_Opportunity_ID__c) AS salesforce_url,
+            '6+ months since last contact' AS time_since_last_contact_bucket,
+            s.LastActivityDate AS last_contact_date,
+            s.CloseDate AS closed_lost_date,
+            s.sql_date,
+            s.Closed_Lost_Reason__c AS closed_lost_reason,
+            s.Closed_Lost_Details__c AS closed_lost_details,
+            s.Full_prospect_id__c,
+            s.Full_Opportunity_ID__c
+          FROM sql_opps AS s
+          LEFT JOIN sga_opp_user AS u ON s.opportunity_sga_id = u.Id
+        )
+      SELECT
+        Full_Opportunity_ID__c as id,
+        opp_name,
+        Full_prospect_id__c as lead_id,
+        Full_Opportunity_ID__c as opportunity_id,
+        CASE 
+          WHEN Full_prospect_id__c IS NOT NULL 
+          THEN CONCAT('https://savvywealth.lightning.force.com/lightning/r/Lead/', Full_prospect_id__c, '/view')
+          ELSE NULL
+        END as lead_url,
+        salesforce_url as opportunity_url,
+        salesforce_url,
+        last_contact_date,
+        closed_lost_date,
+        sql_date,
+        closed_lost_reason,
+        closed_lost_details,
+        time_since_last_contact_bucket,
+        CAST(DATE_DIFF(CURRENT_DATE(), CAST(last_contact_date AS DATE), DAY) AS INT64) as days_since_contact
+      FROM with_sga_name
+      WHERE sga_name = @sgaName
+    `;
+    
+    // If we have both view records and 180+ records, UNION them
+    if (hasOtherBuckets) {
+      query = `
+        ${query}
+        UNION ALL
+        ${baseQuery180Plus}
+      `;
+    } else {
+      // Only 180+ records
+      query = baseQuery180Plus;
+    }
+  }
+  
+  query += ` ORDER BY closed_lost_date DESC, last_contact_date DESC`;
   
   const results = await runQuery<RawClosedLostResult>(query, params);
   

@@ -24,9 +24,12 @@ interface ClosedLostTableProps {
 function getTimeBucketColor(bucket: string): string {
   const normalized = bucket.toLowerCase();
   
-  // Check for days ranges
+  // Check for days ranges (most urgent = oldest)
+  if (normalized.includes('6+ month') || normalized.includes('180+')) {
+    return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'; // Most urgent - 6+ months
+  }
   if (normalized.includes('150') || normalized.includes('180') || normalized.includes('5 month')) {
-    return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'; // Most urgent
+    return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'; // Very urgent - 5 months
   }
   if (normalized.includes('120') || normalized.includes('150') || normalized.includes('4 month')) {
     return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200';
@@ -54,9 +57,12 @@ function getRowColorClass(bucket: string, index: number): string {
     ? 'bg-white dark:bg-gray-800' 
     : 'bg-gray-50 dark:bg-gray-900';
   
-  // Add subtle tint for older buckets
+  // Add subtle tint for older buckets (most urgent = oldest)
+  if (normalized.includes('6+ month') || normalized.includes('180+')) {
+    return `${baseColor} hover:bg-red-50 dark:hover:bg-red-950/20`; // Most urgent - 6+ months
+  }
   if (normalized.includes('150') || normalized.includes('180') || normalized.includes('5 month')) {
-    return `${baseColor} hover:bg-red-50 dark:hover:bg-red-950/20`;
+    return `${baseColor} hover:bg-red-50 dark:hover:bg-red-950/20`; // Very urgent - 5 months
   }
   if (normalized.includes('120') || normalized.includes('150') || normalized.includes('4 month')) {
     return `${baseColor} hover:bg-orange-50 dark:hover:bg-orange-950/20`;

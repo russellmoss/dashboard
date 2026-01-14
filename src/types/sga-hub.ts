@@ -142,6 +142,7 @@ export type ClosedLostTimeBucket =
   | '90-120' 
   | '120-150' 
   | '150-180'
+  | '180+'
   | 'all';
 
 /** Closed lost record from BigQuery view */

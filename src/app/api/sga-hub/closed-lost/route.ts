@@ -65,16 +65,16 @@ export async function GET(request: NextRequest) {
       // Handle comma-separated string or single value
       const buckets = timeBucketsParam.split(',').map(b => b.trim()) as ClosedLostTimeBucket[];
       // Validate buckets are valid ClosedLostTimeBucket values
-      const validBuckets: ClosedLostTimeBucket[] = ['30-60', '60-90', '90-120', '120-150', '150-180', 'all'];
+      const validBuckets: ClosedLostTimeBucket[] = ['30-60', '60-90', '90-120', '120-150', '150-180', '180+', 'all'];
       timeBuckets = buckets.filter(b => validBuckets.includes(b));
       
       // If no valid buckets, default to all
       if (timeBuckets.length === 0) {
-        timeBuckets = ['30-60', '60-90', '90-120', '120-150', '150-180'];
+        timeBuckets = ['30-60', '60-90', '90-120', '120-150', '150-180', '180+'];
       }
     } else {
       // Default to all buckets if not specified
-      timeBuckets = ['30-60', '60-90', '90-120', '120-150', '150-180'];
+      timeBuckets = ['30-60', '60-90', '90-120', '120-150', '150-180', '180+'];
     }
     
     // Fetch closed lost records
