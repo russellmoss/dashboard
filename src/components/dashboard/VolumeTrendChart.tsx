@@ -69,7 +69,7 @@ export function VolumeTrendChart({
     Joined: Number(t.joined) || 0,
   }));
 
-  const volumeCategories = ['SQLs', 'SQOs', 'Joined'];
+  const volumeCategories = ['SQLs', 'SQOs', 'Joined']; // Order: SQLs → SQOs → Joined
 
   const VOLUME_COLORS: Record<string, string> = {
     'SQLs': CHART_COLORS.primary,
@@ -207,7 +207,8 @@ export function VolumeTrendChart({
               wrapperStyle={{ paddingTop: '10px' }}
               iconType="square"
             />
-            {volumeCategories.map((cat) => (
+            {/* Render bars in reverse order so legend shows: SQLs, SQOs, Joined (Recharts legend displays in reverse of bar order) */}
+            {volumeCategories.slice().reverse().map((cat) => (
               <Bar
                 key={cat}
                 dataKey={cat}
