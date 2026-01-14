@@ -333,3 +333,149 @@ SUM(
 4. **NO cohort restrictions** - just counts events in the date range
 
 This is the pattern that should be used for trend chart volumes!
+
+---
+
+## Phase 4: Discrepancy Analysis
+
+### 4.1: Volume Calculation Comparison Table
+
+| Metric | Scorecard Query Logic (`funnel-metrics.ts`) | Trend Chart Query Logic (`conversion-rates.ts` PERIOD mode) | Difference |
+|--------|--------------------------------------------|------------------------------------------------------------|------------|
+| **SQL** | ✅ Filters by `converted_date_raw` in date range<br>✅ Uses `is_sql = 1`<br>✅ No cohort restrictions | ✅ Filters by `converted_date_raw` in date range (line 632-633)<br>✅ Uses `is_sql = 1` (line 631)<br>✅ No cohort restrictions (line 627) | ✅ **MATCHES** - Both correct |
+| **SQO** | ✅ Filters by `Date_Became_SQO__c` in date range<br>✅ Uses `is_sqo_unique = 1`<br>✅ Uses `recordtypeid = '012Dn000000mrO3IAI'`<br>✅ **NO cohort restrictions** | ❌ Filters by `converted_date_raw` in date range (line 686-687)<br>✅ Uses `is_sqo_unique = 1` (line 678)<br>✅ Uses `recordtypeid` (line 679)<br>❌ **COHORT RESTRICTION**: Requires SQL date period = SQO date period (lines 673, 680)<br>❌ **WRONG WHERE CLAUSE**: Filters by SQL date instead of SQO date | ❌ **MAJOR DIFFERENCE**:<br>1. Wrong WHERE clause (filters by SQL date, not SQO date)<br>2. Cohort restriction excludes SQOs that SQL'd in different period<br>3. This causes undercounting (e.g., Q4 SQL that became SQO in Q4 but SQL'd in Q3 would be excluded) |
+| **Joined** | ✅ Filters by `advisor_join_date__c` in date range<br>✅ Uses `is_joined_unique = 1`<br>✅ **NO cohort restrictions** | ❌ Filters by `Date_Became_SQO__c` in date range (line 747-748)<br>✅ Uses `is_joined_unique = 1` (line 730, 737)<br>❌ **COHORT RESTRICTION**: Requires SQO date period = Joined date period (lines 733, 739)<br>❌ **WRONG WHERE CLAUSE**: Filters by SQO date instead of Joined date | ❌ **MAJOR DIFFERENCE**:<br>1. Wrong WHERE clause (filters by SQO date, not Joined date)<br>2. Cohort restriction excludes Joined that SQO'd in different period<br>3. This causes severe undercounting (e.g., Q4 Joined that SQO'd in Q3 would be excluded) |
+
+### 4.2: Specific Date Field Analysis
+
+**Scorecard Query Date Fields:**
+- SQL: `converted_date_raw` ✅
+- SQO: `Date_Became_SQO__c` ✅
+- Joined: `advisor_join_date__c` ✅
+
+**Trend Chart Query Date Fields (PERIOD mode):**
+- SQL: `converted_date_raw` ✅ (correct)
+- SQO: `converted_date_raw` ❌ (should be `Date_Became_SQO__c`)
+- Joined: `Date_Became_SQO__c` ❌ (should be `advisor_join_date__c`)
+
+### 4.3: Deduplication and Filter Analysis
+
+**Scorecard Query:**
+- SQL: No deduplication needed (all SQLs counted)
+- SQO: `is_sqo_unique = 1` ✅, `recordtypeid = '012Dn000000mrO3IAI'` ✅
+- Joined: `is_joined_unique = 1` ✅
+
+**Trend Chart Query (PERIOD mode):**
+- SQL: No deduplication ✅
+- SQO: `is_sqo_unique = 1` ✅, `recordtypeid` ✅ (correct)
+- Joined: `is_joined_unique = 1` ✅ (correct)
+
+**Verdict**: Deduplication logic is correct in both. The issue is with date field selection and cohort restrictions.
+
+### 4.4: Cohort Restriction Impact
+
+**Example Scenario - Q4 2025:**
+
+**SQO Volume Bug:**
+- A record SQL'd in Q3 2025 (`converted_date_raw = '2025-09-15'`)
+- Same record became SQO in Q4 2025 (`Date_Became_SQO__c = '2025-10-20'`)
+- **Scorecard Query**: ✅ Counts this as Q4 SQO (filters by SQO date)
+- **Trend Chart Query**: ❌ Does NOT count this as Q4 SQO because:
+  - WHERE clause filters by `converted_date_raw` (Q3), so record is excluded from Q4 query
+  - Even if included, the cohort restriction `periodFn(converted_date_raw) = periodFn(Date_Became_SQO__c)` would fail (Q3 ≠ Q4)
+
+**Joined Volume Bug:**
+- A record SQO'd in Q3 2025 (`Date_Became_SQO__c = '2025-09-20'`)
+- Same record Joined in Q4 2025 (`advisor_join_date__c = '2025-10-15'`)
+- **Scorecard Query**: ✅ Counts this as Q4 Joined (filters by Joined date)
+- **Trend Chart Query**: ❌ Does NOT count this as Q4 Joined because:
+  - WHERE clause filters by `Date_Became_SQO__c` (Q3), so record is excluded from Q4 query
+  - Even if included, the cohort restriction `periodFn(Date_Became_SQO__c) = periodFn(advisor_join_date__c)` would fail (Q3 ≠ Q4)
+
+**Impact**: The cohort restrictions cause significant undercounting, especially for SQO and Joined volumes, because many records convert across quarter boundaries.
+
+---
+
+### 4.5: Complete Data Flow Trace
+
+**Step 1: User Interaction**
+- User selects Q4 2025 date range
+- User clicks "Volume" toggle in ConversionTrendChart
+- Component state: `selectedMetric = 'volume'` (line 129 in ConversionTrendChart.tsx)
+
+**Step 2: Dashboard Page Data Fetch**
+- `src/app/dashboard/page.tsx` line 132: Calls `dashboardApi.getConversionRates()` with:
+  - `filters`: Q4 2025 date range
+  - `includeTrends: true`
+  - `granularity: 'quarter'` (from state)
+  - `mode: 'cohort'` or `'period'` (from state, default 'cohort')
+
+**Step 3: API Client Call**
+- `src/lib/api-client.ts` line 98-118: `getConversionRates()` makes POST request to `/api/dashboard/conversion-rates`
+- Request body includes: `{ filters, includeTrends: true, granularity: 'quarter', mode: 'cohort' }`
+
+**Step 4: API Route Processing**
+- `src/app/api/dashboard/conversion-rates/route.ts` line 43: Calls `getConversionTrends(filters, granularity, mode)`
+- Mode is passed through directly (no transformation)
+
+**Step 5: Query Function Execution**
+- `src/lib/queries/conversion-rates.ts` line 409: `getConversionTrends()` is called
+- Line 504-506: Based on mode, calls either `buildPeriodModeQuery()` or `buildCohortModeQuery()`
+- **For PERIOD mode**: `buildPeriodModeQuery()` is called (lines 573-811)
+
+**Step 6: SQL Query Execution (PERIOD Mode)**
+- **SQL Volume CTE** (lines 623-636): ✅ Correct - counts by `converted_date_raw`
+- **SQO Volume CTE** (lines 664-690): ❌ **BUG HERE**:
+  - WHERE clause filters by `converted_date_raw` (line 686-687) - **WRONG**
+  - Should filter by `Date_Became_SQO__c`
+  - COUNTIF includes cohort restriction (line 673, 680): `periodFn(converted_date_raw) = periodFn(Date_Became_SQO__c)` - **WRONG**
+- **Joined Volume CTE** (lines 725-751): ❌ **BUG HERE**:
+  - WHERE clause filters by `Date_Became_SQO__c` (line 747-748) - **WRONG**
+  - Should filter by `advisor_join_date__c`
+  - COUNTIF includes cohort restriction (line 733, 739): `periodFn(Date_Became_SQO__c) = periodFn(advisor_join_date__c)` - **WRONG**
+
+**Step 7: Query Results Transformation**
+- Lines 533-558: Results are transformed into `TrendDataPoint[]`
+- Volumes are extracted directly: `sqls: toNumber(row.sqls)`, `sqos: toNumber(row.sqos)`, `joined: toNumber(row.joined)`
+- No transformation applied - buggy values pass through
+
+**Step 8: API Response**
+- `src/app/api/dashboard/conversion-rates/route.ts` line 51: Returns `{ rates, trends, mode }`
+- Trends array contains buggy volume values
+
+**Step 9: Component Receives Data**
+- `src/app/dashboard/page.tsx` line 140: `setTrends(conversionData.trends || [])`
+- Trends array with buggy volumes is stored in state
+
+**Step 10: Chart Rendering**
+- `src/components/dashboard/ConversionTrendChart.tsx` line 145-156: Maps trends to chart data
+- Line 153-155: Directly uses `t.sqls`, `t.sqos`, `t.joined` from data
+- No client-side transformation - buggy values are displayed
+
+**Divergence Point**: The volume counts diverge at **Step 6** (SQL Query Execution) in the `buildPeriodModeQuery()` function. The buggy CTEs for SQO and Joined volumes apply incorrect WHERE clauses and cohort restrictions.
+
+---
+
+### 4.6: Root Cause Summary
+
+**Primary Issues:**
+1. **SQO Volume CTE** (`sql_to_sqo_numer`, lines 664-690):
+   - ❌ WHERE clause filters by `converted_date_raw` instead of `Date_Became_SQO__c`
+   - ❌ Cohort restriction: `periodFn(converted_date_raw) = periodFn(Date_Became_SQO__c)`
+   - **Impact**: Excludes SQOs that SQL'd in a different period, causing undercounting
+
+2. **Joined Volume CTE** (`sqo_to_joined_numer`, lines 725-751):
+   - ❌ WHERE clause filters by `Date_Became_SQO__c` instead of `advisor_join_date__c`
+   - ❌ Cohort restriction: `periodFn(Date_Became_SQO__c) = periodFn(advisor_join_date__c)`
+   - **Impact**: Excludes Joined records that SQO'd in a different period, causing severe undercounting
+
+**Why This Happened:**
+- The volume CTEs were designed to support "period-resolved" conversion rate calculations
+- They were incorrectly reused for volume display, which should be independent of conversion rate logic
+- Volumes should always be periodic (count events in period), regardless of mode
+
+**Expected Behavior:**
+- Volumes should match the scorecard query pattern: count events by their occurrence date, with no cohort restrictions
+- SQLs: Count by `converted_date_raw`
+- SQOs: Count by `Date_Became_SQO__c` (with deduplication and record type filter)
+- Joined: Count by `advisor_join_date__c` (with deduplication)
