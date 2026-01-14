@@ -794,7 +794,7 @@ function buildPeriodModeQuery(
     
     joined_volume AS (
       SELECT
-        ${periodFn('TIMESTAMP(v.advisor_join_date__c)')} as period,  -- ✅ Use Joined date for period grouping
+        ${periodFn('v.advisor_join_date__c')} as period,  -- ✅ Use Joined date for period grouping (DATE field, not TIMESTAMP)
         COUNT(*) as joined
       FROM \`${FULL_TABLE}\` v
       LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
