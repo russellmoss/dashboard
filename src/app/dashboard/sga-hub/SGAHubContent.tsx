@@ -7,10 +7,13 @@ import { SGAHubTabs, SGAHubTab } from '@/components/sga-hub/SGAHubTabs';
 import { WeeklyGoalsTable } from '@/components/sga-hub/WeeklyGoalsTable';
 import { WeeklyGoalEditor } from '@/components/sga-hub/WeeklyGoalEditor';
 import { ClosedLostTable } from '@/components/sga-hub/ClosedLostTable';
+import { QuarterlyProgressCard } from '@/components/sga-hub/QuarterlyProgressCard';
+import { SQODetailTable } from '@/components/sga-hub/SQODetailTable';
+import { QuarterlyProgressChart } from '@/components/sga-hub/QuarterlyProgressChart';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { dashboardApi, handleApiError } from '@/lib/api-client';
-import { WeeklyGoal, WeeklyActual, WeeklyGoalWithActuals, ClosedLostRecord } from '@/types/sga-hub';
-import { getDefaultWeekRange, getWeekMondayDate, getWeekInfo, formatDateISO } from '@/lib/utils/sga-hub-helpers';
+import { WeeklyGoal, WeeklyActual, WeeklyGoalWithActuals, ClosedLostRecord, QuarterlyProgress, SQODetail } from '@/types/sga-hub';
+import { getDefaultWeekRange, getWeekMondayDate, getWeekInfo, formatDateISO, getCurrentQuarter, getQuarterFromDate, getQuarterInfo } from '@/lib/utils/sga-hub-helpers';
 import { getSessionPermissions } from '@/types/auth';
 
 export function SGAHubContent() {
@@ -36,6 +39,14 @@ export function SGAHubContent() {
   const [closedLostRecords, setClosedLostRecords] = useState<ClosedLostRecord[]>([]);
   const [closedLostLoading, setClosedLostLoading] = useState(false);
   const [closedLostError, setClosedLostError] = useState<string | null>(null);
+  
+  // Quarterly Progress state
+  const [selectedQuarter, setSelectedQuarter] = useState<string>(getCurrentQuarter());
+  const [quarterlyProgress, setQuarterlyProgress] = useState<QuarterlyProgress | null>(null);
+  const [sqoDetails, setSqoDetails] = useState<SQODetail[]>([]);
+  const [historicalProgress, setHistoricalProgress] = useState<QuarterlyProgress[]>([]);
+  const [quarterlyLoading, setQuarterlyLoading] = useState(false);
+  const [quarterlyError, setQuarterlyError] = useState<string | null>(null);
   
   // Fetch weekly goals and actuals
   const fetchWeeklyData = async () => {
@@ -72,14 +83,58 @@ export function SGAHubContent() {
     }
   };
   
+  // Fetch quarterly progress data
+  const fetchQuarterlyProgress = async () => {
+    try {
+      setQuarterlyLoading(true);
+      setQuarterlyError(null);
+      
+      // Fetch current quarter progress
+      const progress = await dashboardApi.getQuarterlyProgress(selectedQuarter);
+      setQuarterlyProgress(progress);
+      
+      // Fetch SQO details for selected quarter
+      const detailsResponse = await dashboardApi.getSQODetails(selectedQuarter);
+      setSqoDetails(detailsResponse.sqos);
+      
+      // Fetch historical data for chart (last 8 quarters)
+      const currentQuarterInfo = getQuarterInfo(selectedQuarter);
+      const quarters: string[] = [];
+      let year = currentQuarterInfo.year;
+      let quarterNum: 1 | 2 | 3 | 4 = currentQuarterInfo.quarterNumber;
+      
+      for (let i = 0; i < 8; i++) {
+        quarters.push(`${year}-Q${quarterNum}`);
+        if (quarterNum === 1) {
+          quarterNum = 4;
+          year--;
+        } else {
+          quarterNum = (quarterNum - 1) as 1 | 2 | 3 | 4;
+        }
+      }
+      
+      // Fetch progress for all historical quarters
+      const historicalData = await Promise.all(
+        quarters.map(q => dashboardApi.getQuarterlyProgress(q))
+      );
+      setHistoricalProgress(historicalData);
+    } catch (err) {
+      setQuarterlyError(handleApiError(err));
+    } finally {
+      setQuarterlyLoading(false);
+    }
+  };
+  
   useEffect(() => {
     if (activeTab === 'weekly-goals') {
       fetchWeeklyData();
     } else if (activeTab === 'closed-lost') {
       fetchClosedLostRecords();
+    } else if (activeTab === 'quarterly-progress') {
+      fetchQuarterlyProgress();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateRange.startDate, dateRange.endDate, activeTab]);
+  }, [dateRange.startDate, dateRange.endDate, activeTab, selectedQuarter]);
   
   // Combine goals and actuals
   useEffect(() => {
@@ -109,8 +164,8 @@ export function SGAHubContent() {
       weekEnd.setHours(23, 59, 59, 999);
       
       // Determine if this is current or future week
-      const isCurrentWeek = today >= weekStart && today <= weekEnd;
-      const isFutureWeek = today < weekStart;
+      const isCurrentWeek = today.getTime() >= weekStart.getTime() && today.getTime() <= weekEnd.getTime();
+      const isFutureWeek = today.getTime() < weekStart.getTime();
       
       // Find goal for this week
       const goal = weeklyGoals.find(g => g.weekStartDate === weekStartDate);
@@ -240,9 +295,69 @@ export function SGAHubContent() {
       )}
       
       {activeTab === 'quarterly-progress' && (
-        <Card className="mb-6 dark:bg-gray-800 dark:border-gray-700">
-          <Text>Quarterly Progress tab - Coming in Phase 7</Text>
-        </Card>
+        <>
+          <div className="mb-4 flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Quarter:
+              </label>
+              <Select
+                value={selectedQuarter}
+                onValueChange={setSelectedQuarter}
+                className="min-w-[120px]"
+              >
+                {(() => {
+                  const quarters: string[] = [];
+                  const currentQuarterInfo = getQuarterInfo(getCurrentQuarter());
+                  let year = currentQuarterInfo.year;
+                  let quarterNum: 1 | 2 | 3 | 4 = currentQuarterInfo.quarterNumber;
+                  
+                  // Generate last 8 quarters
+                  for (let i = 0; i < 8; i++) {
+                    const quarter = `${year}-Q${quarterNum}`;
+                    const info = getQuarterInfo(quarter);
+                    quarters.push(quarter);
+                    if (quarterNum === 1) {
+                      quarterNum = 4;
+                      year--;
+                    } else {
+                      quarterNum = (quarterNum - 1) as 1 | 2 | 3 | 4;
+                    }
+                  }
+                  
+                  return quarters.map(q => {
+                    const info = getQuarterInfo(q);
+                    return (
+                      <SelectItem key={q} value={q}>
+                        {info.label}
+                      </SelectItem>
+                    );
+                  });
+                })()}
+              </Select>
+            </div>
+          </div>
+          
+          {quarterlyError && (
+            <Card className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+              <Text className="text-red-600 dark:text-red-400">{quarterlyError}</Text>
+            </Card>
+          )}
+          
+          {quarterlyProgress && (
+            <QuarterlyProgressCard progress={quarterlyProgress} />
+          )}
+          
+          <QuarterlyProgressChart
+            progressData={historicalProgress}
+            isLoading={quarterlyLoading}
+          />
+          
+          <SQODetailTable
+            sqos={sqoDetails}
+            isLoading={quarterlyLoading}
+          />
+        </>
       )}
       
       <WeeklyGoalEditor
