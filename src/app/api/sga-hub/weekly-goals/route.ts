@@ -148,11 +148,18 @@ export async function POST(request: NextRequest) {
     
     // SGA role can only edit current/future weeks (not past weeks)
     if (permissions.role === 'sga' && userEmail === session.user.email) {
-      const weekDate = new Date(weekStartDate);
-      const today = new Date();
-      const currentWeekMonday = getWeekMondayDate(today);
+      // Parse weekStartDate as local date to avoid timezone issues
+      const [year, month, day] = weekStartDate.split('-').map(Number);
+      const weekDate = new Date(year, month - 1, day);
+      weekDate.setHours(0, 0, 0, 0);
       
-      if (weekDate < currentWeekMonday) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const currentWeekMonday = getWeekMondayDate(today);
+      currentWeekMonday.setHours(0, 0, 0, 0);
+      
+      // Allow current week and future weeks (>= comparison)
+      if (weekDate.getTime() < currentWeekMonday.getTime()) {
         return NextResponse.json(
           { error: 'SGAs can only edit goals for current or future weeks' },
           { status: 403 }

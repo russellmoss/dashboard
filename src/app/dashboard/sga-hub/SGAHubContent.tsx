@@ -97,8 +97,16 @@ export function SGAHubContent() {
       const weekStartDate = formatDateISO(currentDate);
       const weekInfo = getWeekInfo(weekStartDate);
       const today = new Date();
-      const weekStart = new Date(weekStartDate);
-      const weekEnd = new Date(weekInfo.weekEndDate);
+      today.setHours(0, 0, 0, 0);
+      
+      // Parse dates as local dates to avoid timezone issues
+      const [year, month, day] = weekStartDate.split('-').map(Number);
+      const weekStart = new Date(year, month - 1, day);
+      weekStart.setHours(0, 0, 0, 0);
+      
+      const [endYear, endMonth, endDay] = weekInfo.weekEndDate.split('-').map(Number);
+      const weekEnd = new Date(endYear, endMonth - 1, endDay);
+      weekEnd.setHours(23, 59, 59, 999);
       
       // Determine if this is current or future week
       const isCurrentWeek = today >= weekStart && today <= weekEnd;

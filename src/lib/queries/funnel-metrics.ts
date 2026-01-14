@@ -30,8 +30,17 @@ export async function getFunnelMetrics(filters: DashboardFilters): Promise<Funne
     conditions.push('v.Original_source = @source');
     params.source = filters.source;
   }
+  // Note: SGA filter is applied per-metric in CASE statements below
+  // Lead-level metrics use SGA_Owner_Name__c, Opportunity-level use Opp_SGA_Name__c
+  // We still add it to WHERE for lead-level metrics, but SQO/Joined need Opp_SGA_Name__c in CASE
+  // Note: SGA filter application:
+  // - Lead-level metrics (Prospects, Contacted, MQL, SQL): Use SGA_Owner_Name__c
+  // - Opportunity-level metrics (SQO, Joined): Use Opp_SGA_Name__c
+  // We use OR in WHERE to include records that match either field, then filter correctly in each CASE
+  const sgaFilterForLead = filters.sga ? ' AND v.SGA_Owner_Name__c = @sga' : '';
+  const sgaFilterForOpp = filters.sga ? ' AND v.Opp_SGA_Name__c = @sga' : '';
   if (filters.sga) {
-    conditions.push('v.SGA_Owner_Name__c = @sga');
+    conditions.push('(v.SGA_Owner_Name__c = @sga OR v.Opp_SGA_Name__c = @sga)');
     params.sga = filters.sga;
   }
   if (filters.sgm) {
@@ -59,6 +68,7 @@ export async function getFunnelMetrics(filters: DashboardFilters): Promise<Funne
           WHEN v.FilterDate IS NOT NULL
             AND TIMESTAMP(v.FilterDate) >= TIMESTAMP(@startDate) 
             AND TIMESTAMP(v.FilterDate) <= TIMESTAMP(@endDate)
+            ${sgaFilterForLead}
           THEN 1 
           ELSE 0 
         END
@@ -70,6 +80,7 @@ export async function getFunnelMetrics(filters: DashboardFilters): Promise<Funne
             AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate) 
             AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
             AND v.is_contacted = 1
+            ${sgaFilterForLead}
           THEN 1 
           ELSE 0 
         END
@@ -80,6 +91,7 @@ export async function getFunnelMetrics(filters: DashboardFilters): Promise<Funne
           WHEN mql_stage_entered_ts IS NOT NULL
             AND TIMESTAMP(mql_stage_entered_ts) >= TIMESTAMP(@startDate) 
             AND TIMESTAMP(mql_stage_entered_ts) <= TIMESTAMP(@endDate)
+            ${sgaFilterForLead}
           THEN 1 
           ELSE 0 
         END
@@ -90,6 +102,7 @@ export async function getFunnelMetrics(filters: DashboardFilters): Promise<Funne
             AND TIMESTAMP(converted_date_raw) >= TIMESTAMP(@startDate) 
             AND TIMESTAMP(converted_date_raw) <= TIMESTAMP(@endDate)
             AND is_sql = 1
+            ${sgaFilterForLead}
           THEN 1 
           ELSE 0 
         END
@@ -101,6 +114,7 @@ export async function getFunnelMetrics(filters: DashboardFilters): Promise<Funne
             AND TIMESTAMP(Date_Became_SQO__c) <= TIMESTAMP(@endDate)
             AND recordtypeid = @recruitingRecordType
             AND is_sqo_unique = 1
+            ${sgaFilterForOpp}
           THEN 1 
           ELSE 0 
         END
@@ -111,6 +125,7 @@ export async function getFunnelMetrics(filters: DashboardFilters): Promise<Funne
             AND TIMESTAMP(advisor_join_date__c) >= TIMESTAMP(@startDate) 
             AND TIMESTAMP(advisor_join_date__c) <= TIMESTAMP(@endDate)
             AND is_joined_unique = 1
+            ${sgaFilterForOpp}
           THEN 1 
           ELSE 0 
         END
@@ -123,6 +138,7 @@ export async function getFunnelMetrics(filters: DashboardFilters): Promise<Funne
             AND TIMESTAMP(advisor_join_date__c) >= TIMESTAMP(@startDate) 
             AND TIMESTAMP(advisor_join_date__c) <= TIMESTAMP(@endDate)
             AND is_joined_unique = 1
+            ${sgaFilterForOpp}
           THEN Opportunity_AUM 
           ELSE 0 
         END
