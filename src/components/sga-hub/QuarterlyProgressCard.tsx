@@ -64,7 +64,7 @@ function getPacingLabel(status: QuarterlyProgress['pacingStatus'], diff: number)
   }
 }
 
-export function QuarterlyProgressCard({ progress }: QuarterlyProgressCardProps) {
+export function QuarterlyProgressCard({ progress, onSQOClick }: QuarterlyProgressCardProps) {
   const {
     quarterLabel,
     sqoGoal,

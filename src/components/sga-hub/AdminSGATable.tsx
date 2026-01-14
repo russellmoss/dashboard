@@ -18,6 +18,13 @@ interface AdminSGATableProps {
   onRefresh: () => void;
   weekStartDate: string;
   quarter: string;
+  // New prop for metric click
+  onMetricClick?: (
+    sgaEmail: string,
+    sgaName: string,
+    metricType: MetricType,
+    isGoal: boolean
+  ) => void;
 }
 
 export function AdminSGATable({

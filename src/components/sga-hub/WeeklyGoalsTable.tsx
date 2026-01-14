@@ -62,7 +62,7 @@ function formatDifference(diff: number | null): { text: string; color: string } 
   }
 }
 
-export function WeeklyGoalsTable({ goals, onEditGoal, isLoading = false }: WeeklyGoalsTableProps) {
+export function WeeklyGoalsTable({ goals, onEditGoal, isLoading = false, onMetricClick }: WeeklyGoalsTableProps) {
   const [sortColumn, setSortColumn] = useState<SortColumn>('week');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   
