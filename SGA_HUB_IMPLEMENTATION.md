@@ -19,6 +19,26 @@
 > * **Commit** after each phase with the provided commit message.
 > * **Do NOT** proceed to the next phase if verification fails.
 > 
+> ### 📋 CONTEXT WINDOW MANAGEMENT
+> 
+> **IMPORTANT:** To prevent context window overflow and maintain focus:
+> 
+> 1. **At the start of each phase:**
+>    - Close all files from previous phases
+>    - Re-read only the current phase section from this document
+>    - Open only the files needed for the current phase
+> 
+> 2. **During phase work:**
+>    - Keep only relevant files open
+>    - Close files after reading/referencing them
+>    - Use `grep` or `codebase_search` instead of keeping many files open
+> 
+> 3. **After each phase commit:**
+>    - Close all open files
+>    - Clear context before starting next phase
+> 
+> This ensures efficient context usage and prevents confusion from mixing phases.
+> 
 > ### ⚠️ VALIDATION COMPLETE - ALL PATTERNS VERIFIED (January 27, 2026)
 > 
 > **Validation Status:** ✅ All codebase patterns verified against actual implementation
@@ -891,6 +911,19 @@ git add -A && git commit -m "Phase 2: Add SGA Hub types and date utility helpers
 ---
 
 ## Phase 3: Weekly Goals API Routes
+
+> **⚠️ Zod Validation Check:**
+> 
+> **Status:** Zod is NOT installed in this project (checked `package.json`).
+> 
+> **Decision:** Skip Zod validation to avoid adding new dependencies and learning curve.
+> 
+> **Alternative:** Use manual validation in API routes:
+> - Check required fields exist
+> - Validate types (numbers are numbers, dates are valid)
+> - Return clear error messages
+> 
+> If Zod is added later, validation schemas can be added to these routes.
 
 ### Step 3.1: Create Weekly Goals Query Functions
 
@@ -2232,6 +2265,13 @@ Create `src/app/dashboard/sga-hub/SGAHubContent.tsx`. Handle tab switching, date
 * [ ] SGA Hub page created at `src/app/dashboard/sga-hub/`
 * [ ] API client functions added
 * [ ] `npx tsc --noEmit` passes
+* [ ] `npm run lint` passes
+* [ ] **Manual UI Test**: Navigate to SGA Hub page, verify:
+  - [ ] Weekly Goals table renders without errors
+  - [ ] Edit goal button opens modal correctly
+  - [ ] Goal values can be edited and saved
+  - [ ] Table updates after saving a goal
+  - [ ] No console errors in browser DevTools
 * [ ] Page loads in browser
 
 **Checkpoint:**
@@ -2896,6 +2936,15 @@ Integrate `ClosedLostTable` into `SGAHubContent.tsx`. Add `RecordDetailModal` fo
 * [ ] BigQuery query verified with MCP
 * [ ] `ClosedLostTable` functional
 * [ ] Detail modal drilldown working
+* [ ] `npx tsc --noEmit` passes
+* [ ] `npm run lint` passes
+* [ ] **Manual UI Test**: Navigate to Closed Lost tab, verify:
+  - [ ] Table renders with records (if any exist)
+  - [ ] Sorting works correctly (click column headers)
+  - [ ] Time bucket filters work (multi-select buttons)
+  - [ ] Salesforce links open in new tab
+  - [ ] Row click opens detail modal (if implemented)
+  - [ ] No console errors in browser DevTools
 * [ ] `npm run build` passes
 
 **Checkpoint:**
@@ -3934,6 +3983,15 @@ Integrate into `SGAHubContent.tsx` with a multi-select quarter dropdown and behi
 * [ ] Pacing calculation working
 * [ ] Historical chart displaying
 * [ ] `npx tsc --noEmit` passes
+* [ ] `npm run lint` passes
+* [ ] **Manual Chart Test**: Navigate to Quarterly Progress tab, verify:
+  - [ ] Bar chart renders without console errors
+  - [ ] Hover tooltips display correct values
+  - [ ] Chart resizes correctly on window resize
+  - [ ] Progress card shows correct pacing status (ahead/on-track/behind)
+  - [ ] SQO detail table sorts correctly
+  - [ ] No console errors in browser DevTools
+* [ ] **Screenshot**: Take screenshot of chart for reference (optional but recommended)
 
 **Checkpoint:**
 
