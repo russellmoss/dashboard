@@ -60,10 +60,11 @@ export function VolumeTrendChart({
     onGranularityChange?.(value);
   };
 
-  // Transform data for volume display
+  // Transform data for volume display - order matters for Recharts grouped bars
   const chartData = trends.map(t => ({
     period: t.period,
     isSelectedPeriod: t.isSelectedPeriod || false,
+    // Order keys to match desired bar order: SQLs (left), SQOs (middle), Joined (right)
     SQLs: Number(t.sqls) || 0,
     SQOs: Number(t.sqos) || 0,
     Joined: Number(t.joined) || 0,
