@@ -203,12 +203,38 @@ export function VolumeTrendChart({
                 color: isDark ? '#f9fafb' : '#111827'
               }}
             />
+            {/* Custom Legend - render in correct order: SQLs, SQOs, Joined */}
             <Legend 
-              wrapperStyle={{ paddingTop: '10px' }}
-              iconType="square"
+              content={({ payload }) => {
+                if (!payload) return null;
+                // Reorder payload to show: SQLs, SQOs, Joined
+                const orderedPayload = volumeCategories.map(cat => 
+                  payload.find((p: any) => p.dataKey === cat)
+                ).filter(Boolean);
+                
+                return (
+                  <div className="flex justify-center gap-6 pt-2.5">
+                    {orderedPayload.map((entry: any, index: number) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <div 
+                          style={{ 
+                            width: 14, 
+                            height: 14, 
+                            backgroundColor: entry.color,
+                            borderRadius: 2
+                          }} 
+                        />
+                        <span className="text-sm" style={{ color: isDark ? '#9ca3af' : '#4b5563' }}>
+                          {entry.dataKey}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              }}
             />
-            {/* Render bars in reverse order so legend shows: SQLs, SQOs, Joined (Recharts legend displays in reverse of bar order) */}
-            {volumeCategories.slice().reverse().map((cat) => (
+            {/* Render bars in correct order: SQLs, SQOs, Joined */}
+            {volumeCategories.map((cat) => (
               <Bar
                 key={cat}
                 dataKey={cat}
