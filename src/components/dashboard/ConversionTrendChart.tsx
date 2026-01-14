@@ -113,7 +113,6 @@ interface ConversionTrendChartProps {
   granularity?: 'month' | 'quarter';
   mode?: ConversionTrendMode;
   onModeChange?: (mode: ConversionTrendMode) => void;
-  onMetricChange?: (metric: 'rates' | 'volume') => void; // Callback when metric changes
   isLoading?: boolean;
 }
 
@@ -123,17 +122,11 @@ export function ConversionTrendChart({
   granularity: granularityProp,
   mode = 'period',
   onModeChange,
-  onMetricChange,
   isLoading = false,
 }: ConversionTrendChartProps) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
-  const [selectedMetric, setSelectedMetric] = useState<'rates' | 'volume'>('rates');
   const [internalGranularity, setInternalGranularity] = useState<'month' | 'quarter'>('quarter');
-  
-  // When volumes are selected, always use period mode (volumes are always periodic)
-  // When rates are selected, use the provided mode (cohort or period)
-  const effectiveMode = selectedMetric === 'volume' ? 'period' : mode;
   
   // Use prop if provided, otherwise use internal state
   const granularity = granularityProp ?? internalGranularity;
@@ -147,20 +140,7 @@ export function ConversionTrendChart({
     onModeChange?.(newMode);
   };
 
-  const handleMetricChange = (newMetric: 'rates' | 'volume') => {
-    // Update local state immediately - this will switch the display instantly
-    setSelectedMetric(newMetric);
-    
-    // When switching to volumes, notify parent to use period mode if needed
-    // Volumes are always periodic, so we need period mode data
-    if (newMetric === 'volume' && mode !== 'period') {
-      // Notify parent to switch to period mode and refetch
-      // Component will show volumes immediately from current data while refetch happens
-      onMetricChange?.(newMetric);
-    }
-  };
-
-  // Transform data for chart display with proper rounding
+  // Transform data for chart display with proper rounding (rates only)
   const chartData = trends.map(t => ({
     period: t.period,
     isSelectedPeriod: t.isSelectedPeriod || false,
@@ -169,13 +149,9 @@ export function ConversionTrendChart({
     'MQL→SQL': Number(((Number(t.mqlToSqlRate) || 0) * 100).toFixed(1)),
     'SQL→SQO': Number(((Number(t.sqlToSqoRate) || 0) * 100).toFixed(1)),
     'SQO→Joined': Number(((Number(t.sqoToJoinedRate) || 0) * 100).toFixed(1)),
-    SQLs: Number(t.sqls) || 0,
-    SQOs: Number(t.sqos) || 0,
-    Joined: Number(t.joined) || 0,
   }));
 
   const rateCategories = ['Contacted→MQL', 'MQL→SQL', 'SQL→SQO', 'SQO→Joined'];
-  const volumeCategories = ['SQLs', 'SQOs', 'Joined'];
 
   // Color scheme using centralized theme constants
   const RATE_COLORS: Record<string, string> = {
@@ -185,21 +161,10 @@ export function ConversionTrendChart({
     'SQO→Joined': CHART_COLORS.sqoToJoined,
   };
 
-  const VOLUME_COLORS: Record<string, string> = {
-    'SQLs': CHART_COLORS.primary,
-    'SQOs': CHART_COLORS.mqlToSql,
-    'Joined': CHART_COLORS.sqoToJoined,
-  };
+  const categories = rateCategories;
+  const colorMap = RATE_COLORS;
 
-  const categories = selectedMetric === 'rates' ? rateCategories : volumeCategories;
-  const colorMap = selectedMetric === 'rates' ? RATE_COLORS : VOLUME_COLORS;
-
-  const formatValue = (value: number) => {
-    if (selectedMetric === 'rates') {
-      return `${Number(value).toFixed(1)}%`;
-    }
-    return value.toLocaleString();
-  };
+  const formatValue = (value: number) => `${Number(value).toFixed(1)}%`;
 
   // Custom label renderer for values above bars
   const renderBarLabel = (props: any) => {
@@ -274,9 +239,7 @@ export function ConversionTrendChart({
             </ModeTooltip>
           </div>
           <Text className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-            {selectedMetric === 'volume' ? (
-              'Shows the count of SQLs, SQOs, and Advisors Joined that occurred within each time period'
-            ) : mode === 'period' ? (
+            {mode === 'period' ? (
               'Period view: What entered AND completed within each period'
             ) : (
               'Cohort view: How well leads from each period ultimately convert'
@@ -286,8 +249,8 @@ export function ConversionTrendChart({
         
         {/* Controls Row */}
         <div className="flex flex-wrap items-center gap-3">
-          {/* Mode Toggle - Cohort first (default), Period second - ONLY show when displaying rates */}
-          {selectedMetric === 'rates' && onModeChange && (
+          {/* Mode Toggle - Cohort first (default), Period second */}
+          {onModeChange && (
             <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
               <button
                 onClick={() => handleModeChange('cohort')}
@@ -317,38 +280,6 @@ export function ConversionTrendChart({
               </button>
             </div>
           )}
-          
-          {/* Metric Toggle (Rates vs Volume) */}
-          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-            <button
-              onClick={() => handleMetricChange('rates')}
-              className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                selectedMetric === 'rates'
-                  ? 'bg-white shadow text-blue-600 font-medium'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              Rates
-            </button>
-            {/* Volume button with tooltip */}
-            <div className="relative group">
-              <button
-                onClick={() => handleMetricChange('volume')}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                  selectedMetric === 'volume'
-                    ? 'bg-white shadow text-blue-600 font-medium'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                Volume
-              </button>
-              {/* Tooltip */}
-              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-800 dark:bg-gray-700 text-white text-sm rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
-                Shows the count of SQLs, SQOs, and Advisors Joined that occurred within each period
-                <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-800 dark:border-t-gray-700"></div>
-              </div>
-            </div>
-          </div>
           
           {/* Granularity Toggle */}
           <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
@@ -395,10 +326,8 @@ export function ConversionTrendChart({
             <YAxis 
               tick={{ fontSize: 12, fill: CHART_COLORS.axis }}
               tickLine={{ stroke: CHART_COLORS.grid }}
-              tickFormatter={(value) => 
-                selectedMetric === 'rates' ? `${value}%` : value.toLocaleString()
-              }
-              domain={selectedMetric === 'rates' ? [0, 'auto'] : ['auto', 'auto']}
+              tickFormatter={(value) => `${value}%`}
+              domain={[0, 'auto']}
               className="dark:[&_text]:fill-gray-400 dark:[&_line]:stroke-gray-700"
             />
             <RechartsTooltip
@@ -447,12 +376,7 @@ export function ConversionTrendChart({
         <div className="flex items-start gap-2">
           <InfoIcon className="mt-0.5 flex-shrink-0" />
           <Text className="text-xs text-gray-500 dark:text-gray-400">
-            {selectedMetric === 'volume' ? (
-              <>
-                <strong>Volumes:</strong> Shows the count of SQLs, SQOs, and Advisors Joined that occurred within each time period. 
-                These are periodic counts - events are counted by when they happened, regardless of when the record entered the funnel.
-              </>
-            ) : mode === 'cohort' ? (
+            {mode === 'cohort' ? (
               <>
                 <strong>Cohort Mode:</strong> Tracks each cohort through the funnel over time.
                 A Q3 SQL that becomes SQO in Q4 counts toward Q3&apos;s rate.

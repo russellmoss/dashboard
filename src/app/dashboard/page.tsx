@@ -7,6 +7,7 @@ import { GlobalFilters } from '@/components/dashboard/GlobalFilters';
 import { Scorecards } from '@/components/dashboard/Scorecards';
 import { ConversionRateCards } from '@/components/dashboard/ConversionRateCards';
 import { ConversionTrendChart } from '@/components/dashboard/ConversionTrendChart';
+import { VolumeTrendChart } from '@/components/dashboard/VolumeTrendChart';
 import { ChannelPerformanceTable } from '@/components/dashboard/ChannelPerformanceTable';
 import { SourcePerformanceTable } from '@/components/dashboard/SourcePerformanceTable';
 import { DetailRecordsTable } from '@/components/dashboard/DetailRecordsTable';
@@ -321,7 +322,7 @@ export default function DashboardPage() {
             </CardErrorBoundary>
           )}
           
-          {/* Trend Chart */}
+          {/* Conversion Trends Chart */}
           <ChartErrorBoundary>
             <ConversionTrendChart
               trends={trends}
@@ -329,23 +330,20 @@ export default function DashboardPage() {
               granularity={trendGranularity}
               mode={trendMode}
               onModeChange={(newMode) => {
-                // Only allow mode changes when NOT in volumes mode
-                // (volumes always use period mode internally)
                 setTrendMode(newMode);
+                // Trigger refetch when mode changes
                 fetchDashboardData();
               }}
-              onMetricChange={(metric) => {
-                // When volumes are selected, switch to period mode and refetch in background
-                // Component will show volumes immediately from current data
-                if (metric === 'volume' && trendMode !== 'period') {
-                  setTrendMode('period');
-                  // Refetch in background without blocking - component already showing volumes
-                  // Use setTimeout to avoid blocking the UI update
-                  setTimeout(() => {
-                    fetchDashboardData();
-                  }, 0);
-                }
-              }}
+              isLoading={loading}
+            />
+          </ChartErrorBoundary>
+          
+          {/* Volume Trends Chart - Always uses period mode */}
+          <ChartErrorBoundary>
+            <VolumeTrendChart
+              trends={trends}
+              onGranularityChange={setTrendGranularity}
+              granularity={trendGranularity}
               isLoading={loading}
             />
           </ChartErrorBoundary>
