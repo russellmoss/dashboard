@@ -202,22 +202,22 @@ export function AdminSGATable({
                   {isExpanded && (
                     <TableRow className="bg-gray-50 dark:bg-gray-900">
                       <TableCell colSpan={7} className="p-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           {/* Week Details */}
                           <div>
-                            <Text className="font-semibold mb-2">Current Week ({formatDate(weekStartDate)})</Text>
-                            <div className="space-y-1 text-sm">
-                              <div className="flex justify-between">
-                                <Text className="text-gray-600 dark:text-gray-400">Goal:</Text>
-                                <Text>
+                            <Text className="font-semibold mb-3 text-gray-900 dark:text-white">Current Week ({formatDate(weekStartDate)})</Text>
+                            <div className="space-y-2 text-sm">
+                              <div className="grid grid-cols-[80px_1fr] gap-2">
+                                <Text className="text-gray-600 dark:text-gray-400 font-medium">Goal:</Text>
+                                <Text className="text-gray-900 dark:text-white">
                                   {overview.currentWeekGoal
                                     ? `IC: ${overview.currentWeekGoal.initialCallsGoal}, QC: ${overview.currentWeekGoal.qualificationCallsGoal}, SQO: ${overview.currentWeekGoal.sqoGoal}`
                                     : 'Not set'}
                                 </Text>
                               </div>
-                              <div className="flex justify-between">
-                                <Text className="text-gray-600 dark:text-gray-400">Actual:</Text>
-                                <Text>
+                              <div className="grid grid-cols-[80px_1fr] gap-2">
+                                <Text className="text-gray-600 dark:text-gray-400 font-medium">Actual:</Text>
+                                <Text className="text-gray-900 dark:text-white">
                                   {overview.currentWeekActual
                                     ? `IC: ${overview.currentWeekActual.initialCalls}, QC: ${overview.currentWeekActual.qualificationCalls}, SQO: ${overview.currentWeekActual.sqos}`
                                     : 'No data'}
@@ -228,27 +228,27 @@ export function AdminSGATable({
 
                           {/* Quarter Details */}
                           <div>
-                            <Text className="font-semibold mb-2">Current Quarter ({quarter})</Text>
-                            <div className="space-y-1 text-sm">
-                              <div className="flex justify-between">
-                                <Text className="text-gray-600 dark:text-gray-400">Goal:</Text>
-                                <Text>
+                            <Text className="font-semibold mb-3 text-gray-900 dark:text-white">Current Quarter ({quarter})</Text>
+                            <div className="space-y-2 text-sm">
+                              <div className="grid grid-cols-[80px_1fr] gap-2">
+                                <Text className="text-gray-600 dark:text-gray-400 font-medium">Goal:</Text>
+                                <Text className="text-gray-900 dark:text-white">
                                   {overview.currentQuarterGoal
                                     ? `${overview.currentQuarterGoal.sqoGoal} SQOs`
                                     : 'Not set'}
                                 </Text>
                               </div>
-                              <div className="flex justify-between">
-                                <Text className="text-gray-600 dark:text-gray-400">Actual:</Text>
-                                <Text>
+                              <div className="grid grid-cols-[80px_1fr] gap-2">
+                                <Text className="text-gray-600 dark:text-gray-400 font-medium">Actual:</Text>
+                                <Text className="text-gray-900 dark:text-white">
                                   {overview.currentQuarterProgress
                                     ? `${overview.currentQuarterProgress.sqoActual} SQOs (${overview.currentQuarterProgress.progressPercent?.toFixed(0) || 0}%)`
                                     : 'No data'}
                                 </Text>
                               </div>
-                              <div className="flex justify-between">
-                                <Text className="text-gray-600 dark:text-gray-400">Pacing:</Text>
-                                <Text>
+                              <div className="grid grid-cols-[80px_1fr] gap-2">
+                                <Text className="text-gray-600 dark:text-gray-400 font-medium">Pacing:</Text>
+                                <Text className="text-gray-900 dark:text-white">
                                   {overview.currentQuarterProgress
                                     ? `${overview.currentQuarterProgress.pacingStatus} (${overview.currentQuarterProgress.pacingDiff > 0 ? '+' : ''}${overview.currentQuarterProgress.pacingDiff.toFixed(1)})`
                                     : 'N/A'}
@@ -259,20 +259,20 @@ export function AdminSGATable({
 
                           {/* Additional Info */}
                           <div className="md:col-span-2">
-                            <Text className="font-semibold mb-2">Additional Info</Text>
-                            <div className="flex gap-4 text-sm">
-                              <div>
-                                <Text className="text-gray-600 dark:text-gray-400">Closed Lost:</Text>
-                                <Text className="ml-2">{overview.closedLostCount}</Text>
+                            <Text className="font-semibold mb-2 text-gray-900 dark:text-white">Additional Info</Text>
+                            <div className="flex gap-6 text-sm">
+                              <div className="flex gap-2">
+                                <Text className="text-gray-600 dark:text-gray-400 font-medium">Closed Lost:</Text>
+                                <Text className="text-gray-900 dark:text-white">{overview.closedLostCount}</Text>
                               </div>
-                              <div>
-                                <Text className="text-gray-600 dark:text-gray-400">Status:</Text>
+                              <div className="flex gap-2">
+                                <Text className="text-gray-600 dark:text-gray-400 font-medium">Status:</Text>
                                 <Badge
-                                  className={`ml-2 ${
+                                  className={
                                     overview.isActive
                                       ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                                       : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                                  }`}
+                                  }
                                 >
                                   {overview.isActive ? 'Active' : 'Inactive'}
                                 </Badge>

@@ -41,11 +41,6 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
       
       const data = await response.json();
       setSgaOverviews(data.sgaOverviews || []);
-      
-      // Auto-select first SGA if none selected
-      if (!selectedSGAEmail && data.sgaOverviews?.length > 0) {
-        setSelectedSGAEmail(data.sgaOverviews[0].userEmail);
-      }
     } catch (error) {
       console.error('Failed to fetch SGA overview:', error);
     } finally {
