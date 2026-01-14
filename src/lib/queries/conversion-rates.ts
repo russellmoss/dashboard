@@ -794,7 +794,10 @@ function buildPeriodModeQuery(
     
     joined_volume AS (
       SELECT
-        ${periodFn('v.advisor_join_date__c')} as period,  -- ✅ Use Joined date for period grouping (DATE field, not TIMESTAMP)
+        ${granularity === 'quarter' 
+          ? `CONCAT(CAST(EXTRACT(YEAR FROM v.advisor_join_date__c) AS STRING), '-Q', CAST(EXTRACT(QUARTER FROM v.advisor_join_date__c) AS STRING))`
+          : `FORMAT_DATE('%Y-%m', DATE(v.advisor_join_date__c))`
+        } as period,  -- ✅ Use Joined date for period grouping (explicit format to match expectedPeriods)
         COUNT(*) as joined
       FROM \`${FULL_TABLE}\` v
       LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
