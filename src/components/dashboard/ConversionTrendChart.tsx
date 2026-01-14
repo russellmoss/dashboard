@@ -166,16 +166,15 @@ export function ConversionTrendChart({
 
   const formatValue = (value: number) => `${Number(value).toFixed(1)}%`;
 
-  // Custom label renderer for values above bars
+  // Custom label renderer for values above bars (rates only - always percentages)
   const renderBarLabel = (props: any) => {
     const { x = 0, y = 0, width = 0, value } = props;
     
     // Don't show label for zero or undefined values
     if (!value || value === 0) return null;
     
-    const displayValue = selectedMetric === 'rates' 
-      ? `${Number(value).toFixed(1)}%`
-      : Number(value).toLocaleString();
+    // Always format as percentage since this component only shows rates
+    const displayValue = `${Number(value).toFixed(1)}%`;
     
     // Use dark mode aware text color with better contrast
     // Use darker color in light mode, lighter in dark mode for visibility
