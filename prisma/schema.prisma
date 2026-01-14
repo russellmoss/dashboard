@@ -20,3 +20,35 @@ model User {
   updatedAt    DateTime @updatedAt
   createdBy    String?
 }
+
+model WeeklyGoal {
+  id                     String   @id @default(cuid())
+  userEmail              String // Links to User.email - matches SGA_Owner_Name__c via User.name
+  weekStartDate          DateTime @db.Date // Monday of the week (DATE only)
+  initialCallsGoal       Int      @default(0)
+  qualificationCallsGoal Int      @default(0)
+  sqoGoal                Int      @default(0)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  createdBy              String? // Email of user who created
+  updatedBy              String? // Email of user who last updated
+
+  @@unique([userEmail, weekStartDate])
+  @@index([userEmail])
+  @@index([weekStartDate])
+}
+
+model QuarterlyGoal {
+  id        String   @id @default(cuid())
+  userEmail String // Links to User.email
+  quarter   String // Format: "2026-Q1", "2026-Q2", etc.
+  sqoGoal   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String? // Email of admin who set it
+  updatedBy String? // Email of admin who last updated
+
+  @@unique([userEmail, quarter])
+  @@index([userEmail])
+  @@index([quarter])
+}
