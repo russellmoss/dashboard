@@ -35,10 +35,11 @@ export async function getFunnelMetrics(filters: DashboardFilters): Promise<Funne
   // We still add it to WHERE for lead-level metrics, but SQO/Joined need Opp_SGA_Name__c in CASE
   // SGA filter application:
   // - Lead-level metrics (Prospects, Contacted, MQL, SQL): Use SGA_Owner_Name__c
-  // - Opportunity-level metrics (SQO, Joined): Use Opp_SGA_Name__c
+  // - Opportunity-level metrics (SQO, Joined): Check BOTH SGA_Owner_Name__c AND Opp_SGA_Name__c
+  //   because an SQO can be associated via either field (lead-level or opportunity-level ownership)
   // Only apply if explicitly provided in filters (not automatically applied for main dashboard)
   const sgaFilterForLead = filters.sga ? ' AND v.SGA_Owner_Name__c = @sga' : '';
-  const sgaFilterForOpp = filters.sga ? ' AND v.Opp_SGA_Name__c = @sga' : '';
+  const sgaFilterForOpp = filters.sga ? ' AND (v.SGA_Owner_Name__c = @sga OR v.Opp_SGA_Name__c = @sga)' : '';
   if (filters.sga) {
     // Use OR in WHERE to include records that match either field, then filter correctly in each CASE
     conditions.push('(v.SGA_Owner_Name__c = @sga OR v.Opp_SGA_Name__c = @sga)');
