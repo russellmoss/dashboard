@@ -5,6 +5,7 @@
 import { Card, Metric, Text, Badge } from '@tremor/react';
 import { QuarterlyProgress } from '@/types/sga-hub';
 import { TrendingUp, TrendingDown, Minus, Target } from 'lucide-react';
+import { ClickableMetricValue } from './ClickableMetricValue';
 
 interface QuarterlyProgressCardProps {
   progress: QuarterlyProgress;

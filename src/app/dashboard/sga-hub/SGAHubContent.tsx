@@ -249,6 +249,137 @@ export function SGAHubContent() {
     setEditingGoal(null);
     fetchWeeklyData();
   };
+
+  // Helper to calculate week end date (Sunday) from start date (Monday)
+  const getWeekEndDate = (startDate: string): string => {
+    return formatDateISO(getWeekSundayDate(startDate));
+  };
+
+  // Handle metric click from Weekly Goals Table
+  const handleWeeklyMetricClick = async (weekStartDate: string, metricType: MetricType) => {
+    if (!sgaName || sgaName === 'Unknown') return;
+
+    setDrillDownLoading(true);
+    setDrillDownError(null);
+    setDrillDownMetricType(metricType);
+    setDrillDownOpen(true);
+
+    const weekEndDate = getWeekEndDate(weekStartDate);
+
+    const metricLabels: Record<MetricType, string> = {
+      'initial-calls': 'Initial Calls',
+      'qualification-calls': 'Qualification Calls',
+      'sqos': 'SQOs',
+    };
+    
+    const title = `${metricLabels[metricType]} - Week of ${formatDate(weekStartDate)}`;
+    setDrillDownTitle(title);
+
+    setDrillDownContext({
+      metricType,
+      title,
+      sgaName: sgaName,
+      weekStartDate,
+      weekEndDate,
+    });
+
+    try {
+      let records: DrillDownRecord[] = [];
+
+      switch (metricType) {
+        case 'initial-calls': {
+          const response = await dashboardApi.getInitialCallsDrillDown(sgaName, weekStartDate, weekEndDate, session?.user?.email);
+          records = response.records;
+          break;
+        }
+        case 'qualification-calls': {
+          const response = await dashboardApi.getQualificationCallsDrillDown(sgaName, weekStartDate, weekEndDate, session?.user?.email);
+          records = response.records;
+          break;
+        }
+        case 'sqos': {
+          const response = await dashboardApi.getSQODrillDown(sgaName, { weekStartDate, weekEndDate }, session?.user?.email);
+          records = response.records;
+          break;
+        }
+      }
+
+      setDrillDownRecords(records);
+    } catch (error) {
+      console.error('Error fetching drill-down records:', error);
+      setDrillDownError('Failed to load records. Please try again.');
+    } finally {
+      setDrillDownLoading(false);
+    }
+  };
+
+  // Handle SQO click from Quarterly Progress Card
+  const handleQuarterlySQOClick = async () => {
+    if (!sgaName || sgaName === 'Unknown') return;
+
+    setDrillDownLoading(true);
+    setDrillDownError(null);
+    setDrillDownMetricType('sqos');
+    setDrillDownOpen(true);
+
+    const title = `SQOs - ${selectedQuarter}`;
+    setDrillDownTitle(title);
+
+    setDrillDownContext({
+      metricType: 'sqos',
+      title,
+      sgaName: sgaName,
+      quarter: selectedQuarter,
+    });
+
+    try {
+      const response = await dashboardApi.getSQODrillDown(sgaName, { quarter: selectedQuarter }, session?.user?.email);
+      setDrillDownRecords(response.records);
+    } catch (error) {
+      console.error('Error fetching SQO drill-down:', error);
+      setDrillDownError('Failed to load SQO records. Please try again.');
+    } finally {
+      setDrillDownLoading(false);
+    }
+  };
+
+  // Handle row click in drill-down modal
+  const handleRecordClick = (primaryKey: string) => {
+    setDrillDownOpen(false);
+    setRecordDetailId(primaryKey);
+    setRecordDetailOpen(true);
+  };
+
+  // Handle back button
+  const handleBackToDrillDown = () => {
+    setRecordDetailOpen(false);
+    setRecordDetailId(null);
+    setDrillDownOpen(true);
+  };
+
+  // Handle close drill-down
+  const handleCloseDrillDown = () => {
+    setDrillDownOpen(false);
+    setDrillDownRecords([]);
+    setDrillDownContext(null);
+  };
+
+  // Handle close record detail
+  const handleCloseRecordDetail = () => {
+    setRecordDetailOpen(false);
+    setRecordDetailId(null);
+    setDrillDownContext(null);
+  };
+
+  // Handle Closed Lost row click
+  const handleClosedLostRecordClick = (record: ClosedLostRecord) => {
+    // Use primaryKey if available, otherwise fallback to id (opportunity ID)
+    // Note: RecordDetailModal expects primary_key format, but can handle opportunity IDs starting with 006
+    const recordId = record.primaryKey || record.id;
+    setRecordDetailId(recordId);
+    setRecordDetailOpen(true);
+    // Don't set drillDownContext - no back button for closed lost
+  };
   
   return (
     <div>
