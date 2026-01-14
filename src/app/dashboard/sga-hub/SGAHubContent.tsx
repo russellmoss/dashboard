@@ -117,7 +117,11 @@ export function SGAHubContent() {
       const historicalData = await Promise.all(
         quarters.map(q => dashboardApi.getQuarterlyProgress(q))
       );
-      setHistoricalProgress(historicalData);
+      // Sort from oldest to newest (left to right on chart)
+      const sortedHistorical = historicalData.sort((a, b) => 
+        a.quarter.localeCompare(b.quarter)
+      );
+      setHistoricalProgress(sortedHistorical);
     } catch (err) {
       setQuarterlyError(handleApiError(err));
     } finally {
@@ -304,7 +308,7 @@ export function SGAHubContent() {
               <Select
                 value={selectedQuarter}
                 onValueChange={setSelectedQuarter}
-                className="min-w-[120px]"
+                className="min-w-[120px] bg-white dark:bg-gray-800"
               >
                 {(() => {
                   const quarters: string[] = [];

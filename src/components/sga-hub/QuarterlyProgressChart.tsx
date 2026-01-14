@@ -25,9 +25,15 @@ interface QuarterlyProgressChartProps {
 
 /**
  * Transform quarterly progress data for chart display
+ * Sort from oldest (left) to newest (right)
  */
 function transformChartData(progressData: QuarterlyProgress[]) {
-  return progressData.map(p => ({
+  // Sort by quarter string (e.g., "2024-Q1" < "2024-Q2" < "2025-Q1")
+  const sorted = [...progressData].sort((a, b) => {
+    return a.quarter.localeCompare(b.quarter);
+  });
+  
+  return sorted.map(p => ({
     quarter: p.quarter,
     quarterLabel: p.quarterLabel,
     actual: p.sqoActual,
