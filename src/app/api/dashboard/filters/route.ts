@@ -40,31 +40,39 @@ export async function GET() {
       ORDER BY record_count DESC
     `;
     
-    // Get all SGAs who appear in the data (not filtered by role flag)
-    // Query directly from view without User table JOIN
+    // Get SGAs who appear in the data AND are marked as SGAs in User table
+    // Only include users where IsSGA__c = TRUE
     const sgasQuery = `
       SELECT 
-        SGA_Owner_Name__c AS value,
-        COUNT(*) AS record_count
-      FROM \`${FULL_TABLE}\`
-      WHERE SGA_Owner_Name__c IS NOT NULL
-        AND SGA_Owner_Name__c != 'Savvy Operations'
-        AND stage_entered_contacting__c >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
-      GROUP BY SGA_Owner_Name__c
+        v.SGA_Owner_Name__c AS value,
+        COUNT(*) AS record_count,
+        MAX(COALESCE(u.IsActive, FALSE)) as isActive
+      FROM \`${FULL_TABLE}\` v
+      INNER JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` u
+        ON v.SGA_Owner_Name__c = u.Name
+        AND u.IsSGA__c = TRUE  -- Only include users marked as SGAs
+      WHERE v.SGA_Owner_Name__c IS NOT NULL
+        AND v.SGA_Owner_Name__c != 'Savvy Operations'
+        AND v.stage_entered_contacting__c >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
+      GROUP BY v.SGA_Owner_Name__c
       ORDER BY record_count DESC
     `;
     
-    // Get all SGMs who appear in the data (not filtered by role flag)
-    // Query directly from view without User table JOIN
+    // Get SGMs who appear in the data AND are marked as SGMs in User table
+    // Only include users where Is_SGM__c = TRUE
     const sgmsQuery = `
       SELECT 
-        SGM_Owner_Name__c AS value,
-        COUNT(DISTINCT Full_Opportunity_ID__c) AS record_count
-      FROM \`${FULL_TABLE}\`
-      WHERE SGM_Owner_Name__c IS NOT NULL
-        AND Full_Opportunity_ID__c IS NOT NULL
-        AND Opp_CreatedDate >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
-      GROUP BY SGM_Owner_Name__c
+        v.SGM_Owner_Name__c AS value,
+        COUNT(DISTINCT v.Full_Opportunity_ID__c) AS record_count,
+        MAX(COALESCE(u.IsActive, FALSE)) as isActive
+      FROM \`${FULL_TABLE}\` v
+      INNER JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` u
+        ON v.SGM_Owner_Name__c = u.Name
+        AND u.Is_SGM__c = TRUE  -- Only include users marked as SGMs
+      WHERE v.SGM_Owner_Name__c IS NOT NULL
+        AND v.Full_Opportunity_ID__c IS NOT NULL
+        AND v.Opp_CreatedDate >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
+      GROUP BY v.SGM_Owner_Name__c
       ORDER BY record_count DESC
     `;
     
@@ -99,7 +107,7 @@ export async function GET() {
         .map(r => ({
           value: r.value!,
           label: r.value!,
-          isActive: true,  // Default to true for dropdown (active/inactive toggle handled in GlobalFilters)
+          isActive: (r as any).isActive === true || (r as any).isActive === 1,  // Use actual isActive from User table
           count: parseInt((r.record_count?.toString() || '0'), 10),
         })),
       sgms: sgms
@@ -107,7 +115,7 @@ export async function GET() {
         .map(r => ({
           value: r.value!,
           label: r.value!,
-          isActive: true,  // Default to true for dropdown (active/inactive toggle handled in GlobalFilters)
+          isActive: (r as any).isActive === true || (r as any).isActive === 1,  // Use actual isActive from User table
           count: parseInt((r.record_count?.toString() || '0'), 10),
         })),
       stages: stages.map(r => r.stage || '').filter(Boolean),
