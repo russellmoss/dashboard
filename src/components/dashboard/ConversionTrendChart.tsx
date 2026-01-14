@@ -113,6 +113,7 @@ interface ConversionTrendChartProps {
   granularity?: 'month' | 'quarter';
   mode?: ConversionTrendMode;
   onModeChange?: (mode: ConversionTrendMode) => void;
+  onMetricChange?: (metric: 'rates' | 'volume') => void; // Callback when metric changes
   isLoading?: boolean;
 }
 
@@ -122,12 +123,17 @@ export function ConversionTrendChart({
   granularity: granularityProp,
   mode = 'period',
   onModeChange,
+  onMetricChange,
   isLoading = false,
 }: ConversionTrendChartProps) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
   const [selectedMetric, setSelectedMetric] = useState<'rates' | 'volume'>('rates');
   const [internalGranularity, setInternalGranularity] = useState<'month' | 'quarter'>('quarter');
+  
+  // When volumes are selected, always use period mode (volumes are always periodic)
+  // When rates are selected, use the provided mode (cohort or period)
+  const effectiveMode = selectedMetric === 'volume' ? 'period' : mode;
   
   // Use prop if provided, otherwise use internal state
   const granularity = granularityProp ?? internalGranularity;
@@ -139,6 +145,15 @@ export function ConversionTrendChart({
 
   const handleModeChange = (newMode: ConversionTrendMode) => {
     onModeChange?.(newMode);
+  };
+
+  const handleMetricChange = (newMetric: 'rates' | 'volume') => {
+    setSelectedMetric(newMetric);
+    // When switching to volumes, always use period mode (volumes are always periodic)
+    if (newMetric === 'volume' && mode !== 'period') {
+      onModeChange?.('period');
+    }
+    onMetricChange?.(newMetric);
   };
 
   // Transform data for chart display with proper rounding
@@ -302,7 +317,7 @@ export function ConversionTrendChart({
           {/* Metric Toggle (Rates vs Volume) */}
           <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
             <button
-              onClick={() => setSelectedMetric('rates')}
+              onClick={() => handleMetricChange('rates')}
               className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
                 selectedMetric === 'rates'
                   ? 'bg-white shadow text-blue-600 font-medium'
@@ -314,7 +329,7 @@ export function ConversionTrendChart({
             {/* Volume button with tooltip */}
             <div className="relative group">
               <button
-                onClick={() => setSelectedMetric('volume')}
+                onClick={() => handleMetricChange('volume')}
                 className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
                   selectedMetric === 'volume'
                     ? 'bg-white shadow text-blue-600 font-medium'

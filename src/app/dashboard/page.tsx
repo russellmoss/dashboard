@@ -328,7 +328,19 @@ export default function DashboardPage() {
               onGranularityChange={setTrendGranularity}
               granularity={trendGranularity}
               mode={trendMode}
-              onModeChange={setTrendMode}
+              onModeChange={(newMode) => {
+                setTrendMode(newMode);
+                // Trigger refetch when mode changes
+                fetchDashboardData();
+              }}
+              onMetricChange={(metric) => {
+                // When volumes are selected, always use period mode
+                if (metric === 'volume' && trendMode !== 'period') {
+                  setTrendMode('period');
+                  // Trigger refetch with period mode
+                  fetchDashboardData();
+                }
+              }}
               isLoading={loading}
             />
           </ChartErrorBoundary>
