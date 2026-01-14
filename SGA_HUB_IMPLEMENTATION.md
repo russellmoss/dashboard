@@ -4502,7 +4502,7 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
 
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Badge, Button } from '@tremor/react';
 import { AdminSGAOverview } from '@/types/sga-hub';
 import { ChevronDown, ChevronUp, Pencil, ExternalLink } from 'lucide-react';
@@ -4635,9 +4635,8 @@ export function AdminSGATable({
               const isSelected = selectedSGAEmail === overview.userEmail;
 
               return (
-                <>
+                <React.Fragment key={overview.userEmail}>
                   <TableRow
-                    key={overview.userEmail}
                   <TableRow
                     className={`cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${
                       isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : ''
@@ -4772,7 +4771,7 @@ export function AdminSGATable({
                       </TableCell>
                     </TableRow>
                   )}
-                </>
+                </React.Fragment>
               );
             })
           )}
