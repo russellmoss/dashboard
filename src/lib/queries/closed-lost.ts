@@ -58,93 +58,163 @@ export async function getClosedLostRecords(
   sgaName: string,
   timeBuckets?: ClosedLostTimeBucket[]
 ): Promise<ClosedLostRecord[]> {
-  // Build WHERE conditions
-  const conditions: string[] = [`sga_name = @sgaName`];
-  const params: Record<string, any> = { sgaName };
+  // Separate 180+ from other buckets (view only has 30-179 days)
+  const has180Plus = timeBuckets && timeBuckets.includes('180+');
+  const otherBuckets = timeBuckets && timeBuckets.length > 0 && !timeBuckets.includes('all') 
+    ? timeBuckets.filter(b => b !== '180+')
+    : undefined;
   
-  // Handle time bucket filtering
-  if (timeBuckets && timeBuckets.length > 0 && !timeBuckets.includes('all')) {
-    // Flatten all possible bucket values (excluding '180+' which is handled by filtering days_since_contact)
-    const allBucketValues: string[] = [];
-    for (const bucket of timeBuckets) {
-      if (bucket !== '180+') {
+  const results: RawClosedLostResult[] = [];
+  
+  // Query view for 30-179 days (if other buckets are selected or all buckets)
+  if (!has180Plus || (otherBuckets && otherBuckets.length > 0)) {
+    const conditions: string[] = [`sga_name = @sgaName`];
+    const params: Record<string, any> = { sgaName };
+    
+    // Handle time bucket filtering
+    if (otherBuckets && otherBuckets.length > 0) {
+      // Flatten all possible bucket values
+      const allBucketValues: string[] = [];
+      for (const bucket of otherBuckets) {
         allBucketValues.push(...normalizeTimeBucket(bucket));
+      }
+      
+      if (allBucketValues.length > 0) {
+        // Use IN with UNNEST for array parameter
+        conditions.push('time_since_last_contact_bucket IN UNNEST(@timeBuckets)');
+        params.timeBuckets = allBucketValues;
       }
     }
     
-    if (allBucketValues.length > 0) {
-      // Use IN with UNNEST for array parameter
-      conditions.push('time_since_last_contact_bucket IN UNNEST(@timeBuckets)');
-      params.timeBuckets = allBucketValues;
-    }
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     
-    // If '180+' is selected, add filter for days >= 180
-    // Note: The view only includes 30-179 days, so 180+ records won't be in the view
-    // For now, we'll just filter what's available in the view and note that 180+ requires view modification
-    if (timeBuckets.includes('180+')) {
-      // The view doesn't include 180+ days, so this won't return results
-      // But we keep the logic here for when the view is updated
-      conditions.push('CAST(DATE_DIFF(CURRENT_DATE(), CAST(last_contact_date AS DATE), DAY) AS INT64) >= 180');
-    }
+    const query = `
+      SELECT 
+        Full_Opportunity_ID__c as id,
+        opp_name,
+        Full_prospect_id__c as lead_id,
+        Full_Opportunity_ID__c as opportunity_id,
+        CASE 
+          WHEN Full_prospect_id__c IS NOT NULL 
+          THEN CONCAT('https://savvywealth.lightning.force.com/lightning/r/Lead/', Full_prospect_id__c, '/view')
+          ELSE NULL
+        END as lead_url,
+        salesforce_url as opportunity_url,
+        salesforce_url,
+        last_contact_date,
+        closed_lost_date,
+        sql_date,
+        closed_lost_reason,
+        closed_lost_details,
+        time_since_last_contact_bucket,
+        CAST(DATE_DIFF(CURRENT_DATE(), CAST(last_contact_date AS DATE), DAY) AS INT64) as days_since_contact
+      FROM \`${CLOSED_LOST_VIEW}\`
+      ${whereClause}
+      ORDER BY closed_lost_date DESC, last_contact_date DESC
+    `;
+    
+    const viewResults = await runQuery<RawClosedLostResult>(query, params);
+    results.push(...viewResults);
   }
   
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  
-  const query = `
-    SELECT 
-      Full_Opportunity_ID__c as id,
-      opp_name,
-      Full_prospect_id__c as lead_id,
-      Full_Opportunity_ID__c as opportunity_id,
-      CASE 
-        WHEN Full_prospect_id__c IS NOT NULL 
-        THEN CONCAT('https://savvywealth.lightning.force.com/lightning/r/Lead/', Full_prospect_id__c, '/view')
-        ELSE NULL
-      END as lead_url,
-      salesforce_url as opportunity_url,
-      salesforce_url,
-      last_contact_date,
-      closed_lost_date,
-      sql_date,
-      closed_lost_reason,
-      closed_lost_details,
-      time_since_last_contact_bucket,
-      CAST(DATE_DIFF(CURRENT_DATE(), CAST(last_contact_date AS DATE), DAY) AS INT64) as days_since_contact
-    FROM \`${CLOSED_LOST_VIEW}\`
-    ${whereClause}
-    ORDER BY closed_lost_date DESC, last_contact_date DESC
-  `;
-  
-  const results = await runQuery<RawClosedLostResult>(query, params);
-  
-  // Filter results client-side for 180+ if needed (since view only has 30-179 days)
-  let filteredResults = results;
-  if (timeBuckets && timeBuckets.includes('180+') && !timeBuckets.some(b => b !== '180+' && b !== 'all')) {
-    // If only 180+ is selected, filter by days_since_contact >= 180
-    filteredResults = results.filter(r => {
-      const days = r.days_since_contact;
-      return days !== null && days >= 180;
-    });
-    // Update bucket label for 180+ records
-    filteredResults = filteredResults.map(r => ({
-      ...r,
-      time_since_last_contact_bucket: r.days_since_contact && r.days_since_contact >= 180 
-        ? '6+ months since last contact' 
-        : r.time_since_last_contact_bucket
-    }));
-  } else if (timeBuckets && timeBuckets.includes('180+')) {
-    // If 180+ is included with other buckets, add 180+ records from results
-    const records180Plus = results
-      .filter(r => r.days_since_contact !== null && r.days_since_contact >= 180)
-      .map(r => ({
-        ...r,
-        time_since_last_contact_bucket: '6+ months since last contact'
-      }));
-    // Combine with other bucket results
-    filteredResults = [...results.filter(r => !(r.days_since_contact !== null && r.days_since_contact >= 180)), ...records180Plus];
+  // Query base tables for 180+ days if needed
+  if (has180Plus) {
+    // Use the same query structure as the view but for 180+ days
+    const query180Plus = `
+      WITH
+        sql_opps AS (
+          SELECT
+            l.Full_prospect_id__c,
+            l.SGA_Owner_Name__c,
+            l.ConvertedDate AS sql_date,
+            o.Id AS opportunity_salesforce_id,
+            o.Full_Opportunity_ID__c,
+            o.Name AS opp_name,
+            o.StageName,
+            o.SGA__c AS opportunity_sga_id,
+            o.LastActivityDate,
+            o.CloseDate,
+            o.Closed_Lost_Reason__c,
+            o.Closed_Lost_Details__c
+          FROM
+            \`savvy-gtm-analytics.SavvyGTMData.Lead\` AS l
+          JOIN
+            \`savvy-gtm-analytics.SavvyGTMData.Opportunity\` AS o
+            ON l.ConvertedOpportunityId = o.Full_Opportunity_ID__c
+          WHERE
+            l.IsConverted = TRUE
+            AND o.StageName = 'Closed Lost'
+            AND o.recordtypeid = '012Dn000000mrO3IAI'
+            AND o.LastActivityDate IS NOT NULL
+            AND DATE_DIFF(CURRENT_DATE(), o.LastActivityDate, DAY) >= 180
+        ),
+        sga_opp_user AS (
+          SELECT Id, Name
+          FROM \`savvy-gtm-analytics.SavvyGTMData.User\`
+          WHERE IsActive = TRUE
+        ),
+        with_sga_name AS (
+          SELECT
+            CASE
+              WHEN s.SGA_Owner_Name__c = 'Savvy Marketing' THEN u.Name
+              ELSE s.SGA_Owner_Name__c
+            END AS sga_name,
+            s.opp_name,
+            CONCAT("https://savvywealth.lightning.force.com/", s.Full_Opportunity_ID__c) AS salesforce_url,
+            s.LastActivityDate AS last_contact_date,
+            s.CloseDate AS closed_lost_date,
+            s.sql_date,
+            s.Closed_Lost_Reason__c AS closed_lost_reason,
+            s.Closed_Lost_Details__c AS closed_lost_details,
+            s.Full_prospect_id__c,
+            s.Full_Opportunity_ID__c
+          FROM sql_opps AS s
+          LEFT JOIN sga_opp_user AS u ON s.opportunity_sga_id = u.Id
+          WHERE
+            CASE
+              WHEN s.SGA_Owner_Name__c = 'Savvy Marketing' THEN u.Name
+              ELSE s.SGA_Owner_Name__c
+            END = @sgaName
+        )
+      SELECT
+        Full_Opportunity_ID__c as id,
+        opp_name,
+        Full_prospect_id__c as lead_id,
+        Full_Opportunity_ID__c as opportunity_id,
+        CASE 
+          WHEN Full_prospect_id__c IS NOT NULL 
+          THEN CONCAT('https://savvywealth.lightning.force.com/lightning/r/Lead/', Full_prospect_id__c, '/view')
+          ELSE NULL
+        END as lead_url,
+        salesforce_url as opportunity_url,
+        salesforce_url,
+        last_contact_date,
+        closed_lost_date,
+        sql_date,
+        closed_lost_reason,
+        closed_lost_details,
+        '6+ months since last contact' AS time_since_last_contact_bucket,
+        CAST(DATE_DIFF(CURRENT_DATE(), CAST(last_contact_date AS DATE), DAY) AS INT64) as days_since_contact
+      FROM with_sga_name
+      ORDER BY closed_lost_date DESC, last_contact_date DESC
+    `;
+    
+    const params180Plus: Record<string, any> = { sgaName };
+    const results180Plus = await runQuery<RawClosedLostResult>(query180Plus, params180Plus);
+    results.push(...results180Plus);
   }
   
-  return filteredResults.map(transformClosedLostRecord);
+  // Sort all results together
+  results.sort((a, b) => {
+    const aClosed = a.closed_lost_date ? new Date(a.closed_lost_date).getTime() : 0;
+    const bClosed = b.closed_lost_date ? new Date(b.closed_lost_date).getTime() : 0;
+    if (bClosed !== aClosed) return bClosed - aClosed;
+    const aLast = a.last_contact_date ? new Date(a.last_contact_date).getTime() : 0;
+    const bLast = b.last_contact_date ? new Date(b.last_contact_date).getTime() : 0;
+    return bLast - aLast;
+  });
+  
+  return results.map(transformClosedLostRecord);
 }
 
 /**
