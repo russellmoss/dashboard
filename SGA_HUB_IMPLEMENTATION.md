@@ -5109,6 +5109,316 @@ export function BulkGoalEditor({
 **Cursor.ai Prompt:**
 Add CSV export functions for weekly, quarterly, and closed lost reports.
 
+**Code to Create (src/lib/utils/csv-export.ts):**
+
+```typescript
+// src/lib/utils/csv-export.ts
+
+import { 
+  WeeklyGoalWithActuals, 
+  QuarterlyProgress, 
+  ClosedLostRecord, 
+  AdminSGAOverview 
+} from '@/types/sga-hub';
+import { formatDate } from '@/lib/utils/format-helpers';
+import { formatCurrency } from '@/lib/utils/date-helpers';
+
+type CSVValue = string | number | boolean | null | undefined;
+type CSVRow = Record<string, CSVValue>;
+
+/**
+ * Generic CSV generation and download function
+ */
+export function generateCSV<T extends Record<string, any>>(
+  data: T[],
+  columns: { key: keyof T; header: string }[],
+  filename: string
+): void {
+  if (data.length === 0) {
+    alert('No data to export');
+    return;
+  }
+
+  // Build CSV header row
+  const headers = columns.map(col => col.header);
+  const csvContent = [
+    headers.join(','),
+    ...data.map(row => 
+      columns.map(col => {
+        const value = row[col.key];
+        // Convert value to string, handling null/undefined
+        const stringValue = String(value ?? '');
+        // Escape quotes and wrap in quotes if contains comma, quote, or newline
+        if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+          return `"${stringValue.replace(/"/g, '""')}"`;
+        }
+        return stringValue;
+      }).join(',')
+    )
+  ].join('\n');
+
+  // Download CSV
+  downloadCSV(csvContent, filename);
+}
+
+/**
+ * Download CSV file using browser Blob API
+ */
+function downloadCSV(csvContent: string, filename: string): void {
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${filename}_${new Date().toISOString().split('T')[0]}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+}
+
+/**
+ * Export weekly goals with actuals to CSV
+ */
+export function exportWeeklyGoalsCSV(
+  goals: WeeklyGoalWithActuals[],
+  sgaName: string
+): void {
+  const sanitizedName = sgaName.replace(/[^a-zA-Z0-9]/g, '_');
+  
+  const columns = [
+    { key: 'weekLabel' as keyof WeeklyGoalWithActuals, header: 'Week' },
+    { key: 'weekStartDate' as keyof WeeklyGoalWithActuals, header: 'Week Start Date' },
+    { key: 'weekEndDate' as keyof WeeklyGoalWithActuals, header: 'Week End Date' },
+    { key: 'initialCallsGoal' as keyof WeeklyGoalWithActuals, header: 'Initial Calls Goal' },
+    { key: 'initialCallsActual' as keyof WeeklyGoalWithActuals, header: 'Initial Calls Actual' },
+    { key: 'initialCallsDiff' as keyof WeeklyGoalWithActuals, header: 'Initial Calls Difference' },
+    { key: 'qualificationCallsGoal' as keyof WeeklyGoalWithActuals, header: 'Qualification Calls Goal' },
+    { key: 'qualificationCallsActual' as keyof WeeklyGoalWithActuals, header: 'Qualification Calls Actual' },
+    { key: 'qualificationCallsDiff' as keyof WeeklyGoalWithActuals, header: 'Qualification Calls Difference' },
+    { key: 'sqoGoal' as keyof WeeklyGoalWithActuals, header: 'SQO Goal' },
+    { key: 'sqoActual' as keyof WeeklyGoalWithActuals, header: 'SQO Actual' },
+    { key: 'sqoDiff' as keyof WeeklyGoalWithActuals, header: 'SQO Difference' },
+    { key: 'hasGoal' as keyof WeeklyGoalWithActuals, header: 'Has Goal' },
+  ];
+
+  // Transform data for CSV (format dates, handle nulls)
+  const csvData = goals.map(goal => ({
+    weekLabel: goal.weekLabel,
+    weekStartDate: formatDate(goal.weekStartDate),
+    weekEndDate: formatDate(goal.weekEndDate),
+    initialCallsGoal: goal.initialCallsGoal ?? '',
+    initialCallsActual: goal.initialCallsActual,
+    initialCallsDiff: goal.initialCallsDiff ?? '',
+    qualificationCallsGoal: goal.qualificationCallsGoal ?? '',
+    qualificationCallsActual: goal.qualificationCallsActual,
+    qualificationCallsDiff: goal.qualificationCallsDiff ?? '',
+    sqoGoal: goal.sqoGoal ?? '',
+    sqoActual: goal.sqoActual,
+    sqoDiff: goal.sqoDiff ?? '',
+    hasGoal: goal.hasGoal ? 'Yes' : 'No',
+  }));
+
+  generateCSV(csvData, columns, `weekly_goals_${sanitizedName}`);
+}
+
+/**
+ * Export quarterly progress to CSV
+ */
+export function exportQuarterlyProgressCSV(
+  progress: QuarterlyProgress[],
+  sgaName: string
+): void {
+  const sanitizedName = sgaName.replace(/[^a-zA-Z0-9]/g, '_');
+  
+  const columns = [
+    { key: 'quarterLabel' as keyof QuarterlyProgress, header: 'Quarter' },
+    { key: 'quarter' as keyof QuarterlyProgress, header: 'Quarter Code' },
+    { key: 'sqoGoal' as keyof QuarterlyProgress, header: 'SQO Goal' },
+    { key: 'sqoActual' as keyof QuarterlyProgress, header: 'SQO Actual' },
+    { key: 'progressPercent' as keyof QuarterlyProgress, header: 'Progress %' },
+    { key: 'totalAumFormatted' as keyof QuarterlyProgress, header: 'Total AUM' },
+    { key: 'daysElapsed' as keyof QuarterlyProgress, header: 'Days Elapsed' },
+    { key: 'daysInQuarter' as keyof QuarterlyProgress, header: 'Days in Quarter' },
+    { key: 'expectedSqos' as keyof QuarterlyProgress, header: 'Expected SQOs' },
+    { key: 'pacingDiff' as keyof QuarterlyProgress, header: 'Pacing Difference' },
+    { key: 'pacingStatus' as keyof QuarterlyProgress, header: 'Pacing Status' },
+    { key: 'quarterStartDate' as keyof QuarterlyProgress, header: 'Quarter Start Date' },
+    { key: 'quarterEndDate' as keyof QuarterlyProgress, header: 'Quarter End Date' },
+  ];
+
+  // Transform data for CSV (format dates, handle nulls)
+  const csvData = progress.map(p => ({
+    quarterLabel: p.quarterLabel,
+    quarter: p.quarter,
+    sqoGoal: p.sqoGoal ?? '',
+    sqoActual: p.sqoActual,
+    progressPercent: p.progressPercent ? `${p.progressPercent.toFixed(1)}%` : '',
+    totalAumFormatted: p.totalAumFormatted,
+    daysElapsed: p.daysElapsed,
+    daysInQuarter: p.daysInQuarter,
+    expectedSqos: p.expectedSqos.toFixed(1),
+    pacingDiff: p.pacingDiff.toFixed(1),
+    pacingStatus: p.pacingStatus,
+    quarterStartDate: formatDate(p.quarterStartDate),
+    quarterEndDate: formatDate(p.quarterEndDate),
+  }));
+
+  generateCSV(csvData, columns, `quarterly_progress_${sanitizedName}`);
+}
+
+/**
+ * Export closed lost records to CSV
+ */
+export function exportClosedLostCSV(
+  records: ClosedLostRecord[],
+  sgaName: string
+): void {
+  const sanitizedName = sgaName.replace(/[^a-zA-Z0-9]/g, '_');
+  
+  const columns = [
+    { key: 'oppName' as keyof ClosedLostRecord, header: 'Opportunity Name' },
+    { key: 'lastContactDate' as keyof ClosedLostRecord, header: 'Last Contact Date' },
+    { key: 'daysSinceContact' as keyof ClosedLostRecord, header: 'Days Since Contact' },
+    { key: 'closedLostDate' as keyof ClosedLostRecord, header: 'Closed Lost Date' },
+    { key: 'sqlDate' as keyof ClosedLostRecord, header: 'SQL Date' },
+    { key: 'closedLostReason' as keyof ClosedLostRecord, header: 'Closed Lost Reason' },
+    { key: 'closedLostDetails' as keyof ClosedLostRecord, header: 'Closed Lost Details' },
+    { key: 'timeSinceContactBucket' as keyof ClosedLostRecord, header: 'Time Since Contact Bucket' },
+    { key: 'leadId' as keyof ClosedLostRecord, header: 'Lead ID' },
+    { key: 'opportunityId' as keyof ClosedLostRecord, header: 'Opportunity ID' },
+    { key: 'leadUrl' as keyof ClosedLostRecord, header: 'Lead URL' },
+    { key: 'opportunityUrl' as keyof ClosedLostRecord, header: 'Opportunity URL' },
+  ];
+
+  // Transform data for CSV (format dates, handle nulls)
+  const csvData = records.map(record => ({
+    oppName: record.oppName || '',
+    lastContactDate: formatDate(record.lastContactDate),
+    daysSinceContact: record.daysSinceContact ?? '',
+    closedLostDate: formatDate(record.closedLostDate),
+    sqlDate: formatDate(record.sqlDate),
+    closedLostReason: record.closedLostReason || '',
+    closedLostDetails: record.closedLostDetails || '',
+    timeSinceContactBucket: record.timeSinceContactBucket || '',
+    leadId: record.leadId || '',
+    opportunityId: record.opportunityId || '',
+    leadUrl: record.leadUrl || '',
+    opportunityUrl: record.opportunityUrl || '',
+  }));
+
+  generateCSV(csvData, columns, `closed_lost_${sanitizedName}`);
+}
+
+/**
+ * Export admin SGA overview to CSV
+ */
+export function exportAdminOverviewCSV(
+  overviews: AdminSGAOverview[]
+): void {
+  const columns = [
+    { key: 'userName' as keyof AdminSGAOverview, header: 'SGA Name' },
+    { key: 'userEmail' as keyof AdminSGAOverview, header: 'Email' },
+    { key: 'isActive' as keyof AdminSGAOverview, header: 'Active' },
+    { key: 'weeklyGoalIC' as keyof any, header: 'Week Goal - Initial Calls' },
+    { key: 'weeklyGoalQC' as keyof any, header: 'Week Goal - Qualification Calls' },
+    { key: 'weeklyGoalSQO' as keyof any, header: 'Week Goal - SQO' },
+    { key: 'weeklyActualIC' as keyof any, header: 'Week Actual - Initial Calls' },
+    { key: 'weeklyActualQC' as keyof any, header: 'Week Actual - Qualification Calls' },
+    { key: 'weeklyActualSQO' as keyof any, header: 'Week Actual - SQO' },
+    { key: 'quarterlyGoal' as keyof any, header: 'Quarter Goal - SQO' },
+    { key: 'quarterlyActual' as keyof any, header: 'Quarter Actual - SQO' },
+    { key: 'quarterlyProgress' as keyof any, header: 'Quarter Progress %' },
+    { key: 'quarterlyPacing' as keyof any, header: 'Quarter Pacing Status' },
+    { key: 'closedLostCount' as keyof AdminSGAOverview, header: 'Closed Lost Count' },
+    { key: 'missingWeeklyGoal' as keyof AdminSGAOverview, header: 'Missing Weekly Goal' },
+    { key: 'missingQuarterlyGoal' as keyof AdminSGAOverview, header: 'Missing Quarterly Goal' },
+    { key: 'behindPacing' as keyof AdminSGAOverview, header: 'Behind Pacing' },
+  ];
+
+  // Transform data for CSV (flatten nested objects)
+  const csvData = overviews.map(overview => ({
+    userName: overview.userName,
+    userEmail: overview.userEmail,
+    isActive: overview.isActive ? 'Yes' : 'No',
+    weeklyGoalIC: overview.currentWeekGoal?.initialCallsGoal ?? '',
+    weeklyGoalQC: overview.currentWeekGoal?.qualificationCallsGoal ?? '',
+    weeklyGoalSQO: overview.currentWeekGoal?.sqoGoal ?? '',
+    weeklyActualIC: overview.currentWeekActual?.initialCalls ?? '',
+    weeklyActualQC: overview.currentWeekActual?.qualificationCalls ?? '',
+    weeklyActualSQO: overview.currentWeekActual?.sqos ?? '',
+    quarterlyGoal: overview.currentQuarterGoal?.sqoGoal ?? '',
+    quarterlyActual: overview.currentQuarterProgress?.sqoActual ?? '',
+    quarterlyProgress: overview.currentQuarterProgress?.progressPercent 
+      ? `${overview.currentQuarterProgress.progressPercent.toFixed(1)}%` 
+      : '',
+    quarterlyPacing: overview.currentQuarterProgress?.pacingStatus ?? '',
+    closedLostCount: overview.closedLostCount,
+    missingWeeklyGoal: overview.missingWeeklyGoal ? 'Yes' : 'No',
+    missingQuarterlyGoal: overview.missingQuarterlyGoal ? 'Yes' : 'No',
+    behindPacing: overview.behindPacing ? 'Yes' : 'No',
+  }));
+
+  generateCSV(csvData, columns, 'admin_sga_overview');
+}
+```
+
+**Components that need export buttons added:**
+
+1. **Weekly Goals Tab** (`src/components/sga-hub/WeeklyGoalsTable.tsx` or similar):
+   ```typescript
+   import { exportWeeklyGoalsCSV } from '@/lib/utils/csv-export';
+   
+   // Add export button in component
+   <Button 
+     onClick={() => exportWeeklyGoalsCSV(goals, sgaName)} 
+     icon={Download}
+     variant="secondary"
+   >
+     Export CSV
+   </Button>
+   ```
+
+2. **Quarterly Progress Tab** (`src/components/sga-hub/QuarterlyProgressChart.tsx` or similar):
+   ```typescript
+   import { exportQuarterlyProgressCSV } from '@/lib/utils/csv-export';
+   
+   // Add export button in component
+   <Button 
+     onClick={() => exportQuarterlyProgressCSV(progressData, sgaName)} 
+     icon={Download}
+     variant="secondary"
+   >
+     Export CSV
+   </Button>
+   ```
+
+3. **Closed Lost Tab** (`src/components/sga-hub/ClosedLostTable.tsx`):
+   ```typescript
+   import { exportClosedLostCSV } from '@/lib/utils/csv-export';
+   
+   // Add export button in component
+   <Button 
+     onClick={() => exportClosedLostCSV(records, sgaName)} 
+     icon={Download}
+     variant="secondary"
+   >
+     Export CSV
+   </Button>
+   ```
+
+4. **Admin SGA Management Page** (`src/app/dashboard/sga-management/SGAManagementContent.tsx`):
+   ```typescript
+   import { exportAdminOverviewCSV } from '@/lib/utils/csv-export';
+   
+   // Add export button in header section
+   <Button 
+     onClick={() => exportAdminOverviewCSV(sgaOverviews)} 
+     icon={Download}
+     variant="secondary"
+   >
+     Export CSV
+   </Button>
+   ```
+
 ### Verification Gate 8:
 
 * [ ] Admin page accessible
