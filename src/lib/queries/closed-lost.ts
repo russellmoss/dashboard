@@ -115,8 +115,7 @@ export async function getClosedLostRecords(
   // If we need 180+ days records, we need to query the base tables and UNION
   if (has180Plus) {
     // Query for 180+ days from base tables (same logic as view but for 180+ days)
-    // Note: The view filters by sga_name, but we need to filter by Lead SGA or Opportunity SGA
-    // following the same logic as the view (if Lead SGA is 'Savvy Marketing', use Opp SGA)
+    // Filter by sga_name after computing it (matching view logic)
     const baseQuery180Plus = `
       WITH
         sql_opps AS (
