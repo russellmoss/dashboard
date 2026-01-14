@@ -1,0 +1,191 @@
+// src/app/api/sga-hub/weekly-goals/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { getUserPermissions } from '@/lib/permissions';
+import { 
+  getWeeklyGoals, 
+  upsertWeeklyGoal,
+  copyWeeklyGoal,
+} from '@/lib/queries/weekly-goals';
+import { getDefaultWeekRange, getWeekMondayDate, isMonday } from '@/lib/utils/sga-hub-helpers';
+import { WeeklyGoalInput } from '@/types/sga-hub';
+
+/**
+ * GET /api/sga-hub/weekly-goals
+ * Get weekly goals for the logged-in user or a specific user (admin only)
+ */
+export async function GET(request: NextRequest) {
+  try {
+    // Authentication check
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    
+    const permissions = await getUserPermissions(session.user.email);
+    
+    // Parse query params
+    const { searchParams } = new URL(request.url);
+    const startDate = searchParams.get('startDate');
+    const endDate = searchParams.get('endDate');
+    const targetUserEmail = searchParams.get('userEmail'); // Admin only
+    
+    // Determine which user's goals to fetch
+    let userEmail = session.user.email;
+    
+    if (targetUserEmail) {
+      // Only admin/manager can view other users' goals
+      if (!['admin', 'manager'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      userEmail = targetUserEmail;
+    } else {
+      // SGA role required for own goals
+      if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
+    
+    // Use default range if not provided
+    const dateRange = startDate && endDate 
+      ? { startDate, endDate }
+      : getDefaultWeekRange();
+    
+    const goals = await getWeeklyGoals(
+      userEmail,
+      dateRange.startDate,
+      dateRange.endDate
+    );
+    
+    return NextResponse.json({ goals });
+    
+  } catch (error) {
+    console.error('[API] Error fetching weekly goals:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch weekly goals' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * POST /api/sga-hub/weekly-goals
+ * Create or update a weekly goal
+ */
+export async function POST(request: NextRequest) {
+  try {
+    // Authentication check
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    
+    const permissions = await getUserPermissions(session.user.email);
+    
+    // Parse request body
+    const body = await request.json();
+    const { 
+      weekStartDate, 
+      initialCallsGoal, 
+      qualificationCallsGoal, 
+      sqoGoal,
+      userEmail: targetUserEmail, // Admin only - to set for another user
+      copyFromWeek, // Optional - copy goals from another week
+    } = body;
+    
+    // Determine target user
+    let userEmail = session.user.email;
+    
+    if (targetUserEmail && targetUserEmail !== session.user.email) {
+      // Only admin/manager can set goals for other users
+      if (!['admin', 'manager'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      userEmail = targetUserEmail;
+    } else {
+      // SGA role required for own goals
+      if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
+    
+    // Handle copy from previous week
+    if (copyFromWeek) {
+      const copiedGoal = await copyWeeklyGoal(
+        userEmail,
+        copyFromWeek,
+        weekStartDate,
+        session.user.email
+      );
+      
+      if (!copiedGoal) {
+        return NextResponse.json(
+          { error: 'No goals found for source week' },
+          { status: 404 }
+        );
+      }
+      
+      return NextResponse.json({ goal: copiedGoal });
+    }
+    
+    // Validate required fields
+    if (!weekStartDate) {
+      return NextResponse.json(
+        { error: 'weekStartDate is required' },
+        { status: 400 }
+      );
+    }
+    
+    // Validate weekStartDate is a Monday
+    if (!isMonday(weekStartDate)) {
+      return NextResponse.json(
+        { error: 'weekStartDate must be a Monday' },
+        { status: 400 }
+      );
+    }
+    
+    // SGA role can only edit current/future weeks (not past weeks)
+    if (permissions.role === 'sga' && userEmail === session.user.email) {
+      const weekDate = new Date(weekStartDate);
+      const today = new Date();
+      const currentWeekMonday = getWeekMondayDate(today);
+      
+      if (weekDate < currentWeekMonday) {
+        return NextResponse.json(
+          { error: 'SGAs can only edit goals for current or future weeks' },
+          { status: 403 }
+        );
+      }
+    }
+    
+    const goalInput: WeeklyGoalInput = {
+      weekStartDate,
+      initialCallsGoal: initialCallsGoal ?? 0,
+      qualificationCallsGoal: qualificationCallsGoal ?? 0,
+      sqoGoal: sqoGoal ?? 0,
+    };
+    
+    const goal = await upsertWeeklyGoal(
+      userEmail,
+      goalInput,
+      session.user.email
+    );
+    
+    return NextResponse.json({ goal });
+    
+  } catch (error: any) {
+    console.error('[API] Error saving weekly goal:', error);
+    
+    // Handle validation errors
+    if (error.message?.includes('Monday') || error.message?.includes('non-negative')) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    
+    return NextResponse.json(
+      { error: 'Failed to save weekly goal' },
+      { status: 500 }
+    );
+  }
+}
