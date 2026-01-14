@@ -113,18 +113,25 @@ export async function getClosedLostRecords(
  * Transform raw BigQuery result to ClosedLostRecord
  */
 function transformClosedLostRecord(row: RawClosedLostResult): ClosedLostRecord {
-  // Extract date values (DATE fields return as strings in YYYY-MM-DD format)
-  const lastContactDate = row.last_contact_date 
-    ? toString(row.last_contact_date).split('T')[0] // Ensure YYYY-MM-DD format
-    : '';
+  // Extract date values (DATE fields can be strings or { value: string } objects)
+  const extractDate = (field: any): string => {
+    if (!field) return '';
+    // Handle object format: { value: "2025-01-15" }
+    if (typeof field === 'object' && field !== null && 'value' in field) {
+      const dateStr = typeof field.value === 'string' ? field.value : String(field.value);
+      return dateStr.split('T')[0]; // Extract YYYY-MM-DD part
+    }
+    // Handle string format: "2025-01-15"
+    if (typeof field === 'string') {
+      return field.split('T')[0]; // Extract YYYY-MM-DD part
+    }
+    // Fallback: convert to string
+    return String(field).split('T')[0];
+  };
   
-  const closedLostDate = row.closed_lost_date 
-    ? toString(row.closed_lost_date).split('T')[0]
-    : '';
-  
-  const sqlDate = row.sql_date 
-    ? toString(row.sql_date).split('T')[0]
-    : '';
+  const lastContactDate = extractDate(row.last_contact_date);
+  const closedLostDate = extractDate(row.closed_lost_date);
+  const sqlDate = extractDate(row.sql_date);
   
   // Extract lead URL (constructed in query or null)
   const leadUrl = row.lead_url ? toString(row.lead_url) : null;
