@@ -11,6 +11,7 @@ const CLOSED_LOST_VIEW = 'savvy-gtm-analytics.savvy_analytics.vw_sga_closed_lost
  */
 interface RawClosedLostResult {
   id: string; // Full_Opportunity_ID__c
+  primary_key?: string | null; // primary_key from vw_funnel_master (will be added in Phase 2)
   opp_name: string | null;
   lead_id: string | null; // Full_prospect_id__c
   opportunity_id: string; // Full_Opportunity_ID__c
@@ -256,6 +257,7 @@ function transformClosedLostRecord(row: RawClosedLostResult): ClosedLostRecord {
   
   return {
     id: toString(row.id),
+    primaryKey: row.primary_key ? toString(row.primary_key) : row.id, // Fallback to id if primary_key is null (will be populated in Phase 2)
     oppName: toString(row.opp_name) || 'Unknown',
     leadId: row.lead_id ? toString(row.lead_id) : null,
     opportunityId: toString(row.opportunity_id),

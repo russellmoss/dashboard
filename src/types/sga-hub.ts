@@ -148,6 +148,7 @@ export type ClosedLostTimeBucket =
 /** Closed lost record from BigQuery view */
 export interface ClosedLostRecord {
   id: string; // Full_Opportunity_ID__c
+  primaryKey: string; // primary_key from vw_funnel_master for RecordDetailModal
   oppName: string;
   leadId: string | null;
   opportunityId: string;
