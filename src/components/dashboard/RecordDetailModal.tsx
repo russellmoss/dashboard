@@ -26,6 +26,10 @@ interface RecordDetailModalProps {
   onClose: () => void;
   recordId: string | null;
   initialRecord?: RecordDetailFull | null;
+  // New props for back button
+  showBackButton?: boolean;
+  onBack?: () => void;
+  backButtonLabel?: string;
 }
 
 // Helper component for section headers
@@ -192,6 +196,14 @@ export function RecordDetailModal({
         {/* Header - Fixed */}
         <div className="flex items-start justify-between p-6 border-b border-gray-200 dark:border-gray-700">
           <div className="flex-1 min-w-0">
+            {showBackButton && onBack && (
+              <button
+                onClick={onBack}
+                className="flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors mb-2"
+              >
+                {backButtonLabel}
+              </button>
+            )}
             {loading ? (
               <div className="space-y-2">
                 <div className="h-7 w-48 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
