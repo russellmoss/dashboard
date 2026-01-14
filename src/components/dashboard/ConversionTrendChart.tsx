@@ -148,12 +148,16 @@ export function ConversionTrendChart({
   };
 
   const handleMetricChange = (newMetric: 'rates' | 'volume') => {
+    // Update local state immediately - this will switch the display instantly
     setSelectedMetric(newMetric);
-    // When switching to volumes, always use period mode (volumes are always periodic)
+    
+    // When switching to volumes, notify parent to use period mode if needed
+    // Volumes are always periodic, so we need period mode data
     if (newMetric === 'volume' && mode !== 'period') {
-      onModeChange?.('period');
+      // Notify parent to switch to period mode and refetch
+      // Component will show volumes immediately from current data while refetch happens
+      onMetricChange?.(newMetric);
     }
-    onMetricChange?.(newMetric);
   };
 
   // Transform data for chart display with proper rounding

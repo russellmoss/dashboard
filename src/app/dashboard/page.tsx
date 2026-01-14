@@ -329,16 +329,21 @@ export default function DashboardPage() {
               granularity={trendGranularity}
               mode={trendMode}
               onModeChange={(newMode) => {
+                // Only allow mode changes when NOT in volumes mode
+                // (volumes always use period mode internally)
                 setTrendMode(newMode);
-                // Trigger refetch when mode changes
                 fetchDashboardData();
               }}
               onMetricChange={(metric) => {
-                // When volumes are selected, always use period mode
+                // When volumes are selected, switch to period mode and refetch in background
+                // Component will show volumes immediately from current data
                 if (metric === 'volume' && trendMode !== 'period') {
                   setTrendMode('period');
-                  // Trigger refetch with period mode
-                  fetchDashboardData();
+                  // Refetch in background without blocking - component already showing volumes
+                  // Use setTimeout to avoid blocking the UI update
+                  setTimeout(() => {
+                    fetchDashboardData();
+                  }, 0);
                 }
               }}
               isLoading={loading}
