@@ -3,7 +3,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Card, Title, Text, Metric, Badge, Button, Select, SelectItem } from '@tremor/react';
+import { Card, Title, Text, Metric, Badge, Button } from '@tremor/react';
 import { AdminSGAOverview } from '@/types/sga-hub';
 import { AdminSGATable } from '@/components/sga-hub/AdminSGATable';
 import { BulkGoalEditor } from '@/components/sga-hub/BulkGoalEditor';
@@ -166,16 +166,18 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
           </div>
           <div className="flex-1">
             <Text className="text-gray-600 dark:text-gray-400 text-sm mb-2">Select SGA</Text>
-            <Select
+            <select
               value={selectedSGAEmail || ''}
-              onValueChange={(value) => setSelectedSGAEmail(value || null)}
+              onChange={(e) => setSelectedSGAEmail(e.target.value || null)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
             >
+              <option value="">Select an SGA...</option>
               {sgaOverviews.map((sga) => (
-                <SelectItem key={sga.userEmail} value={sga.userEmail}>
+                <option key={sga.userEmail} value={sga.userEmail}>
                   {sga.userName}
-                </SelectItem>
+                </option>
               ))}
-            </Select>
+            </select>
           </div>
         </div>
       </Card>
