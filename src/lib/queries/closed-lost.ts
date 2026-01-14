@@ -3,6 +3,7 @@
 import { runQuery } from '@/lib/bigquery';
 import { ClosedLostRecord, ClosedLostTimeBucket } from '@/types/sga-hub';
 import { toString, toNumber } from '@/types/bigquery-raw';
+import { FULL_TABLE } from '@/config/constants';
 
 const CLOSED_LOST_VIEW = 'savvy-gtm-analytics.savvy_analytics.vw_sga_closed_lost_sql_followup';
 
@@ -11,7 +12,7 @@ const CLOSED_LOST_VIEW = 'savvy-gtm-analytics.savvy_analytics.vw_sga_closed_lost
  */
 interface RawClosedLostResult {
   id: string; // Full_Opportunity_ID__c
-  primary_key?: string | null; // primary_key from vw_funnel_master (will be added in Phase 2)
+  primary_key: string | null; // primary_key from vw_funnel_master (may be null if JOIN fails)
   opp_name: string | null;
   lead_id: string | null; // Full_prospect_id__c
   opportunity_id: string; // Full_Opportunity_ID__c
@@ -91,27 +92,30 @@ export async function getClosedLostRecords(
     
     const query = `
       SELECT 
-        Full_Opportunity_ID__c as id,
-        opp_name,
-        Full_prospect_id__c as lead_id,
-        Full_Opportunity_ID__c as opportunity_id,
+        cl.Full_Opportunity_ID__c as id,
+        v.primary_key,
+        cl.opp_name,
+        cl.Full_prospect_id__c as lead_id,
+        cl.Full_Opportunity_ID__c as opportunity_id,
         CASE 
-          WHEN Full_prospect_id__c IS NOT NULL 
-          THEN CONCAT('https://savvywealth.lightning.force.com/lightning/r/Lead/', Full_prospect_id__c, '/view')
+          WHEN cl.Full_prospect_id__c IS NOT NULL 
+          THEN CONCAT('https://savvywealth.lightning.force.com/lightning/r/Lead/', cl.Full_prospect_id__c, '/view')
           ELSE NULL
         END as lead_url,
-        salesforce_url as opportunity_url,
-        salesforce_url,
-        last_contact_date,
-        closed_lost_date,
-        sql_date,
-        closed_lost_reason,
-        closed_lost_details,
-        time_since_last_contact_bucket,
-        CAST(DATE_DIFF(CURRENT_DATE(), CAST(last_contact_date AS DATE), DAY) AS INT64) as days_since_contact
-      FROM \`${CLOSED_LOST_VIEW}\`
+        cl.salesforce_url as opportunity_url,
+        cl.salesforce_url,
+        cl.last_contact_date,
+        cl.closed_lost_date,
+        cl.sql_date,
+        cl.closed_lost_reason,
+        cl.closed_lost_details,
+        cl.time_since_last_contact_bucket,
+        CAST(DATE_DIFF(CURRENT_DATE(), CAST(cl.last_contact_date AS DATE), DAY) AS INT64) as days_since_contact
+      FROM \`${CLOSED_LOST_VIEW}\` cl
+      LEFT JOIN \`${FULL_TABLE}\` v 
+        ON cl.Full_Opportunity_ID__c = v.Full_Opportunity_ID__c
       ${whereClause}
-      ORDER BY closed_lost_date DESC, last_contact_date DESC
+      ORDER BY cl.closed_lost_date DESC, cl.last_contact_date DESC
     `;
     
     const viewResults = await runQuery<RawClosedLostResult>(query, params);
