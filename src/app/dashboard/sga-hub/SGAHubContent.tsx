@@ -301,14 +301,14 @@ export function SGAHubContent() {
       {activeTab === 'quarterly-progress' && (
         <>
           <div className="mb-4">
-            <div>
+            <div className="w-fit">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                 Quarter
               </label>
               <select
                 value={selectedQuarter}
                 onChange={(e) => setSelectedQuarter(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
+                className="min-w-[140px] px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
               >
                 {(() => {
                   const quarters: string[] = [];
