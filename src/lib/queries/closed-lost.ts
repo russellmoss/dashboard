@@ -82,7 +82,7 @@ export async function getClosedLostRecords(
   const query = `
     SELECT 
       Full_Opportunity_ID__c as id,
-      Opp_Name__c as opp_name,
+      opp_name,
       Full_prospect_id__c as lead_id,
       Full_Opportunity_ID__c as opportunity_id,
       CASE 
@@ -92,13 +92,13 @@ export async function getClosedLostRecords(
       END as lead_url,
       salesforce_url as opportunity_url,
       salesforce_url,
-      Last_Contact_Date__c as last_contact_date,
-      Closed_Lost_Date__c as closed_lost_date,
-      SQL_Date__c as sql_date,
-      Closed_Lost_Reason__c as closed_lost_reason,
-      Closed_Lost_Details__c as closed_lost_details,
+      last_contact_date,
+      closed_lost_date,
+      sql_date,
+      closed_lost_reason,
+      closed_lost_details,
       time_since_last_contact_bucket,
-      Days_Since_Last_Contact__c as days_since_contact
+      CAST(DATE_DIFF(CURRENT_DATE(), CAST(last_contact_date AS DATE), DAY) AS INT64) as days_since_contact
     FROM \`${CLOSED_LOST_VIEW}\`
     ${whereClause}
     ORDER BY closed_lost_date DESC, last_contact_date DESC
