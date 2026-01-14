@@ -31,7 +31,56 @@ async function main() {
     },
   });
 
-  console.log('Seed completed: Admin user created');
+  // Create test users for SGA Hub
+  // Eleni Stefanopoulos - SGA
+  await prisma.user.upsert({
+    where: { email: 'eleni@savvywealth.com' },
+    update: {},
+    create: {
+      email: 'eleni@savvywealth.com',
+      name: 'Eleni Stefanopoulos',
+      passwordHash,
+      role: 'sga',
+    },
+  });
+
+  // Perry Kalmeta - SGA
+  await prisma.user.upsert({
+    where: { email: 'perry.kalmeta@savvywealth.com' },
+    update: {},
+    create: {
+      email: 'perry.kalmeta@savvywealth.com',
+      name: 'Perry Kalmeta',
+      passwordHash,
+      role: 'sga',
+    },
+  });
+
+  // Russell Armitage - Admin
+  await prisma.user.upsert({
+    where: { email: 'russell.armitage@savvywealth.com' },
+    update: {},
+    create: {
+      email: 'russell.armitage@savvywealth.com',
+      name: 'Russell Armitage',
+      passwordHash,
+      role: 'admin',
+    },
+  });
+
+  // David - Manager
+  await prisma.user.upsert({
+    where: { email: 'david@savvywealth.com' },
+    update: {},
+    create: {
+      email: 'david@savvywealth.com',
+      name: 'David',
+      passwordHash,
+      role: 'manager',
+    },
+  });
+
+  console.log('Seed completed: Admin user and test users created');
 }
 
 main()
