@@ -4,13 +4,13 @@ import { getUserByEmail } from './users';
 const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmFilter'>> = {
   admin: {
     role: 'admin',
-    allowedPages: [1, 2, 3, 4, 5, 6, 7],
+    allowedPages: [1, 2, 3, 4, 5, 6, 7, 8],
     canExport: true,
     canManageUsers: true,
   },
   manager: {
     role: 'manager',
-    allowedPages: [1, 2, 3, 4, 5, 6, 7],
+    allowedPages: [1, 2, 3, 4, 5, 6, 7, 8],
     canExport: true,
     canManageUsers: true,
   },
@@ -22,7 +22,7 @@ const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmF
   },
   sga: {
     role: 'sga',
-    allowedPages: [1, 2, 6],
+    allowedPages: [1, 2, 6, 8],
     canExport: true,
     canManageUsers: false,
   },

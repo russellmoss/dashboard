@@ -7,7 +7,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { 
   BarChart3, GitBranch, Users, Building2, 
-  FlaskConical, UserCircle, Settings, Menu, X
+  FlaskConical, UserCircle, Settings, Menu, X, Target
 } from 'lucide-react';
 
 const PAGES = [
@@ -18,6 +18,7 @@ const PAGES = [
   { id: 5, name: 'Experimentation', href: '/dashboard/experiments', icon: FlaskConical },
   { id: 6, name: 'SGA Performance', href: '/dashboard/sga', icon: UserCircle },
   { id: 7, name: 'Settings', href: '/dashboard/settings', icon: Settings },
+  { id: 8, name: 'SGA Hub', href: '/dashboard/sga-hub', icon: Target },
 ];
 
 interface SidebarProps {
