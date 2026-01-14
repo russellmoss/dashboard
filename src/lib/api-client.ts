@@ -209,10 +209,13 @@ export const dashboardApi = {
       body: JSON.stringify(input),
     }),
 
-  getClosedLostRecords: (timeBuckets?: ClosedLostTimeBucket[]) => {
+  getClosedLostRecords: (timeBuckets?: ClosedLostTimeBucket[], userEmail?: string) => {
     const params = new URLSearchParams();
     if (timeBuckets && timeBuckets.length > 0) {
-      timeBuckets.forEach(bucket => params.append('timeBuckets', bucket));
+      params.append('timeBuckets', timeBuckets.join(','));
+    }
+    if (userEmail) {
+      params.append('userEmail', userEmail);
     }
     return apiFetch<{ records: ClosedLostRecord[] }>(`/api/sga-hub/closed-lost?${params.toString()}`);
   },

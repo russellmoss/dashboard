@@ -6,9 +6,10 @@ import { useSession } from 'next-auth/react';
 import { SGAHubTabs, SGAHubTab } from '@/components/sga-hub/SGAHubTabs';
 import { WeeklyGoalsTable } from '@/components/sga-hub/WeeklyGoalsTable';
 import { WeeklyGoalEditor } from '@/components/sga-hub/WeeklyGoalEditor';
+import { ClosedLostTable } from '@/components/sga-hub/ClosedLostTable';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { dashboardApi, handleApiError } from '@/lib/api-client';
-import { WeeklyGoal, WeeklyActual, WeeklyGoalWithActuals } from '@/types/sga-hub';
+import { WeeklyGoal, WeeklyActual, WeeklyGoalWithActuals, ClosedLostRecord } from '@/types/sga-hub';
 import { getDefaultWeekRange, getWeekMondayDate, getWeekInfo, formatDateISO } from '@/lib/utils/sga-hub-helpers';
 import { getSessionPermissions } from '@/types/auth';
 
@@ -31,6 +32,11 @@ export function SGAHubContent() {
   const [showGoalEditor, setShowGoalEditor] = useState(false);
   const [editingGoal, setEditingGoal] = useState<WeeklyGoalWithActuals | null>(null);
   
+  // Closed Lost state
+  const [closedLostRecords, setClosedLostRecords] = useState<ClosedLostRecord[]>([]);
+  const [closedLostLoading, setClosedLostLoading] = useState(false);
+  const [closedLostError, setClosedLostError] = useState<string | null>(null);
+  
   // Fetch weekly goals and actuals
   const fetchWeeklyData = async () => {
     try {
@@ -51,9 +57,26 @@ export function SGAHubContent() {
     }
   };
   
+  // Fetch closed lost records
+  const fetchClosedLostRecords = async () => {
+    try {
+      setClosedLostLoading(true);
+      setClosedLostError(null);
+      
+      const response = await dashboardApi.getClosedLostRecords();
+      setClosedLostRecords(response.records);
+    } catch (err) {
+      setClosedLostError(handleApiError(err));
+    } finally {
+      setClosedLostLoading(false);
+    }
+  };
+  
   useEffect(() => {
     if (activeTab === 'weekly-goals') {
       fetchWeeklyData();
+    } else if (activeTab === 'closed-lost') {
+      fetchClosedLostRecords();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateRange.startDate, dateRange.endDate, activeTab]);
@@ -194,9 +217,18 @@ export function SGAHubContent() {
       )}
       
       {activeTab === 'closed-lost' && (
-        <Card className="mb-6 dark:bg-gray-800 dark:border-gray-700">
-          <Text>Closed Lost Follow-Up tab - Coming in Phase 6</Text>
-        </Card>
+        <>
+          {closedLostError && (
+            <Card className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+              <Text className="text-red-600 dark:text-red-400">{closedLostError}</Text>
+            </Card>
+          )}
+          
+          <ClosedLostTable
+            records={closedLostRecords}
+            isLoading={closedLostLoading}
+          />
+        </>
       )}
       
       {activeTab === 'quarterly-progress' && (
