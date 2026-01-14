@@ -5,6 +5,8 @@ import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell
 import { WeeklyGoalWithActuals } from '@/types/sga-hub';
 import { Pencil, ChevronUp, ChevronDown } from 'lucide-react';
 import { InfoTooltip } from '@/components/ui/InfoTooltip';
+import { ClickableMetricValue } from './ClickableMetricValue';
+import { MetricType } from '@/types/drill-down';
 
 type SortColumn = 'week' | 'initialCalls' | 'qualificationCalls' | 'sqos' | null;
 type SortDirection = 'asc' | 'desc';
@@ -13,6 +15,8 @@ interface WeeklyGoalsTableProps {
   goals: WeeklyGoalWithActuals[];
   onEditGoal: (goal: WeeklyGoalWithActuals) => void;
   isLoading?: boolean;
+  // New prop for metric click
+  onMetricClick?: (weekStartDate: string, metricType: MetricType) => void;
 }
 
 /**
@@ -164,16 +168,27 @@ export function WeeklyGoalsTable({ goals, onEditGoal, isLoading = false }: Weekl
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex flex-col items-end">
-                      <span className="font-medium">{goal.initialCallsActual}</span>
-                      {goal.initialCallsGoal !== null && (
-                        <>
-                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                      <div className="flex items-center gap-2">
+                        {onMetricClick ? (
+                          <ClickableMetricValue
+                            value={goal.initialCallsActual}
+                            onClick={() => onMetricClick(goal.weekStartDate, 'initial-calls')}
+                          />
+                        ) : (
+                          <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                            {goal.initialCallsActual}
+                          </span>
+                        )}
+                        {goal.hasGoal && goal.initialCallsGoal !== null && (
+                          <span className="text-sm text-gray-500 dark:text-gray-400">
                             / {goal.initialCallsGoal}
                           </span>
-                          <span className={`text-xs font-medium ${initialCallsDiff.color}`}>
-                            {initialCallsDiff.text}
-                          </span>
-                        </>
+                        )}
+                      </div>
+                      {goal.hasGoal && goal.initialCallsDiff !== null && (
+                        <span className={`text-xs font-medium ${initialCallsDiff.color}`}>
+                          {initialCallsDiff.text}
+                        </span>
                       )}
                     </div>
                   </TableCell>
@@ -194,16 +209,27 @@ export function WeeklyGoalsTable({ goals, onEditGoal, isLoading = false }: Weekl
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex flex-col items-end">
-                      <span className="font-medium">{goal.sqoActual}</span>
-                      {goal.sqoGoal !== null && (
-                        <>
-                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                      <div className="flex items-center gap-2">
+                        {onMetricClick ? (
+                          <ClickableMetricValue
+                            value={goal.sqoActual}
+                            onClick={() => onMetricClick(goal.weekStartDate, 'sqos')}
+                          />
+                        ) : (
+                          <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                            {goal.sqoActual}
+                          </span>
+                        )}
+                        {goal.hasGoal && goal.sqoGoal !== null && (
+                          <span className="text-sm text-gray-500 dark:text-gray-400">
                             / {goal.sqoGoal}
                           </span>
-                          <span className={`text-xs font-medium ${sqoDiff.color}`}>
-                            {sqoDiff.text}
-                          </span>
-                        </>
+                        )}
+                      </div>
+                      {goal.hasGoal && goal.sqoDiff !== null && (
+                        <span className={`text-xs font-medium ${sqoDiff.color}`}>
+                          {sqoDiff.text}
+                        </span>
                       )}
                     </div>
                   </TableCell>
