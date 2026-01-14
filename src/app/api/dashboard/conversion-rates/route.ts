@@ -25,14 +25,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid mode. Must be "period" or "cohort"' }, { status: 400 });
     }
     
-    // Apply permission-based filters
-    const permissions = await getUserPermissions(session.user?.email || '');
-    if (permissions.sgaFilter) {
-      filters.sga = permissions.sgaFilter;
-    }
-    if (permissions.sgmFilter) {
-      filters.sgm = permissions.sgmFilter;
-    }
+    // Note: SGA/SGM filters are NOT automatically applied to main dashboard
+    // All users (including SGAs) can see all data on the funnel performance dashboard
+    // SGA filters are only applied in SGA Hub features
     
     // Pass mode to getConversionRates()
     const rates = await getConversionRates(filters, mode);

@@ -16,14 +16,9 @@ export async function POST(request: NextRequest) {
     const filters: DashboardFilters = body.filters;
     const limit = body.limit || 50000; // Increased default limit to fetch all records
     
-    // Apply permission-based filters
-    const permissions = await getUserPermissions(session.user?.email || '');
-    if (permissions.sgaFilter) {
-      filters.sga = permissions.sgaFilter;
-    }
-    if (permissions.sgmFilter) {
-      filters.sgm = permissions.sgmFilter;
-    }
+    // Note: SGA/SGM filters are NOT automatically applied to main dashboard
+    // All users (including SGAs) can see all data on the funnel performance dashboard
+    // SGA filters are only applied in SGA Hub features
     
     const records = await getDetailRecords(filters, limit);
     
