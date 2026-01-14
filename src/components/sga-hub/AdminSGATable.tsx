@@ -7,6 +7,8 @@ import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell
 import { AdminSGAOverview } from '@/types/sga-hub';
 import { ChevronDown, ChevronUp, Pencil, ExternalLink } from 'lucide-react';
 import { formatDate } from '@/lib/utils/format-helpers';
+import { ClickableMetricValue } from './ClickableMetricValue';
+import { MetricType } from '@/types/drill-down';
 
 interface AdminSGATableProps {
   sgaOverviews: AdminSGAOverview[];
@@ -26,6 +28,7 @@ export function AdminSGATable({
   onRefresh,
   weekStartDate,
   quarter,
+  onMetricClick,
 }: AdminSGATableProps) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
@@ -207,21 +210,51 @@ export function AdminSGATable({
                           <div>
                             <Text className="font-semibold mb-3 text-gray-900 dark:text-white">Current Week ({formatDate(weekStartDate)})</Text>
                             <div className="space-y-2 text-sm">
-                              <div className="grid grid-cols-[80px_1fr] gap-2">
+                              <div className="grid grid-cols-[160px_1fr] gap-2">
                                 <Text className="text-gray-600 dark:text-gray-400 font-medium">Goal:</Text>
                                 <Text className="text-gray-900 dark:text-white">
-                                  {overview.currentWeekGoal
-                                    ? `IC: ${overview.currentWeekGoal.initialCallsGoal}, QC: ${overview.currentWeekGoal.qualificationCallsGoal}, SQO: ${overview.currentWeekGoal.sqoGoal}`
-                                    : 'Not set'}
+                                  {overview.currentWeekGoal ? (
+                                    <>
+                                      Initial Calls: <span className="text-lg font-semibold">{overview.currentWeekGoal.initialCallsGoal}</span>,{' '}
+                                      Qualification Calls: <span className="text-lg font-semibold">{overview.currentWeekGoal.qualificationCallsGoal}</span>,{' '}
+                                      SQO: <span className="text-lg font-semibold">{overview.currentWeekGoal.sqoGoal}</span>
+                                    </>
+                                  ) : (
+                                    'Not set'
+                                  )}
                                 </Text>
                               </div>
-                              <div className="grid grid-cols-[80px_1fr] gap-2">
+                              <div className="grid grid-cols-[160px_1fr] gap-2">
                                 <Text className="text-gray-600 dark:text-gray-400 font-medium">Actual:</Text>
-                                <Text className="text-gray-900 dark:text-white">
-                                  {overview.currentWeekActual
-                                    ? `IC: ${overview.currentWeekActual.initialCalls}, QC: ${overview.currentWeekActual.qualificationCalls}, SQO: ${overview.currentWeekActual.sqos}`
-                                    : 'No data'}
-                                </Text>
+                                <div className="flex items-center gap-4 flex-wrap">
+                                  {overview.currentWeekActual ? (
+                                    <>
+                                      <span className="text-sm text-gray-600 dark:text-gray-400">
+                                        Initial Calls:{' '}
+                                        <ClickableMetricValue
+                                          value={overview.currentWeekActual.initialCalls}
+                                          onClick={() => onMetricClick?.(overview.userEmail, overview.userName, 'initial-calls', false)}
+                                        />
+                                      </span>
+                                      <span className="text-sm text-gray-600 dark:text-gray-400">
+                                        Qualification Calls:{' '}
+                                        <ClickableMetricValue
+                                          value={overview.currentWeekActual.qualificationCalls}
+                                          onClick={() => onMetricClick?.(overview.userEmail, overview.userName, 'qualification-calls', false)}
+                                        />
+                                      </span>
+                                      <span className="text-sm text-gray-600 dark:text-gray-400">
+                                        SQO:{' '}
+                                        <ClickableMetricValue
+                                          value={overview.currentWeekActual.sqos}
+                                          onClick={() => onMetricClick?.(overview.userEmail, overview.userName, 'sqos', false)}
+                                        />
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <span className="text-gray-500 dark:text-gray-400">No data</span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -230,23 +263,33 @@ export function AdminSGATable({
                           <div>
                             <Text className="font-semibold mb-3 text-gray-900 dark:text-white">Current Quarter ({quarter})</Text>
                             <div className="space-y-2 text-sm">
-                              <div className="grid grid-cols-[80px_1fr] gap-2">
+                              <div className="grid grid-cols-[160px_1fr] gap-2">
                                 <Text className="text-gray-600 dark:text-gray-400 font-medium">Goal:</Text>
                                 <Text className="text-gray-900 dark:text-white">
                                   {overview.currentQuarterGoal
-                                    ? `${overview.currentQuarterGoal.sqoGoal} SQOs`
+                                    ? <span className="text-lg font-semibold">{overview.currentQuarterGoal.sqoGoal} SQOs</span>
                                     : 'Not set'}
                                 </Text>
                               </div>
-                              <div className="grid grid-cols-[80px_1fr] gap-2">
+                              <div className="grid grid-cols-[160px_1fr] gap-2">
                                 <Text className="text-gray-600 dark:text-gray-400 font-medium">Actual:</Text>
-                                <Text className="text-gray-900 dark:text-white">
-                                  {overview.currentQuarterProgress
-                                    ? `${overview.currentQuarterProgress.sqoActual} SQOs (${overview.currentQuarterProgress.progressPercent?.toFixed(0) || 0}%)`
-                                    : 'No data'}
-                                </Text>
+                                <div className="flex items-center gap-2">
+                                  {overview.currentQuarterProgress ? (
+                                    <>
+                                      <ClickableMetricValue
+                                        value={overview.currentQuarterProgress.sqoActual}
+                                        onClick={() => onMetricClick?.(overview.userEmail, overview.userName, 'sqos', false)}
+                                      />
+                                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                                        SQOs ({overview.currentQuarterProgress.progressPercent?.toFixed(0) || 0}%)
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <span className="text-gray-500 dark:text-gray-400">No data</span>
+                                  )}
+                                </div>
                               </div>
-                              <div className="grid grid-cols-[80px_1fr] gap-2">
+                              <div className="grid grid-cols-[160px_1fr] gap-2">
                                 <Text className="text-gray-600 dark:text-gray-400 font-medium">Pacing:</Text>
                                 <Text className="text-gray-900 dark:text-white">
                                   {overview.currentQuarterProgress
