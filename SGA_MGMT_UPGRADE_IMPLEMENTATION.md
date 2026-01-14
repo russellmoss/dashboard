@@ -555,27 +555,37 @@ export async function getSQODrillDown(
 
 ### Step 2.2: Update Closed Lost Query to Include primary_key
 
+**⚠️ CRITICAL: TWO-PART QUERY STRUCTURE ⚠️**
+
+**The closed lost query has TWO separate query parts that BOTH must be updated:**
+
+1. **Query Part 1**: 30-179 days bucket (queries from `vw_sga_closed_lost_sql_followup` view) - around line 91-114
+2. **Query Part 2**: 180+ days bucket (queries from base tables with CTEs) - around line 179-200
+
+**YOU MUST UPDATE BOTH QUERY PARTS** to include the JOIN with `vw_funnel_master` and add `v.primary_key` to the SELECT clause. If you only update one part, records from the other time bucket will not have `primary_key` and the RecordDetailModal will fail.
+
 **Cursor.ai Prompt:**
 ```
 Update `src/lib/queries/closed-lost.ts` to include `primary_key` from `vw_funnel_master` by adding a JOIN.
 
-The closed lost query currently queries `vw_sga_closed_lost_sql_followup` which doesn't have `primary_key`.
-We need to JOIN with `vw_funnel_master` to get the `primary_key` for RecordDetailModal.
+⚠️ CRITICAL: The closed lost query has TWO separate query parts that BOTH must be updated:
 
-Find the main query and add a LEFT JOIN with vw_funnel_master on Full_Opportunity_ID__c.
-Add `v.primary_key` to the SELECT clause.
+1. Query Part 1 (30-179 days): Queries from `vw_sga_closed_lost_sql_followup` view (around line 91-114)
+2. Query Part 2 (180+ days): Queries from base tables with CTEs (around line 179-200)
+
+You MUST update BOTH query parts:
+- Add LEFT JOIN with vw_funnel_master on Full_Opportunity_ID__c
+- Add `v.primary_key` to the SELECT clause in BOTH queries
+- Prefix all column references with table aliases (`cl.` for Part 1, `w.` for Part 2)
+
 Also update the transformation function to include `primaryKey` in the return object.
 ```
 
 **Code Changes to Make in `src/lib/queries/closed-lost.ts`:**
 
-Find the query in the `getClosedLostRecords` function (around line 91-114).
+Find the `getClosedLostRecords` function which contains TWO separate queries.
 
-**IMPORTANT**: The closed lost query has TWO parts:
-1. Query for 30-179 days from the view
-2. Query for 180+ days from base tables
-
-Update BOTH queries to include the JOIN.
+**⚠️ REMINDER: Update BOTH query parts below ⚠️**
 
 **For the view query (30-179 days)**, find this query (around line 91):
 ```sql
@@ -658,7 +668,18 @@ LEFT JOIN \`${FULL_TABLE}\` v
 ORDER BY w.closed_lost_date DESC, w.last_contact_date DESC
 ```
 
-**Note**: Prefix all column references with `w.` since we're now joining with an alias.
+**⚠️ VERIFICATION CHECKLIST FOR STEP 2.2:**
+
+Before proceeding, verify:
+- [ ] Query Part 1 (30-179 days) has been updated with JOIN and `v.primary_key` in SELECT
+- [ ] Query Part 2 (180+ days) has been updated with JOIN and `v.primary_key` in SELECT
+- [ ] All column references in Part 1 are prefixed with `cl.`
+- [ ] All column references in Part 2 are prefixed with `w.`
+- [ ] Both queries use `LEFT JOIN \`${FULL_TABLE}\` v ON ... Full_Opportunity_ID__c`
+- [ ] Raw interface includes `primary_key: string | null` (may be null if JOIN fails)
+- [ ] Transformation function includes `primaryKey` field
+
+**Note**: Prefix all column references with table aliases (`cl.` for Part 1, `w.` for Part 2) since we're now joining with aliases.
 
 Also update the raw interface to include `primary_key`:
 ```typescript
@@ -3001,6 +3022,7 @@ git reset --hard <commit-hash>
 - **sgaName vs userName**: SGAHubContent uses `sgaName` consistently. Updated all handlers to use this variable name.
 - **ClosedLostRecord.primaryKey**: This field will be added in Phase 1, and the query will be updated in Phase 2. The component code in Phase 11 assumes it exists.
 - **Modal z-index**: RecordDetailModal uses `z-50`. MetricDrillDownModal should use the same to ensure proper layering when nested.
+- **⚠️ CRITICAL: Closed Lost Two-Part Query**: The `getClosedLostRecords` function has TWO separate queries (30-179 days and 180+ days). **BOTH must be updated** in Phase 2, Step 2.2 to include the JOIN with `vw_funnel_master` and add `v.primary_key` to the SELECT clause. This is emphasized in the implementation document with warning boxes, but worth double-checking during execution.
 
 ### Implementation Readiness:
 
