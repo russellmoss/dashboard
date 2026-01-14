@@ -715,3 +715,37 @@ Based on all findings, here are the required code changes:
 **Total Files to Modify**: 1 file (`conversion-rates.ts`)
 
 **Estimated Complexity**: Medium - requires careful modification of SQL CTEs while preserving conversion rate logic
+
+---
+
+## Phase 6: Implementation
+
+**Start Time**: 2025-01-27
+**Status**: In Progress
+
+### Implementation Checklist
+- [x] Step 1: Fix SQO volume CTE in buildPeriodModeQuery()
+- [x] Step 2: Fix Joined volume CTE in buildPeriodModeQuery()
+- [x] Step 3: Update ConversionTrendChart component UI
+- [x] Step 4: Add volume tooltip
+- [x] Step 5: Run linter and type checks
+- [ ] Step 6: Verify in browser (requires manual testing)
+
+### Step 1: Fix Volume CTEs in buildPeriodModeQuery() - COMPLETE
+- Added separate `sqo_volume` CTE (filters by Date_Became_SQO__c, no cohort restriction)
+- Added separate `joined_volume` CTE (filters by advisor_join_date__c, no cohort restriction)
+- Updated final SELECT to use new volume CTEs (sqov.sqos and jv.joined)
+- Removed buggy volume calculations from conversion rate CTEs (removed sqos from sql_to_sqo_numer, removed joined from sqo_to_joined_numer)
+- TypeScript compilation: ✅ PASS
+- Lint check: ✅ PASS
+- Errors fixed: None
+
+### Step 2: Update ConversionTrendChart Component - COMPLETE
+- Hid Cohort/Periodic toggle when Volumes selected (added `selectedMetric === 'rates'` condition)
+- Added tooltip to Volumes button (shows on hover)
+- Updated header text to show volumes explanation when volumes selected
+- Updated legend explanation for volumes mode
+- TypeScript compilation: ✅ PASS
+- Lint check: ✅ PASS
+- Build check: [PENDING]
+- Errors fixed: None

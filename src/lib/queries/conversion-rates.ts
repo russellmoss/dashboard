@@ -671,14 +671,8 @@ function buildPeriodModeQuery(
           AND v.recordtypeid = @recruitingRecordType
           -- Ensure SQO date is in same period as SQL date
           AND ${periodFn('TIMESTAMP(v.converted_date_raw)')} = ${periodFn('v.Date_Became_SQO__c')}
-        ) as sql_to_sqo_numer,
-        COUNTIF(
-          LOWER(v.SQO_raw) = 'yes'
-          AND v.Date_Became_SQO__c IS NOT NULL
-          AND v.is_sqo_unique = 1
-          AND v.recordtypeid = @recruitingRecordType
-          AND ${periodFn('TIMESTAMP(v.converted_date_raw)')} = ${periodFn('v.Date_Became_SQO__c')}
-        ) as sqos
+        ) as sql_to_sqo_numer
+        -- ✅ REMOVED: sqos field - now using separate sqo_volume CTE
       FROM \`${FULL_TABLE}\` v
       LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.converted_date_raw IS NOT NULL
@@ -731,13 +725,8 @@ function buildPeriodModeQuery(
           AND v.recordtypeid = @recruitingRecordType
           -- Ensure Joined date is in same period as SQO date
           AND ${periodFn('v.Date_Became_SQO__c')} = ${periodFn('TIMESTAMP(v.advisor_join_date__c)')}
-        ) as sqo_to_joined_numer,
-        COUNTIF(
-          v.advisor_join_date__c IS NOT NULL
-          AND v.is_joined_unique = 1
-          AND v.recordtypeid = @recruitingRecordType
-          AND ${periodFn('v.Date_Became_SQO__c')} = ${periodFn('TIMESTAMP(v.advisor_join_date__c)')}
-        ) as joined
+        ) as sqo_to_joined_numer
+        -- ✅ REMOVED: joined field - now using separate joined_volume CTE
       FROM \`${FULL_TABLE}\` v
       LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.Date_Became_SQO__c IS NOT NULL
@@ -780,6 +769,42 @@ function buildPeriodModeQuery(
         AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@trendEndDate)
         ${filterWhereClause}
       GROUP BY period
+    ),
+    
+    -- ═══════════════════════════════════════════════════════════════════════════
+    -- PERIODIC VOLUMES (Independent of conversion rate logic)
+    -- These count events by when they occurred, with no cohort restrictions
+    -- ═══════════════════════════════════════════════════════════════════════════
+    sqo_volume AS (
+      SELECT
+        ${periodFn('v.Date_Became_SQO__c')} as period,  -- ✅ Use SQO date for period grouping
+        COUNT(*) as sqos
+      FROM \`${FULL_TABLE}\` v
+      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
+      WHERE v.Date_Became_SQO__c IS NOT NULL  -- ✅ Filter by SQO date
+        AND LOWER(v.SQO_raw) = 'yes'
+        AND v.is_sqo_unique = 1
+        AND v.recordtypeid = @recruitingRecordType
+        AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@trendStartDate)  -- ✅ Use SQO date
+        AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@trendEndDate)   -- ✅ Use SQO date
+        ${filterWhereClause}
+      GROUP BY period
+      -- ✅ NO cohort restriction - count ALL SQOs in period
+    ),
+    
+    joined_volume AS (
+      SELECT
+        ${periodFn('TIMESTAMP(v.advisor_join_date__c)')} as period,  -- ✅ Use Joined date for period grouping
+        COUNT(*) as joined
+      FROM \`${FULL_TABLE}\` v
+      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
+      WHERE v.advisor_join_date__c IS NOT NULL  -- ✅ Filter by Joined date
+        AND v.is_joined_unique = 1
+        AND DATE(v.advisor_join_date__c) >= DATE(@trendStartDate)  -- ✅ Use Joined date
+        AND DATE(v.advisor_join_date__c) <= DATE(@trendEndDate)   -- ✅ Use Joined date
+        ${filterWhereClause}
+      GROUP BY period
+      -- ✅ NO cohort restriction - count ALL Joined in period
     )
     
     -- ═══════════════════════════════════════════════════════════════════════════
@@ -796,8 +821,8 @@ function buildPeriodModeQuery(
       COALESCE(sq2j_n.sqo_to_joined_numer, 0) as sqo_to_joined_numer,
       COALESCE(sq2j_d.sqo_to_joined_denom, 0) as sqo_to_joined_denom,
       COALESCE(m2s_n.sqls, 0) as sqls,
-      COALESCE(s2sq_n.sqos, 0) as sqos,
-      COALESCE(sq2j_n.joined, 0) as joined
+      COALESCE(sqov.sqos, 0) as sqos,     -- ✅ FIX: Use new sqo_volume CTE
+      COALESCE(jv.joined, 0) as joined    -- ✅ FIX: Use new joined_volume CTE
     FROM all_periods ap
     LEFT JOIN contacted_to_mql c2m ON ap.period = c2m.period
     LEFT JOIN mql_to_sql_numer m2s_n ON ap.period = m2s_n.period
@@ -806,6 +831,8 @@ function buildPeriodModeQuery(
     LEFT JOIN sql_to_sqo_denom s2sq_d ON ap.period = s2sq_d.period
     LEFT JOIN sqo_to_joined_numer sq2j_n ON ap.period = sq2j_n.period
     LEFT JOIN sqo_to_joined_denom sq2j_d ON ap.period = sq2j_d.period
+    LEFT JOIN sqo_volume sqov ON ap.period = sqov.period  -- ✅ ADD: New volume CTE
+    LEFT JOIN joined_volume jv ON ap.period = jv.period    -- ✅ ADD: New volume CTE
     ORDER BY ap.period
   `;
 }

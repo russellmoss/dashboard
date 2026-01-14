@@ -255,17 +255,20 @@ export function ConversionTrendChart({
             </ModeTooltip>
           </div>
           <Text className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-            {mode === 'period' 
-              ? 'Period view: What entered AND completed within each period'
-              : 'Cohort view: How well leads from each period ultimately convert'
-            }
+            {selectedMetric === 'volume' ? (
+              'Shows the count of SQLs, SQOs, and Advisors Joined that occurred within each time period'
+            ) : mode === 'period' ? (
+              'Period view: What entered AND completed within each period'
+            ) : (
+              'Cohort view: How well leads from each period ultimately convert'
+            )}
           </Text>
         </div>
         
         {/* Controls Row */}
         <div className="flex flex-wrap items-center gap-3">
-          {/* Mode Toggle - Cohort first (default), Period second */}
-          {onModeChange && (
+          {/* Mode Toggle - Cohort first (default), Period second - ONLY show when displaying rates */}
+          {selectedMetric === 'rates' && onModeChange && (
             <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
               <button
                 onClick={() => handleModeChange('cohort')}
@@ -308,16 +311,24 @@ export function ConversionTrendChart({
             >
               Rates
             </button>
-            <button
-              onClick={() => setSelectedMetric('volume')}
-              className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                selectedMetric === 'volume'
-                  ? 'bg-white shadow text-blue-600 font-medium'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              Volume
-            </button>
+            {/* Volume button with tooltip */}
+            <div className="relative group">
+              <button
+                onClick={() => setSelectedMetric('volume')}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  selectedMetric === 'volume'
+                    ? 'bg-white shadow text-blue-600 font-medium'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Volume
+              </button>
+              {/* Tooltip */}
+              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-800 dark:bg-gray-700 text-white text-sm rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
+                Shows the count of SQLs, SQOs, and Advisors Joined that occurred within each period
+                <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-800 dark:border-t-gray-700"></div>
+              </div>
+            </div>
           </div>
           
           {/* Granularity Toggle */}
@@ -417,7 +428,12 @@ export function ConversionTrendChart({
         <div className="flex items-start gap-2">
           <InfoIcon className="mt-0.5 flex-shrink-0" />
           <Text className="text-xs text-gray-500 dark:text-gray-400">
-            {mode === 'cohort' ? (
+            {selectedMetric === 'volume' ? (
+              <>
+                <strong>Volumes:</strong> Shows the count of SQLs, SQOs, and Advisors Joined that occurred within each time period. 
+                These are periodic counts - events are counted by when they happened, regardless of when the record entered the funnel.
+              </>
+            ) : mode === 'cohort' ? (
               <>
                 <strong>Cohort Mode:</strong> Tracks each cohort through the funnel over time.
                 A Q3 SQL that becomes SQO in Q4 counts toward Q3&apos;s rate.
