@@ -9,9 +9,18 @@ import { AdminSGATable } from '@/components/sga-hub/AdminSGATable';
 import { BulkGoalEditor } from '@/components/sga-hub/BulkGoalEditor';
 import { IndividualGoalEditor } from '@/components/sga-hub/IndividualGoalEditor';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { getCurrentQuarter, getWeekMondayDate, formatDateISO } from '@/lib/utils/sga-hub-helpers';
+import { getCurrentQuarter, getWeekMondayDate, formatDateISO, getWeekSundayDate, formatDateISO as formatDateISOHelper } from '@/lib/utils/sga-hub-helpers';
 import { exportAdminOverviewCSV } from '@/lib/utils/sga-hub-csv-export';
 import { Settings, Users, AlertTriangle, Target, Download } from 'lucide-react';
+import { MetricDrillDownModal } from '@/components/sga-hub/MetricDrillDownModal';
+import { RecordDetailModal } from '@/components/dashboard/RecordDetailModal';
+import { 
+  MetricType, 
+  DrillDownRecord, 
+  DrillDownContext
+} from '@/types/drill-down';
+import { dashboardApi } from '@/lib/api-client';
+import { formatDate } from '@/lib/utils/format-helpers';
 
 interface SGAManagementContentProps {}
 
@@ -27,6 +36,19 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
     formatDateISO(getWeekMondayDate(new Date()))
   );
   const [quarter, setQuarter] = useState<string>(getCurrentQuarter());
+
+  // Drill-down modal state
+  const [drillDownOpen, setDrillDownOpen] = useState(false);
+  const [drillDownMetricType, setDrillDownMetricType] = useState<MetricType | null>(null);
+  const [drillDownRecords, setDrillDownRecords] = useState<DrillDownRecord[]>([]);
+  const [drillDownLoading, setDrillDownLoading] = useState(false);
+  const [drillDownError, setDrillDownError] = useState<string | null>(null);
+  const [drillDownTitle, setDrillDownTitle] = useState('');
+  const [drillDownContext, setDrillDownContext] = useState<DrillDownContext | null>(null);
+
+  // Record detail modal state
+  const [recordDetailOpen, setRecordDetailOpen] = useState(false);
+  const [recordDetailId, setRecordDetailId] = useState<string | null>(null);
 
   // Fetch SGA overview data
   const fetchSGAOverviews = async () => {
@@ -77,6 +99,104 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
     setShowIndividualEditor(false);
     setEditingSGAEmail(null);
     fetchSGAOverviews();
+  };
+
+  // Helper to calculate week end date (Sunday) from start date (Monday)
+  const getWeekEndDate = (startDate: string): string => {
+    return formatDateISO(getWeekSundayDate(startDate));
+  };
+
+  // Handle metric value click
+  const handleMetricClick = async (
+    sgaEmail: string,
+    sgaName: string,
+    metricType: MetricType,
+    isGoal: boolean
+  ) => {
+    // Don't open drill-down for goal values (only actuals)
+    if (isGoal) return;
+
+    setDrillDownLoading(true);
+    setDrillDownError(null);
+    setDrillDownMetricType(metricType);
+    setDrillDownOpen(true);
+
+    // Calculate week end date
+    const weekEndDate = getWeekEndDate(weekStartDate);
+
+    // Set title
+    const metricLabels: Record<MetricType, string> = {
+      'initial-calls': 'Initial Calls',
+      'qualification-calls': 'Qualification Calls',
+      'sqos': 'SQOs',
+    };
+    setDrillDownTitle(`${metricLabels[metricType]} - ${sgaName} - Week of ${formatDate(weekStartDate)}`);
+
+    // Store context for back button
+    setDrillDownContext({
+      metricType,
+      title: `${metricLabels[metricType]} - ${sgaName} - Week of ${formatDate(weekStartDate)}`,
+      sgaName,
+      weekStartDate,
+      weekEndDate,
+    });
+
+    try {
+      let records: DrillDownRecord[] = [];
+
+      switch (metricType) {
+        case 'initial-calls': {
+          const response = await dashboardApi.getInitialCallsDrillDown(sgaName, weekStartDate, weekEndDate, sgaEmail);
+          records = response.records;
+          break;
+        }
+        case 'qualification-calls': {
+          const response = await dashboardApi.getQualificationCallsDrillDown(sgaName, weekStartDate, weekEndDate, sgaEmail);
+          records = response.records;
+          break;
+        }
+        case 'sqos': {
+          const response = await dashboardApi.getSQODrillDown(sgaName, { weekStartDate, weekEndDate }, sgaEmail);
+          records = response.records;
+          break;
+        }
+      }
+
+      setDrillDownRecords(records);
+    } catch (error) {
+      console.error('Error fetching drill-down records:', error);
+      setDrillDownError('Failed to load records. Please try again.');
+    } finally {
+      setDrillDownLoading(false);
+    }
+  };
+
+  // Handle row click in drill-down modal
+  const handleRecordClick = (primaryKey: string) => {
+    setDrillDownOpen(false);
+    setRecordDetailId(primaryKey);
+    setRecordDetailOpen(true);
+  };
+
+  // Handle back button in record detail modal
+  const handleBackToDrillDown = () => {
+    setRecordDetailOpen(false);
+    setRecordDetailId(null);
+    setDrillDownOpen(true);
+  };
+
+  // Handle close drill-down modal
+  const handleCloseDrillDown = () => {
+    setDrillDownOpen(false);
+    setDrillDownRecords([]);
+    setDrillDownContext(null);
+  };
+
+  // Handle close record detail modal
+  const handleCloseRecordDetail = () => {
+    setRecordDetailOpen(false);
+    setRecordDetailId(null);
+    setDrillDownContext(null);
   };
 
   if (loading && sgaOverviews.length === 0) {
@@ -211,6 +331,7 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
         onRefresh={handleRefresh}
         weekStartDate={weekStartDate}
         quarter={quarter}
+        onMetricClick={handleMetricClick}
       />
 
       {/* Selected SGA Details */}
