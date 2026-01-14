@@ -13,10 +13,18 @@ import { QuarterlyProgressChart } from '@/components/sga-hub/QuarterlyProgressCh
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { dashboardApi, handleApiError } from '@/lib/api-client';
 import { WeeklyGoal, WeeklyActual, WeeklyGoalWithActuals, ClosedLostRecord, QuarterlyProgress, SQODetail } from '@/types/sga-hub';
-import { getDefaultWeekRange, getWeekMondayDate, getWeekInfo, formatDateISO, getCurrentQuarter, getQuarterFromDate, getQuarterInfo } from '@/lib/utils/sga-hub-helpers';
+import { getDefaultWeekRange, getWeekMondayDate, getWeekInfo, formatDateISO, getCurrentQuarter, getQuarterFromDate, getQuarterInfo, getWeekSundayDate } from '@/lib/utils/sga-hub-helpers';
 import { getSessionPermissions } from '@/types/auth';
 import { exportWeeklyGoalsCSV, exportQuarterlyProgressCSV, exportClosedLostCSV } from '@/lib/utils/sga-hub-csv-export';
 import { Download } from 'lucide-react';
+import { MetricDrillDownModal } from '@/components/sga-hub/MetricDrillDownModal';
+import { RecordDetailModal } from '@/components/dashboard/RecordDetailModal';
+import { 
+  MetricType, 
+  DrillDownRecord, 
+  DrillDownContext 
+} from '@/types/drill-down';
+import { formatDate } from '@/lib/utils/format-helpers';
 
 export function SGAHubContent() {
   const { data: session } = useSession();
@@ -50,6 +58,19 @@ export function SGAHubContent() {
   const [historicalProgress, setHistoricalProgress] = useState<QuarterlyProgress[]>([]);
   const [quarterlyLoading, setQuarterlyLoading] = useState(false);
   const [quarterlyError, setQuarterlyError] = useState<string | null>(null);
+
+  // Drill-down modal state
+  const [drillDownOpen, setDrillDownOpen] = useState(false);
+  const [drillDownMetricType, setDrillDownMetricType] = useState<MetricType | null>(null);
+  const [drillDownRecords, setDrillDownRecords] = useState<DrillDownRecord[]>([]);
+  const [drillDownLoading, setDrillDownLoading] = useState(false);
+  const [drillDownError, setDrillDownError] = useState<string | null>(null);
+  const [drillDownTitle, setDrillDownTitle] = useState('');
+  const [drillDownContext, setDrillDownContext] = useState<DrillDownContext | null>(null);
+
+  // Record detail modal state
+  const [recordDetailOpen, setRecordDetailOpen] = useState(false);
+  const [recordDetailId, setRecordDetailId] = useState<string | null>(null);
   
   // Fetch weekly goals and actuals
   const fetchWeeklyData = async () => {
@@ -291,6 +312,7 @@ export function SGAHubContent() {
             goals={goalsWithActuals}
             onEditGoal={handleEditGoal}
             isLoading={loading}
+            onMetricClick={handleWeeklyMetricClick}
           />
         </>
       )}
@@ -386,7 +408,12 @@ export function SGAHubContent() {
           )}
           
           {quarterlyProgress && (
-            <QuarterlyProgressCard progress={quarterlyProgress} />
+            {quarterlyProgress && (
+              <QuarterlyProgressCard
+                progress={quarterlyProgress}
+                onSQOClick={handleQuarterlySQOClick}
+              />
+            )}
           )}
           
           <QuarterlyProgressChart
@@ -409,6 +436,28 @@ export function SGAHubContent() {
         }}
         onSaved={handleGoalSaved}
         goal={editingGoal}
+      />
+
+      {/* Drill-Down Modal */}
+      <MetricDrillDownModal
+        isOpen={drillDownOpen}
+        onClose={handleCloseDrillDown}
+        metricType={drillDownMetricType || 'initial-calls'}
+        records={drillDownRecords}
+        title={drillDownTitle}
+        loading={drillDownLoading}
+        error={drillDownError}
+        onRecordClick={handleRecordClick}
+      />
+
+      {/* Record Detail Modal */}
+      <RecordDetailModal
+        isOpen={recordDetailOpen}
+        onClose={handleCloseRecordDetail}
+        recordId={recordDetailId}
+        showBackButton={drillDownContext !== null}
+        onBack={handleBackToDrillDown}
+        backButtonLabel="← Back to records"
       />
     </div>
   );
