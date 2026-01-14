@@ -19,6 +19,7 @@ const PAGES = [
   { id: 6, name: 'SGA Performance', href: '/dashboard/sga', icon: UserCircle },
   { id: 7, name: 'Settings', href: '/dashboard/settings', icon: Settings },
   { id: 8, name: 'SGA Hub', href: '/dashboard/sga-hub', icon: Target },
+  { id: 9, name: 'SGA Management', href: '/dashboard/sga-management', icon: Users },
 ];
 
 interface SidebarProps {
