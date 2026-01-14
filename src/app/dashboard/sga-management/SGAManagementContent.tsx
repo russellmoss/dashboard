@@ -7,6 +7,7 @@ import { Card, Title, Text, Metric, Badge, Button } from '@tremor/react';
 import { AdminSGAOverview } from '@/types/sga-hub';
 import { AdminSGATable } from '@/components/sga-hub/AdminSGATable';
 import { BulkGoalEditor } from '@/components/sga-hub/BulkGoalEditor';
+import { IndividualGoalEditor } from '@/components/sga-hub/IndividualGoalEditor';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { getCurrentQuarter, getWeekMondayDate, formatDateISO } from '@/lib/utils/sga-hub-helpers';
 import { Settings, Users, AlertTriangle, Target } from 'lucide-react';
@@ -18,6 +19,9 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
   const [sgaOverviews, setSgaOverviews] = useState<AdminSGAOverview[]>([]);
   const [selectedSGAEmail, setSelectedSGAEmail] = useState<string | null>(null);
   const [showBulkEditor, setShowBulkEditor] = useState(false);
+  const [showIndividualEditor, setShowIndividualEditor] = useState(false);
+  const [editingSGAEmail, setEditingSGAEmail] = useState<string | null>(null);
+  const [editingGoalType, setEditingGoalType] = useState<'weekly' | 'quarterly'>('weekly');
   const [weekStartDate, setWeekStartDate] = useState<string>(
     formatDateISO(getWeekMondayDate(new Date()))
   );
@@ -64,6 +68,18 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
     : null;
 
   const handleRefresh = () => {
+    fetchSGAOverviews();
+  };
+
+  const handleEditGoal = (sgaEmail: string, goalType: 'weekly' | 'quarterly') => {
+    setEditingSGAEmail(sgaEmail);
+    setEditingGoalType(goalType);
+    setShowIndividualEditor(true);
+  };
+
+  const handleGoalSaved = () => {
+    setShowIndividualEditor(false);
+    setEditingSGAEmail(null);
     fetchSGAOverviews();
   };
 
@@ -187,6 +203,7 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
         sgaOverviews={sgaOverviews}
         selectedSGAEmail={selectedSGAEmail}
         onSGASelect={setSelectedSGAEmail}
+        onEditGoal={handleEditGoal}
         onRefresh={handleRefresh}
         weekStartDate={weekStartDate}
         quarter={quarter}
@@ -313,6 +330,22 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
         }}
         sgaOverviews={sgaOverviews}
       />
+
+      {/* Individual Goal Editor Modal */}
+      {editingSGAEmail && (
+        <IndividualGoalEditor
+          isOpen={showIndividualEditor}
+          onClose={() => {
+            setShowIndividualEditor(false);
+            setEditingSGAEmail(null);
+          }}
+          onSaved={handleGoalSaved}
+          sgaOverview={sgaOverviews.find(sga => sga.userEmail === editingSGAEmail) || null}
+          goalType={editingGoalType}
+          weekStartDate={weekStartDate}
+          quarter={quarter}
+        />
+      )}
     </div>
   );
 }

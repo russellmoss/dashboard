@@ -12,6 +12,7 @@ interface AdminSGATableProps {
   sgaOverviews: AdminSGAOverview[];
   selectedSGAEmail: string | null;
   onSGASelect: (email: string | null) => void;
+  onEditGoal: (sgaEmail: string, goalType: 'weekly' | 'quarterly') => void;
   onRefresh: () => void;
   weekStartDate: string;
   quarter: string;
@@ -21,6 +22,7 @@ export function AdminSGATable({
   sgaOverviews,
   selectedSGAEmail,
   onSGASelect,
+  onEditGoal,
   onRefresh,
   weekStartDate,
   quarter,
@@ -168,10 +170,21 @@ export function AdminSGATable({
                           icon={Pencil}
                           onClick={(e) => {
                             e.stopPropagation();
-                            onSGASelect(overview.userEmail);
+                            onEditGoal(overview.userEmail, 'weekly');
                           }}
                         >
-                          Edit
+                          Edit Weekly
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="secondary"
+                          icon={Pencil}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditGoal(overview.userEmail, 'quarterly');
+                          }}
+                        >
+                          Edit Quarterly
                         </Button>
                         <a
                           href={`/dashboard/sga-hub?userEmail=${encodeURIComponent(overview.userEmail)}`}
