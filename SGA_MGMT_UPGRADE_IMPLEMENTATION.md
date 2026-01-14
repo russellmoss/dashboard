@@ -331,6 +331,7 @@ import {
 } from '@/types/drill-down';
 import { formatCurrency } from '@/lib/utils/date-helpers';
 import { toString, toNumber } from '@/types/bigquery-raw';
+import { formatDate } from '@/lib/utils/format-helpers';
 
 /**
  * Extract date value from BigQuery DATE/TIMESTAMP field
@@ -1628,7 +1629,41 @@ Replace the Current Week section (around lines 207-227) with:
 
 **Note**: Keep the existing `space-y-2 text-sm` classes on the parent div to maintain consistent spacing.
 
-Replace the Current Quarter section (around lines 230-258) with:
+**Current Quarter Section** (lines 230-258):
+```typescript
+{/* Quarter Details */}
+<div>
+  <Text className="font-semibold mb-3 text-gray-900 dark:text-white">Current Quarter ({quarter})</Text>
+  <div className="space-y-2 text-sm">
+    <div className="grid grid-cols-[80px_1fr] gap-2">
+      <Text className="text-gray-600 dark:text-gray-400 font-medium">Goal:</Text>
+      <Text className="text-gray-900 dark:text-white">
+        {overview.currentQuarterGoal
+          ? `${overview.currentQuarterGoal.sqoGoal} SQOs`
+          : 'Not set'}
+      </Text>
+    </div>
+    <div className="grid grid-cols-[80px_1fr] gap-2">
+      <Text className="text-gray-600 dark:text-gray-400 font-medium">Actual:</Text>
+      <Text className="text-gray-900 dark:text-white">
+        {overview.currentQuarterProgress
+          ? `${overview.currentQuarterProgress.sqoActual} SQOs (${overview.currentQuarterProgress.progressPercent?.toFixed(0) || 0}%)`
+          : 'No data'}
+      </Text>
+    </div>
+    <div className="grid grid-cols-[80px_1fr] gap-2">
+      <Text className="text-gray-600 dark:text-gray-400 font-medium">Pacing:</Text>
+      <Text className="text-gray-900 dark:text-white">
+        {overview.currentQuarterProgress
+          ? `${overview.currentQuarterProgress.pacingStatus} (${overview.currentQuarterProgress.pacingDiff > 0 ? '+' : ''}${overview.currentQuarterProgress.pacingDiff.toFixed(1)})`
+          : 'N/A'}
+      </Text>
+    </div>
+  </div>
+</div>
+```
+
+**Replace with**:
 ```typescript
 {/* Quarter Details */}
 <div>
@@ -1975,26 +2010,33 @@ Reference the existing column structure in lines 165-209.
 
 **Code Changes to Make in `src/components/sga-hub/WeeklyGoalsTable.tsx`:**
 
-Add imports at the top (after existing imports):
-```typescript
-import { ClickableMetricValue } from './ClickableMetricValue';
-import { MetricType } from '@/types/drill-down';
-```
-
-Update props interface (around line 12):
+**Current Props Interface** (lines 12-16):
 ```typescript
 interface WeeklyGoalsTableProps {
   goals: WeeklyGoalWithActuals[];
   onEditGoal: (goal: WeeklyGoalWithActuals) => void;
-  isLoading?: boolean; // Existing prop - keep this
+  isLoading?: boolean;
+}
+```
+
+**Updated Props Interface** - Add after line 15:
+```typescript
+interface WeeklyGoalsTableProps {
+  goals: WeeklyGoalWithActuals[];
+  onEditGoal: (goal: WeeklyGoalWithActuals) => void;
+  isLoading?: boolean;
   // New prop for metric click
   onMetricClick?: (weekStartDate: string, metricType: MetricType) => void;
 }
 ```
 
-**Note**: The component does NOT have a `canEdit` prop. The `canEdit` property is on each `goal` object (from `WeeklyGoalWithActuals`). The component checks `goal.canEdit` internally (line 211).
+**Add imports** at the top (after line 8):
+```typescript
+import { ClickableMetricValue } from './ClickableMetricValue';
+import { MetricType } from '@/types/drill-down';
+```
 
-Destructure the new prop (around line 61):
+**Update Component Signature** (line 61):
 ```typescript
 export function WeeklyGoalsTable({
   goals,
@@ -2003,6 +2045,8 @@ export function WeeklyGoalsTable({
   onMetricClick,
 }: WeeklyGoalsTableProps) {
 ```
+
+**Note**: The component does NOT have a `canEdit` prop. The `canEdit` property is on each `goal` object (from `WeeklyGoalWithActuals`). The component checks `goal.canEdit` internally (line 211).
 
 Update the Initial Calls column cell (around line 165-179). **Current code** shows:
 ```typescript
@@ -2265,7 +2309,12 @@ import {
 } from '@/types/drill-down';
 ```
 
-**Note**: `useSession` is already imported (line 5). `dashboardApi` is already imported (line 14). `formatDate` is already imported (line 16).
+**Note**: 
+- `useSession` is already imported (line 5)
+- `dashboardApi` is already imported (line 14)
+- `formatDate` is NOT imported in SGAHubContent - it's only used in child components
+- `sgaName` is already declared (line 25): `const sgaName = session?.user?.name || 'Unknown';`
+- Use `sgaName` instead of `userName` throughout the handlers
 
 **Note**: `SGAHubContent` already uses `useSession()` (line 22). The `sgaName` is already derived from `session?.user?.name` (line 25).
 
@@ -2300,7 +2349,7 @@ const getWeekEndDate = (startDate: string): string => {
 
 // Handle metric click from Weekly Goals Table
 const handleWeeklyMetricClick = async (weekStartDate: string, metricType: MetricType) => {
-  if (!userName) return;
+  if (!sgaName || sgaName === 'Unknown') return;
 
   setDrillDownLoading(true);
   setDrillDownError(null);
@@ -2371,12 +2420,12 @@ const handleQuarterlySQOClick = async () => {
   setDrillDownContext({
     metricType: 'sqos',
     title,
-    sgaName: userName,
+    sgaName: sgaName,
     quarter: selectedQuarter,
   });
 
   try {
-    const response = await dashboardApi.getSQODrillDown(userName, { quarter: selectedQuarter }, session?.user?.email);
+    const response = await dashboardApi.getSQODrillDown(sgaName, { quarter: selectedQuarter }, session?.user?.email);
     setDrillDownRecords(response.records);
   } catch (error) {
     console.error('Error fetching SQO drill-down:', error);
@@ -2516,6 +2565,16 @@ No changes may be needed if the pattern is already correct, just verify.
 ```
 
 **Status**: ✅ The component already has the click handler pattern. No changes needed to `ClosedLostTable.tsx` itself. The `onRecordClick` prop already receives the full `record` object, which will now include `primaryKey` after Phase 2 updates.
+
+**Current Usage in SGAHubContent** (line 317-320):
+```typescript
+<ClosedLostTable
+  records={closedLostRecords}
+  isLoading={closedLostLoading}
+/>
+```
+
+**Note**: `onRecordClick` is NOT currently being passed. We need to add it in Phase 11.
 
 ### Step 11.2: Add Record Detail Handler to SGAHubContent for Closed Lost
 
@@ -2861,3 +2920,92 @@ git reset --hard <commit-hash>
 ---
 
 **All code snippets now match existing codebase patterns and will work correctly during agentic execution.**
+
+---
+
+## Corrections Applied (Follow-Up Investigation)
+
+**Date**: January 2026
+
+### Changes Made:
+
+1. **RecordDetailModal Back Button** (Phase 5.3):
+   - ✅ Verified props interface (lines 24-29) - no conflicts
+   - ✅ Documented exact header structure (lines 193-237)
+   - ✅ Updated code to place back button above title in flex layout
+   - ✅ Verified modal uses `z-50`, `fixed inset-0`, `bg-black/50 backdrop-blur-sm`
+
+2. **SGAHubContent State** (Phase 10.1):
+   - ✅ Verified `session` already exists (line 22)
+   - ✅ Verified `sgaName` already exists (line 25)
+   - ✅ Updated handlers to use `sgaName` instead of `userName`
+   - ✅ Documented exact insertion point (after line 52)
+
+3. **ClosedLostTable** (Phase 11):
+   - ✅ Verified `onRecordClick` prop exists (line 18)
+   - ✅ Verified row click handler exists (line 282)
+   - ✅ Documented that `onRecordClick` is NOT currently passed in SGAHubContent (line 317-320)
+   - ✅ No changes needed to ClosedLostTable component itself
+
+4. **AdminSGATable Expanded Row** (Phase 6.1):
+   - ✅ Verified current grid is `grid-cols-[80px_1fr]` (lines 210, 218, 233, 241, 249)
+   - ✅ Documented exact abbreviation locations (lines 214, 222)
+   - ✅ Updated code to change grid to `grid-cols-[160px_1fr]` and replace abbreviations
+
+5. **WeeklyGoalsTable** (Phase 8.1):
+   - ✅ Verified props interface (lines 12-16) - no `canEdit` prop
+   - ✅ Documented exact cell structure (lines 165-209)
+   - ✅ Verified `goal.canEdit` is used internally (line 211)
+   - ✅ Updated code to match existing styling patterns
+
+6. **API Client Structure** (Phase 4.1):
+   - ✅ Verified SGA Hub functions location (line 175)
+   - ✅ Documented exact insertion point (after line 233)
+   - ✅ Verified function signature patterns match existing code
+
+7. **Helper Function Locations** (Throughout):
+   - ✅ Verified `formatDate` is in `@/lib/utils/format-helpers` (NOT `date-helpers.ts`)
+   - ✅ Verified `formatCurrency` is in `@/lib/utils/date-helpers`
+   - ✅ Verified `toString` and `toNumber` are in `@/types/bigquery-raw`
+   - ✅ Updated all import statements to use correct paths
+
+8. **Type Definitions** (Phase 1):
+   - ✅ Verified `ClosedLostRecord` structure (lines 149-164)
+   - ✅ Confirmed `primaryKey` field needs to be added
+   - ✅ Verified `toString` and `toNumber` helper signatures
+
+9. **Modal Patterns** (Phase 5.2):
+   - ✅ Documented RecordDetailModal structure: `z-50`, `fixed inset-0`, `bg-black/50 backdrop-blur-sm`
+   - ✅ Verified ESC key handling pattern
+   - ✅ Updated MetricDrillDownModal to match these patterns
+
+10. **Prisma User Query** (Phase 3):
+    - ✅ Verified pattern in `weekly-actuals/route.ts` (lines 62-65)
+    - ✅ Confirmed `user.name` field is used for `SGA_Owner_Name__c` matching
+    - ✅ Updated all API routes to match this pattern
+
+### Verified Patterns:
+
+- ✅ RecordDetailModal header structure matches documented pattern
+- ✅ SGAHubContent state management pattern verified
+- ✅ ClosedLostTable onClick handler pattern verified
+- ✅ AdminSGATable grid layout pattern verified
+- ✅ WeeklyGoalsTable cell structure pattern verified
+- ✅ API client function signature pattern verified
+- ✅ Import paths all verified against actual file locations
+- ✅ Prisma user query pattern matches existing routes
+
+### Remaining Considerations:
+
+- **formatDate import**: Some components import from `format-helpers.ts`, others don't import it at all. The implementation document correctly uses `@/lib/utils/format-helpers` where needed.
+- **sgaName vs userName**: SGAHubContent uses `sgaName` consistently. Updated all handlers to use this variable name.
+- **ClosedLostRecord.primaryKey**: This field will be added in Phase 1, and the query will be updated in Phase 2. The component code in Phase 11 assumes it exists.
+- **Modal z-index**: RecordDetailModal uses `z-50`. MetricDrillDownModal should use the same to ensure proper layering when nested.
+
+### Implementation Readiness:
+
+✅ **All sections verified against actual codebase**
+✅ **All code snippets match existing patterns**
+✅ **All import paths corrected**
+✅ **All variable names aligned with existing code**
+✅ **Ready for agentic execution**
