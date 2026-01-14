@@ -408,12 +408,10 @@ export function SGAHubContent() {
           )}
           
           {quarterlyProgress && (
-            {quarterlyProgress && (
-              <QuarterlyProgressCard
-                progress={quarterlyProgress}
-                onSQOClick={handleQuarterlySQOClick}
-              />
-            )}
+            <QuarterlyProgressCard
+              progress={quarterlyProgress}
+              onSQOClick={handleQuarterlySQOClick}
+            />
           )}
           
           <QuarterlyProgressChart
