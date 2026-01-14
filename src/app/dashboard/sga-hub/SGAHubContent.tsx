@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { Title, Text, Card, Button, Select, SelectItem } from '@tremor/react';
+import { Title, Text, Card, Button } from '@tremor/react';
 import { useSession } from 'next-auth/react';
 import { SGAHubTabs, SGAHubTab } from '@/components/sga-hub/SGAHubTabs';
 import { WeeklyGoalsTable } from '@/components/sga-hub/WeeklyGoalsTable';
@@ -300,15 +300,15 @@ export function SGAHubContent() {
       
       {activeTab === 'quarterly-progress' && (
         <>
-          <div className="mb-4 flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Quarter:
+          <div className="mb-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+                Quarter
               </label>
-              <Select
+              <select
                 value={selectedQuarter}
-                onValueChange={setSelectedQuarter}
-                className="min-w-[120px] bg-white dark:bg-gray-800"
+                onChange={(e) => setSelectedQuarter(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
               >
                 {(() => {
                   const quarters: string[] = [];
@@ -332,13 +332,13 @@ export function SGAHubContent() {
                   return quarters.map(q => {
                     const info = getQuarterInfo(q);
                     return (
-                      <SelectItem key={q} value={q}>
+                      <option key={q} value={q}>
                         {info.label}
-                      </SelectItem>
+                      </option>
                     );
                   });
                 })()}
-              </Select>
+              </select>
             </div>
           </div>
           
