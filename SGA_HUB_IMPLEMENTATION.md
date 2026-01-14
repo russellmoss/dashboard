@@ -2426,6 +2426,103 @@ function transformClosedLostRecord(row: RawClosedLostResult): ClosedLostRecord {
 **Cursor.ai Prompt:**
 Create `src/app/api/sga-hub/closed-lost/route.ts` to return records for the logged-in SGA.
 
+**Code to Create (src/app/api/sga-hub/closed-lost/route.ts):**
+
+```typescript
+// src/app/api/sga-hub/closed-lost/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { getUserPermissions } from '@/lib/permissions';
+import { getClosedLostRecords } from '@/lib/queries/closed-lost';
+import { ClosedLostTimeBucket } from '@/types/sga-hub';
+import { prisma } from '@/lib/prisma';
+
+/**
+ * GET /api/sga-hub/closed-lost
+ * Get closed lost records for the logged-in SGA or specified SGA (admin/manager only)
+ */
+export async function GET(request: NextRequest) {
+  try {
+    // Authentication check
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    
+    const permissions = await getUserPermissions(session.user.email);
+    
+    // Check role permissions
+    if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    
+    // Parse query params
+    const { searchParams } = new URL(request.url);
+    const targetUserEmail = searchParams.get('userEmail'); // Admin/manager only
+    const timeBucketsParam = searchParams.get('timeBuckets'); // Comma-separated or single value
+    
+    // Determine which user's records to fetch
+    let userEmail = session.user.email;
+    
+    if (targetUserEmail) {
+      // Only admin/manager can view other users' records
+      if (!['admin', 'manager'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      userEmail = targetUserEmail;
+    } else {
+      // SGA role can only view own records
+      if (permissions.role === 'sga' && userEmail !== session.user.email) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
+    
+    // Get user to retrieve name for BigQuery filter
+    const user = await prisma.user.findUnique({
+      where: { email: userEmail },
+      select: { name: true },
+    });
+    
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+    
+    // Parse timeBuckets parameter
+    let timeBuckets: ClosedLostTimeBucket[] | undefined;
+    
+    if (timeBucketsParam) {
+      // Handle comma-separated string or single value
+      const buckets = timeBucketsParam.split(',').map(b => b.trim()) as ClosedLostTimeBucket[];
+      // Validate buckets are valid ClosedLostTimeBucket values
+      const validBuckets: ClosedLostTimeBucket[] = ['30-60', '60-90', '90-120', '120-150', '150-180', 'all'];
+      timeBuckets = buckets.filter(b => validBuckets.includes(b));
+      
+      // If no valid buckets, default to all
+      if (timeBuckets.length === 0) {
+        timeBuckets = ['30-60', '60-90', '90-120', '120-150', '150-180'];
+      }
+    } else {
+      // Default to all buckets if not specified
+      timeBuckets = ['30-60', '60-90', '90-120', '120-150', '150-180'];
+    }
+    
+    // Fetch closed lost records
+    const records = await getClosedLostRecords(user.name, timeBuckets);
+    
+    return NextResponse.json({ records });
+    
+  } catch (error) {
+    console.error('[API] Error fetching closed lost records:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch closed lost records' },
+      { status: 500 }
+    );
+  }
+}
+```
+
 ### Step 6.3: Create Closed Lost Table Component
 
 **Cursor.ai Prompt:**
