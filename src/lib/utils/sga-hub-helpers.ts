@@ -6,7 +6,17 @@ import { QuarterInfo, WeekInfo, QuarterlyProgress } from '@/types/sga-hub';
  * Get the Monday of the week containing the given date
  */
 export function getWeekMondayDate(date: Date | string): Date {
-  const d = new Date(date);
+  // Parse as local date to avoid timezone issues
+  let d: Date;
+  if (typeof date === 'string') {
+    // Parse YYYY-MM-DD as local date (not UTC)
+    const [year, month, day] = date.split('-').map(Number);
+    d = new Date(year, month - 1, day);
+  } else {
+    d = new Date(date);
+  }
+  d.setHours(0, 0, 0, 0);
+  
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Sunday
   const monday = new Date(d.setDate(diff));
@@ -28,8 +38,19 @@ export function getWeekSundayDate(date: Date | string): Date {
  * Format a week range as "Jan 13 - Jan 19, 2026"
  */
 export function formatWeekRange(mondayDate: Date | string): string {
-  const monday = new Date(mondayDate);
+  // Parse as local date to avoid timezone issues
+  let monday: Date;
+  if (typeof mondayDate === 'string') {
+    // Parse YYYY-MM-DD as local date (not UTC)
+    const [year, month, day] = mondayDate.split('-').map(Number);
+    monday = new Date(year, month - 1, day);
+  } else {
+    monday = new Date(mondayDate);
+  }
+  monday.setHours(0, 0, 0, 0);
+  
   const sunday = getWeekSundayDate(monday);
+  sunday.setHours(0, 0, 0, 0);
   
   const monthFormat = new Intl.DateTimeFormat('en-US', { month: 'short' });
   const dayFormat = new Intl.DateTimeFormat('en-US', { day: 'numeric' });
@@ -177,9 +198,19 @@ export function calculateQuarterPacing(
  * Get week info for a given Monday date
  */
 export function getWeekInfo(mondayDate: Date | string): WeekInfo {
-  const monday = new Date(mondayDate);
+  // Parse as local date to avoid timezone issues
+  let monday: Date;
+  if (typeof mondayDate === 'string') {
+    // Parse YYYY-MM-DD as local date (not UTC)
+    const [year, month, day] = mondayDate.split('-').map(Number);
+    monday = new Date(year, month - 1, day);
+  } else {
+    monday = new Date(mondayDate);
+  }
   monday.setHours(0, 0, 0, 0);
+  
   const sunday = getWeekSundayDate(monday);
+  sunday.setHours(0, 0, 0, 0);
   
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -248,7 +279,16 @@ export function getCurrentQuarter(): string {
  * Validate that a date is a Monday
  */
 export function isMonday(date: Date | string): boolean {
-  const d = new Date(date);
+  // Parse as local date to avoid timezone issues
+  let d: Date;
+  if (typeof date === 'string') {
+    // Parse YYYY-MM-DD as local date (not UTC)
+    const [year, month, day] = date.split('-').map(Number);
+    d = new Date(year, month - 1, day);
+  } else {
+    d = new Date(date);
+  }
+  d.setHours(0, 0, 0, 0);
   return d.getDay() === 1;
 }
 
