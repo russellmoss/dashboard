@@ -3121,10 +3121,15 @@ Integrate `ClosedLostTable` into `SGAHubContent.tsx`. Add `RecordDetailModal` fo
 * [ ] **Manual UI Test**: Navigate to Closed Lost tab, verify:
   - [ ] Table renders with records (if any exist)
   - [ ] Sorting works correctly (click column headers)
-  - [ ] Time bucket filters work (multi-select buttons)
+  - [ ] Time bucket filters work (multi-select buttons, including 180+ bucket)
+  - [ ] 180+ days records appear when that bucket is selected
   - [ ] Salesforce links open in new tab
   - [ ] Row click opens detail modal (if implemented)
   - [ ] No console errors in browser DevTools
+* [ ] **Data Verification**: 
+  - [ ] User's `name` field in database exactly matches `sga_name` in BigQuery view (case-sensitive)
+  - [ ] Records 30-179 days appear from view query
+  - [ ] Records 180+ days appear from base table query (if any exist)
 * [ ] `npm run build` passes
 
 **Checkpoint:**
