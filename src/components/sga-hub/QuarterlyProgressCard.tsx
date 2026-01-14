@@ -8,6 +8,8 @@ import { TrendingUp, TrendingDown, Minus, Target } from 'lucide-react';
 
 interface QuarterlyProgressCardProps {
   progress: QuarterlyProgress;
+  // New prop for SQO click
+  onSQOClick?: () => void;
 }
 
 /**
@@ -103,9 +105,24 @@ export function QuarterlyProgressCard({ progress }: QuarterlyProgressCardProps) 
       {/* SQO Progress */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2">
-          <Text className="text-gray-600 dark:text-gray-400 text-sm font-medium">
-            SQOs: {sqoActual.toFixed(0)} {hasGoal && sqoGoal ? `of ${sqoGoal.toFixed(0)}` : ''}
-          </Text>
+          <div className="flex items-center gap-2">
+            <Text className="text-gray-600 dark:text-gray-400 text-sm font-medium">SQOs:</Text>
+            {onSQOClick ? (
+              <ClickableMetricValue
+                value={Math.round(sqoActual)}
+                onClick={onSQOClick}
+              />
+            ) : (
+              <Text className="text-xl font-bold text-gray-900 dark:text-white">
+                {sqoActual.toFixed(0)}
+              </Text>
+            )}
+            {hasGoal && sqoGoal && (
+              <Text className="text-sm text-gray-500 dark:text-gray-400">
+                of {sqoGoal.toFixed(0)}
+              </Text>
+            )}
+          </div>
           {hasGoal && progressPercent !== null && (
             <Text className="text-gray-900 dark:text-white font-semibold">
               {progressPercent.toFixed(0)}%
