@@ -88,7 +88,10 @@ export function RecordDetailModal({
   isOpen, 
   onClose, 
   recordId,
-  initialRecord 
+  initialRecord,
+  showBackButton = false,
+  onBack,
+  backButtonLabel = '← Back to list',
 }: RecordDetailModalProps) {
   const [record, setRecord] = useState<RecordDetailFull | null>(initialRecord || null);
   const [loading, setLoading] = useState(false);
