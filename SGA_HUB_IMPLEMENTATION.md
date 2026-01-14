@@ -4635,7 +4635,9 @@ export function AdminSGATable({
               const isSelected = selectedSGAEmail === overview.userEmail;
 
               return (
-                <React.Fragment key={overview.userEmail}>
+                <>
+                  <TableRow
+                    key={overview.userEmail}
                   <TableRow
                     className={`cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${
                       isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : ''
@@ -4770,7 +4772,7 @@ export function AdminSGATable({
                       </TableCell>
                     </TableRow>
                   )}
-                </React.Fragment>
+                </>
               );
             })
           )}
