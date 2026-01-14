@@ -479,3 +479,239 @@ This is the pattern that should be used for trend chart volumes!
 - SQLs: Count by `converted_date_raw`
 - SQOs: Count by `Date_Became_SQO__c` (with deduplication and record type filter)
 - Joined: Count by `advisor_join_date__c` (with deduplication)
+
+---
+
+## Phase 5: Solution Design
+
+### 5.1: Correct Volume Query Design
+
+Based on the ground truth queries from Phase 2 and the correct scorecard logic from Phase 3, here is the CORRECT SQL query structure for periodic volumes:
+
+**Key Principles:**
+1. **Group by time period** (quarter/month/year based on granularity)
+2. **Count SQLs** filtered by `converted_date_raw` within the period
+3. **Count SQOs** filtered by `Date_Became_SQO__c` within the period, with `is_sqo_unique = 1` and `recordtypeid` filter
+4. **Count Joined** filtered by `advisor_join_date__c` within the period, with `is_joined_unique = 1`
+5. **NO cohort restrictions** - volumes are always periodic, independent of conversion rate mode
+
+**Correct Volume CTEs for PERIOD MODE:**
+
+```sql
+-- SQL Volume CTE (CORRECT - already working)
+sql_volume AS (
+  SELECT
+    ${periodFn('TIMESTAMP(v.converted_date_raw)')} as period,
+    COUNT(*) as sqls
+  FROM \`${FULL_TABLE}\` v
+  LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
+  WHERE v.converted_date_raw IS NOT NULL
+    AND v.is_sql = 1
+    AND DATE(v.converted_date_raw) >= DATE(@trendStartDate)
+    AND DATE(v.converted_date_raw) <= DATE(@trendEndDate)
+    ${filterWhereClause}
+  GROUP BY period
+),
+
+-- SQO Volume CTE (FIXED)
+sqo_volume AS (
+  SELECT
+    ${periodFn('v.Date_Became_SQO__c')} as period,  -- ✅ FIX: Use SQO date, not SQL date
+    COUNT(*) as sqos
+  FROM \`${FULL_TABLE}\` v
+  LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
+  WHERE v.Date_Became_SQO__c IS NOT NULL  -- ✅ FIX: Filter by SQO date
+    AND LOWER(v.SQO_raw) = 'yes'
+    AND v.is_sqo_unique = 1
+    AND v.recordtypeid = @recruitingRecordType
+    AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@trendStartDate)  -- ✅ FIX: Use SQO date
+    AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@trendEndDate)   -- ✅ FIX: Use SQO date
+    ${filterWhereClause}
+  GROUP BY period
+  -- ✅ FIX: NO cohort restriction - count ALL SQOs in period
+),
+
+-- Joined Volume CTE (FIXED)
+joined_volume AS (
+  SELECT
+    ${periodFn('TIMESTAMP(v.advisor_join_date__c)')} as period,  -- ✅ FIX: Use Joined date, not SQO date
+    COUNT(*) as joined
+  FROM \`${FULL_TABLE}\` v
+  LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
+  WHERE v.advisor_join_date__c IS NOT NULL  -- ✅ FIX: Filter by Joined date
+    AND v.is_joined_unique = 1
+    AND DATE(v.advisor_join_date__c) >= DATE(@trendStartDate)  -- ✅ FIX: Use Joined date
+    AND DATE(v.advisor_join_date__c) <= DATE(@trendEndDate)   -- ✅ FIX: Use Joined date
+    ${filterWhereClause}
+  GROUP BY period
+  -- ✅ FIX: NO cohort restriction - count ALL Joined in period
+)
+```
+
+**Changes Required:**
+1. **SQO Volume CTE** (currently `sql_to_sqo_numer`):
+   - Change period function from `periodFn('TIMESTAMP(v.converted_date_raw)')` to `periodFn('v.Date_Became_SQO__c')`
+   - Change WHERE clause from filtering by `converted_date_raw` to filtering by `Date_Became_SQO__c`
+   - Remove cohort restriction: `AND ${periodFn('TIMESTAMP(v.converted_date_raw)')} = ${periodFn('v.Date_Became_SQO__c')}`
+   - Keep deduplication: `is_sqo_unique = 1` and `recordtypeid` filter
+
+2. **Joined Volume CTE** (currently `sqo_to_joined_numer`):
+   - Change period function from `periodFn('v.Date_Became_SQO__c')` to `periodFn('TIMESTAMP(v.advisor_join_date__c)')`
+   - Change WHERE clause from filtering by `Date_Became_SQO__c` to filtering by `advisor_join_date__c`
+   - Remove cohort restriction: `AND ${periodFn('v.Date_Became_SQO__c')} = ${periodFn('TIMESTAMP(v.advisor_join_date__c)')}`
+   - Keep deduplication: `is_joined_unique = 1`
+
+3. **SQL Volume CTE** (currently `mql_to_sql_numer`):
+   - ✅ Already correct - no changes needed
+
+**Note**: These volume CTEs should be **independent** of the conversion rate numerator/denominator CTEs. They should be separate CTEs that are joined in the final SELECT.
+
+---
+
+### 5.2: Validate the Fix Query
+
+**Q4 2025 Validation Results:**
+
+**SQL Volume Query:**
+```sql
+SELECT
+  CONCAT(CAST(EXTRACT(YEAR FROM converted_date_raw) AS STRING), '-Q', CAST(EXTRACT(QUARTER FROM converted_date_raw) AS STRING)) as period,
+  COUNT(*) as sqls
+FROM vw_funnel_master
+WHERE converted_date_raw IS NOT NULL
+  AND is_sql = 1
+  AND DATE(converted_date_raw) >= DATE('2025-10-01')
+  AND DATE(converted_date_raw) <= DATE('2025-12-31')
+GROUP BY period
+```
+**Result**: 193 SQLs ✅ (Matches expected: 193)
+
+**SQO Volume Query:**
+```sql
+SELECT
+  CONCAT(CAST(EXTRACT(YEAR FROM Date_Became_SQO__c) AS STRING), '-Q', CAST(EXTRACT(QUARTER FROM Date_Became_SQO__c) AS STRING)) as period,
+  COUNT(*) as sqos
+FROM vw_funnel_master
+WHERE Date_Became_SQO__c IS NOT NULL
+  AND LOWER(SQO_raw) = 'yes'
+  AND is_sqo_unique = 1
+  AND recordtypeid = '012Dn000000mrO3IAI'
+  AND TIMESTAMP(Date_Became_SQO__c) >= TIMESTAMP('2025-10-01')
+  AND TIMESTAMP(Date_Became_SQO__c) <= TIMESTAMP('2025-12-31 23:59:59')
+GROUP BY period
+```
+**Result**: 144 SQOs ✅ (Matches expected: 144, note: BigQuery returned 144, not 143 - this matches the user's expected value)
+
+**Joined Volume Query:**
+```sql
+SELECT
+  CONCAT(CAST(EXTRACT(YEAR FROM advisor_join_date__c) AS STRING), '-Q', CAST(EXTRACT(QUARTER FROM advisor_join_date__c) AS STRING)) as period,
+  COUNT(*) as joined
+FROM vw_funnel_master
+WHERE advisor_join_date__c IS NOT NULL
+  AND is_joined_unique = 1
+  AND DATE(advisor_join_date__c) >= DATE('2025-10-01')
+  AND DATE(advisor_join_date__c) <= DATE('2025-12-31')
+GROUP BY period
+```
+**Result**: 17 Joined ✅ (Matches expected: 17)
+
+**Complete Volume Query (Q3 + Q4):**
+```sql
+-- Combined query with all three volume CTEs
+```
+**Result**: 
+- Q4 2025: 193 SQLs ✅, 144 SQOs ✅, 17 Joined ✅
+- Q3 2025: [Pending validation]
+
+**Validation Status**: ✅ **FIX QUERY VALIDATED** - The corrected volume queries return the expected values for Q4 2025.
+
+---
+
+### 5.3: Implementation Plan
+
+Based on all findings, here are the required code changes:
+
+#### 5.3.1: Changes in `src/lib/queries/conversion-rates.ts`
+
+**Function to Modify**: `buildPeriodModeQuery()` (lines 573-811)
+
+**Specific Changes:**
+
+1. **Create Separate Volume CTEs** (NEW):
+   - Add `sqo_volume` CTE (independent of conversion rate logic)
+   - Add `joined_volume` CTE (independent of conversion rate logic)
+   - Keep `sql_volume` in `mql_to_sql_numer` CTE (already correct)
+
+2. **Fix SQO Volume** (currently in `sql_to_sqo_numer` CTE, lines 664-690):
+   - **OLD**: Period function uses `periodFn('TIMESTAMP(v.converted_date_raw)')`
+   - **NEW**: Period function uses `periodFn('v.Date_Became_SQO__c')`
+   - **OLD**: WHERE clause filters by `converted_date_raw`
+   - **NEW**: WHERE clause filters by `Date_Became_SQO__c`
+   - **OLD**: COUNTIF includes cohort restriction `periodFn(converted_date_raw) = periodFn(Date_Became_SQO__c)`
+   - **NEW**: Remove cohort restriction - just count all SQOs in period
+   - **OLD**: `sqos` field calculated with cohort restriction
+   - **NEW**: `sqos` field = `COUNT(*)` (no restrictions)
+
+3. **Fix Joined Volume** (currently in `sqo_to_joined_numer` CTE, lines 725-751):
+   - **OLD**: Period function uses `periodFn('v.Date_Became_SQO__c')`
+   - **NEW**: Period function uses `periodFn('TIMESTAMP(v.advisor_join_date__c)')`
+   - **OLD**: WHERE clause filters by `Date_Became_SQO__c`
+   - **NEW**: WHERE clause filters by `advisor_join_date__c`
+   - **OLD**: COUNTIF includes cohort restriction `periodFn(Date_Became_SQO__c) = periodFn(advisor_join_date__c)`
+   - **NEW**: Remove cohort restriction - just count all Joined in period
+   - **OLD**: `joined` field calculated with cohort restriction
+   - **NEW**: `joined` field = `COUNT(*)` (no restrictions)
+
+4. **Update Final SELECT** (lines 788-809):
+   - **OLD**: Uses `COALESCE(s2sq_n.sqos, 0)` from `sql_to_sqo_numer` CTE
+   - **NEW**: Use `COALESCE(sqov.sqos, 0)` from new `sqo_volume` CTE
+   - **OLD**: Uses `COALESCE(sq2j_n.joined, 0)` from `sqo_to_joined_numer` CTE
+   - **NEW**: Use `COALESCE(jv.joined, 0)` from new `joined_volume` CTE
+   - Keep conversion rate fields from existing CTEs (they're correct for rates)
+
+**Alternative Approach**: Instead of creating separate CTEs, we could modify the existing `sql_to_sqo_numer` and `sqo_to_joined_numer` CTEs to calculate volumes correctly while keeping the numerator calculations for rates. However, separating volumes into independent CTEs is cleaner and more maintainable.
+
+#### 5.3.2: Changes in Components
+
+**File**: `src/components/dashboard/ConversionTrendChart.tsx`
+
+**Changes Required**: 
+- ✅ **NO CHANGES NEEDED** - Component already correctly displays volumes from data
+- The component simply maps `t.sqls`, `t.sqos`, `t.joined` to chart (lines 153-155)
+- Once the query returns correct values, the component will display them correctly
+
+#### 5.3.3: Changes in API Route
+
+**File**: `src/app/api/dashboard/conversion-rates/route.ts`
+
+**Changes Required**:
+- ✅ **NO CHANGES NEEDED** - API route correctly passes mode to query function
+- The mode parameter is correctly passed through (line 43)
+- Volumes should be independent of mode, but the query function will handle this
+
+**Note**: We may want to consider making volumes always periodic (ignoring mode), but this can be handled in the query function itself.
+
+#### 5.3.4: Changes in Types
+
+**File**: `src/types/dashboard.ts`
+
+**Changes Required**:
+- ✅ **NO CHANGES NEEDED** - `TrendDataPoint` interface already has correct fields:
+  - `sqls: number`
+  - `sqos: number`
+  - `joined: number`
+- These fields are correctly typed and match the expected structure
+
+#### 5.3.5: Summary of Required Changes
+
+| File | Changes Required | Priority |
+|------|-----------------|----------|
+| `src/lib/queries/conversion-rates.ts` | Fix `buildPeriodModeQuery()` - create separate volume CTEs and fix SQO/Joined volume calculations | 🔴 **CRITICAL** |
+| `src/components/dashboard/ConversionTrendChart.tsx` | None - already correct | ✅ |
+| `src/app/api/dashboard/conversion-rates/route.ts` | None - already correct | ✅ |
+| `src/types/dashboard.ts` | None - already correct | ✅ |
+
+**Total Files to Modify**: 1 file (`conversion-rates.ts`)
+
+**Estimated Complexity**: Medium - requires careful modification of SQL CTEs while preserving conversion rate logic
