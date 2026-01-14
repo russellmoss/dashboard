@@ -5774,6 +5774,10 @@ export function exportAdminOverviewCSV(
 * [x] SGA Management page accessible - Only admin/manager can access `/dashboard/sga-management`
 * [x] AdminSGATable displays all SGAs with status badges and expandable rows
 * [x] BulkGoalEditor modal allows setting goals for multiple SGAs
+* [x] IndividualGoalEditor modal allows editing weekly/quarterly goals for individual SGAs
+* [x] CSV export functionality working - All export functions implemented and tested
+* [x] Export buttons added to all relevant components (SGA Hub tabs and Admin Management page)
+* [x] UI fixes applied - Default to "Select an SGA...", tightened detail table layout
 * [x] Navigation added - SGA Management page (ID 9) added to Sidebar
 * [x] Permissions updated - Page ID 9 added to admin and manager allowedPages
 * [x] `npx tsc --noEmit` passes - No TypeScript errors
@@ -5787,21 +5791,39 @@ export function exportAdminOverviewCSV(
 3. ✅ `src/app/dashboard/sga-management/SGAManagementContent.tsx` - Client component for SGA Management page
 4. ✅ `src/components/sga-hub/AdminSGATable.tsx` - Table component with expandable rows showing SGA details
 5. ✅ `src/components/sga-hub/BulkGoalEditor.tsx` - Modal component for bulk goal editing
+6. ✅ `src/components/sga-hub/IndividualGoalEditor.tsx` - Modal component for editing individual SGA goals (weekly or quarterly)
+7. ✅ `src/lib/utils/sga-hub-csv-export.ts` - CSV export utility functions for all SGA Hub data types
 
 **Files Modified:**
 1. ✅ `src/components/layout/Sidebar.tsx` - Added page ID 9 (SGA Management) to PAGES array
 2. ✅ `src/lib/permissions.ts` - Added page ID 9 to admin and manager allowedPages
+3. ✅ `src/app/dashboard/sga-hub/SGAHubContent.tsx` - Added CSV export buttons for weekly goals, quarterly progress, and closed lost records
+4. ✅ `src/app/dashboard/sga-management/SGAManagementContent.tsx` - Added CSV export button for admin overview, integrated IndividualGoalEditor
 
 **Key Features Implemented:**
 - Admin overview API that aggregates data for all active SGAs in parallel
 - Summary cards showing total SGAs, behind pacing count, missing weekly/quarterly goals
-- Filterable table with week and quarter selectors
-- Expandable table rows showing detailed week/quarter progress
+- Filterable table with week and quarter selectors (defaults to "Select an SGA..." instead of auto-selecting first SGA)
+- Expandable table rows showing detailed week/quarter progress with compact grid layout (80px label column, 1fr value column)
+- Individual goal editor with "Edit Weekly" and "Edit Quarterly" buttons for each SGA row
 - Bulk goal editor for setting weekly or quarterly goals for multiple SGAs at once
-- Selected SGA details panel with alerts and status badges
+- CSV export functionality (Step 8.3) - Complete implementation:
+  - `exportWeeklyGoalsCSV()` - Exports weekly goals with actuals
+  - `exportQuarterlyProgressCSV()` - Exports quarterly progress data
+  - `exportClosedLostCSV()` - Exports closed lost records
+  - `exportAdminOverviewCSV()` - Exports admin SGA overview data
+- Export buttons added to:
+  - Weekly Goals tab in SGA Hub
+  - Quarterly Progress tab in SGA Hub
+  - Closed Lost tab in SGA Hub
+  - Admin SGA Management page
 - Navigation integration with proper role-based access control
 
-**Note:** CSV export functionality (Step 8.3) is documented but not yet implemented. This can be added later if needed.
+**UI/UX Improvements:**
+- "Select SGA" dropdown uses native HTML `<select>` with proper styling (matches Week/Quarter dropdowns)
+- Detail table layout tightened using CSS grid (`grid-cols-[80px_1fr]`) for better readability
+- Default selection removed - dropdown defaults to "Select an SGA..." instead of auto-selecting first SGA
+- Individual goal editing via "Edit Weekly" and "Edit Quarterly" buttons in table actions column
 
 **Checkpoint:**
 

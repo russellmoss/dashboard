@@ -10,7 +10,8 @@ import { BulkGoalEditor } from '@/components/sga-hub/BulkGoalEditor';
 import { IndividualGoalEditor } from '@/components/sga-hub/IndividualGoalEditor';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { getCurrentQuarter, getWeekMondayDate, formatDateISO } from '@/lib/utils/sga-hub-helpers';
-import { Settings, Users, AlertTriangle, Target } from 'lucide-react';
+import { exportAdminOverviewCSV } from '@/lib/utils/sga-hub-csv-export';
+import { Settings, Users, AlertTriangle, Target, Download } from 'lucide-react';
 
 interface SGAManagementContentProps {}
 
@@ -94,6 +95,14 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
           <div className="flex gap-2">
             <Button onClick={() => setShowBulkEditor(true)} icon={Settings}>
               Bulk Goal Editor
+            </Button>
+            <Button 
+              onClick={() => exportAdminOverviewCSV(sgaOverviews)} 
+              icon={Download}
+              variant="secondary"
+              disabled={sgaOverviews.length === 0}
+            >
+              Export CSV
             </Button>
             <Button onClick={handleRefresh} variant="secondary">
               Refresh

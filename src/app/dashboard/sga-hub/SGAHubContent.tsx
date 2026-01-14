@@ -15,11 +15,14 @@ import { dashboardApi, handleApiError } from '@/lib/api-client';
 import { WeeklyGoal, WeeklyActual, WeeklyGoalWithActuals, ClosedLostRecord, QuarterlyProgress, SQODetail } from '@/types/sga-hub';
 import { getDefaultWeekRange, getWeekMondayDate, getWeekInfo, formatDateISO, getCurrentQuarter, getQuarterFromDate, getQuarterInfo } from '@/lib/utils/sga-hub-helpers';
 import { getSessionPermissions } from '@/types/auth';
+import { exportWeeklyGoalsCSV, exportQuarterlyProgressCSV, exportClosedLostCSV } from '@/lib/utils/sga-hub-csv-export';
+import { Download } from 'lucide-react';
 
 export function SGAHubContent() {
   const { data: session } = useSession();
   const permissions = getSessionPermissions(session);
   const isAdmin = permissions?.role === 'admin' || permissions?.role === 'manager';
+  const sgaName = session?.user?.name || 'Unknown';
   
   const [activeTab, setActiveTab] = useState<SGAHubTab>('weekly-goals');
   const [dateRange, setDateRange] = useState(getDefaultWeekRange());
@@ -267,6 +270,15 @@ export function SGAHubContent() {
             >
               Reset to Default
             </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={Download}
+              onClick={() => exportWeeklyGoalsCSV(goalsWithActuals, sgaName)}
+              disabled={goalsWithActuals.length === 0}
+            >
+              Export CSV
+            </Button>
           </div>
           
           {error && (
@@ -285,6 +297,17 @@ export function SGAHubContent() {
       
       {activeTab === 'closed-lost' && (
         <>
+          <div className="mb-4 flex justify-end">
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={Download}
+              onClick={() => exportClosedLostCSV(closedLostRecords, sgaName)}
+              disabled={closedLostRecords.length === 0}
+            >
+              Export CSV
+            </Button>
+          </div>
           {closedLostError && (
             <Card className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
               <Text className="text-red-600 dark:text-red-400">{closedLostError}</Text>
@@ -300,7 +323,7 @@ export function SGAHubContent() {
       
       {activeTab === 'quarterly-progress' && (
         <>
-          <div className="mb-4">
+          <div className="mb-4 flex items-end justify-between gap-4">
             <div className="w-fit">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                 Quarter
@@ -340,6 +363,20 @@ export function SGAHubContent() {
                 })()}
               </select>
             </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={Download}
+              onClick={() => {
+                const allProgress = historicalProgress.length > 0 
+                  ? historicalProgress 
+                  : (quarterlyProgress ? [quarterlyProgress] : []);
+                exportQuarterlyProgressCSV(allProgress, sgaName);
+              }}
+              disabled={!quarterlyProgress && historicalProgress.length === 0}
+            >
+              Export CSV
+            </Button>
           </div>
           
           {quarterlyError && (
