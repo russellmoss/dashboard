@@ -99,17 +99,37 @@ export async function GET() {
       runQuery<{ year: number | null }>(yearsQuery),
     ]);
     
+    // SGAs that should always appear as inactive (regardless of User table status)
+    const alwaysInactiveSGAs = new Set([
+      'Russell Moss',
+      'Anett Diaz',
+      'Bre McDaniel',
+      'Bryan Belville',
+      'GinaRose Galli',
+      'Jed Entin',
+      'Savvy Marketing',
+      'Savvy Operations',
+      'Ariana Butler',
+    ]);
+
     const filterOptions: FilterOptions = {
       channels: channels.map(r => r.channel || '').filter(Boolean),
       sources: sources.map(r => r.source || '').filter(Boolean),
       sgas: sgas
         .filter(r => r.value)
-        .map(r => ({
-          value: r.value!,
-          label: r.value!,
-          isActive: (r as any).isActive === true || (r as any).isActive === 1,  // Use actual isActive from User table
-          count: parseInt((r.record_count?.toString() || '0'), 10),
-        })),
+        .map(r => {
+          const sgaName = r.value!;
+          const userTableIsActive = (r as any).isActive === true || (r as any).isActive === 1;
+          // Override isActive to false if in the always-inactive list
+          const isActive = alwaysInactiveSGAs.has(sgaName) ? false : userTableIsActive;
+          
+          return {
+            value: sgaName,
+            label: sgaName,
+            isActive,
+            count: parseInt((r.record_count?.toString() || '0'), 10),
+          };
+        }),
       sgms: sgms
         .filter(r => r.value)
         .map(r => ({
