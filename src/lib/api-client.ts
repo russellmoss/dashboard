@@ -13,6 +13,17 @@ import {
   ViewMode
 } from '@/types/dashboard';
 import { RecordDetailFull } from '@/types/record-detail';
+import { 
+  WeeklyGoal, 
+  WeeklyGoalInput, 
+  WeeklyActual, 
+  QuarterlyGoal, 
+  QuarterlyGoalInput,
+  ClosedLostRecord,
+  ClosedLostTimeBucket,
+  QuarterlyProgress,
+  SQODetail
+} from '@/types/sga-hub';
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public endpoint: string) {
@@ -160,6 +171,63 @@ export const dashboardApi = {
 
     return { metrics, rates, trends: trends || [], channels, sources, records };
   },
+
+  // SGA Hub API functions
+  getWeeklyGoals: (startDate?: string, endDate?: string, userEmail?: string) =>
+    apiFetch<{ goals: WeeklyGoal[] }>(`/api/sga-hub/weekly-goals?${new URLSearchParams({ 
+      ...(startDate && { startDate }), 
+      ...(endDate && { endDate }),
+      ...(userEmail && { userEmail })
+    }).toString()}`),
+
+  saveWeeklyGoal: (goal: WeeklyGoalInput, userEmail?: string) =>
+    apiFetch<{ goal: WeeklyGoal }>('/api/sga-hub/weekly-goals', {
+      method: 'POST',
+      body: JSON.stringify({ ...goal, ...(userEmail && { userEmail }) }),
+    }),
+
+  getWeeklyActuals: (startDate?: string, endDate?: string, userEmail?: string) =>
+    apiFetch<{ actuals: WeeklyActual[]; sgaName?: string; startDate: string; endDate: string }>(
+      `/api/sga-hub/weekly-actuals?${new URLSearchParams({ 
+        ...(startDate && { startDate }), 
+        ...(endDate && { endDate }),
+        ...(userEmail && { userEmail })
+      }).toString()}`
+    ),
+
+  getQuarterlyGoals: (quarter?: string, userEmail?: string) =>
+    apiFetch<{ goals: QuarterlyGoal[]; quarter?: string }>(
+      `/api/sga-hub/quarterly-goals?${new URLSearchParams({ 
+        ...(quarter && { quarter }), 
+        ...(userEmail && { userEmail })
+      }).toString()}`
+    ),
+
+  saveQuarterlyGoal: (input: QuarterlyGoalInput) =>
+    apiFetch<{ goal: QuarterlyGoal }>('/api/sga-hub/quarterly-goals', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  getClosedLostRecords: (timeBuckets?: ClosedLostTimeBucket[]) => {
+    const params = new URLSearchParams();
+    if (timeBuckets && timeBuckets.length > 0) {
+      timeBuckets.forEach(bucket => params.append('timeBuckets', bucket));
+    }
+    return apiFetch<{ records: ClosedLostRecord[] }>(`/api/sga-hub/closed-lost?${params.toString()}`);
+  },
+
+  getQuarterlyProgress: (quarter?: string) =>
+    apiFetch<QuarterlyProgress>(
+      `/api/sga-hub/quarterly-progress?${new URLSearchParams({ 
+        ...(quarter && { quarter })
+      }).toString()}`
+    ),
+
+  getSQODetails: (quarter: string) =>
+    apiFetch<{ sqos: SQODetail[] }>(
+      `/api/sga-hub/sqo-details?${new URLSearchParams({ quarter }).toString()}`
+    ),
 };
 
 export function handleApiError(error: unknown): string {

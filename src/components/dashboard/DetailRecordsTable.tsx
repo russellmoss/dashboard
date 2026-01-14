@@ -7,6 +7,7 @@ import { AdvancedFilters } from '@/types/filters';
 import { ExternalLink, Search, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import { ExportButton } from '@/components/ui/ExportButton';
 import { InfoTooltip } from '@/components/ui/InfoTooltip';
+import { formatDate } from '@/lib/utils/format-helpers';
 
 type SortColumn = 'advisor' | 'source' | 'channel' | 'stage' | 'date' | 'sga' | 'sgm' | 'aum' | null;
 type SortDirection = 'asc' | 'desc';
@@ -433,16 +434,16 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
                     </div>
                   </TableCell>
                   <TableCell className="text-sm border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                    {record.relevantDate ? new Date(record.relevantDate).toLocaleDateString() : '-'}
+                    {formatDate(record.relevantDate) || '-'}
                   </TableCell>
                   {showInitialCallColumn && (
                     <TableCell className="text-sm border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                      {record.initialCallScheduledDate ? new Date(record.initialCallScheduledDate).toLocaleDateString() : '-'}
+                      {formatDate(record.initialCallScheduledDate) || '-'}
                     </TableCell>
                   )}
                   {showQualCallColumn && (
                     <TableCell className="text-sm border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                      {record.qualificationCallDate ? new Date(record.qualificationCallDate).toLocaleDateString() : '-'}
+                      {formatDate(record.qualificationCallDate) || '-'}
                     </TableCell>
                   )}
                   <TableCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">{record.sga || '-'}</TableCell>

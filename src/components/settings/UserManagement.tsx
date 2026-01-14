@@ -139,7 +139,7 @@ export function UserManagement({ currentUserEmail }: UserManagementProps) {
                   <td className="py-3 px-4">
                     <span className="font-medium text-gray-900">{user.name}</span>
                     {user.email === currentUserEmail && (
-                      <Badge size="xs" color="blue" className="ml-2">You</Badge>
+                      <span className="ml-2 text-blue-600">You</span>
                     )}
                   </td>
                   <td className="py-3 px-4 text-gray-600">{user.email}</td>
