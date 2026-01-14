@@ -1,8 +1,8 @@
 # SGA Hub Feature - Agentic Implementation Plan
 
 **Created:** January 2026
-**Last Updated:** January 27, 2026
-**Status:** Ready for Implementation (Corrected)
+**Last Updated:** January 27, 2026 (Validation Complete)
+**Status:** Ready for Implementation (Validated & Corrected)
 
 **Estimated Duration:** 25-35 hours
 
@@ -18,6 +18,19 @@
 > * Follow existing codebase patterns exactly—reference files mentioned.
 > * **Commit** after each phase with the provided commit message.
 > * **Do NOT** proceed to the next phase if verification fails.
+> 
+> ### ⚠️ VALIDATION COMPLETE - ALL PATTERNS VERIFIED (January 27, 2026)
+> 
+> **Validation Status:** ✅ All codebase patterns verified against actual implementation
+> 
+> **Key Verified Patterns:**
+> - ✅ API Routes: `getServerSession(authOptions)`, `getUserPermissions()`, `NextResponse.json()`
+> - ✅ BigQuery: `runQuery<T>(query, params)` with named params, `toNumber()` helper exists
+> - ✅ Prisma: Named export `prisma` from `@/lib/prisma`, PostgreSQL provider
+> - ✅ Constants: `FULL_TABLE`, `RECRUITING_RECORD_TYPE` exist in `@/config/constants.ts`
+> - ✅ Permissions: Roles `admin`, `manager`, `sgm`, `sga`, `viewer` confirmed
+> - ✅ Page IDs: Current highest is 7 (Settings), SGA Hub = 8, SGA Management = 9
+> - ✅ User Model: Has `name` field (String, required), matches `SGA_Owner_Name__c` exactly
 > 
 > ### ⚠️ CRITICAL CORRECTIONS APPLIED (January 27, 2026)
 > 
@@ -1086,10 +1099,11 @@ export async function copyWeeklyGoal(
 
 /**
  * Transform Prisma model to API response type
+ * ✅ VERIFIED: Prisma @db.Date fields return as Date objects in JavaScript
  * weekStartDate is stored as DATE in database (via @db.Date), so it's a Date object but only contains date part
  */
 function transformWeeklyGoal(goal: any): WeeklyGoal {
-  // Prisma Date fields (with @db.Date) return as Date objects but only contain date (no time)
+  // ✅ VERIFIED: Prisma Date fields (with @db.Date) return as Date objects
   // Convert to ISO string and extract date part (YYYY-MM-DD)
   const weekStartDate = goal.weekStartDate instanceof Date 
     ? goal.weekStartDate.toISOString().split('T')[0]
@@ -1697,10 +1711,11 @@ Use the `runQuery` function from `@/lib/bigquery`. Use constants from `@/config/
 ```typescript
 // src/lib/queries/weekly-actuals.ts
 
-import { runQuery } from '@/lib/bigquery';
-import { FULL_TABLE, RECRUITING_RECORD_TYPE } from '@/config/constants';
+// ✅ VERIFIED: All imports match existing patterns
+import { runQuery } from '@/lib/bigquery'; // ✅ Verified: runQuery<T>(query, params?: Record<string, any>): Promise<T[]>
+import { FULL_TABLE, RECRUITING_RECORD_TYPE } from '@/config/constants'; // ✅ Verified: Constants exist
 import { WeeklyActual } from '@/types/sga-hub';
-import { toNumber } from '@/types/bigquery-raw';
+import { toNumber } from '@/types/bigquery-raw'; // ✅ Verified: Helper function exists
 
 interface RawWeeklyActualResult {
   week_start: { value: string } | string;
@@ -2055,6 +2070,15 @@ SELECT * FROM initial_calls ORDER BY week_start DESC LIMIT 10
 3. Counts look reasonable.
 4. Week_start values are DATE type (YYYY-MM-DD format, no time component).
 
+**✅ VERIFIED:** BigQuery field types:
+- `Initial_Call_Scheduled_Date__c`: DATE (direct comparison, no TIMESTAMP wrapper)
+- `Qualification_Call_Date__c`: DATE (direct comparison, no TIMESTAMP wrapper)
+- `Date_Became_SQO__c`: TIMESTAMP (requires TIMESTAMP wrapper)
+- `is_sqo_unique`: INT64 (0 or 1, not BOOLEAN)
+- `SGA_Owner_Name__c`: STRING (exact match required)
+- `primary_key`: STRING (Lead ID format: 00Q... or Opp ID: 006...)
+- `Full_Opportunity_ID__c`: STRING (nullable)
+
 **Also test the SQO query separately:**
 ```sql
 SELECT 
@@ -2227,12 +2251,34 @@ git add -A && git commit -m "Phase 5: Add SGA Hub page with Weekly Goals tab"
 Create `src/lib/queries/closed-lost.ts`. Query `vw_sga_closed_lost_sql_followup`, filter by SGA name, and calculate days since contact.
 
 **Important Notes:**
-- View name: `savvy-gtm-analytics.savvy_analytics.vw_sga_closed_lost_sql_followup`
-- Filter by `sga_name` field (exact match to `user.name`)
-- View already has `time_since_last_contact_bucket` field for filtering (30-60, 60-90, 90-120, 120-150, 150-180 days)
-- View has both `Full_prospect_id__c` and `Full_Opportunity_ID__c` for URL construction
-- `salesforce_url` field already exists (Opportunity URL)
+- ✅ VERIFIED: View exists at `savvy-gtm-analytics.savvy_analytics.vw_sga_closed_lost_sql_followup`
+- ✅ VERIFIED: Filter by `sga_name` field (exact match to `user.name`) - field exists as STRING
+- ✅ VERIFIED: View has `time_since_last_contact_bucket` field (STRING type) for filtering (30-60, 60-90, 90-120, 120-150, 150-180 days)
+- ✅ VERIFIED: View has both `Full_prospect_id__c` and `Full_Opportunity_ID__c` for URL construction
+- ✅ VERIFIED: `salesforce_url` field exists (Opportunity URL)
 - Need to construct `lead_url` from `Full_prospect_id__c`: `CONCAT('https://savvywealth.lightning.force.com/lightning/r/Lead/', Full_prospect_id__c, '/view')`
+
+**Query Pattern:**
+```sql
+SELECT 
+  Full_Opportunity_ID__c as id,
+  Opp_Name__c as opp_name,
+  Full_prospect_id__c as lead_id,
+  Full_Opportunity_ID__c as opportunity_id,
+  CONCAT('https://savvywealth.lightning.force.com/lightning/r/Lead/', Full_prospect_id__c, '/view') as lead_url,
+  salesforce_url as opportunity_url,
+  salesforce_url, -- Use as primary salesforce_url
+  Last_Contact_Date__c as last_contact_date,
+  Closed_Lost_Date__c as closed_lost_date,
+  SQL_Date__c as sql_date,
+  Closed_Lost_Reason__c as closed_lost_reason,
+  Closed_Lost_Details__c as closed_lost_details,
+  time_since_last_contact_bucket,
+  Days_Since_Last_Contact__c as days_since_contact
+FROM `savvy-gtm-analytics.savvy_analytics.vw_sga_closed_lost_sql_followup`
+WHERE sga_name = @sgaName
+  AND time_since_last_contact_bucket IN UNNEST(@timeBuckets)
+```
 
 ### Step 6.2: Create Closed Lost API Route
 
@@ -2358,15 +2404,78 @@ git add -A && git commit -m "Phase 8: Add Admin SGA Management page with export 
 **Cursor.ai Prompt:**
 Add SGA Hub (ID 8) and SGA Management (ID 9) to `src/components/layout/Sidebar.tsx`.
 
+**Code to add to PAGES array:**
+```typescript
+const PAGES = [
+  { id: 1, name: 'Funnel Performance', href: '/dashboard', icon: BarChart3 },
+  { id: 2, name: 'Channel Drilldown', href: '/dashboard/channels', icon: GitBranch },
+  { id: 3, name: 'Open Pipeline', href: '/dashboard/pipeline', icon: Users },
+  { id: 4, name: 'Partner Performance', href: '/dashboard/partners', icon: Building2 },
+  { id: 5, name: 'Experimentation', href: '/dashboard/experiments', icon: FlaskConical },
+  { id: 6, name: 'SGA Performance', href: '/dashboard/sga', icon: UserCircle },
+  { id: 7, name: 'Settings', href: '/dashboard/settings', icon: Settings },
+  { id: 8, name: 'SGA Hub', href: '/dashboard/sga-hub', icon: UserCircle }, // ✅ NEW - for SGA role
+  { id: 9, name: 'SGA Management', href: '/dashboard/admin/sga-management', icon: Users }, // ✅ NEW - Admin only
+];
+```
+
+**Note:** The `filteredPages` logic already filters by `allowedPages` from permissions, so no additional filtering needed.
+
 ### Step 9.2: Update Permissions
 
 **Cursor.ai Prompt:**
 Update `src/lib/permissions.ts` to map new page IDs to the correct roles.
 
+**Code to update in ROLE_PERMISSIONS:**
+```typescript
+const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmFilter'>> = {
+  admin: {
+    role: 'admin',
+    allowedPages: [1, 2, 3, 4, 5, 6, 7, 8, 9], // ✅ Added 8 (SGA Hub), 9 (SGA Management)
+    canExport: true,
+    canManageUsers: true,
+  },
+  manager: {
+    role: 'manager',
+    allowedPages: [1, 2, 3, 4, 5, 6, 7, 8, 9], // ✅ Added 8, 9
+    canExport: true,
+    canManageUsers: true,
+  },
+  sgm: {
+    role: 'sgm',
+    allowedPages: [1, 2, 3, 6], // ✅ No change (SGM doesn't need SGA Hub)
+    canExport: true,
+    canManageUsers: false,
+  },
+  sga: {
+    role: 'sga',
+    allowedPages: [1, 2, 6, 8], // ✅ Added 8 (SGA Hub) - SGAs can access their own hub
+    canExport: true,
+    canManageUsers: false,
+  },
+  viewer: {
+    role: 'viewer',
+    allowedPages: [1, 2], // ✅ No change
+    canExport: false,
+    canManageUsers: false,
+  },
+};
+```
+
 ### Step 9.3: Add Test Users
 
 **Cursor.ai Prompt:**
 Add Eleni, Perry, Russell, and David to the database with correct roles.
+
+**✅ VERIFIED:** User model has `name` field (String, required) which matches `SGA_Owner_Name__c` in BigQuery.
+
+**Test Users to Add:**
+- Eleni Stefanopoulos (email: eleni@savvywealth.com, role: sga, name: "Eleni Stefanopoulos")
+- Perry Kalmeta (email: perry.kalmeta@savvywealth.com, role: sga, name: "Perry Kalmeta")
+- Russell Armitage (email: russell.armitage@savvywealth.com, role: admin, name: "Russell Armitage")
+- David [Last Name] (email: david@savvywealth.com, role: manager, name: "David [Last Name]")
+
+**Important:** The `name` field MUST match exactly (case-sensitive) with `SGA_Owner_Name__c` values in BigQuery for filtering to work.
 
 ### Verification Gate 9:
 
