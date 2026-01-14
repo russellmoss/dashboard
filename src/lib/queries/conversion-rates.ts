@@ -928,6 +928,45 @@ function buildCohortModeQuery(
       GROUP BY period
     ),
     
+    -- ═══════════════════════════════════════════════════════════════════════════
+    -- PERIODIC VOLUMES (Independent of conversion rate logic)
+    -- These count events by when they occurred, with no cohort restrictions
+    -- ═══════════════════════════════════════════════════════════════════════════
+    sqo_volume AS (
+      SELECT
+        ${periodFn('v.Date_Became_SQO__c')} as period,  -- ✅ Use SQO date for period grouping
+        COUNT(*) as sqos
+      FROM \`${FULL_TABLE}\` v
+      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
+      WHERE v.Date_Became_SQO__c IS NOT NULL  -- ✅ Filter by SQO date
+        AND LOWER(v.SQO_raw) = 'yes'
+        AND v.is_sqo_unique = 1
+        AND v.recordtypeid = @recruitingRecordType
+        AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@trendStartDate)  -- ✅ Use SQO date
+        AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@trendEndDate)   -- ✅ Use SQO date
+        ${filterWhereClause}
+      GROUP BY period
+      -- ✅ NO cohort restriction - count ALL SQOs in period
+    ),
+    
+    joined_volume AS (
+      SELECT
+        ${granularity === 'quarter' 
+          ? `CONCAT(CAST(EXTRACT(YEAR FROM v.advisor_join_date__c) AS STRING), '-Q', CAST(EXTRACT(QUARTER FROM v.advisor_join_date__c) AS STRING))`
+          : `FORMAT_DATE('%Y-%m', DATE(v.advisor_join_date__c))`
+        } as period,  -- ✅ Use Joined date for period grouping (explicit format to match expectedPeriods)
+        COUNT(*) as joined
+      FROM \`${FULL_TABLE}\` v
+      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
+      WHERE v.advisor_join_date__c IS NOT NULL  -- ✅ Filter by Joined date
+        AND v.is_joined_unique = 1
+        AND DATE(v.advisor_join_date__c) >= DATE(@trendStartDate)  -- ✅ Use Joined date
+        AND DATE(v.advisor_join_date__c) <= DATE(@trendEndDate)   -- ✅ Use Joined date
+        ${filterWhereClause}
+      GROUP BY period
+      -- ✅ NO cohort restriction - count ALL Joined in period
+    ),
+    
     -- Generate all expected periods
     all_periods AS (
       SELECT period FROM UNNEST([${expectedPeriods.map(p => `'${p}'`).join(', ')}]) as period
@@ -953,16 +992,18 @@ function buildCohortModeQuery(
       COALESCE(sqc.progressed_to_joined, 0) as sqo_to_joined_numer,
       COALESCE(sqc.eligible_sqos, 0) as sqo_to_joined_denom,
       
-      -- Volumes (for display purposes - all records, not just resolved)
+      -- Volumes (always use period mode CTEs - volumes are always periodic)
       COALESCE(sc.sqls, 0) as sqls,
-      COALESCE(sqc.sqos, 0) as sqos,
-      COALESCE(sqc.joined, 0) as joined
+      COALESCE(sqov.sqos, 0) as sqos,     -- ✅ Use period mode sqo_volume CTE
+      COALESCE(jv.joined, 0) as joined    -- ✅ Use period mode joined_volume CTE
       
     FROM all_periods ap
     LEFT JOIN contacted_cohort cc ON ap.period = cc.period
     LEFT JOIN mql_cohort mc ON ap.period = mc.period
     LEFT JOIN sql_cohort sc ON ap.period = sc.period
     LEFT JOIN sqo_cohort sqc ON ap.period = sqc.period
+    LEFT JOIN sqo_volume sqov ON ap.period = sqov.period  -- ✅ ADD: Period mode volume CTE
+    LEFT JOIN joined_volume jv ON ap.period = jv.period    -- ✅ ADD: Period mode volume CTE
     ORDER BY ap.period
   `;
 }
