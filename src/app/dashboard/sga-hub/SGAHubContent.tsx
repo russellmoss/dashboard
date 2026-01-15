@@ -286,19 +286,21 @@ export function SGAHubContent() {
     try {
       let records: DrillDownRecord[] = [];
 
+      const userEmail = session?.user?.email || undefined;
+
       switch (metricType) {
         case 'initial-calls': {
-          const response = await dashboardApi.getInitialCallsDrillDown(sgaName, weekStartDate, weekEndDate, session?.user?.email);
+          const response = await dashboardApi.getInitialCallsDrillDown(sgaName, weekStartDate, weekEndDate, userEmail);
           records = response.records;
           break;
         }
         case 'qualification-calls': {
-          const response = await dashboardApi.getQualificationCallsDrillDown(sgaName, weekStartDate, weekEndDate, session?.user?.email);
+          const response = await dashboardApi.getQualificationCallsDrillDown(sgaName, weekStartDate, weekEndDate, userEmail);
           records = response.records;
           break;
         }
         case 'sqos': {
-          const response = await dashboardApi.getSQODrillDown(sgaName, { weekStartDate, weekEndDate }, session?.user?.email);
+          const response = await dashboardApi.getSQODrillDown(sgaName, { weekStartDate, weekEndDate }, userEmail);
           records = response.records;
           break;
         }
@@ -333,7 +335,8 @@ export function SGAHubContent() {
     });
 
     try {
-      const response = await dashboardApi.getSQODrillDown(sgaName, { quarter: selectedQuarter }, session?.user?.email);
+      const userEmail = session?.user?.email || undefined;
+      const response = await dashboardApi.getSQODrillDown(sgaName, { quarter: selectedQuarter }, userEmail);
       setDrillDownRecords(response.records);
     } catch (error) {
       console.error('Error fetching SQO drill-down:', error);

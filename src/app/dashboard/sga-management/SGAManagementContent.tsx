@@ -497,6 +497,28 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
           quarter={quarter}
         />
       )}
+
+      {/* Drill-Down Modal */}
+      <MetricDrillDownModal
+        isOpen={drillDownOpen}
+        onClose={handleCloseDrillDown}
+        metricType={drillDownMetricType || 'initial-calls'}
+        records={drillDownRecords}
+        title={drillDownTitle}
+        loading={drillDownLoading}
+        error={drillDownError}
+        onRecordClick={handleRecordClick}
+      />
+
+      {/* Record Detail Modal */}
+      <RecordDetailModal
+        isOpen={recordDetailOpen}
+        onClose={handleCloseRecordDetail}
+        recordId={recordDetailId}
+        showBackButton={drillDownContext !== null}
+        onBack={handleBackToDrillDown}
+        backButtonLabel="← Back to records"
+      />
     </div>
   );
 }
