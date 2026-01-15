@@ -106,7 +106,7 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
     return formatDateISO(getWeekSundayDate(startDate));
   };
 
-  // Handle metric value click
+  // Handle metric value click (used by both AdminSGATable and details card)
   const handleMetricClick = async (
     sgaEmail: string,
     sgaName: string,
@@ -354,68 +354,108 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
           <Title className="mb-4">{selectedSGA.userName} - Details</Title>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Current Week */}
+            {/* Week Details */}
             <div>
-              <Text className="text-gray-600 dark:text-gray-400 text-sm font-medium mb-2">
-                Current Week
+              <Text className="font-semibold mb-3 text-gray-900 dark:text-white">
+                Current Week ({formatDate(weekStartDate)})
               </Text>
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <Text className="text-gray-600 dark:text-gray-400">Goal:</Text>
-                  <Text className="font-semibold text-gray-900 dark:text-white">
-                    {selectedSGA.currentWeekGoal
-                      ? `IC: ${selectedSGA.currentWeekGoal.initialCallsGoal}, QC: ${selectedSGA.currentWeekGoal.qualificationCallsGoal}, SQO: ${selectedSGA.currentWeekGoal.sqoGoal}`
-                      : 'Not set'}
+              <div className="space-y-2 text-sm">
+                <div className="grid grid-cols-[160px_1fr] gap-2">
+                  <Text className="text-gray-600 dark:text-gray-400 font-medium">Goal:</Text>
+                  <Text className="text-gray-900 dark:text-white">
+                    {selectedSGA.currentWeekGoal ? (
+                      <>
+                        Initial Calls: <span className="text-lg font-semibold">{selectedSGA.currentWeekGoal.initialCallsGoal}</span>,{' '}
+                        Qualification Calls: <span className="text-lg font-semibold">{selectedSGA.currentWeekGoal.qualificationCallsGoal}</span>,{' '}
+                        SQO: <span className="text-lg font-semibold">{selectedSGA.currentWeekGoal.sqoGoal}</span>
+                      </>
+                    ) : (
+                      'Not set'
+                    )}
                   </Text>
                 </div>
-                <div className="flex justify-between">
-                  <Text className="text-gray-600 dark:text-gray-400">Actual:</Text>
-                  <Text className="font-semibold text-gray-900 dark:text-white">
-                    {selectedSGA.currentWeekActual
-                      ? `IC: ${selectedSGA.currentWeekActual.initialCalls}, QC: ${selectedSGA.currentWeekActual.qualificationCalls}, SQO: ${selectedSGA.currentWeekActual.sqos}`
-                      : 'No data'}
-                  </Text>
+                <div className="grid grid-cols-[160px_1fr] gap-2">
+                  <Text className="text-gray-600 dark:text-gray-400 font-medium">Actual:</Text>
+                  <div className="flex items-center gap-4 flex-wrap">
+                    {selectedSGA.currentWeekActual ? (
+                      <>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleMetricClick(selectedSGA.userEmail, selectedSGA.userName, 'initial-calls', false);
+                          }}
+                          className="text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-100 px-2 py-1 rounded transition-colors duration-150 cursor-pointer"
+                        >
+                          Initial Calls: <span className="text-xl font-bold">{selectedSGA.currentWeekActual.initialCalls}</span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleMetricClick(selectedSGA.userEmail, selectedSGA.userName, 'qualification-calls', false);
+                          }}
+                          className="text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-100 px-2 py-1 rounded transition-colors duration-150 cursor-pointer"
+                        >
+                          Qualification Calls: <span className="text-xl font-bold">{selectedSGA.currentWeekActual.qualificationCalls}</span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleMetricClick(selectedSGA.userEmail, selectedSGA.userName, 'sqos', false);
+                          }}
+                          className="text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-100 px-2 py-1 rounded transition-colors duration-150 cursor-pointer"
+                        >
+                          SQO: <span className="text-xl font-bold">{selectedSGA.currentWeekActual.sqos}</span>
+                        </button>
+                      </>
+                    ) : (
+                      <span className="text-gray-500 dark:text-gray-400">No data</span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Current Quarter */}
+            {/* Quarter Details */}
             <div>
-              <Text className="text-gray-600 dark:text-gray-400 text-sm font-medium mb-2">
-                Current Quarter
+              <Text className="font-semibold mb-3 text-gray-900 dark:text-white">
+                Current Quarter ({quarter})
               </Text>
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <Text className="text-gray-600 dark:text-gray-400">Goal:</Text>
-                  <Text className="font-semibold text-gray-900 dark:text-white">
+              <div className="space-y-2 text-sm">
+                <div className="grid grid-cols-[160px_1fr] gap-2">
+                  <Text className="text-gray-600 dark:text-gray-400 font-medium">Goal:</Text>
+                  <Text className="text-gray-900 dark:text-white">
                     {selectedSGA.currentQuarterGoal
-                      ? `${selectedSGA.currentQuarterGoal.sqoGoal} SQOs`
+                      ? <span className="text-lg font-semibold">{selectedSGA.currentQuarterGoal.sqoGoal} SQOs</span>
                       : 'Not set'}
                   </Text>
                 </div>
-                <div className="flex justify-between">
-                  <Text className="text-gray-600 dark:text-gray-400">Actual:</Text>
-                  <Text className="font-semibold text-gray-900 dark:text-white">
-                    {selectedSGA.currentQuarterProgress
-                      ? `${selectedSGA.currentQuarterProgress.sqoActual} SQOs (${selectedSGA.currentQuarterProgress.progressPercent?.toFixed(0) || 0}%)`
-                      : 'No data'}
-                  </Text>
+                <div className="grid grid-cols-[160px_1fr] gap-2">
+                  <Text className="text-gray-600 dark:text-gray-400 font-medium">Actual:</Text>
+                  <div className="flex items-center gap-2">
+                    {selectedSGA.currentQuarterProgress ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMetricClick(selectedSGA.userEmail, selectedSGA.userName, 'sqos', false, quarter);
+                        }}
+                        className="text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-100 px-2 py-1 rounded transition-colors duration-150 cursor-pointer flex items-center gap-1"
+                      >
+                        <span className="text-xl font-bold">{Math.round(selectedSGA.currentQuarterProgress.sqoActual)}</span>
+                        <span>SQOs</span>
+                        <span className="text-gray-500 dark:text-gray-400">({selectedSGA.currentQuarterProgress.progressPercent?.toFixed(0) || 0}%)</span>
+                      </button>
+                    ) : (
+                      <span className="text-gray-500 dark:text-gray-400">No data</span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <Text className="text-gray-600 dark:text-gray-400">Pacing:</Text>
-                  <Badge
-                    className={
-                      selectedSGA.currentQuarterProgress?.pacingStatus === 'ahead'
-                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                        : selectedSGA.currentQuarterProgress?.pacingStatus === 'behind'
-                        ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                        : selectedSGA.currentQuarterProgress?.pacingStatus === 'on-track'
-                        ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-                        : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                    }
-                  >
-                    {selectedSGA.currentQuarterProgress?.pacingStatus || 'no-goal'}
-                  </Badge>
+                <div className="grid grid-cols-[160px_1fr] gap-2">
+                  <Text className="text-gray-600 dark:text-gray-400 font-medium">Pacing:</Text>
+                  <Text className="text-gray-900 dark:text-white">
+                    {selectedSGA.currentQuarterProgress
+                      ? `${selectedSGA.currentQuarterProgress.pacingStatus} (${selectedSGA.currentQuarterProgress.pacingDiff > 0 ? '+' : ''}${selectedSGA.currentQuarterProgress.pacingDiff.toFixed(1)})`
+                      : 'N/A'}
+                  </Text>
                 </div>
               </div>
             </div>
