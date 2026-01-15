@@ -13,23 +13,21 @@ interface WeeklyGoalEditorProps {
 }
 
 export function WeeklyGoalEditor({ isOpen, onClose, onSaved, goal }: WeeklyGoalEditorProps) {
-  const [formData, setFormData] = useState<WeeklyGoalInput>({
-    weekStartDate: '',
-    initialCallsGoal: 0,
-    qualificationCallsGoal: 0,
-    sqoGoal: 0,
-  });
+  // Use string values for inputs to allow free text entry
+  const [initialCallsGoalInput, setInitialCallsGoalInput] = useState<string>('');
+  const [qualificationCallsGoalInput, setQualificationCallsGoalInput] = useState<string>('');
+  const [sqoGoalInput, setSqoGoalInput] = useState<string>('');
+  const [weekStartDate, setWeekStartDate] = useState<string>('');
+  
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
   useEffect(() => {
     if (goal && isOpen) {
-      setFormData({
-        weekStartDate: goal.weekStartDate,
-        initialCallsGoal: goal.initialCallsGoal || 0,
-        qualificationCallsGoal: goal.qualificationCallsGoal || 0,
-        sqoGoal: goal.sqoGoal || 0,
-      });
+      setWeekStartDate(goal.weekStartDate);
+      setInitialCallsGoalInput(goal.initialCallsGoal?.toString() || '');
+      setQualificationCallsGoalInput(goal.qualificationCallsGoal?.toString() || '');
+      setSqoGoalInput(goal.sqoGoal?.toString() || '');
     }
     setError(null);
   }, [goal, isOpen]);
@@ -39,25 +37,37 @@ export function WeeklyGoalEditor({ isOpen, onClose, onSaved, goal }: WeeklyGoalE
     setLoading(true);
     setError(null);
     
-    // Validate non-negative integers
-    if (formData.initialCallsGoal < 0 || 
-        formData.qualificationCallsGoal < 0 || 
-        formData.sqoGoal < 0) {
-      setError('Goals must be non-negative integers');
-      setLoading(false);
-      return;
-    }
-    
-    // Validate integers
-    if (!Number.isInteger(formData.initialCallsGoal) ||
-        !Number.isInteger(formData.qualificationCallsGoal) ||
-        !Number.isInteger(formData.sqoGoal)) {
-      setError('Goals must be whole numbers');
-      setLoading(false);
-      return;
-    }
+    // Parse and validate inputs
+    const parseGoal = (input: string, fieldName: string): number => {
+      const trimmed = input.trim();
+      if (trimmed === '') {
+        return 0;
+      }
+      const parsed = parseInt(trimmed, 10);
+      if (isNaN(parsed)) {
+        throw new Error(`${fieldName} must be a valid number`);
+      }
+      if (parsed < 0) {
+        throw new Error(`${fieldName} must be a non-negative number`);
+      }
+      if (!Number.isInteger(parsed)) {
+        throw new Error(`${fieldName} must be a whole number`);
+      }
+      return parsed;
+    };
     
     try {
+      const initialCallsGoal = parseGoal(initialCallsGoalInput, 'Initial Calls Goal');
+      const qualificationCallsGoal = parseGoal(qualificationCallsGoalInput, 'Qualification Calls Goal');
+      const sqoGoal = parseGoal(sqoGoalInput, 'SQO Goal');
+      
+      const formData: WeeklyGoalInput = {
+        weekStartDate,
+        initialCallsGoal,
+        qualificationCallsGoal,
+        sqoGoal,
+      };
+      
       const response = await fetch('/api/sga-hub/weekly-goals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -109,14 +119,16 @@ export function WeeklyGoalEditor({ isOpen, onClose, onSaved, goal }: WeeklyGoalE
                 Initial Calls Goal
               </label>
               <TextInput
-                type="number"
-                min="0"
-                step="1"
-                value={formData.initialCallsGoal.toString()}
-                onChange={(e) => setFormData({
-                  ...formData,
-                  initialCallsGoal: parseInt(e.target.value) || 0,
-                })}
+                type="text"
+                inputMode="numeric"
+                value={initialCallsGoalInput}
+                onChange={(e) => {
+                  // Allow only digits and empty string
+                  const value = e.target.value;
+                  if (value === '' || /^\d+$/.test(value)) {
+                    setInitialCallsGoalInput(value);
+                  }
+                }}
                 placeholder="0"
                 required
               />
@@ -127,14 +139,16 @@ export function WeeklyGoalEditor({ isOpen, onClose, onSaved, goal }: WeeklyGoalE
                 Qualification Calls Goal
               </label>
               <TextInput
-                type="number"
-                min="0"
-                step="1"
-                value={formData.qualificationCallsGoal.toString()}
-                onChange={(e) => setFormData({
-                  ...formData,
-                  qualificationCallsGoal: parseInt(e.target.value) || 0,
-                })}
+                type="text"
+                inputMode="numeric"
+                value={qualificationCallsGoalInput}
+                onChange={(e) => {
+                  // Allow only digits and empty string
+                  const value = e.target.value;
+                  if (value === '' || /^\d+$/.test(value)) {
+                    setQualificationCallsGoalInput(value);
+                  }
+                }}
                 placeholder="0"
                 required
               />
@@ -145,14 +159,16 @@ export function WeeklyGoalEditor({ isOpen, onClose, onSaved, goal }: WeeklyGoalE
                 SQO Goal
               </label>
               <TextInput
-                type="number"
-                min="0"
-                step="1"
-                value={formData.sqoGoal.toString()}
-                onChange={(e) => setFormData({
-                  ...formData,
-                  sqoGoal: parseInt(e.target.value) || 0,
-                })}
+                type="text"
+                inputMode="numeric"
+                value={sqoGoalInput}
+                onChange={(e) => {
+                  // Allow only digits and empty string
+                  const value = e.target.value;
+                  if (value === '' || /^\d+$/.test(value)) {
+                    setSqoGoalInput(value);
+                  }
+                }}
                 placeholder="0"
                 required
               />
