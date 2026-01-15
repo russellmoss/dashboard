@@ -383,6 +383,14 @@ export function SGAHubContent() {
     setRecordDetailOpen(true);
     // Don't set drillDownContext - no back button for closed lost
   };
+
+  // Handle SQO Detail row click
+  const handleSQODetailClick = (sqo: SQODetail) => {
+    // SQODetail.id is already the primary_key from the query
+    setRecordDetailId(sqo.id);
+    setRecordDetailOpen(true);
+    // Don't set drillDownContext - no back button for SQO details table
+  };
   
   return (
     <div>
@@ -557,6 +565,7 @@ export function SGAHubContent() {
           <SQODetailTable
             sqos={sqoDetails}
             isLoading={quarterlyLoading}
+            onRecordClick={handleSQODetailClick}
           />
         </>
       )}
