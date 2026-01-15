@@ -12,6 +12,10 @@ This dashboard connects directly to BigQuery to visualize data from the `vw_funn
 - **Trend Visualization**: Monthly and quarterly trend charts for conversion rates and volumes
 - **Channel & Source Performance**: Drill down into performance by marketing channel and lead source
 - **Team Performance**: Filter and analyze performance by SGA (Sales Growth Advisor) and SGM (Sales Growth Manager)
+- **SGA Hub**: Self-service dashboard for SGAs to track weekly goals, quarterly progress, and closed lost follow-ups
+- **SGA Management**: Admin/Manager interface to view and manage all SGAs' goals and performance
+- **Drill-Down Capabilities**: Click on any metric value to see underlying records, then click records to view full details
+- **Data Export**: Export tables to CSV and Google Sheets
 - **User Management**: Role-based access control with admin, manager, SGM, SGA, and viewer roles
 
 ## 📊 Data Source
@@ -49,21 +53,44 @@ The dashboard queries the `vw_funnel_master` BigQuery view (`savvy-gtm-analytics
 ```
 src/
 ├── app/                    # Next.js App Router pages
-│   ├── api/               # API routes (dashboard endpoints, auth, users)
-│   ├── dashboard/         # Main dashboard page and settings
+│   ├── api/               # API routes
+│   │   ├── dashboard/     # Dashboard endpoints (funnel-metrics, conversion-rates, etc.)
+│   │   ├── sga-hub/       # SGA Hub endpoints (weekly-goals, quarterly-progress, drill-down, etc.)
+│   │   ├── admin/         # Admin endpoints (sga-overview)
+│   │   ├── auth/          # Authentication endpoints
+│   │   └── users/         # User management endpoints
+│   ├── dashboard/         # Dashboard pages
+│   │   ├── page.tsx       # Main Funnel Performance dashboard
+│   │   ├── sga-hub/       # SGA Hub page (for SGA role)
+│   │   ├── sga-management/# SGA Management page (for admin/manager)
+│   │   └── settings/      # Settings page
 │   └── login/             # Authentication page
 ├── components/
-│   ├── dashboard/         # Dashboard-specific components
+│   ├── dashboard/         # Dashboard-specific components (Scorecards, Charts, Tables, RecordDetailModal)
+│   ├── sga-hub/           # SGA Hub components (WeeklyGoalsTable, QuarterlyProgressCard, MetricDrillDownModal, etc.)
 │   ├── layout/            # Header, Sidebar, Navigation
 │   ├── settings/          # User management components
 │   └── ui/                # Reusable UI components
 ├── lib/
 │   ├── queries/           # BigQuery query functions
-│   ├── utils/             # Helper functions (date formatting, CSV export)
+│   │   ├── conversion-rates.ts
+│   │   ├── funnel-metrics.ts
+│   │   ├── source-performance.ts
+│   │   ├── drill-down.ts  # Drill-down queries
+│   │   ├── weekly-actuals.ts
+│   │   ├── quarterly-progress.ts
+│   │   └── closed-lost.ts
+│   ├── sheets/            # Google Sheets export functionality
+│   ├── utils/             # Helper functions (date formatting, CSV export, SGA Hub helpers)
 │   ├── bigquery.ts        # BigQuery client
 │   ├── auth.ts            # NextAuth configuration
+│   ├── api-client.ts      # API client for frontend
 │   └── users.ts           # User management
 ├── types/                 # TypeScript type definitions
+│   ├── dashboard.ts
+│   ├── sga-hub.ts
+│   ├── drill-down.ts      # Drill-down type definitions
+│   └── filters.ts
 └── config/                # Constants (table names, record types)
 ```
 
@@ -80,6 +107,10 @@ src/
 - ✅ **Phase 6.5**: Post-implementation enhancements (pagination, sorting, multi-field search, Full Funnel View badges, MQLs/goal columns)
 - ✅ **Phase 7**: Integration testing and verification
 - ✅ **Phase 8**: Tech debt cleanup and documentation updates
+- ✅ **Phase 9**: SGA Hub feature (weekly goals, quarterly progress, closed lost follow-ups)
+- ✅ **Phase 10**: SGA Management feature (admin/manager interface for SGA oversight)
+- ✅ **Phase 11**: Drill-down feature (clickable metrics with record detail integration)
+- ✅ **Phase 12**: Google Sheets export functionality
 
 ### Known Issues
 
@@ -122,6 +153,29 @@ The dashboard tracks four key conversion rates, each tied to specific date dimen
 - **Conversion Rates**: All four stage-to-stage conversion rates
 - **Channel Performance**: Performance breakdown by marketing channel
 - **Source Performance**: Performance breakdown by lead source
+
+### SGA Hub Features
+
+The SGA Hub provides a self-service dashboard for Sales Growth Advisors to track their performance:
+
+- **Weekly Goals Tracking**: Set and track weekly goals for Initial Calls, Qualification Calls, and SQOs
+- **Weekly Goals vs Actuals**: Compare goals to actual performance with visual indicators (green = ahead, red = behind)
+- **Quarterly Progress**: Track quarterly SQO goals with pacing calculations (ahead/on-track/behind)
+- **Closed Lost Follow-ups**: View closed lost opportunities organized by time since last contact (30-60 days, 60-90 days, etc.)
+- **SQO Details**: Detailed view of all SQOs in the current quarter with AUM, channel, and source information
+- **Drill-Down Capabilities**: Click on any metric value to see underlying records, then click records to view full details
+- **Data Export**: Export weekly goals, quarterly progress, and closed lost data to CSV
+
+### SGA Management Features
+
+The SGA Management page (Admin/Manager only) provides oversight of all SGAs:
+
+- **SGA Overview Table**: View all SGAs' current week and quarter performance at a glance
+- **Goal Management**: Set weekly and quarterly goals for individual SGAs or in bulk
+- **Drill-Down Access**: Click on any metric value to drill down into underlying records
+- **Record Detail Integration**: Click on drill-down records to view full opportunity/lead details
+- **Improved Readability**: Full metric names (Initial Calls, Qualification Calls) instead of abbreviations
+- **Enhanced UX**: Clickable metric values with hover effects for better interactivity
 
 ## 🚀 Getting Started
 
@@ -172,10 +226,21 @@ The dashboard tracks four key conversion rates, each tied to specific date dimen
 
 ### Key Files
 
-- **Query Functions**: `src/lib/queries/conversion-rates.ts` - Contains both scorecard and trend chart queries
-- **Dashboard Page**: `src/app/dashboard/page.tsx` - Main dashboard with data fetching
-- **API Routes**: `src/app/api/dashboard/*` - Backend endpoints for data retrieval
-- **Components**: `src/components/dashboard/*` - Reusable dashboard components
+- **Query Functions**: 
+  - `src/lib/queries/conversion-rates.ts` - Conversion rate queries
+  - `src/lib/queries/drill-down.ts` - Drill-down record queries
+  - `src/lib/queries/weekly-actuals.ts` - Weekly actuals queries
+  - `src/lib/queries/quarterly-progress.ts` - Quarterly progress queries
+- **Dashboard Pages**: 
+  - `src/app/dashboard/page.tsx` - Main Funnel Performance dashboard
+  - `src/app/dashboard/sga-hub/page.tsx` - SGA Hub (for SGA role)
+  - `src/app/dashboard/sga-management/page.tsx` - SGA Management (for admin/manager)
+- **API Routes**: 
+  - `src/app/api/dashboard/*` - Dashboard endpoints
+  - `src/app/api/sga-hub/*` - SGA Hub endpoints (weekly-goals, quarterly-progress, drill-down, etc.)
+- **Components**: 
+  - `src/components/dashboard/*` - Dashboard components (Scorecards, Charts, RecordDetailModal)
+  - `src/components/sga-hub/*` - SGA Hub components (WeeklyGoalsTable, MetricDrillDownModal, etc.)
 
 ### Building
 
@@ -203,6 +268,11 @@ The dashboard has been tested against Q4 2025 data with the following expected v
 
 - **[Build Instructions](./docs/savvy-dashboard-build-instructions.md)**: Comprehensive guide for building and deploying the dashboard
 - **[BigQuery View](./vw_funnel_master.sql)**: SQL definition of the `vw_funnel_master` view
+- **[SGA Hub Implementation](./docs/SGA_HUB_IMPLEMENTATION.md)**: SGA Hub feature implementation guide
+- **[SGA Management Upgrade](./SGA_MGMT_UPGRADE_IMPLEMENTATION.md)**: Drill-down feature implementation guide
+- **[Ground Truth](./docs/GROUND-TRUTH.md)**: Verified values for calculation validation
+- **[Glossary](./docs/GLOSSARY.md)**: Business definitions and terminology
+- **[Calculations](./docs/CALCULATIONS.md)**: Detailed calculation formulas
 
 ## 🐛 Known Issues
 
@@ -212,8 +282,9 @@ _No known issues at this time._
 
 - Add forecast comparison charts
 - Implement caching for API routes
-- Add export functionality for all tables
-- Create additional dashboard pages (Channel Drilldown, Open Pipeline, Partner Performance, Experimentation, SGA Performance)
+- Create additional dashboard pages (Channel Drilldown, Open Pipeline, Partner Performance, Experimentation)
+- Add pagination to drill-down modals (if records exceed 100)
+- Add filtering/sorting within drill-down modals
 
 ## 📄 License
 
@@ -232,4 +303,4 @@ Proprietary - Savvy Wealth Internal Use Only
 ---
 
 **Last Updated**: January 2026  
-**Status**: All core phases complete (1-8), Full Funnel View implemented, SGA/SGM Active Filter implemented
+**Status**: All core phases complete (1-12), Full Funnel View implemented, SGA Hub & SGA Management implemented, Drill-Down feature complete
