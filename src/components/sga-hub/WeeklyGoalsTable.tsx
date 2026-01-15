@@ -5,7 +5,6 @@ import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell
 import { WeeklyGoalWithActuals } from '@/types/sga-hub';
 import { Pencil, ChevronUp, ChevronDown } from 'lucide-react';
 import { InfoTooltip } from '@/components/ui/InfoTooltip';
-import { ClickableMetricValue } from './ClickableMetricValue';
 import { MetricType } from '@/types/drill-down';
 
 type SortColumn = 'week' | 'initialCalls' | 'qualificationCalls' | 'sqos' | null;
@@ -167,82 +166,139 @@ export function WeeklyGoalsTable({ goals, onEditGoal, isLoading = false, onMetri
                     {goal.weekLabel}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex flex-col items-end">
-                      <div className="flex items-center gap-2">
-                        {onMetricClick ? (
-                          <ClickableMetricValue
-                            value={goal.initialCallsActual}
-                            onClick={() => onMetricClick(goal.weekStartDate, 'initial-calls')}
-                          />
-                        ) : (
+                    {onMetricClick ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onMetricClick(goal.weekStartDate, 'initial-calls');
+                        }}
+                        className="flex flex-col items-end hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded transition-colors duration-150 cursor-pointer w-full"
+                      >
+                        <div className="flex items-center gap-2">
                           <span className="text-lg font-semibold text-gray-900 dark:text-white">
                             {goal.initialCallsActual}
                           </span>
+                          {goal.hasGoal && goal.initialCallsGoal !== null && (
+                            <span className="text-sm text-gray-500 dark:text-gray-400">
+                              / {goal.initialCallsGoal}
+                            </span>
+                          )}
+                        </div>
+                        {goal.hasGoal && goal.initialCallsDiff !== null && (
+                          <span className={`text-xs font-medium ${initialCallsDiff.color}`}>
+                            {initialCallsDiff.text}
+                          </span>
                         )}
-                        {goal.hasGoal && goal.initialCallsGoal !== null && (
-                          <span className="text-sm text-gray-500 dark:text-gray-400">
-                            / {goal.initialCallsGoal}
+                      </button>
+                    ) : (
+                      <div className="flex flex-col items-end">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                            {goal.initialCallsActual}
+                          </span>
+                          {goal.hasGoal && goal.initialCallsGoal !== null && (
+                            <span className="text-sm text-gray-500 dark:text-gray-400">
+                              / {goal.initialCallsGoal}
+                            </span>
+                          )}
+                        </div>
+                        {goal.hasGoal && goal.initialCallsDiff !== null && (
+                          <span className={`text-xs font-medium ${initialCallsDiff.color}`}>
+                            {initialCallsDiff.text}
                           </span>
                         )}
                       </div>
-                      {goal.hasGoal && goal.initialCallsDiff !== null && (
-                        <span className={`text-xs font-medium ${initialCallsDiff.color}`}>
-                          {initialCallsDiff.text}
-                        </span>
-                      )}
-                    </div>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex flex-col items-end">
-                      <div className="flex items-center gap-2">
-                        {onMetricClick ? (
-                          <ClickableMetricValue
-                            value={goal.qualificationCallsActual}
-                            onClick={() => onMetricClick(goal.weekStartDate, 'qualification-calls')}
-                          />
-                        ) : (
+                    {onMetricClick ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onMetricClick(goal.weekStartDate, 'qualification-calls');
+                        }}
+                        className="flex flex-col items-end hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded transition-colors duration-150 cursor-pointer w-full"
+                      >
+                        <div className="flex items-center gap-2">
                           <span className="text-lg font-semibold text-gray-900 dark:text-white">
                             {goal.qualificationCallsActual}
                           </span>
+                          {goal.hasGoal && goal.qualificationCallsGoal !== null && (
+                            <span className="text-sm text-gray-500 dark:text-gray-400">
+                              / {goal.qualificationCallsGoal}
+                            </span>
+                          )}
+                        </div>
+                        {goal.hasGoal && goal.qualificationCallsDiff !== null && (
+                          <span className={`text-xs font-medium ${qualificationCallsDiff.color}`}>
+                            {qualificationCallsDiff.text}
+                          </span>
                         )}
-                        {goal.hasGoal && goal.qualificationCallsGoal !== null && (
-                          <span className="text-sm text-gray-500 dark:text-gray-400">
-                            / {goal.qualificationCallsGoal}
+                      </button>
+                    ) : (
+                      <div className="flex flex-col items-end">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                            {goal.qualificationCallsActual}
+                          </span>
+                          {goal.hasGoal && goal.qualificationCallsGoal !== null && (
+                            <span className="text-sm text-gray-500 dark:text-gray-400">
+                              / {goal.qualificationCallsGoal}
+                            </span>
+                          )}
+                        </div>
+                        {goal.hasGoal && goal.qualificationCallsDiff !== null && (
+                          <span className={`text-xs font-medium ${qualificationCallsDiff.color}`}>
+                            {qualificationCallsDiff.text}
                           </span>
                         )}
                       </div>
-                      {goal.hasGoal && goal.qualificationCallsDiff !== null && (
-                        <span className={`text-xs font-medium ${qualificationCallsDiff.color}`}>
-                          {qualificationCallsDiff.text}
-                        </span>
-                      )}
-                    </div>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex flex-col items-end">
-                      <div className="flex items-center gap-2">
-                        {onMetricClick ? (
-                          <ClickableMetricValue
-                            value={goal.sqoActual}
-                            onClick={() => onMetricClick(goal.weekStartDate, 'sqos')}
-                          />
-                        ) : (
+                    {onMetricClick ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onMetricClick(goal.weekStartDate, 'sqos');
+                        }}
+                        className="flex flex-col items-end hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded transition-colors duration-150 cursor-pointer w-full"
+                      >
+                        <div className="flex items-center gap-2">
                           <span className="text-lg font-semibold text-gray-900 dark:text-white">
                             {goal.sqoActual}
                           </span>
+                          {goal.hasGoal && goal.sqoGoal !== null && (
+                            <span className="text-sm text-gray-500 dark:text-gray-400">
+                              / {goal.sqoGoal}
+                            </span>
+                          )}
+                        </div>
+                        {goal.hasGoal && goal.sqoDiff !== null && (
+                          <span className={`text-xs font-medium ${sqoDiff.color}`}>
+                            {sqoDiff.text}
+                          </span>
                         )}
-                        {goal.hasGoal && goal.sqoGoal !== null && (
-                          <span className="text-sm text-gray-500 dark:text-gray-400">
-                            / {goal.sqoGoal}
+                      </button>
+                    ) : (
+                      <div className="flex flex-col items-end">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                            {goal.sqoActual}
+                          </span>
+                          {goal.hasGoal && goal.sqoGoal !== null && (
+                            <span className="text-sm text-gray-500 dark:text-gray-400">
+                              / {goal.sqoGoal}
+                            </span>
+                          )}
+                        </div>
+                        {goal.hasGoal && goal.sqoDiff !== null && (
+                          <span className={`text-xs font-medium ${sqoDiff.color}`}>
+                            {sqoDiff.text}
                           </span>
                         )}
                       </div>
-                      {goal.hasGoal && goal.sqoDiff !== null && (
-                        <span className={`text-xs font-medium ${sqoDiff.color}`}>
-                          {sqoDiff.text}
-                        </span>
-                      )}
-                    </div>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     {goal.canEdit ? (
