@@ -41,23 +41,23 @@ export default function LoginPage() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f9fafb' }}>
-      <div style={{ maxWidth: '400px', width: '100%', padding: '20px' }}>
-        <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '32px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-          <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-            <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px' }}>Savvy Wealth</h1>
-            <p style={{ color: '#6b7280' }}>Funnel Analytics Dashboard</p>
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="max-w-md w-full p-5">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-8 shadow-md dark:shadow-lg">
+          <div className="text-center mb-8">
+            <h1 className="text-2xl font-bold mb-2 text-gray-900 dark:text-white">Savvy Wealth</h1>
+            <p className="text-gray-600 dark:text-gray-400">Funnel Analytics Dashboard</p>
           </div>
           
           {loginError && (
-            <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px' }}>
-              <p style={{ fontSize: '14px', color: '#dc2626' }}>{loginError}</p>
+            <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+              <p className="text-sm text-red-600 dark:text-red-400">{loginError}</p>
             </div>
           )}
           
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div>
-              <label htmlFor="email" style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px', color: '#374151' }}>
+              <label htmlFor="email" className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
                 Email
               </label>
               <input
@@ -67,15 +67,15 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@savvywealth.com"
                 required
-                style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px' }}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               />
             </div>
             
             <div>
-              <label htmlFor="password" style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px', color: '#374151' }}>
+              <label htmlFor="password" className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
                 Password
               </label>
-              <div style={{ position: 'relative' }}>
+              <div className="relative">
                 <input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
@@ -83,31 +83,12 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   required
-                  style={{ 
-                    width: '100%', 
-                    padding: '8px 40px 8px 12px', 
-                    border: '1px solid #d1d5db', 
-                    borderRadius: '6px', 
-                    fontSize: '14px' 
-                  }}
+                  className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  style={{
-                    position: 'absolute',
-                    right: '8px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#6b7280',
-                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent border-none cursor-pointer p-1 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? (
@@ -122,13 +103,13 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isLoading}
-              style={{ width: '100%', padding: '12px', backgroundColor: isLoading ? '#9ca3af' : '#2563eb', color: 'white', fontWeight: '500', borderRadius: '6px', border: 'none', cursor: isLoading ? 'not-allowed' : 'pointer' }}
+              className="w-full py-3 bg-blue-600 dark:bg-blue-500 hover:bg-blue-700 dark:hover:bg-blue-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 text-white font-medium rounded-md border-none cursor-pointer disabled:cursor-not-allowed transition-colors"
             >
               {isLoading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
           
-          <p style={{ marginTop: '24px', textAlign: 'center', fontSize: '12px', color: '#6b7280' }}>
+          <p className="mt-6 text-center text-xs text-gray-600 dark:text-gray-400">
             Only @savvywealth.com accounts are authorized
           </p>
         </div>
