@@ -741,3 +741,386 @@ src/
 - Name matching: Exact case-sensitive match
 - Pacing calculation: Formula matches expected SQOs per day
 - CSV export: All columns included, proper escaping
+
+---
+
+## SGA Drill-Down Feature Patterns
+
+### Overview
+
+The drill-down feature allows users to click on metric values (Initial Calls, Qualification Calls, SQOs) to see underlying records, and then click on any record to view full details. This pattern is used in both SGA Management and SGA Hub pages.
+
+**Key Files:**
+- `src/types/drill-down.ts` - Drill-down type definitions
+- `src/lib/queries/drill-down.ts` - BigQuery queries for drill-down records
+- `src/app/api/sga-hub/drill-down/` - API routes for drill-down data
+- `src/components/sga-hub/MetricDrillDownModal.tsx` - Drill-down modal component
+- `src/components/sga-hub/ClickableMetricValue.tsx` - Reusable clickable number component
+- `src/components/dashboard/RecordDetailModal.tsx` - Record detail modal (with back button support)
+
+### Critical Patterns
+
+#### 1. BigQuery DATE vs TIMESTAMP Type Casting
+
+**⚠️ CRITICAL**: When comparing BigQuery `DATE` fields with `TIMESTAMP` parameters, you MUST cast the DATE field to TIMESTAMP.
+
+**WRONG:**
+```sql
+WHERE v.Initial_Call_Scheduled_Date__c >= TIMESTAMP(@weekStartDate)
+-- Error: No matching signature for operator >= for argument types: DATE, TIMESTAMP
+```
+
+**RIGHT:**
+```sql
+WHERE TIMESTAMP(v.Initial_Call_Scheduled_Date__c) >= TIMESTAMP(@weekStartDate)
+```
+
+**Why**: BigQuery DATE and TIMESTAMP are different types. DATE fields must be cast to TIMESTAMP for comparison with TIMESTAMP parameters.
+
+**Files using this pattern:**
+- `src/lib/queries/drill-down.ts` - All date comparisons in drill-down queries
+- `src/lib/queries/quarterly-progress.ts` - SQO date comparisons
+
+#### 2. Two-Part Query Structure - CRITICAL REMINDER
+
+**⚠️ CRITICAL**: The `getClosedLostRecords` function has **TWO separate query parts** that **BOTH must be updated** when modifying:
+
+1. **Query Part 1**: 30-179 days bucket (queries from `vw_sga_closed_lost_sql_followup` view)
+2. **Query Part 2**: 180+ days bucket (queries from base tables with CTEs)
+
+**When adding JOINs or new fields:**
+- ✅ Update BOTH query parts
+- ✅ Add `v.primary_key` to SELECT in BOTH queries
+- ✅ Add LEFT JOIN with `vw_funnel_master` in BOTH queries
+- ✅ Prefix all column references with table aliases (`cl.` for Part 1, `w.` for Part 2)
+
+**Why**: If only one part is updated, records from the other time bucket will be missing fields, causing RecordDetailModal to fail.
+
+**Verification Checklist:**
+- [ ] Query Part 1 (30-179 days) updated
+- [ ] Query Part 2 (180+ days) updated
+- [ ] All column references prefixed with table aliases
+- [ ] Both queries use LEFT JOIN with `vw_funnel_master`
+
+#### 3. Nested Modal State Management
+
+**Pattern:**
+```typescript
+// Drill-down modal state
+const [drillDownOpen, setDrillDownOpen] = useState(false);
+const [drillDownMetricType, setDrillDownMetricType] = useState<MetricType | null>(null);
+const [drillDownRecords, setDrillDownRecords] = useState<DrillDownRecord[]>([]);
+const [drillDownLoading, setDrillDownLoading] = useState(false);
+const [drillDownError, setDrillDownError] = useState<string | null>(null);
+const [drillDownTitle, setDrillDownTitle] = useState('');
+const [drillDownContext, setDrillDownContext] = useState<DrillDownContext | null>(null);
+
+// Record detail modal state
+const [recordDetailOpen, setRecordDetailOpen] = useState(false);
+const [recordDetailId, setRecordDetailId] = useState<string | null>(null);
+
+// Handler: Open drill-down from metric click
+const handleMetricClick = async (sgaName, metricType, weekStartDate, weekEndDate) => {
+  setDrillDownLoading(true);
+  setDrillDownOpen(true);
+  // Store context for back button
+  setDrillDownContext({ metricType, title, sgaName, weekStartDate, weekEndDate });
+  // Fetch records...
+};
+
+// Handler: Open record detail from drill-down row click
+const handleRecordClick = (primaryKey: string) => {
+  setDrillDownOpen(false); // Close drill-down
+  setRecordDetailId(primaryKey);
+  setRecordDetailOpen(true); // Open record detail
+};
+
+// Handler: Back button returns to drill-down
+const handleBackToDrillDown = () => {
+  setRecordDetailOpen(false);
+  setRecordDetailId(null);
+  setDrillDownOpen(true); // Reopen drill-down with stored context
+};
+```
+
+**Why**: Nested modals require careful state management. The drill-down context must be preserved when opening record detail, so the back button can restore it.
+
+#### 4. API Route Pattern for Drill-Down
+
+**Pattern:**
+```typescript
+export async function GET(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const permissions = await getUserPermissions(session.user.email);
+    if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const targetUserEmail = searchParams.get('userEmail'); // For admin viewing other SGAs
+    const weekStartDate = searchParams.get('weekStartDate');
+    const weekEndDate = searchParams.get('weekEndDate');
+
+    // Validate required parameters
+    if (!weekStartDate || !weekEndDate) {
+      return NextResponse.json(
+        { error: 'Missing required parameters' },
+        { status: 400 }
+      );
+    }
+
+    // Determine which user's records to fetch
+    let userEmail = session.user.email;
+    if (targetUserEmail) {
+      // Only admin/manager can view other users' records
+      if (!['admin', 'manager'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      userEmail = targetUserEmail;
+    }
+
+    // Get user to retrieve name for BigQuery filter
+    const user = await prisma.user.findUnique({
+      where: { email: userEmail },
+      select: { name: true },
+    });
+
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    // Fetch drill-down records
+    const records = await getDrillDownFunction(user.name, weekStartDate, weekEndDate);
+
+    return NextResponse.json({ records });
+  } catch (error) {
+    console.error('Error fetching drill-down:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch records' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+**Key Points:**
+- SGA users viewing their own data should NOT pass `userEmail` parameter
+- Admin/Manager can pass `userEmail` to view other SGAs' data
+- Always fetch user.name from Prisma to match BigQuery `SGA_Owner_Name__c`
+
+#### 5. Clickable Metric Value Pattern
+
+**Pattern:**
+```typescript
+// For entire label+number clickable (AdminSGATable)
+<button
+  onClick={(e) => {
+    e.stopPropagation();
+    onMetricClick(sgaEmail, sgaName, 'initial-calls', false);
+  }}
+  className="text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-100 px-2 py-1 rounded transition-colors duration-150 cursor-pointer"
+>
+  Initial Calls: <span className="text-xl font-bold">{value}</span>
+</button>
+
+// For cell content clickable (WeeklyGoalsTable)
+<button
+  onClick={(e) => {
+    e.stopPropagation();
+    onMetricClick(weekStartDate, 'initial-calls');
+  }}
+  className="flex flex-col items-end hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded transition-colors duration-150 cursor-pointer w-full"
+>
+  <div className="flex items-center gap-2">
+    <span className="text-lg font-semibold">{actual}</span>
+    <span className="text-sm text-gray-500">/ {goal}</span>
+  </div>
+  <span className="text-xs font-medium">{diff}</span>
+</button>
+```
+
+**Why**: Hover bounding box provides clear visual feedback. Entire blocks are clickable for better UX.
+
+#### 6. RecordDetailModal Back Button Support
+
+**Pattern:**
+```typescript
+// Add to RecordDetailModal props
+interface RecordDetailModalProps {
+  // ... existing props ...
+  showBackButton?: boolean;
+  onBack?: () => void;
+  backButtonLabel?: string;
+}
+
+// In component header
+{showBackButton && onBack && (
+  <button
+    onClick={onBack}
+    className="flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+  >
+    {backButtonLabel || '← Back to list'}
+  </button>
+)}
+```
+
+**Why**: Allows nested modal flow - drill-down → record detail → back to drill-down.
+
+#### 7. SGA User API Parameter Handling
+
+**⚠️ IMPORTANT**: SGA users viewing their own data in SGA Hub should NOT pass `userEmail` parameter to API calls.
+
+**WRONG:**
+```typescript
+// In SGAHubContent.tsx for SGA users
+await dashboardApi.getSQODrillDown(sgaName, { weekStartDate, weekEndDate }, session?.user?.email);
+// This causes 403 Forbidden - API rejects userEmail for non-admin/manager
+```
+
+**RIGHT:**
+```typescript
+// In SGAHubContent.tsx for SGA users
+await dashboardApi.getSQODrillDown(sgaName, { weekStartDate, weekEndDate });
+// API route defaults to session user's email
+```
+
+**Why**: API routes check permissions. If `userEmail` is passed for a non-admin/manager, it's rejected. For SGA users, omit the parameter and let the API use the session user.
+
+#### 8. Drill-Down Type Definitions
+
+**Pattern:**
+```typescript
+// Base interface with common fields
+export interface DrillDownRecordBase {
+  primaryKey: string;
+  advisorName: string;
+  source: string;
+  channel: string;
+  tofStage: string;
+  leadUrl: string | null;
+  opportunityUrl: string | null;
+}
+
+// Specific record types extend base
+export interface InitialCallRecord extends DrillDownRecordBase {
+  initialCallDate: string;
+  leadScoreTier: string | null;
+}
+
+// Union type for all drill-down records
+export type DrillDownRecord = InitialCallRecord | QualificationCallRecord | SQODrillDownRecord;
+```
+
+**Why**: Type safety ensures correct field access. Union type allows type guards for conditional rendering.
+
+#### 9. Date Extraction Helper Pattern
+
+**Pattern:**
+```typescript
+function extractDateValue(
+  field: { value: string } | string | null | undefined
+): string | null {
+  if (!field) return null;
+  
+  // Handle object format: { value: "2025-01-15T10:30:00Z" }
+  if (typeof field === 'object' && field !== null && 'value' in field) {
+    return typeof field.value === 'string' ? field.value : null;
+  }
+  
+  // Handle string format: "2025-01-15" or "2025-01-15T10:30:00Z"
+  if (typeof field === 'string') {
+    return field;
+  }
+  
+  return null;
+}
+```
+
+**Why**: BigQuery DATE/TIMESTAMP fields can return as strings OR objects. Always handle both formats.
+
+### Common Pitfalls - Drill-Down Feature
+
+#### ❌ Not Casting DATE to TIMESTAMP
+- **WRONG**: `v.Initial_Call_Scheduled_Date__c >= TIMESTAMP(@date)`
+- **RIGHT**: `TIMESTAMP(v.Initial_Call_Scheduled_Date__c) >= TIMESTAMP(@date)`
+- **WHY**: BigQuery type mismatch error - DATE and TIMESTAMP are incompatible without casting
+
+#### ❌ Updating Only One Query Part in Closed Lost
+- **WRONG**: Updating only the 30-179 days query, forgetting the 180+ days query
+- **RIGHT**: Update BOTH query parts when adding JOINs or fields
+- **WHY**: Missing fields in one bucket causes RecordDetailModal to fail for those records
+
+#### ❌ Passing userEmail for SGA Users
+- **WRONG**: SGA user passes their own email to API route
+- **RIGHT**: Omit userEmail parameter - API defaults to session user
+- **WHY**: API rejects userEmail parameter for non-admin/manager roles
+
+#### ❌ Not Storing Drill-Down Context
+- **WRONG**: Opening record detail without storing drill-down state
+- **RIGHT**: Store `drillDownContext` before closing drill-down modal
+- **WHY**: Back button needs context to restore drill-down state
+
+#### ❌ Not Rendering Modals in JSX
+- **WRONG**: Importing modals but not rendering them in component return
+- **RIGHT**: Always render modals at the bottom of component JSX
+- **WHY**: Modals won't appear if not in the render tree
+
+#### ❌ Using Number Inputs for Goal Editing
+- **WRONG**: `type="number"` input with spinner arrows
+- **RIGHT**: `type="text"` with `inputMode="numeric"` for free text entry
+- **WHY**: Better UX - users can clear field and type freely without spinner interference
+
+### Drill-Down File Structure
+
+```
+src/
+├── types/
+│   └── drill-down.ts (MetricType, DrillDownRecord types, DrillDownContext)
+├── lib/
+│   └── queries/
+│       └── drill-down.ts (getInitialCallsDrillDown, getQualificationCallsDrillDown, getSQODrillDown)
+├── app/
+│   └── api/
+│       └── sga-hub/
+│           └── drill-down/
+│               ├── initial-calls/route.ts
+│               ├── qualification-calls/route.ts
+│               └── sqos/route.ts
+├── components/
+│   ├── sga-hub/
+│   │   ├── MetricDrillDownModal.tsx
+│   │   ├── ClickableMetricValue.tsx
+│   │   ├── AdminSGATable.tsx (with clickable metrics)
+│   │   ├── WeeklyGoalsTable.tsx (with clickable metrics)
+│   │   └── QuarterlyProgressCard.tsx (with clickable SQO count)
+│   └── dashboard/
+│       └── RecordDetailModal.tsx (with back button support)
+└── app/
+    └── dashboard/
+        ├── sga-management/
+        │   └── SGAManagementContent.tsx (modal state management)
+        └── sga-hub/
+            └── SGAHubContent.tsx (modal state management)
+```
+
+### Testing Drill-Down Features
+
+**Before making changes:**
+1. Verify BigQuery DATE fields are cast to TIMESTAMP for comparisons
+2. Test nested modal flow: metric click → drill-down → record click → back button
+3. Verify SGA users can view their own data without userEmail parameter
+4. Test admin/manager viewing other SGAs' data with userEmail parameter
+5. Verify closed lost queries include primary_key in BOTH query parts
+
+**Common Test Cases:**
+- BigQuery type casting: DATE fields cast to TIMESTAMP
+- Nested modals: Back button restores drill-down state
+- Permission handling: SGA users don't pass userEmail
+- Two-part queries: Both closed lost query parts updated
+- Clickable areas: Entire label+number blocks are clickable
+- Hover effects: Light gray bounding box appears on hover
