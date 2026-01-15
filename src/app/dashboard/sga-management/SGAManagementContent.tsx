@@ -348,21 +348,9 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
         </div>
       </Card>
 
-      {/* SGA Table */}
-      <AdminSGATable
-        sgaOverviews={sgaOverviews}
-        selectedSGAEmail={selectedSGAEmail}
-        onSGASelect={setSelectedSGAEmail}
-        onEditGoal={handleEditGoal}
-        onRefresh={handleRefresh}
-        weekStartDate={weekStartDate}
-        quarter={quarter}
-        onMetricClick={handleMetricClick}
-      />
-
-      {/* Selected SGA Details */}
+      {/* Selected SGA Details - Display above table */}
       {selectedSGA && (
-        <Card className="mt-6 p-6">
+        <Card className="mb-6 p-6">
           <Title className="mb-4">{selectedSGA.userName} - Details</Title>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -374,7 +362,7 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <Text className="text-gray-600 dark:text-gray-400">Goal:</Text>
-                  <Text className="font-semibold">
+                  <Text className="font-semibold text-gray-900 dark:text-white">
                     {selectedSGA.currentWeekGoal
                       ? `IC: ${selectedSGA.currentWeekGoal.initialCallsGoal}, QC: ${selectedSGA.currentWeekGoal.qualificationCallsGoal}, SQO: ${selectedSGA.currentWeekGoal.sqoGoal}`
                       : 'Not set'}
@@ -382,7 +370,7 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
                 </div>
                 <div className="flex justify-between">
                   <Text className="text-gray-600 dark:text-gray-400">Actual:</Text>
-                  <Text className="font-semibold">
+                  <Text className="font-semibold text-gray-900 dark:text-white">
                     {selectedSGA.currentWeekActual
                       ? `IC: ${selectedSGA.currentWeekActual.initialCalls}, QC: ${selectedSGA.currentWeekActual.qualificationCalls}, SQO: ${selectedSGA.currentWeekActual.sqos}`
                       : 'No data'}
@@ -399,7 +387,7 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <Text className="text-gray-600 dark:text-gray-400">Goal:</Text>
-                  <Text className="font-semibold">
+                  <Text className="font-semibold text-gray-900 dark:text-white">
                     {selectedSGA.currentQuarterGoal
                       ? `${selectedSGA.currentQuarterGoal.sqoGoal} SQOs`
                       : 'Not set'}
@@ -407,7 +395,7 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
                 </div>
                 <div className="flex justify-between">
                   <Text className="text-gray-600 dark:text-gray-400">Actual:</Text>
-                  <Text className="font-semibold">
+                  <Text className="font-semibold text-gray-900 dark:text-white">
                     {selectedSGA.currentQuarterProgress
                       ? `${selectedSGA.currentQuarterProgress.sqoActual} SQOs (${selectedSGA.currentQuarterProgress.progressPercent?.toFixed(0) || 0}%)`
                       : 'No data'}
@@ -426,7 +414,7 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
                         : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
                     }
                   >
-                    {selectedSGA.currentQuarterProgress?.pacingStatus || 'No goal'}
+                    {selectedSGA.currentQuarterProgress?.pacingStatus || 'no-goal'}
                   </Badge>
                 </div>
               </div>
@@ -470,6 +458,18 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
           </div>
         </Card>
       )}
+
+      {/* SGA Table */}
+      <AdminSGATable
+        sgaOverviews={sgaOverviews}
+        selectedSGAEmail={selectedSGAEmail}
+        onSGASelect={setSelectedSGAEmail}
+        onEditGoal={handleEditGoal}
+        onRefresh={handleRefresh}
+        weekStartDate={weekStartDate}
+        quarter={quarter}
+        onMetricClick={handleMetricClick}
+      />
 
       {/* Bulk Goal Editor Modal */}
       <BulkGoalEditor
