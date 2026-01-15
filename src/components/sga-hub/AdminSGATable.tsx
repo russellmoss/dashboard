@@ -237,27 +237,51 @@ export function AdminSGATable({
                                 <div className="flex items-center gap-4 flex-wrap">
                                   {overview.currentWeekActual ? (
                                     <>
-                                      <span className="text-sm text-gray-600 dark:text-gray-400">
-                                        Initial Calls:{' '}
-                                        <ClickableMetricValue
-                                          value={overview.currentWeekActual.initialCalls}
-                                          onClick={() => onMetricClick?.(overview.userEmail, overview.userName, 'initial-calls', false)}
-                                        />
-                                      </span>
-                                      <span className="text-sm text-gray-600 dark:text-gray-400">
-                                        Qualification Calls:{' '}
-                                        <ClickableMetricValue
-                                          value={overview.currentWeekActual.qualificationCalls}
-                                          onClick={() => onMetricClick?.(overview.userEmail, overview.userName, 'qualification-calls', false)}
-                                        />
-                                      </span>
-                                      <span className="text-sm text-gray-600 dark:text-gray-400">
-                                        SQO:{' '}
-                                        <ClickableMetricValue
-                                          value={overview.currentWeekActual.sqos}
-                                          onClick={() => onMetricClick?.(overview.userEmail, overview.userName, 'sqos', false)}
-                                        />
-                                      </span>
+                                      {onMetricClick ? (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            onMetricClick(overview.userEmail, overview.userName, 'initial-calls', false);
+                                          }}
+                                          className="text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-100 px-2 py-1 rounded transition-colors duration-150 cursor-pointer"
+                                        >
+                                          Initial Calls: <span className="text-xl font-bold">{overview.currentWeekActual.initialCalls}</span>
+                                        </button>
+                                      ) : (
+                                        <span className="text-sm text-gray-600 dark:text-gray-400">
+                                          Initial Calls: <span className="text-lg font-semibold">{overview.currentWeekActual.initialCalls}</span>
+                                        </span>
+                                      )}
+                                      {onMetricClick ? (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            onMetricClick(overview.userEmail, overview.userName, 'qualification-calls', false);
+                                          }}
+                                          className="text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-100 px-2 py-1 rounded transition-colors duration-150 cursor-pointer"
+                                        >
+                                          Qualification Calls: <span className="text-xl font-bold">{overview.currentWeekActual.qualificationCalls}</span>
+                                        </button>
+                                      ) : (
+                                        <span className="text-sm text-gray-600 dark:text-gray-400">
+                                          Qualification Calls: <span className="text-lg font-semibold">{overview.currentWeekActual.qualificationCalls}</span>
+                                        </span>
+                                      )}
+                                      {onMetricClick ? (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            onMetricClick(overview.userEmail, overview.userName, 'sqos', false);
+                                          }}
+                                          className="text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-100 px-2 py-1 rounded transition-colors duration-150 cursor-pointer"
+                                        >
+                                          SQO: <span className="text-xl font-bold">{overview.currentWeekActual.sqos}</span>
+                                        </button>
+                                      ) : (
+                                        <span className="text-sm text-gray-600 dark:text-gray-400">
+                                          SQO: <span className="text-lg font-semibold">{overview.currentWeekActual.sqos}</span>
+                                        </span>
+                                      )}
                                     </>
                                   ) : (
                                     <span className="text-gray-500 dark:text-gray-400">No data</span>
@@ -283,15 +307,28 @@ export function AdminSGATable({
                                 <Text className="text-gray-600 dark:text-gray-400 font-medium">Actual:</Text>
                                 <div className="flex items-center gap-2">
                                   {overview.currentQuarterProgress ? (
-                                    <>
-                                      <ClickableMetricValue
-                                        value={overview.currentQuarterProgress.sqoActual}
-                                        onClick={() => onMetricClick?.(overview.userEmail, overview.userName, 'sqos', false, quarter)}
-                                      />
-                                      <span className="text-sm text-gray-500 dark:text-gray-400">
-                                        SQOs ({overview.currentQuarterProgress.progressPercent?.toFixed(0) || 0}%)
-                                      </span>
-                                    </>
+                                    onMetricClick ? (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onMetricClick(overview.userEmail, overview.userName, 'sqos', false, quarter);
+                                        }}
+                                        className="text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-100 px-2 py-1 rounded transition-colors duration-150 cursor-pointer flex items-center gap-1"
+                                      >
+                                        <span className="text-xl font-bold">{Math.round(overview.currentQuarterProgress.sqoActual)}</span>
+                                        <span>SQOs</span>
+                                        <span className="text-gray-500 dark:text-gray-400">({overview.currentQuarterProgress.progressPercent?.toFixed(0) || 0}%)</span>
+                                      </button>
+                                    ) : (
+                                      <>
+                                        <span className="text-xl font-bold text-gray-900 dark:text-white">
+                                          {Math.round(overview.currentQuarterProgress.sqoActual)}
+                                        </span>
+                                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                                          SQOs ({overview.currentQuarterProgress.progressPercent?.toFixed(0) || 0}%)
+                                        </span>
+                                      </>
+                                    )
                                   ) : (
                                     <span className="text-gray-500 dark:text-gray-400">No data</span>
                                   )}
