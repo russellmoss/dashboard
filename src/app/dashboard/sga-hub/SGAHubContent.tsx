@@ -473,6 +473,7 @@ export function SGAHubContent() {
           <ClosedLostTable
             records={closedLostRecords}
             isLoading={closedLostLoading}
+            onRecordClick={handleClosedLostRecordClick}
           />
         </>
       )}
