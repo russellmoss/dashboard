@@ -194,16 +194,27 @@ export function WeeklyGoalsTable({ goals, onEditGoal, isLoading = false, onMetri
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex flex-col items-end">
-                      <span className="font-medium">{goal.qualificationCallsActual}</span>
-                      {goal.qualificationCallsGoal !== null && (
-                        <>
-                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                      <div className="flex items-center gap-2">
+                        {onMetricClick ? (
+                          <ClickableMetricValue
+                            value={goal.qualificationCallsActual}
+                            onClick={() => onMetricClick(goal.weekStartDate, 'qualification-calls')}
+                          />
+                        ) : (
+                          <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                            {goal.qualificationCallsActual}
+                          </span>
+                        )}
+                        {goal.hasGoal && goal.qualificationCallsGoal !== null && (
+                          <span className="text-sm text-gray-500 dark:text-gray-400">
                             / {goal.qualificationCallsGoal}
                           </span>
-                          <span className={`text-xs font-medium ${qualificationCallsDiff.color}`}>
-                            {qualificationCallsDiff.text}
-                          </span>
-                        </>
+                        )}
+                      </div>
+                      {goal.hasGoal && goal.qualificationCallsDiff !== null && (
+                        <span className={`text-xs font-medium ${qualificationCallsDiff.color}`}>
+                          {qualificationCallsDiff.text}
+                        </span>
                       )}
                     </div>
                   </TableCell>
