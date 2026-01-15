@@ -111,7 +111,8 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
     sgaEmail: string,
     sgaName: string,
     metricType: MetricType,
-    isGoal: boolean
+    isGoal: boolean,
+    quarterParam?: string // Optional quarter for quarterly metrics
   ) => {
     // Don't open drill-down for goal values (only actuals)
     if (isGoal) return;
@@ -121,44 +122,69 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
     setDrillDownMetricType(metricType);
     setDrillDownOpen(true);
 
-    // Calculate week end date
-    const weekEndDate = getWeekEndDate(weekStartDate);
-
-    // Set title
     const metricLabels: Record<MetricType, string> = {
       'initial-calls': 'Initial Calls',
       'qualification-calls': 'Qualification Calls',
       'sqos': 'SQOs',
     };
-    setDrillDownTitle(`${metricLabels[metricType]} - ${sgaName} - Week of ${formatDate(weekStartDate)}`);
 
-    // Store context for back button
-    setDrillDownContext({
-      metricType,
-      title: `${metricLabels[metricType]} - ${sgaName} - Week of ${formatDate(weekStartDate)}`,
-      sgaName,
-      weekStartDate,
-      weekEndDate,
-    });
+    // Determine if this is a quarterly or weekly metric
+    const isQuarterly = !!quarterParam && metricType === 'sqos';
+    
+    let title: string;
+    let context: DrillDownContext;
+
+    if (isQuarterly) {
+      // Quarterly SQO drill-down
+      title = `${metricLabels[metricType]} - ${sgaName} - ${quarterParam}`;
+      context = {
+        metricType,
+        title,
+        sgaName,
+        quarter: quarterParam,
+      };
+    } else {
+      // Weekly metric drill-down
+      const weekEndDate = getWeekEndDate(weekStartDate);
+      title = `${metricLabels[metricType]} - ${sgaName} - Week of ${formatDate(weekStartDate)}`;
+      context = {
+        metricType,
+        title,
+        sgaName,
+        weekStartDate,
+        weekEndDate,
+      };
+    }
+
+    setDrillDownTitle(title);
+    setDrillDownContext(context);
 
     try {
       let records: DrillDownRecord[] = [];
 
-      switch (metricType) {
-        case 'initial-calls': {
-          const response = await dashboardApi.getInitialCallsDrillDown(sgaName, weekStartDate, weekEndDate, sgaEmail);
-          records = response.records;
-          break;
-        }
-        case 'qualification-calls': {
-          const response = await dashboardApi.getQualificationCallsDrillDown(sgaName, weekStartDate, weekEndDate, sgaEmail);
-          records = response.records;
-          break;
-        }
-        case 'sqos': {
-          const response = await dashboardApi.getSQODrillDown(sgaName, { weekStartDate, weekEndDate }, sgaEmail);
-          records = response.records;
-          break;
+      if (isQuarterly) {
+        // Use quarter for SQO drill-down
+        const response = await dashboardApi.getSQODrillDown(sgaName, { quarter: quarterParam! }, sgaEmail);
+        records = response.records;
+      } else {
+        // Use week dates for weekly metrics
+        const weekEndDate = getWeekEndDate(weekStartDate);
+        switch (metricType) {
+          case 'initial-calls': {
+            const response = await dashboardApi.getInitialCallsDrillDown(sgaName, weekStartDate, weekEndDate, sgaEmail);
+            records = response.records;
+            break;
+          }
+          case 'qualification-calls': {
+            const response = await dashboardApi.getQualificationCallsDrillDown(sgaName, weekStartDate, weekEndDate, sgaEmail);
+            records = response.records;
+            break;
+          }
+          case 'sqos': {
+            const response = await dashboardApi.getSQODrillDown(sgaName, { weekStartDate, weekEndDate }, sgaEmail);
+            records = response.records;
+            break;
+          }
         }
       }
 

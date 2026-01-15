@@ -182,26 +182,29 @@ export async function getClosedLostRecords(
             END = @sgaName
         )
       SELECT
-        Full_Opportunity_ID__c as id,
-        opp_name,
-        Full_prospect_id__c as lead_id,
-        Full_Opportunity_ID__c as opportunity_id,
+        w.Full_Opportunity_ID__c as id,
+        v.primary_key,
+        w.opp_name,
+        w.Full_prospect_id__c as lead_id,
+        w.Full_Opportunity_ID__c as opportunity_id,
         CASE 
-          WHEN Full_prospect_id__c IS NOT NULL 
-          THEN CONCAT('https://savvywealth.lightning.force.com/lightning/r/Lead/', Full_prospect_id__c, '/view')
+          WHEN w.Full_prospect_id__c IS NOT NULL 
+          THEN CONCAT('https://savvywealth.lightning.force.com/lightning/r/Lead/', w.Full_prospect_id__c, '/view')
           ELSE NULL
         END as lead_url,
-        salesforce_url as opportunity_url,
-        salesforce_url,
-        last_contact_date,
-        closed_lost_date,
-        sql_date,
-        closed_lost_reason,
-        closed_lost_details,
+        w.salesforce_url as opportunity_url,
+        w.salesforce_url,
+        w.last_contact_date,
+        w.closed_lost_date,
+        w.sql_date,
+        w.closed_lost_reason,
+        w.closed_lost_details,
         '6+ months since last contact' AS time_since_last_contact_bucket,
-        CAST(DATE_DIFF(CURRENT_DATE(), CAST(last_contact_date AS DATE), DAY) AS INT64) as days_since_contact
-      FROM with_sga_name
-      ORDER BY closed_lost_date DESC, last_contact_date DESC
+        CAST(DATE_DIFF(CURRENT_DATE(), CAST(w.last_contact_date AS DATE), DAY) AS INT64) as days_since_contact
+      FROM with_sga_name w
+      LEFT JOIN \`${FULL_TABLE}\` v 
+        ON w.Full_Opportunity_ID__c = v.Full_Opportunity_ID__c
+      ORDER BY w.closed_lost_date DESC, w.last_contact_date DESC
     `;
     
     const params180Plus: Record<string, any> = { sgaName };

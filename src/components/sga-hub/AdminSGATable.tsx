@@ -23,7 +23,8 @@ interface AdminSGATableProps {
     sgaEmail: string,
     sgaName: string,
     metricType: MetricType,
-    isGoal: boolean
+    isGoal: boolean,
+    quarter?: string // Optional quarter for quarterly metrics
   ) => void;
 }
 
@@ -285,7 +286,7 @@ export function AdminSGATable({
                                     <>
                                       <ClickableMetricValue
                                         value={overview.currentQuarterProgress.sqoActual}
-                                        onClick={() => onMetricClick?.(overview.userEmail, overview.userName, 'sqos', false)}
+                                        onClick={() => onMetricClick?.(overview.userEmail, overview.userName, 'sqos', false, quarter)}
                                       />
                                       <span className="text-sm text-gray-500 dark:text-gray-400">
                                         SQOs ({overview.currentQuarterProgress.progressPercent?.toFixed(0) || 0}%)
