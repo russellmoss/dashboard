@@ -194,6 +194,8 @@ Question: "who are the people that SQOed as part of the Commonwealth experiment?
 → templateId: "sqo_detail_list", filters: [{ "dimension": "experimentation_tag", "operator": "in", "value": ["Commonwealth"] }]
 Note: For "all time" queries asking for a list of SQOs (e.g., "who are the people that SQOed..."), omit the dateRange parameter. The sqo_detail_list template supports queries without date ranges. When users mention experiment names, use the experimentation_tag dimension filter with "in" operator. You can use partial names (e.g., "Commonwealth" will match "2025-04 Commonwealth Advisors") - the system automatically performs fuzzy matching (case-insensitive, partial match) on experimentation tags.
 
+**CRITICAL**: When generating drilldown queries from metric values, ALWAYS use the EXACT same dateRange and filters as the original metric query. The sqo_detail_list template must match the single_metric template's date range and filters to ensure the count matches. For example, if the metric query uses "this_quarter", the drilldown must also use "this_quarter" with the same filters. Both use DATE() conversion for date comparisons to ensure consistency.
+
 Question: "show me all MQLs this quarter"
 → templateId: "generic_detail_list", metric: "mqls", dateRange: { "preset": "this_quarter" }
 Note: For lead-level metrics (MQLs, SQLs, Contacted, Prospects), use the generic_detail_list template with the appropriate metric parameter. This template works for all volume metrics and automatically uses the correct date field and filter conditions.

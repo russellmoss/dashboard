@@ -203,8 +203,8 @@ export const VOLUME_METRICS = {
     sql: `SUM(
       CASE 
         WHEN v.Date_Became_SQO__c IS NOT NULL
-          AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate) 
-          AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+          AND DATE(v.Date_Became_SQO__c) >= DATE(@startDate) 
+          AND DATE(v.Date_Became_SQO__c) <= DATE(@endDate)
           AND v.recordtypeid = @recruitingRecordType
           AND v.is_sqo_unique = 1
           {sgaFilterOpp}

@@ -1261,3 +1261,32 @@ src/
 
 **Reference Fix:**
 - **MQL Drilldown (Fixed: January 16, 2026)**: Created `generic_detail_list` template and `compileGenericDetailList()` function to support MQL detail lists. Previously, drilldown tried to use `sqo_detail_list` which filtered by SQO-specific fields and returned no results for MQLs.
+
+### CRITICAL: Date Comparison Consistency for Metrics (Fixed: January 16, 2026)
+
+**⚠️ CRITICAL**: Always use `DATE()` conversion for date comparisons in metric SQL definitions, even when the field is TIMESTAMP type.
+
+**Why**: `DATE()` ensures consistent date comparisons and includes the full day. `TIMESTAMP()` comparisons can exclude records due to time component mismatches, causing count discrepancies between metric queries and drilldown queries.
+
+**Pattern**:
+- ✅ CORRECT: `DATE(v.Date_Became_SQO__c) >= DATE(@startDate) AND DATE(v.Date_Became_SQO__c) <= DATE(@endDate)`
+- ❌ WRONG: `TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)`
+
+**Example**: SQO metric definition uses DATE() conversion:
+```typescript
+sql: `SUM(
+  CASE 
+    WHEN v.Date_Became_SQO__c IS NOT NULL
+      AND DATE(v.Date_Became_SQO__c) >= DATE(@startDate) 
+      AND DATE(v.Date_Became_SQO__c) <= DATE(@endDate)
+      ...
+  END
+)`
+```
+
+**Matching Drilldown Queries**: Drilldown queries (sqo_detail_list, generic_detail_list) MUST use the same DATE() conversion pattern to ensure counts match between metric queries and drilldown queries.
+
+**No Redundant WHERE Clause Date Filters**: DO NOT add date filters to WHERE clause for metrics that already filter in CASE statement. Metric SQL definitions already include date range checks in their CASE statements. Adding WHERE clause date filters causes double filtering and count discrepancies.
+
+**Reference Fix:**
+- **SQO Count Discrepancy (Fixed: January 16, 2026)**: Changed SQO metric definition from TIMESTAMP() to DATE() conversion for date comparisons. Removed redundant WHERE clause date filters in compileSingleMetric(). Updated sqo_detail_list to use DATE() conversion for consistency. This ensures metric queries and drilldown queries return matching counts (20 SQOs this quarter).

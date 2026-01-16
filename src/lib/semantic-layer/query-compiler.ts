@@ -753,18 +753,13 @@ function compileSingleMetric(
       // We need to remove them if dateRange is missing, but if it's present, they're already there
       // So no additional date filter needed here
     } else {
-      // For regular metrics, add date filter to WHERE clause
-      if (isPreset && dateRangeSql) {
-        // Use SQL expressions directly for presets
-        dateFilterSql = `
-  AND ${dateWrapper}(v.${dateField}) >= ${dateWrapper}(${dateRangeSql.startSql})
-  AND ${dateWrapper}(v.${dateField}) <= ${dateWrapper}(${dateRangeSql.endSql})`;
-      } else if (dateRangeSql) {
-        // Use parameter placeholders for custom ranges
-        dateFilterSql = `
-  AND ${dateWrapper}(v.${dateField}) >= ${dateWrapper}(@startDate)
-  AND ${dateWrapper}(v.${dateField}) <= ${dateWrapper}(@endDate)`;
-      }
+      // CRITICAL: For regular metrics, date filtering is already in the CASE statement within metricSql
+      // DO NOT add redundant date filters to WHERE clause - this causes double filtering and count discrepancies
+      // The metric SQL definitions (VOLUME_METRICS, AUM_METRICS) already include date range checks in their CASE statements
+      // Adding WHERE clause date filters would filter rows BEFORE the CASE evaluation, potentially excluding valid records
+      // Example: SQO metric has: AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate) in CASE
+      // Adding WHERE clause filter would be redundant and could cause mismatches (DATE() vs TIMESTAMP())
+      // dateFilterSql remains empty - date filtering happens only in metricSql CASE statements
     }
     
     // Replace @startDate and @endDate placeholders in metric SQL (only for regular metrics, not conversion metrics which already have dates embedded)
@@ -2175,17 +2170,13 @@ function compileSqoDetailList(params: TemplateSelection['parameters']): Compiled
     const startDateExpr = isPreset ? dateRangeSql.startSql : '@startDate';
     const endDateExpr = isPreset ? dateRangeSql.endSql : '@endDate';
     
-    // For sqo_detail_list, we use TIMESTAMP() for date comparisons (Date_Became_SQO__c is TIMESTAMP)
-    // CRITICAL: For custom date ranges, endDateExpr is a DATE string like '2025-10-31'
-    // TIMESTAMP(DATE('2025-10-31')) becomes 2025-10-31 00:00:00, which excludes records later in the day
-    // To include the full day, we use < TIMESTAMP(DATE_ADD(DATE(endDateExpr), INTERVAL 1 DAY))
-    // This includes all records up to and including the last moment of endDate
-    const endDateComparison = isPreset 
-      ? `TIMESTAMP(${endDateExpr})`
-      : `TIMESTAMP(DATE_ADD(DATE(${endDateExpr}), INTERVAL 1 DAY))`;
+    // CRITICAL: Use DATE() conversion for date comparisons to match metric SQL definition
+    // Date_Became_SQO__c is TIMESTAMP, but we convert to DATE for comparison to ensure consistency
+    // This matches the sqos metric definition which uses DATE() conversion
+    // Using DATE() ensures we compare date values correctly and include the full day
     dateFilterSql = `
-      AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(${startDateExpr})
-      AND TIMESTAMP(v.Date_Became_SQO__c) < ${endDateComparison}`;
+      AND DATE(v.Date_Became_SQO__c) >= DATE(${startDateExpr})
+      AND DATE(v.Date_Became_SQO__c) <= DATE(${endDateExpr})`;
     
     if (!isPreset) {
       queryParams.startDate = dateRangeSql.startDate;
