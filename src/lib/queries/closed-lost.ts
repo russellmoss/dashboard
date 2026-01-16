@@ -26,6 +26,8 @@ interface RawClosedLostResult {
   closed_lost_details: string | null; // Closed_Lost_Details__c
   time_since_last_contact_bucket: string | null; // time_since_last_contact_bucket
   days_since_contact: number | null; // Days_Since_Last_Contact__c
+  days_since_closed_lost: number | null; // Days since closed lost
+  time_since_closed_lost_bucket: string | null; // Time bucket for days since closed lost
 }
 
 /**
@@ -110,7 +112,19 @@ export async function getClosedLostRecords(
         cl.closed_lost_reason,
         cl.closed_lost_details,
         cl.time_since_last_contact_bucket,
-        CAST(DATE_DIFF(CURRENT_DATE(), CAST(cl.last_contact_date AS DATE), DAY) AS INT64) as days_since_contact
+        CAST(DATE_DIFF(CURRENT_DATE(), CAST(cl.last_contact_date AS DATE), DAY) AS INT64) as days_since_contact,
+        CAST(DATE_DIFF(CURRENT_DATE(), CAST(cl.closed_lost_date AS DATE), DAY) AS INT64) as days_since_closed_lost,
+        CASE
+          WHEN DATE_DIFF(CURRENT_DATE(), CAST(cl.closed_lost_date AS DATE), DAY) >= 180 THEN '6+ months since closed lost'
+          WHEN DATE_DIFF(CURRENT_DATE(), CAST(cl.closed_lost_date AS DATE), DAY) >= 150 THEN '5 months since closed lost'
+          WHEN DATE_DIFF(CURRENT_DATE(), CAST(cl.closed_lost_date AS DATE), DAY) >= 120 THEN '4 months since closed lost'
+          WHEN DATE_DIFF(CURRENT_DATE(), CAST(cl.closed_lost_date AS DATE), DAY) >= 90 THEN '3 months since closed lost'
+          WHEN DATE_DIFF(CURRENT_DATE(), CAST(cl.closed_lost_date AS DATE), DAY) >= 60 THEN '2 months since closed lost'
+          WHEN DATE_DIFF(CURRENT_DATE(), CAST(cl.closed_lost_date AS DATE), DAY) >= 30 THEN '1 month since closed lost'
+          WHEN DATE_DIFF(CURRENT_DATE(), CAST(cl.closed_lost_date AS DATE), DAY) >= 0 THEN '< 1 month since closed lost'
+          WHEN cl.closed_lost_date IS NOT NULL THEN '< 1 month since closed lost'  -- Handle future dates (negative days)
+          ELSE NULL
+        END as time_since_closed_lost_bucket
       FROM \`${CLOSED_LOST_VIEW}\` cl
       LEFT JOIN \`${FULL_TABLE}\` v 
         ON cl.Full_Opportunity_ID__c = v.Full_Opportunity_ID__c
@@ -200,7 +214,19 @@ export async function getClosedLostRecords(
         w.closed_lost_reason,
         w.closed_lost_details,
         '6+ months since last contact' AS time_since_last_contact_bucket,
-        CAST(DATE_DIFF(CURRENT_DATE(), CAST(w.last_contact_date AS DATE), DAY) AS INT64) as days_since_contact
+        CAST(DATE_DIFF(CURRENT_DATE(), CAST(w.last_contact_date AS DATE), DAY) AS INT64) as days_since_contact,
+        CAST(DATE_DIFF(CURRENT_DATE(), CAST(w.closed_lost_date AS DATE), DAY) AS INT64) as days_since_closed_lost,
+        CASE
+          WHEN DATE_DIFF(CURRENT_DATE(), CAST(w.closed_lost_date AS DATE), DAY) >= 180 THEN '6+ months since closed lost'
+          WHEN DATE_DIFF(CURRENT_DATE(), CAST(w.closed_lost_date AS DATE), DAY) >= 150 THEN '5 months since closed lost'
+          WHEN DATE_DIFF(CURRENT_DATE(), CAST(w.closed_lost_date AS DATE), DAY) >= 120 THEN '4 months since closed lost'
+          WHEN DATE_DIFF(CURRENT_DATE(), CAST(w.closed_lost_date AS DATE), DAY) >= 90 THEN '3 months since closed lost'
+          WHEN DATE_DIFF(CURRENT_DATE(), CAST(w.closed_lost_date AS DATE), DAY) >= 60 THEN '2 months since closed lost'
+          WHEN DATE_DIFF(CURRENT_DATE(), CAST(w.closed_lost_date AS DATE), DAY) >= 30 THEN '1 month since closed lost'
+          WHEN DATE_DIFF(CURRENT_DATE(), CAST(w.closed_lost_date AS DATE), DAY) >= 0 THEN '< 1 month since closed lost'
+          WHEN w.closed_lost_date IS NOT NULL THEN '< 1 month since closed lost'  -- Handle future dates (negative days)
+          ELSE NULL
+        END as time_since_closed_lost_bucket
       FROM with_sga_name w
       LEFT JOIN \`${FULL_TABLE}\` v 
         ON w.Full_Opportunity_ID__c = v.Full_Opportunity_ID__c
@@ -278,5 +304,7 @@ function transformClosedLostRecord(row: RawClosedLostResult): ClosedLostRecord {
     closedLostDetails: row.closed_lost_details ? toString(row.closed_lost_details) : null,
     timeSinceContactBucket: toString(row.time_since_last_contact_bucket) || 'Unknown',
     daysSinceContact: toNumber(row.days_since_contact),
+    daysSinceClosedLost: toNumber(row.days_since_closed_lost),
+    timeSinceClosedLostBucket: toString(row.time_since_closed_lost_bucket) || 'Unknown',
   };
 }

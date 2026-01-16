@@ -29,6 +29,7 @@ import {
   QualificationCallRecord, 
   SQODrillDownRecord 
 } from '@/types/drill-down';
+import type { AgentRequest, AgentResponse, StreamChunk } from '@/types/agent';
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public endpoint: string) {
@@ -279,6 +280,86 @@ export const dashboardApi = {
         ...(userEmail && { userEmail }),
       }).toString()}`
     ),
+};
+
+/**
+ * Agent API client for self-serve analytics
+ */
+export const agentApi = {
+  /**
+   * Submit a question and get results (non-streaming)
+   */
+  async query(request: AgentRequest): Promise<AgentResponse> {
+    console.log('[agentApi] Making request to /api/agent/query', request);
+    
+    const response = await fetch('/api/agent/query', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+
+    console.log('[agentApi] Response status:', response.status, response.statusText);
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Failed to parse error response' }));
+      console.error('[agentApi] Error response:', error);
+      throw new Error(error.error?.message || error.error || `Query failed with status ${response.status}`);
+    }
+
+    const result = await response.json();
+    console.log('[agentApi] Success response:', result);
+    return result;
+  },
+
+  /**
+   * Submit a question with streaming progress updates (SSE)
+   * Returns an async generator that yields StreamChunk objects
+   */
+  async *queryStream(request: AgentRequest): AsyncGenerator<StreamChunk> {
+    const response = await fetch('/api/agent/query', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || error.error || 'Query failed');
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('No response body');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          try {
+            yield JSON.parse(data) as StreamChunk;
+          } catch {
+            console.warn('Failed to parse SSE chunk:', data);
+          }
+        }
+      }
+    }
+  },
 };
 
 export function handleApiError(error: unknown): string {

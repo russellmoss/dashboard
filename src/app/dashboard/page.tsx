@@ -63,6 +63,7 @@ const DEFAULT_FILTERS: DashboardFilters = {
   sga: null,
   sgm: null,
   stage: null,
+  experimentationTag: null,
   metricFilter: 'all',
   advancedFilters: DEFAULT_ADVANCED_FILTERS,
 };

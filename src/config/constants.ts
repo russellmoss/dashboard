@@ -1,14 +1,13 @@
 // Application-wide constants
 
-export const OPEN_PIPELINE_STAGES = [
-  'Engaged', 
-  'Qualifying', 
-  'Call Scheduled', 
+// Open Pipeline Stages - Must match actual Salesforce StageName values
+// These are opportunities that are currently active and actively progressing
+// Excludes: Closed Lost, Joined, On Hold, Signed, Planned Nurture
+export const OPEN_PIPELINE_STAGES: readonly string[] = [
+  'Qualifying',
   'Discovery', 
-  'Sales Process', 
-  'Negotiating', 
-  'Outreach', 
-  'Re-Engaged'
+  'Sales Process',
+  'Negotiating'
 ];
 
 export const RECRUITING_RECORD_TYPE = '012Dn000000mrO3IAI';

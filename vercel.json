@@ -2,6 +2,9 @@
   "functions": {
     "src/app/api/dashboard/export-sheets/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/agent/query/route.ts": {
+      "maxDuration": 60
     }
   }
 }

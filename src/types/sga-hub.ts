@@ -135,7 +135,7 @@ export interface SQODetail {
 // CLOSED LOST
 // ============================================================================
 
-/** Time bucket for closed lost filtering */
+/** Time bucket for closed lost filtering (Days Since Last Contact) */
 export type ClosedLostTimeBucket = 
   | '30-60' 
   | '60-90' 
@@ -143,6 +143,16 @@ export type ClosedLostTimeBucket =
   | '120-150' 
   | '150-180'
   | '180+'
+  | 'all';
+
+/** Time bucket for closed lost filtering (Days Since Closed Lost) */
+export type ClosedLostDateBucket = 
+  | '1 month since closed lost'
+  | '2 months since closed lost'
+  | '3 months since closed lost'
+  | '4 months since closed lost'
+  | '5 months since closed lost'
+  | '6+ months since closed lost'
   | 'all';
 
 /** Closed lost record from BigQuery view */
@@ -162,6 +172,8 @@ export interface ClosedLostRecord {
   closedLostDetails: string | null;
   timeSinceContactBucket: string;
   daysSinceContact: number;
+  daysSinceClosedLost: number;
+  timeSinceClosedLostBucket: string;
 }
 
 // ============================================================================
@@ -187,7 +199,8 @@ export interface WeeklyActualsQueryParams {
 
 /** GET /api/sga-hub/closed-lost query params */
 export interface ClosedLostQueryParams {
-  timeBuckets?: ClosedLostTimeBucket[]; // Multi-select
+  timeBuckets?: ClosedLostTimeBucket[]; // Multi-select (Days Since Last Contact)
+  closedLostBuckets?: ClosedLostDateBucket[]; // Multi-select (Days Since Closed Lost)
 }
 
 /** GET /api/sga-hub/quarterly-progress query params */

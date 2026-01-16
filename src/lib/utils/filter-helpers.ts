@@ -76,6 +76,18 @@ export function buildAdvancedFilterClauses(
     params[`${paramPrefix}_sgms`] = filters.sgms.selected;
   }
 
+  // Experimentation Tag filter (multi-select)
+  // NOTE: Uses Experimentation_Tag_List array field - check if any selected tag is in the array
+  if (!filters.experimentationTags.selectAll && filters.experimentationTags.selected.length > 0) {
+    // Use EXISTS with UNNEST to check if any tag in the array matches the selected tags
+    whereClauses.push(`EXISTS (
+      SELECT 1 
+      FROM UNNEST(v.Experimentation_Tag_List) as tag
+      WHERE tag IN UNNEST(@${paramPrefix}_experimentation_tags)
+    )`);
+    params[`${paramPrefix}_experimentation_tags`] = filters.experimentationTags.selected;
+  }
+
   return { whereClauses, params };
 }
 
@@ -89,6 +101,7 @@ export function hasActiveFilters(filters: AdvancedFilters): boolean {
     !filters.channels.selectAll ||
     !filters.sources.selectAll ||
     !filters.sgas.selectAll ||
-    !filters.sgms.selectAll
+    !filters.sgms.selectAll ||
+    !filters.experimentationTags.selectAll
   );
 }

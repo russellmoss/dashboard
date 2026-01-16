@@ -90,13 +90,25 @@ export async function GET() {
       ORDER BY year DESC
     `;
     
-    const [channels, sources, sgas, sgms, stages, years] = await Promise.all([
+    // Get distinct experimentation tags from the Experimentation_Tag_List array field
+    const experimentationTagsQuery = `
+      SELECT DISTINCT tag as experimentation_tag
+      FROM \`${FULL_TABLE}\` v,
+      UNNEST(v.Experimentation_Tag_List) as tag
+      WHERE tag IS NOT NULL
+        AND TRIM(tag) != ''
+        AND v.stage_entered_contacting__c >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
+      ORDER BY experimentation_tag
+    `;
+    
+    const [channels, sources, sgas, sgms, stages, years, experimentationTags] = await Promise.all([
       runQuery<{ channel: string | null; record_count: number | string }>(channelsQuery),
       runQuery<{ source: string | null; record_count: number | string }>(sourcesQuery),
       runQuery<{ value: string | null; record_count: number | string }>(sgasQuery),
       runQuery<{ value: string | null; record_count: number | string }>(sgmsQuery),
       runQuery<{ stage: string | null }>(stagesQuery),
       runQuery<{ year: number | null }>(yearsQuery),
+      runQuery<{ experimentation_tag: string | null }>(experimentationTagsQuery),
     ]);
     
     // SGAs that should always appear as inactive (regardless of User table status)
@@ -140,6 +152,7 @@ export async function GET() {
         })),
       stages: stages.map(r => r.stage || '').filter(Boolean),
       years: years.map(r => r.year || 0).filter(y => y > 0),
+      experimentationTags: experimentationTags.map(r => r.experimentation_tag || '').filter(Boolean),
     };
     
     return NextResponse.json(filterOptions);

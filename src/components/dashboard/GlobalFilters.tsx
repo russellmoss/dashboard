@@ -138,6 +138,13 @@ export function GlobalFilters({
     });
   };
 
+  const handleExperimentationTagChange = (value: string) => {
+    onFiltersChange({
+      ...filters,
+      experimentationTag: value === '' ? null : value,
+    });
+  };
+
   const handleStartDateChange = (date: string) => {
     onFiltersChange({
       ...filters,
@@ -324,6 +331,27 @@ export function GlobalFilters({
               {filteredSgmOptions.map((sgm) => (
                 <option key={sgm.value} value={sgm.value}>
                   {sgm.label}{!sgmActiveOnly && !sgm.isActive ? ' (Inactive)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Experimentation Tag */}
+        {filterOptions.experimentationTags && filterOptions.experimentationTags.length > 0 && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+              Experimentation Tag
+            </label>
+            <select
+              value={filters.experimentationTag || ''}
+              onChange={(e) => handleExperimentationTagChange(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
+            >
+              <option value="">All Tags</option>
+              {filterOptions.experimentationTags.map((tag) => (
+                <option key={tag} value={tag}>
+                  {tag}
                 </option>
               ))}
             </select>

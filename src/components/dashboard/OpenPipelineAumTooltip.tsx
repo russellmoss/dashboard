@@ -27,25 +27,21 @@ export function OpenPipelineAumTooltip() {
               <span className="font-medium text-white">Included Stages:</span>
             </p>
             <ul className="list-disc list-inside pl-2 text-green-300">
-              <li>Engaged</li>
               <li>Qualifying</li>
-              <li>Call Scheduled</li>
               <li>Discovery</li>
               <li>Sales Process</li>
               <li>Negotiating</li>
-              <li>Outreach</li>
-              <li>Re-Engaged</li>
             </ul>
             
             <p>
               <span className="font-medium text-white">Excluded Stages:</span>
             </p>
             <ul className="list-disc list-inside pl-2 text-red-300">
-              <li>Planned Nurture</li>
               <li>Closed Lost</li>
-              <li>Signed</li>
               <li>Joined</li>
               <li>On Hold</li>
+              <li>Signed</li>
+              <li>Planned Nurture</li>
             </ul>
             
             <p className="text-yellow-200 pt-1 border-t border-gray-700">

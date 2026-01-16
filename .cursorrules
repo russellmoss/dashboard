@@ -133,6 +133,75 @@ SELECT COUNT(Id) FROM Lead WHERE IsConverted = true AND ConvertedDate >= [START]
 - Apply date filters to the specific date field for each metric
 - For trend charts, expand to full year: `YYYY-01-01` to `YYYY-12-31`
 
+### DATE vs TIMESTAMP Type Handling in Period Comparisons (CRITICAL)
+
+**⚠️ CRITICAL**: When comparing DATE and TIMESTAMP fields in period comparison queries, you MUST ensure type consistency to avoid BigQuery type mismatch errors.
+
+**Problem**: BigQuery DATE and TIMESTAMP are incompatible types. Comparing `DATE(v.field) >= TIMESTAMP(...)` or `TIMESTAMP(v.field) >= DATE(...)` causes "No matching signature for operator >= for argument types: DATE, TIMESTAMP" errors.
+
+**Solution**: Always use `DATE()` conversion for both sides of comparisons in period comparisons, even for TIMESTAMP fields.
+
+**Pattern for Period Comparisons (`compilePeriodComparison` in `query-compiler.ts`):**
+
+1. **WHERE Clause Filters**: Always wrap both the field and date expressions in `DATE()`
+   ```sql
+   -- CORRECT: Both sides are DATE
+   AND DATE(v.mql_stage_entered_ts) >= DATE(DATE_TRUNC(CURRENT_DATE(), QUARTER))
+   AND DATE(v.mql_stage_entered_ts) <= DATE(CURRENT_DATE())
+   
+   -- WRONG: Mixing DATE and TIMESTAMP
+   AND TIMESTAMP(v.mql_stage_entered_ts) >= DATE_TRUNC(CURRENT_DATE(), QUARTER)
+   ```
+
+2. **Metric SQL Replacement**: Convert `TIMESTAMP(v.field)` to `DATE(v.field)` FIRST, then replace placeholders
+   ```typescript
+   // Step 1: Convert field to DATE
+   metricSql = metricSql.replace(
+     /TIMESTAMP\s*\(\s*v\.(\w+)\s*\)/g,
+     `DATE(v.$1)`
+   );
+   
+   // Step 2: Replace TIMESTAMP(@startDate) with DATE(date_expression)
+   metricSql = metricSql.replace(
+     /TIMESTAMP\s*\(\s*@startDate\s*\)/g,
+     `DATE(${dateExpression})`
+   );
+   ```
+
+3. **Date Expression Wrapping**: Wrap preset date expressions in `DATE()` even if they already return DATE
+   ```typescript
+   // CORRECT: Explicit DATE wrapping ensures type consistency
+   currentMetricSql = currentMetricSql.replace(
+     /TIMESTAMP\s*\(\s*@startDate\s*\)/g,
+     `DATE(DATE_TRUNC(CURRENT_DATE(), QUARTER))`
+   );
+   
+   // WRONG: Leaving DATE expression unwrapped can cause type inference issues
+   currentMetricSql = currentMetricSql.replace(
+     /TIMESTAMP\s*\(\s*@startDate\s*\)/g,
+     `DATE_TRUNC(CURRENT_DATE(), QUARTER)`  // Missing DATE() wrapper
+   );
+   ```
+
+**Why This Matters:**
+- MQLs use `mql_stage_entered_ts` (TIMESTAMP field) but must be compared as DATE for period comparisons
+- SQLs use `converted_date_raw` (DATE field) and also need DATE() wrapping for consistency
+- The working BigQuery pattern is: `DATE(timestamp_field) BETWEEN start_date AND end_date` where both sides are DATE
+
+**Files to Update When Adding New Metrics:**
+- `src/lib/semantic-layer/query-compiler.ts` - `compilePeriodComparison` function
+- Ensure both `currentPeriodFilter` and `previousPeriodFilter` use `DATE(v.${dateField})`
+- Ensure metric SQL replacement converts `TIMESTAMP(v.field)` to `DATE(v.field)` before replacing placeholders
+
+**Verification:**
+- Test period comparisons for metrics with TIMESTAMP fields (MQLs, SQOs, Prospects, Contacted)
+- Test period comparisons for metrics with DATE fields (SQLs, Initial Calls, Qualification Calls)
+- Check BigQuery error logs for "No matching signature" errors - indicates type mismatch
+
+**Reference Fixes:**
+- **MQL Period Comparison (Fixed: January 16, 2026)**: Converted `TIMESTAMP(v.mql_stage_entered_ts)` to `DATE(v.mql_stage_entered_ts)` in both WHERE clause and metric SQL, wrapped all date expressions in `DATE()`
+- **SQL Period Comparison (Fixed: January 16, 2026)**: Simplified `last_quarter` endDateSql to pure DATE expression, ensured `DATE(v.converted_date_raw)` comparisons throughout
+
 ## Key Files Reference
 
 ### Core Query Logic
@@ -1124,3 +1193,71 @@ src/
 - Two-part queries: Both closed lost query parts updated
 - Clickable areas: Entire label+number blocks are clickable
 - Hover effects: Light gray bounding box appears on hover
+
+---
+
+## Explore Feature - Drilldown and Detail Lists
+
+### Generic Detail List Template for Lead-Level Metrics (CRITICAL)
+
+**⚠️ CRITICAL**: When implementing drilldown for lead-level metrics (MQLs, SQLs, Contacted, Prospects), you MUST use the `generic_detail_list` template, NOT `sqo_detail_list`.
+
+**Problem**: `sqo_detail_list` is hardcoded to filter by `Date_Became_SQO__c` and `is_sqo_unique = 1`, which won't work for MQLs, SQLs, or other lead-level metrics.
+
+**Solution**: Use `generic_detail_list` template which adapts based on the `metric` parameter.
+
+**Implementation Pattern:**
+
+1. **Add Template to QUERY_TEMPLATES** (`src/lib/semantic-layer/query-templates.ts`):
+   ```typescript
+   generic_detail_list: {
+     id: 'generic_detail_list',
+     description: 'List detail records for any volume metric',
+     parameters: {
+       metric: { type: 'metric', required: true },
+       dateRange: { type: 'dateRange', required: false }, // Optional for "all time"
+       filters: { type: 'filter[]', required: false },
+     },
+     visualization: 'table',
+   }
+   ```
+
+2. **Add Compiler Function** (`src/lib/semantic-layer/query-compiler.ts`):
+   - Create `compileGenericDetailList()` function
+   - Map metric to appropriate date field, filter, and column alias:
+     - MQLs: `mql_stage_entered_ts`, `is_mql = 1`, `mql_date`
+     - SQLs: `converted_date_raw`, `is_sql = 1`, `sql_date`
+     - Contacted: `stage_entered_contacting__c`, `is_contacted = 1`, `contacted_date`
+     - Prospects: `FilterDate`, no filter, `prospect_date`
+   - Use `DATE()` conversion for consistency (matches period comparison pattern)
+   - Include AUM columns only for opportunity-level metrics (SQOs, Joined)
+
+3. **Register in Compiler Switch**:
+   ```typescript
+   case 'generic_detail_list':
+   case 'mql_detail_list':
+   case 'sql_detail_list':
+     compiledQuery = compileGenericDetailList(params);
+     break;
+   ```
+
+4. **Update Validation** (`validateTemplateSelection`):
+   - Add `generic_detail_list` to `templatesWithoutDateRange` array (supports optional dateRange for "all time" queries)
+
+5. **Update Result Mapping** (`ExploreResults.tsx`):
+   - Check for metric-specific date column names: `mql_date`, `sql_date`, `contacted_date`, `prospect_date`, `sqo_date`, `joined_date`
+
+**Key Points:**
+- `generic_detail_list` works for ALL volume metrics (MQLs, SQLs, Contacted, Prospects, SQOs, Joined)
+- Automatically uses correct date field and filter based on metric parameter
+- Supports optional dateRange (for "all time" queries)
+- Uses DATE() conversion for type consistency
+- Returns columns in DetailRecord-compatible format
+
+**Files Modified:**
+- `src/lib/semantic-layer/query-templates.ts` - Add template definition
+- `src/lib/semantic-layer/query-compiler.ts` - Add compiler function and switch case
+- `src/components/dashboard/ExploreResults.tsx` - Update result mapping for metric-specific date columns
+
+**Reference Fix:**
+- **MQL Drilldown (Fixed: January 16, 2026)**: Created `generic_detail_list` template and `compileGenericDetailList()` function to support MQL detail lists. Previously, drilldown tried to use `sqo_detail_list` which filtered by SQO-specific fields and returned no results for MQLs.

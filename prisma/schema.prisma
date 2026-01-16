@@ -52,3 +52,26 @@ model QuarterlyGoal {
   @@index([userEmail])
   @@index([quarter])
 }
+
+model ExploreFeedback {
+  id            String   @id @default(cuid())
+  userId        String?  // User email (from session.user.email)
+  question      String   // The user's question
+  questionId    String   // Unique ID for the question (timestamp or UUID)
+  templateId    String   // Template that was selected
+  feedback      String   // 'positive' or 'negative'
+  comment       String?  // Required comment for negative feedback, optional for positive
+  createdAt     DateTime @default(now())
+  
+  // Store the full query context for debugging
+  compiledQuery Json?    // Store the compiled SQL and params as JSON
+  executableSql String?  // Store the executable SQL (with parameters substituted) for BigQuery
+  resultSummary Json?    // Store row count, execution time, visualization type, etc. as JSON
+  error         String?  // Store error message if query failed (parsing error, execution error, etc.)
+  
+  @@index([userId])
+  @@index([templateId])
+  @@index([feedback])
+  @@index([createdAt])
+  @@index([error])
+}

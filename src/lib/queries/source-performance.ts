@@ -32,6 +32,14 @@ export async function getChannelPerformance(filters: DashboardFilters): Promise<
     conditions.push('v.SGM_Owner_Name__c = @sgm');
     params.sgm = filters.sgm;
   }
+  if (filters.experimentationTag) {
+    conditions.push(`EXISTS (
+      SELECT 1 
+      FROM UNNEST(v.Experimentation_Tag_List) as tag
+      WHERE tag = @experimentationTag
+    )`);
+    params.experimentationTag = filters.experimentationTag;
+  }
   
   // Add advanced filter clauses to existing conditions
   conditions.push(...advFilterClauses);
@@ -233,6 +241,14 @@ export async function getSourcePerformance(filters: DashboardFilters): Promise<S
   if (filters.sgm) {
     conditions.push('v.SGM_Owner_Name__c = @sgm');
     params.sgm = filters.sgm;
+  }
+  if (filters.experimentationTag) {
+    conditions.push(`EXISTS (
+      SELECT 1 
+      FROM UNNEST(v.Experimentation_Tag_List) as tag
+      WHERE tag = @experimentationTag
+    )`);
+    params.experimentationTag = filters.experimentationTag;
   }
   
   // Add advanced filter clauses to existing conditions

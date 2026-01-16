@@ -127,8 +127,8 @@ export async function getInitialCallsDrillDown(
       ON v.Original_source = nm.original_source
     WHERE v.SGA_Owner_Name__c = @sgaName
       AND v.Initial_Call_Scheduled_Date__c IS NOT NULL
-      AND TIMESTAMP(v.Initial_Call_Scheduled_Date__c) >= TIMESTAMP(@weekStartDate)
-      AND TIMESTAMP(v.Initial_Call_Scheduled_Date__c) <= TIMESTAMP(CONCAT(@weekEndDate, ' 23:59:59'))
+      AND v.Initial_Call_Scheduled_Date__c >= @weekStartDate
+      AND v.Initial_Call_Scheduled_Date__c <= @weekEndDate
     ORDER BY v.Initial_Call_Scheduled_Date__c DESC
   `;
 
@@ -168,8 +168,8 @@ export async function getQualificationCallsDrillDown(
       ON v.Original_source = nm.original_source
     WHERE v.SGA_Owner_Name__c = @sgaName
       AND v.Qualification_Call_Date__c IS NOT NULL
-      AND TIMESTAMP(v.Qualification_Call_Date__c) >= TIMESTAMP(@weekStartDate)
-      AND TIMESTAMP(v.Qualification_Call_Date__c) <= TIMESTAMP(CONCAT(@weekEndDate, ' 23:59:59'))
+      AND v.Qualification_Call_Date__c >= @weekStartDate
+      AND v.Qualification_Call_Date__c <= @weekEndDate
     ORDER BY v.Qualification_Call_Date__c DESC
   `;
 

@@ -77,6 +77,14 @@ export async function getConversionRates(
     conditions.push('v.SGM_Owner_Name__c = @sgm');
     params.sgm = filters.sgm;
   }
+  if (filters.experimentationTag) {
+    conditions.push(`EXISTS (
+      SELECT 1 
+      FROM UNNEST(v.Experimentation_Tag_List) as tag
+      WHERE tag = @experimentationTag
+    )`);
+    params.experimentationTag = filters.experimentationTag;
+  }
   
   // Add advanced filter clauses to existing conditions
   conditions.push(...advFilterClauses);
@@ -423,7 +431,35 @@ export async function getConversionTrends(
   let expectedPeriods: string[];
   let selectedPeriodString: string;
   
-  if (granularity === 'quarter') {
+  // For custom date ranges, use the actual date range instead of rolling window
+  if (filters.datePreset === 'custom') {
+    trendStartDate = selectedStartDate;
+    trendEndDate = selectedEndDate + ' 23:59:59';
+    
+    // Generate all periods within the custom date range
+    const start = new Date(selectedStartDate);
+    const end = new Date(selectedEndDate);
+    expectedPeriods = [];
+    
+    if (granularity === 'quarter') {
+      const current = new Date(start.getFullYear(), Math.floor(start.getMonth() / 3) * 3, 1);
+      while (current <= end) {
+        const year = current.getFullYear();
+        const quarter = Math.floor(current.getMonth() / 3) + 1;
+        expectedPeriods.push(formatQuarterString(year, quarter));
+        current.setMonth(current.getMonth() + 3);
+      }
+      selectedPeriodString = formatQuarterString(selectedYear, selectedQuarter);
+    } else {
+      const current = new Date(start.getFullYear(), start.getMonth(), 1);
+      while (current <= end) {
+        expectedPeriods.push(formatMonthString(current.getFullYear(), current.getMonth() + 1));
+        current.setMonth(current.getMonth() + 1);
+      }
+      const quarterStartMonth = (selectedQuarter - 1) * 3 + 1;
+      selectedPeriodString = formatMonthString(selectedYear, quarterStartMonth);
+    }
+  } else if (granularity === 'quarter') {
     // Quarterly: Selected quarter + 3 quarters back
     const quarters = calculateQuarterRollingWindow(selectedYear, selectedQuarter);
     
@@ -477,6 +513,14 @@ export async function getConversionTrends(
   if (filters.sgm) {
     conditions.push('v.SGM_Owner_Name__c = @sgm');
     params.sgm = filters.sgm;
+  }
+  if (filters.experimentationTag) {
+    conditions.push(`EXISTS (
+      SELECT 1 
+      FROM UNNEST(v.Experimentation_Tag_List) as tag
+      WHERE tag = @experimentationTag
+    )`);
+    params.experimentationTag = filters.experimentationTag;
   }
   
   // Add advanced filter clauses to existing conditions
