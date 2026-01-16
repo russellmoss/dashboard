@@ -27,46 +27,13 @@ interface RawReEngagementResult {
 }
 
 /**
- * Get open re-engagement opportunities for advisors who had closed lost opportunities
+ * Get open re-engagement opportunities owned by the SGA
  * @param sgaName - Exact SGA name (from user.name)
  */
 export async function getReEngagementOpportunities(
   sgaName: string
 ): Promise<ReEngagementOpportunity[]> {
   const query = `
-    WITH closed_lost_opps AS (
-      -- Get all closed lost opportunities for this SGA with their FA_CRD__c
-      SELECT DISTINCT
-        o.Full_Opportunity_ID__c,
-        o.FA_CRD__c
-      FROM \`savvy-gtm-analytics.savvy_analytics.vw_sga_closed_lost_sql_followup\` cl
-      LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.Opportunity\` o
-        ON cl.Full_Opportunity_ID__c = o.Full_Opportunity_ID__c
-      WHERE cl.sga_name = @sgaName
-        AND o.FA_CRD__c IS NOT NULL
-      
-      UNION DISTINCT
-      
-      -- Also get from 180+ days query
-      SELECT DISTINCT
-        o.Full_Opportunity_ID__c,
-        o.FA_CRD__c
-      FROM \`savvy-gtm-analytics.SavvyGTMData.Lead\` l
-      JOIN \`savvy-gtm-analytics.SavvyGTMData.Opportunity\` o
-        ON l.ConvertedOpportunityId = o.Full_Opportunity_ID__c
-      LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` u
-        ON o.SGA__c = u.Id
-      WHERE l.IsConverted = TRUE
-        AND o.StageName = 'Closed Lost'
-        AND o.recordtypeid = '012Dn000000mrO3IAI'
-        AND o.LastActivityDate IS NOT NULL
-        AND DATE_DIFF(CURRENT_DATE(), o.LastActivityDate, DAY) >= 180
-        AND CASE
-          WHEN l.SGA_Owner_Name__c = 'Savvy Marketing' THEN u.Name
-          ELSE l.SGA_Owner_Name__c
-        END = @sgaName
-        AND o.FA_CRD__c IS NOT NULL
-    )
     SELECT DISTINCT
       re.Full_Opportunity_ID__c as id,
       ANY_VALUE(v.primary_key) as primary_key,
@@ -84,8 +51,6 @@ export async function getReEngagementOpportunities(
       re.Name as advisor_name,
       re.FA_CRD__c as fa_crd
     FROM \`savvy-gtm-analytics.SavvyGTMData.Opportunity\` re
-    INNER JOIN closed_lost_opps clo
-      ON re.FA_CRD__c = clo.FA_CRD__c
     LEFT JOIN \`${FULL_TABLE}\` v
       ON re.Full_Opportunity_ID__c = v.Full_Opportunity_ID__c
     LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` owner_user
