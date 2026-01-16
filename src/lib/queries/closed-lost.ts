@@ -3,7 +3,7 @@
 import { runQuery } from '@/lib/bigquery';
 import { ClosedLostRecord, ClosedLostTimeBucket } from '@/types/sga-hub';
 import { toString, toNumber } from '@/types/bigquery-raw';
-import { FULL_TABLE } from '@/config/constants';
+import { FULL_TABLE, RE_ENGAGEMENT_RECORD_TYPE } from '@/config/constants';
 
 const CLOSED_LOST_VIEW = 'savvy-gtm-analytics.savvy_analytics.vw_sga_closed_lost_sql_followup';
 
@@ -73,7 +73,10 @@ export async function getClosedLostRecords(
   // Query view for 30-179 days (if other buckets are selected or all buckets)
   if (!has180Plus || (otherBuckets && otherBuckets.length > 0)) {
     const conditions: string[] = [`sga_name = @sgaName`];
-    const params: Record<string, any> = { sgaName };
+    const params: Record<string, any> = { 
+      sgaName,
+      reEngagementRecordType: RE_ENGAGEMENT_RECORD_TYPE,
+    };
     
     // Handle time bucket filtering
     if (otherBuckets && otherBuckets.length > 0) {
@@ -128,7 +131,16 @@ export async function getClosedLostRecords(
       FROM \`${CLOSED_LOST_VIEW}\` cl
       LEFT JOIN \`${FULL_TABLE}\` v 
         ON cl.Full_Opportunity_ID__c = v.Full_Opportunity_ID__c
+      LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.Opportunity\` o
+        ON cl.Full_Opportunity_ID__c = o.Full_Opportunity_ID__c
       ${whereClause}
+      ${whereClause ? 'AND' : 'WHERE'} NOT EXISTS (
+        SELECT 1
+        FROM \`savvy-gtm-analytics.SavvyGTMData.Opportunity\` re
+        WHERE re.recordtypeid = @reEngagementRecordType
+          AND o.FA_CRD__c IS NOT NULL
+          AND re.FA_CRD__c = o.FA_CRD__c
+      )
       GROUP BY
         cl.Full_Opportunity_ID__c,
         cl.opp_name,
@@ -241,6 +253,15 @@ export async function getClosedLostRecords(
       FROM with_sga_name w
       LEFT JOIN \`${FULL_TABLE}\` v 
         ON w.Full_Opportunity_ID__c = v.Full_Opportunity_ID__c
+      LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.Opportunity\` o
+        ON w.Full_Opportunity_ID__c = o.Full_Opportunity_ID__c
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM \`savvy-gtm-analytics.SavvyGTMData.Opportunity\` re
+        WHERE re.recordtypeid = @reEngagementRecordType
+          AND o.FA_CRD__c IS NOT NULL
+          AND re.FA_CRD__c = o.FA_CRD__c
+      )
       GROUP BY
         w.Full_Opportunity_ID__c,
         w.opp_name,
@@ -254,7 +275,10 @@ export async function getClosedLostRecords(
       ORDER BY w.closed_lost_date DESC, w.last_contact_date DESC
     `;
     
-    const params180Plus: Record<string, any> = { sgaName };
+    const params180Plus: Record<string, any> = { 
+      sgaName,
+      reEngagementRecordType: RE_ENGAGEMENT_RECORD_TYPE,
+    };
     const results180Plus = await runQuery<RawClosedLostResult>(query180Plus, params180Plus);
     results.push(...results180Plus);
   }

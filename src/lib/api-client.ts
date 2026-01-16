@@ -21,6 +21,7 @@ import {
   QuarterlyGoalInput,
   ClosedLostRecord,
   ClosedLostTimeBucket,
+  ReEngagementOpportunity,
   QuarterlyProgress,
   SQODetail
 } from '@/types/sga-hub';
@@ -224,6 +225,14 @@ export const dashboardApi = {
       params.append('userEmail', userEmail);
     }
     return apiFetch<{ records: ClosedLostRecord[] }>(`/api/sga-hub/closed-lost?${params.toString()}`);
+  },
+
+  getReEngagementOpportunities: (userEmail?: string) => {
+    const params = new URLSearchParams();
+    if (userEmail) {
+      params.append('userEmail', userEmail);
+    }
+    return apiFetch<{ opportunities: ReEngagementOpportunity[] }>(`/api/sga-hub/re-engagement?${params.toString()}`);
   },
 
   getQuarterlyProgress: (quarter?: string) =>

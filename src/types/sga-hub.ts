@@ -176,6 +176,25 @@ export interface ClosedLostRecord {
   timeSinceClosedLostBucket: string;
 }
 
+/** Re-Engagement opportunity record */
+export interface ReEngagementOpportunity {
+  id: string; // Full_Opportunity_ID__c
+  primaryKey: string; // primary_key from vw_funnel_master for RecordDetailModal
+  oppName: string;
+  opportunityId: string;
+  opportunityUrl: string;
+  salesforceUrl: string;
+  stageName: string;
+  createdDate: string;
+  lastActivityDate: string | null;
+  closeDate: string | null;
+  amount: number | null;
+  underwrittenAum: number | null;
+  sgaName: string | null;
+  advisorName: string | null;
+  faCrd: string | null;
+}
+
 // ============================================================================
 // API REQUEST/RESPONSE TYPES
 // ============================================================================

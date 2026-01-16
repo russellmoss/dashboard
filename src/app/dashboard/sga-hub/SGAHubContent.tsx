@@ -6,13 +6,13 @@ import { useSession } from 'next-auth/react';
 import { SGAHubTabs, SGAHubTab } from '@/components/sga-hub/SGAHubTabs';
 import { WeeklyGoalsTable } from '@/components/sga-hub/WeeklyGoalsTable';
 import { WeeklyGoalEditor } from '@/components/sga-hub/WeeklyGoalEditor';
-import { ClosedLostTable } from '@/components/sga-hub/ClosedLostTable';
+import { ClosedLostFollowUpTabs } from '@/components/sga-hub/ClosedLostFollowUpTabs';
 import { QuarterlyProgressCard } from '@/components/sga-hub/QuarterlyProgressCard';
 import { SQODetailTable } from '@/components/sga-hub/SQODetailTable';
 import { QuarterlyProgressChart } from '@/components/sga-hub/QuarterlyProgressChart';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { dashboardApi, handleApiError } from '@/lib/api-client';
-import { WeeklyGoal, WeeklyActual, WeeklyGoalWithActuals, ClosedLostRecord, QuarterlyProgress, SQODetail } from '@/types/sga-hub';
+import { WeeklyGoal, WeeklyActual, WeeklyGoalWithActuals, ClosedLostRecord, ReEngagementOpportunity, QuarterlyProgress, SQODetail } from '@/types/sga-hub';
 import { getDefaultWeekRange, getWeekMondayDate, getWeekInfo, formatDateISO, getCurrentQuarter, getQuarterFromDate, getQuarterInfo, getWeekSundayDate } from '@/lib/utils/sga-hub-helpers';
 import { getSessionPermissions } from '@/types/auth';
 import { exportWeeklyGoalsCSV, exportQuarterlyProgressCSV, exportClosedLostCSV } from '@/lib/utils/sga-hub-csv-export';
@@ -50,6 +50,11 @@ export function SGAHubContent() {
   const [closedLostRecords, setClosedLostRecords] = useState<ClosedLostRecord[]>([]);
   const [closedLostLoading, setClosedLostLoading] = useState(false);
   const [closedLostError, setClosedLostError] = useState<string | null>(null);
+  
+  // Re-Engagement state
+  const [reEngagementOpportunities, setReEngagementOpportunities] = useState<ReEngagementOpportunity[]>([]);
+  const [reEngagementLoading, setReEngagementLoading] = useState(false);
+  const [reEngagementError, setReEngagementError] = useState<string | null>(null);
   
   // Quarterly Progress state
   const [selectedQuarter, setSelectedQuarter] = useState<string>(getCurrentQuarter());
@@ -107,6 +112,21 @@ export function SGAHubContent() {
     }
   };
   
+  // Fetch re-engagement opportunities
+  const fetchReEngagementOpportunities = async () => {
+    try {
+      setReEngagementLoading(true);
+      setReEngagementError(null);
+      
+      const response = await dashboardApi.getReEngagementOpportunities();
+      setReEngagementOpportunities(response.opportunities);
+    } catch (err) {
+      setReEngagementError(handleApiError(err));
+    } finally {
+      setReEngagementLoading(false);
+    }
+  };
+  
   // Fetch quarterly progress data
   const fetchQuarterlyProgress = async () => {
     try {
@@ -158,6 +178,7 @@ export function SGAHubContent() {
       fetchWeeklyData();
     } else if (activeTab === 'closed-lost') {
       fetchClosedLostRecords();
+      fetchReEngagementOpportunities();
     } else if (activeTab === 'quarterly-progress') {
       fetchQuarterlyProgress();
     }
@@ -383,6 +404,15 @@ export function SGAHubContent() {
     setRecordDetailOpen(true);
     // Don't set drillDownContext - no back button for closed lost
   };
+  
+  // Handle Re-Engagement opportunity click
+  const handleReEngagementClick = (opportunity: ReEngagementOpportunity) => {
+    // Use primaryKey if available, otherwise fallback to id (opportunity ID)
+    const recordId = opportunity.primaryKey || opportunity.id;
+    setRecordDetailId(recordId);
+    setRecordDetailOpen(true);
+    // Don't set drillDownContext - no back button for re-engagement
+  };
 
   // Handle SQO Detail row click
   const handleSQODetailClick = (sqo: SQODetail) => {
@@ -472,16 +502,21 @@ export function SGAHubContent() {
               Export CSV
             </Button>
           </div>
-          {closedLostError && (
+          {(closedLostError || reEngagementError) && (
             <Card className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-              <Text className="text-red-600 dark:text-red-400">{closedLostError}</Text>
+              <Text className="text-red-600 dark:text-red-400">
+                {closedLostError || reEngagementError}
+              </Text>
             </Card>
           )}
           
-          <ClosedLostTable
-            records={closedLostRecords}
-            isLoading={closedLostLoading}
-            onRecordClick={handleClosedLostRecordClick}
+          <ClosedLostFollowUpTabs
+            closedLostRecords={closedLostRecords}
+            reEngagementOpportunities={reEngagementOpportunities}
+            closedLostLoading={closedLostLoading}
+            reEngagementLoading={reEngagementLoading}
+            onClosedLostRecordClick={handleClosedLostRecordClick}
+            onReEngagementClick={handleReEngagementClick}
           />
         </>
       )}

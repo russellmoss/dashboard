@@ -3,13 +3,13 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Badge, Button } from '@tremor/react';
-import { ClosedLostRecord, ClosedLostTimeBucket } from '@/types/sga-hub';
+import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Badge } from '@tremor/react';
+import { ClosedLostRecord } from '@/types/sga-hub';
 import { ExternalLink, ChevronUp, ChevronDown } from 'lucide-react';
 import { formatDate } from '@/lib/utils/format-helpers';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
-type SortColumn = 'oppName' | 'lastContactDate' | 'daysSinceContact' | 'closedLostDate' | 'daysSinceClosedLost' | 'closedLostReason' | 'timeBucket' | 'closedLostTimeBucket' | null;
+type SortColumn = 'oppName' | 'closedLostDate' | 'daysSinceClosedLost' | 'closedLostReason' | 'closedLostTimeBucket' | null;
 type SortDirection = 'asc' | 'desc';
 
 interface ClosedLostTableProps {
@@ -87,14 +87,6 @@ function sortRecords(records: ClosedLostRecord[], sortColumn: SortColumn, sortDi
       case 'oppName':
         comparison = (a.oppName || '').toLowerCase().localeCompare((b.oppName || '').toLowerCase());
         break;
-      case 'lastContactDate':
-        const aLastContact = a.lastContactDate ? new Date(a.lastContactDate).getTime() : 0;
-        const bLastContact = b.lastContactDate ? new Date(b.lastContactDate).getTime() : 0;
-        comparison = aLastContact - bLastContact;
-        break;
-      case 'daysSinceContact':
-        comparison = (a.daysSinceContact || 0) - (b.daysSinceContact || 0);
-        break;
       case 'closedLostDate':
         const aClosed = a.closedLostDate ? new Date(a.closedLostDate).getTime() : 0;
         const bClosed = b.closedLostDate ? new Date(b.closedLostDate).getTime() : 0;
@@ -102,9 +94,6 @@ function sortRecords(records: ClosedLostRecord[], sortColumn: SortColumn, sortDi
         break;
       case 'closedLostReason':
         comparison = (a.closedLostReason || '').toLowerCase().localeCompare((b.closedLostReason || '').toLowerCase());
-        break;
-      case 'timeBucket':
-        comparison = (a.timeSinceContactBucket || '').toLowerCase().localeCompare((b.timeSinceContactBucket || '').toLowerCase());
         break;
       case 'daysSinceClosedLost':
         comparison = (a.daysSinceClosedLost || 0) - (b.daysSinceClosedLost || 0);
@@ -119,21 +108,9 @@ function sortRecords(records: ClosedLostRecord[], sortColumn: SortColumn, sortDi
 }
 
 export function ClosedLostTable({ records, isLoading = false, onRecordClick }: ClosedLostTableProps) {
-  const [sortColumn, setSortColumn] = useState<SortColumn>('daysSinceContact'); // Default sort by days since contact
+  const [sortColumn, setSortColumn] = useState<SortColumn>('daysSinceClosedLost'); // Default sort by days since closed lost
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc'); // Default descending (most urgent first)
-  const [selectedContactBuckets, setSelectedContactBuckets] = useState<Set<string>>(new Set()); // Empty = show all (Days Since Last Contact)
   const [selectedClosedLostBuckets, setSelectedClosedLostBuckets] = useState<Set<string>>(new Set()); // Empty = show all (Days Since Closed Lost)
-  
-  // Available time buckets from records (Days Since Last Contact)
-  const availableContactBuckets = useMemo(() => {
-    const buckets = new Set<string>();
-    records.forEach(record => {
-      if (record.timeSinceContactBucket) {
-        buckets.add(record.timeSinceContactBucket);
-      }
-    });
-    return Array.from(buckets).sort();
-  }, [records]);
   
   // Available time buckets from records (Days Since Closed Lost)
   const availableClosedLostBuckets = useMemo(() => {
@@ -146,16 +123,9 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick }: C
     return Array.from(buckets).sort();
   }, [records]);
   
-  // Filter records by selected buckets (both filters must match)
+  // Filter records by selected buckets
   const filteredRecords = useMemo(() => {
     let filtered = records;
-    
-    // Filter by Days Since Last Contact
-    if (selectedContactBuckets.size > 0) {
-      filtered = filtered.filter(record => 
-        record.timeSinceContactBucket && selectedContactBuckets.has(record.timeSinceContactBucket)
-      );
-    }
     
     // Filter by Days Since Closed Lost
     if (selectedClosedLostBuckets.size > 0) {
@@ -165,7 +135,7 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick }: C
     }
     
     return filtered;
-  }, [records, selectedContactBuckets, selectedClosedLostBuckets]);
+  }, [records, selectedClosedLostBuckets]);
   
   // Sort filtered records
   const sortedRecords = useMemo(() => {
@@ -182,25 +152,12 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick }: C
     } else {
       // Set new column and default to descending for dates/numbers, ascending for text
       setSortColumn(column);
-      if (column === 'daysSinceContact' || column === 'lastContactDate' || column === 'closedLostDate' || column === 'daysSinceClosedLost') {
+      if (column === 'closedLostDate' || column === 'daysSinceClosedLost') {
         setSortDirection('desc');
       } else {
         setSortDirection('asc');
       }
     }
-  };
-  
-  // Toggle contact bucket filter
-  const toggleContactBucket = (bucket: string) => {
-    setSelectedContactBuckets(prev => {
-      const next = new Set(prev);
-      if (next.has(bucket)) {
-        next.delete(bucket);
-      } else {
-        next.add(bucket);
-      }
-      return next;
-    });
   };
   
   // Toggle closed lost bucket filter
@@ -263,69 +220,36 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick }: C
           Closed Lost Follow-Up Records
         </h3>
         
-        {/* Time Bucket Filters - Two Rows */}
-        <div className="mb-4 space-y-3">
-          {/* Row 1: Filter by Days Since Closed Lost */}
-          {availableClosedLostBuckets.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-gray-600 dark:text-gray-400 font-medium">Filter by Days Since Closed Lost:</span>
-              {availableClosedLostBuckets.map(bucket => {
-                const isSelected = selectedClosedLostBuckets.size === 0 || selectedClosedLostBuckets.has(bucket);
-                return (
-                  <button
-                    key={bucket}
-                    onClick={() => toggleClosedLostBucket(bucket)}
-                    className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                      isSelected
-                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border border-blue-300 dark:border-blue-700'
-                        : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
-                  >
-                    {bucket}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          
-          {/* Row 2: Filter by Days Since Last Contact */}
-          {availableContactBuckets.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-gray-600 dark:text-gray-400 font-medium">Filter by Days Since Last Contact:</span>
-              {availableContactBuckets.map(bucket => {
-                const isSelected = selectedContactBuckets.size === 0 || selectedContactBuckets.has(bucket);
-                return (
-                  <button
-                    key={bucket}
-                    onClick={() => toggleContactBucket(bucket)}
-                    className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                      isSelected
-                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border border-blue-300 dark:border-blue-700'
-                        : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
-                  >
-                    {bucket}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          
-          {/* Clear Filters Button */}
-          {(selectedContactBuckets.size > 0 || selectedClosedLostBuckets.size > 0) && (
-            <div className="flex items-center">
+        {/* Time Bucket Filter */}
+        {availableClosedLostBuckets.length > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <span className="text-sm text-gray-600 dark:text-gray-400 font-medium">Filter by Days Since Closed Lost:</span>
+            {availableClosedLostBuckets.map(bucket => {
+              const isSelected = selectedClosedLostBuckets.size === 0 || selectedClosedLostBuckets.has(bucket);
+              return (
+                <button
+                  key={bucket}
+                  onClick={() => toggleClosedLostBucket(bucket)}
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                    isSelected
+                      ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border border-blue-300 dark:border-blue-700'
+                      : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  {bucket}
+                </button>
+              );
+            })}
+            {selectedClosedLostBuckets.size > 0 && (
               <button
-                onClick={() => {
-                  setSelectedContactBuckets(new Set());
-                  setSelectedClosedLostBuckets(new Set());
-                }}
+                onClick={() => setSelectedClosedLostBuckets(new Set())}
                 className="px-3 py-1 rounded-md text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline"
               >
-                Clear all filters
+                Clear filters
               </button>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
       
       <div className="overflow-x-auto">
@@ -333,21 +257,18 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick }: C
           <TableHead>
             <TableRow>
               <SortableHeader column="oppName">Opportunity Name</SortableHeader>
-              <SortableHeader column="lastContactDate">Last Contact Date</SortableHeader>
-              <SortableHeader column="daysSinceContact" alignRight>Days Since Contact</SortableHeader>
               <SortableHeader column="closedLostDate">Closed Lost Date</SortableHeader>
               <SortableHeader column="daysSinceClosedLost" alignRight>Days Since Closed Lost</SortableHeader>
               <SortableHeader column="closedLostReason">Closed Lost Reason</SortableHeader>
-              <SortableHeader column="closedLostTimeBucket">Closed Lost Time Bucket</SortableHeader>
-              <SortableHeader column="timeBucket">Days Since Contact Time Bucket</SortableHeader>
+              <SortableHeader column="closedLostTimeBucket">Days Since Closed Lost Time Bucket</SortableHeader>
               <TableHeaderCell className="text-gray-600 dark:text-gray-400">Actions</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {sortedRecords.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center text-gray-500 dark:text-gray-400 py-8">
-                  {(selectedContactBuckets.size > 0 || selectedClosedLostBuckets.size > 0)
+                <TableCell colSpan={6} className="text-center text-gray-500 dark:text-gray-400 py-8">
+                  {selectedClosedLostBuckets.size > 0
                     ? 'No records found matching selected time buckets' 
                     : 'No closed lost records found'}
                 </TableCell>
@@ -356,19 +277,13 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick }: C
               sortedRecords.map((record, idx) => (
                 <TableRow 
                   key={record.id}
-                  className={`${getRowColorClass(record.timeSinceContactBucket, idx)} transition-colors ${
+                  className={`${getRowColorClass(record.timeSinceClosedLostBucket, idx)} transition-colors ${
                     onRecordClick ? 'cursor-pointer' : ''
                   }`}
                   onClick={() => onRecordClick?.(record)}
                 >
                   <TableCell className="font-medium border-r border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100">
                     {record.oppName || 'Unknown'}
-                  </TableCell>
-                  <TableCell className="text-sm border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                    {formatDate(record.lastContactDate) || '-'}
-                  </TableCell>
-                  <TableCell className="text-right font-semibold border-r border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white">
-                    {record.daysSinceContact || 0}
                   </TableCell>
                   <TableCell className="text-sm border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
                     {formatDate(record.closedLostDate) || '-'}
@@ -385,14 +300,6 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick }: C
                       className={getTimeBucketColor(record.timeSinceClosedLostBucket)}
                     >
                       {record.timeSinceClosedLostBucket || 'Unknown'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="border-r border-gray-200 dark:border-gray-700">
-                    <Badge 
-                      size="xs" 
-                      className={getTimeBucketColor(record.timeSinceContactBucket)}
-                    >
-                      {record.timeSinceContactBucket || 'Unknown'}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -433,7 +340,7 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick }: C
       {sortedRecords.length > 0 && (
         <div className="mt-4 text-sm text-gray-500 dark:text-gray-400">
           Showing {sortedRecords.length} record{sortedRecords.length !== 1 ? 's' : ''}
-          {(selectedContactBuckets.size > 0 || selectedClosedLostBuckets.size > 0) && (
+          {selectedClosedLostBuckets.size > 0 && (
             <span className="ml-2 text-blue-600 dark:text-blue-400">
               (filtered from {records.length} total)
             </span>
