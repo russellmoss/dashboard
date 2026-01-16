@@ -10,7 +10,8 @@ import {
   SourcePerformanceWithGoals,
   DetailRecord, 
   TrendDataPoint,
-  ViewMode
+  ViewMode,
+  DataFreshness
 } from '@/types/dashboard';
 import { RecordDetailFull } from '@/types/record-detail';
 import { 
@@ -166,6 +167,8 @@ export const dashboardApi = {
       method: 'POST',
       body: JSON.stringify(filters ?? {}),
     }),
+
+  getDataFreshness: () => apiFetch<DataFreshness>('/api/dashboard/data-freshness'),
 
   async getAllDashboardData(filters: DashboardFilters) {
     const [metrics, { rates, trends }, { channels }, { sources }, { records }] = await Promise.all([

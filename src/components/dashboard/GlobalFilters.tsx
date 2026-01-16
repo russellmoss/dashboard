@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { Button } from '@tremor/react';
 import { FilterOptions, DashboardFilters } from '@/types/filters';
 import { RefreshCw } from 'lucide-react';
+import { DataFreshnessIndicator } from '@/components/dashboard/DataFreshnessIndicator';
 
 interface GlobalFiltersProps {
   filters: DashboardFilters;
@@ -357,6 +358,11 @@ export function GlobalFilters({
             </select>
           </div>
         )}
+      </div>
+      
+      {/* Data Freshness Indicator */}
+      <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
+        <DataFreshnessIndicator variant="detailed" />
       </div>
     </div>
   );

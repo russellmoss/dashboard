@@ -155,3 +155,14 @@ export interface TrendDataPoint {
   sqoToJoinedRate: number;
   isSelectedPeriod?: boolean;
 }
+
+// Data Freshness Types
+export type DataFreshnessStatus = 'fresh' | 'recent' | 'stale' | 'very_stale';
+
+export interface DataFreshness {
+  lastUpdated: string;        // ISO timestamp in UTC
+  hoursAgo: number;
+  minutesAgo: number;
+  isStale: boolean;
+  status: DataFreshnessStatus;
+}
