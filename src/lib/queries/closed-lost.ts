@@ -93,9 +93,9 @@ export async function getClosedLostRecords(
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     
     const query = `
-      SELECT 
+      SELECT DISTINCT
         cl.Full_Opportunity_ID__c as id,
-        v.primary_key,
+        ANY_VALUE(v.primary_key) as primary_key,
         cl.opp_name,
         cl.Full_prospect_id__c as lead_id,
         cl.Full_Opportunity_ID__c as opportunity_id,
@@ -129,6 +129,17 @@ export async function getClosedLostRecords(
       LEFT JOIN \`${FULL_TABLE}\` v 
         ON cl.Full_Opportunity_ID__c = v.Full_Opportunity_ID__c
       ${whereClause}
+      GROUP BY
+        cl.Full_Opportunity_ID__c,
+        cl.opp_name,
+        cl.Full_prospect_id__c,
+        cl.salesforce_url,
+        cl.last_contact_date,
+        cl.closed_lost_date,
+        cl.sql_date,
+        cl.closed_lost_reason,
+        cl.closed_lost_details,
+        cl.time_since_last_contact_bucket
       ORDER BY cl.closed_lost_date DESC, cl.last_contact_date DESC
     `;
     
@@ -195,9 +206,9 @@ export async function getClosedLostRecords(
               ELSE s.SGA_Owner_Name__c
             END = @sgaName
         )
-      SELECT
+      SELECT DISTINCT
         w.Full_Opportunity_ID__c as id,
-        v.primary_key,
+        ANY_VALUE(v.primary_key) as primary_key,
         w.opp_name,
         w.Full_prospect_id__c as lead_id,
         w.Full_Opportunity_ID__c as opportunity_id,
@@ -230,6 +241,16 @@ export async function getClosedLostRecords(
       FROM with_sga_name w
       LEFT JOIN \`${FULL_TABLE}\` v 
         ON w.Full_Opportunity_ID__c = v.Full_Opportunity_ID__c
+      GROUP BY
+        w.Full_Opportunity_ID__c,
+        w.opp_name,
+        w.Full_prospect_id__c,
+        w.salesforce_url,
+        w.last_contact_date,
+        w.closed_lost_date,
+        w.sql_date,
+        w.closed_lost_reason,
+        w.closed_lost_details
       ORDER BY w.closed_lost_date DESC, w.last_contact_date DESC
     `;
     

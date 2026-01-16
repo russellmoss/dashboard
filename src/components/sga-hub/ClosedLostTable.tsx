@@ -339,7 +339,7 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick }: C
               <SortableHeader column="daysSinceClosedLost" alignRight>Days Since Closed Lost</SortableHeader>
               <SortableHeader column="closedLostReason">Closed Lost Reason</SortableHeader>
               <SortableHeader column="closedLostTimeBucket">Closed Lost Time Bucket</SortableHeader>
-              <SortableHeader column="timeBucket">Time Bucket</SortableHeader>
+              <SortableHeader column="timeBucket">Days Since Contact Time Bucket</SortableHeader>
               <TableHeaderCell className="text-gray-600 dark:text-gray-400">Actions</TableHeaderCell>
             </TableRow>
           </TableHead>
