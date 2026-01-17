@@ -6,6 +6,7 @@ import { toNumber, toString } from '@/types/bigquery-raw';
 import { formatCurrency } from '@/lib/utils/date-helpers';
 import { FULL_TABLE, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
 import { getQuarterInfo } from '@/lib/utils/sga-hub-helpers';
+import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
 /**
  * Raw BigQuery result for quarterly SQO count
@@ -38,10 +39,10 @@ interface RawSQODetailResult {
  * @param sgaName - Exact SGA name (from user.name, matches SGA_Owner_Name__c)
  * @param quarter - Quarter string in format "YYYY-QN" (e.g., "2025-Q1")
  */
-export async function getQuarterlySQOCount(
+const _getQuarterlySQOCount = async (
   sgaName: string,
   quarter: string
-): Promise<{ sqoCount: number; totalAum: number }> {
+): Promise<{ sqoCount: number; totalAum: number }> => {
   const quarterInfo = getQuarterInfo(quarter);
   const startDate = quarterInfo.startDate; // YYYY-MM-DD
   const endDate = quarterInfo.endDate; // YYYY-MM-DD
@@ -89,17 +90,23 @@ export async function getQuarterlySQOCount(
     sqoCount: toNumber(result.sqo_count),
     totalAum: toNumber(result.total_aum),
   };
-}
+};
+
+export const getQuarterlySQOCount = cachedQuery(
+  _getQuarterlySQOCount,
+  'getQuarterlySQOCount',
+  CACHE_TAGS.SGA_HUB
+);
 
 /**
  * Get detailed SQO records for a specific SGA and quarter
  * @param sgaName - Exact SGA name (from user.name, matches SGA_Owner_Name__c)
  * @param quarter - Quarter string in format "YYYY-QN" (e.g., "2025-Q1")
  */
-export async function getQuarterlySQODetails(
+const _getQuarterlySQODetails = async (
   sgaName: string,
   quarter: string
-): Promise<SQODetail[]> {
+): Promise<SQODetail[]> => {
   const quarterInfo = getQuarterInfo(quarter);
   const startDate = quarterInfo.startDate; // YYYY-MM-DD
   const endDate = quarterInfo.endDate; // YYYY-MM-DD
@@ -144,17 +151,23 @@ export async function getQuarterlySQODetails(
   const results = await runQuery<RawSQODetailResult>(query, params);
   
   return results.map(transformSQODetail);
-}
+};
+
+export const getQuarterlySQODetails = cachedQuery(
+  _getQuarterlySQODetails,
+  'getQuarterlySQODetails',
+  CACHE_TAGS.SGA_HUB
+);
 
 /**
  * Get quarterly progress for multiple quarters for a specific SGA
  * @param sgaName - Exact SGA name (from user.name, matches SGA_Owner_Name__c)
  * @param quarters - Array of quarter strings in format "YYYY-QN" (e.g., ["2025-Q1", "2025-Q2"])
  */
-export async function getQuarterlyProgressForSGA(
+const _getQuarterlyProgressForSGA = async (
   sgaName: string,
   quarters: string[]
-): Promise<Array<{ quarter: string; sqoCount: number; totalAum: number }>> {
+): Promise<Array<{ quarter: string; sqoCount: number; totalAum: number }>> => {
   if (quarters.length === 0) {
     return [];
   }
@@ -215,7 +228,13 @@ export async function getQuarterlyProgressForSGA(
     sqoCount: resultMap.get(quarter)?.sqoCount || 0,
     totalAum: resultMap.get(quarter)?.totalAum || 0,
   }));
-}
+};
+
+export const getQuarterlyProgressForSGA = cachedQuery(
+  _getQuarterlyProgressForSGA,
+  'getQuarterlyProgressForSGA',
+  CACHE_TAGS.SGA_HUB
+);
 
 /**
  * Transform raw BigQuery result to SQODetail

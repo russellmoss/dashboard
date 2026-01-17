@@ -4,6 +4,7 @@ import { runQuery } from '@/lib/bigquery';
 import { ClosedLostRecord, ClosedLostTimeBucket } from '@/types/sga-hub';
 import { toString, toNumber } from '@/types/bigquery-raw';
 import { FULL_TABLE, RE_ENGAGEMENT_RECORD_TYPE } from '@/config/constants';
+import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
 const CLOSED_LOST_VIEW = 'savvy-gtm-analytics.savvy_analytics.vw_sga_closed_lost_sql_followup';
 
@@ -58,10 +59,10 @@ function normalizeTimeBucket(bucket: ClosedLostTimeBucket): string[] {
  * @param sgaName - Exact SGA name (from user.name, matches sga_name in view)
  * @param timeBuckets - Optional array of time buckets to filter by ('all' means no filter)
  */
-export async function getClosedLostRecords(
+const _getClosedLostRecords = async (
   sgaName: string,
   timeBuckets?: ClosedLostTimeBucket[]
-): Promise<ClosedLostRecord[]> {
+): Promise<ClosedLostRecord[]> => {
   // Separate 180+ from other buckets (view only has 30-179 days)
   const has180Plus = timeBuckets && timeBuckets.includes('180+');
   const otherBuckets = timeBuckets && timeBuckets.length > 0 && !timeBuckets.includes('all') 
@@ -294,7 +295,13 @@ export async function getClosedLostRecords(
   });
   
   return results.map(transformClosedLostRecord);
-}
+};
+
+export const getClosedLostRecords = cachedQuery(
+  _getClosedLostRecords,
+  'getClosedLostRecords',
+  CACHE_TAGS.SGA_HUB
+);
 
 /**
  * Transform raw BigQuery result to ClosedLostRecord

@@ -5,11 +5,12 @@ import { FULL_TABLE, MAPPING_TABLE } from '@/config/constants';
 import { RecordDetailFull, RecordDetailRaw } from '@/types/record-detail';
 import { formatCurrency } from '@/lib/utils/date-helpers';
 import { toString, toNumber } from '@/types/bigquery-raw';
+import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
 /**
  * Fetches a single record by primary_key with all fields for modal display
  */
-export async function getRecordDetail(id: string): Promise<RecordDetailFull | null> {
+const _getRecordDetail = async (id: string): Promise<RecordDetailFull | null> => {
   const query = `
     SELECT
       -- Identifiers
@@ -109,7 +110,13 @@ export async function getRecordDetail(id: string): Promise<RecordDetailFull | nu
 
   const r = results[0];
   return transformToRecordDetail(r);
-}
+};
+
+export const getRecordDetail = cachedQuery(
+  _getRecordDetail,
+  'getRecordDetail',
+  CACHE_TAGS.DASHBOARD
+);
 
 /**
  * Transform raw BigQuery result to RecordDetailFull

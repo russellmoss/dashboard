@@ -5,8 +5,9 @@ import { buildDateRangeFromFilters } from '../utils/date-helpers';
 import { buildAdvancedFilterClauses } from '../utils/filter-helpers';
 import { RawFunnelMetricsResult, RawOpenPipelineResult, toNumber } from '@/types/bigquery-raw';
 import { FULL_TABLE, OPEN_PIPELINE_STAGES, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
+import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
-export async function getFunnelMetrics(filters: DashboardFilters): Promise<FunnelMetrics> {
+const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetrics> => {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
   
   // Extract advancedFilters from filters object
@@ -204,4 +205,10 @@ export async function getFunnelMetrics(filters: DashboardFilters): Promise<Funne
     joinedAum: toNumber(metrics.joined_aum),
     openPipelineAum: toNumber(openPipeline.open_pipeline_aum),
   };
-}
+};
+
+export const getFunnelMetrics = cachedQuery(
+  _getFunnelMetrics,
+  'getFunnelMetrics',
+  CACHE_TAGS.DASHBOARD
+);

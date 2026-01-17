@@ -5,8 +5,9 @@ import { buildAdvancedFilterClauses } from '../utils/filter-helpers';
 import { buildDateRangeFromFilters } from '../utils/date-helpers';
 import { RawSourcePerformanceResult, toNumber, toString } from '@/types/bigquery-raw';
 import { FULL_TABLE, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
+import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
-export async function getChannelPerformance(filters: DashboardFilters): Promise<ChannelPerformance[]> {
+const _getChannelPerformance = async (filters: DashboardFilters): Promise<ChannelPerformance[]> => {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
   
   // Extract advancedFilters from filters object
@@ -209,9 +210,9 @@ export async function getChannelPerformance(filters: DashboardFilters): Promise<
     sqoToJoinedRate: toNumber(r.sqo_to_joined_rate),
     aum: toNumber(r.aum),
   }));
-}
+};
 
-export async function getSourcePerformance(filters: DashboardFilters): Promise<SourcePerformance[]> {
+const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourcePerformance[]> => {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
   
   // Extract advancedFilters from filters object
@@ -420,4 +421,16 @@ export async function getSourcePerformance(filters: DashboardFilters): Promise<S
     sqoToJoinedRate: toNumber(r.sqo_to_joined_rate),
     aum: toNumber(r.aum),
   }));
-}
+};
+
+export const getChannelPerformance = cachedQuery(
+  _getChannelPerformance,
+  'getChannelPerformance',
+  CACHE_TAGS.DASHBOARD
+);
+
+export const getSourcePerformance = cachedQuery(
+  _getSourcePerformance,
+  'getSourcePerformance',
+  CACHE_TAGS.DASHBOARD
+);

@@ -5,6 +5,7 @@ import { runQuery } from '@/lib/bigquery'; // ✅ Verified: runQuery<T>(query, p
 import { FULL_TABLE, RECRUITING_RECORD_TYPE } from '@/config/constants'; // ✅ Verified: Constants exist
 import { WeeklyActual } from '@/types/sga-hub';
 import { toNumber } from '@/types/bigquery-raw'; // ✅ Verified: Helper function exists
+import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
 interface RawWeeklyActualResult {
   week_start: { value: string } | string;
@@ -19,11 +20,11 @@ interface RawWeeklyActualResult {
  * @param startDate - Start date for range (ISO string)
  * @param endDate - End date for range (ISO string)
  */
-export async function getWeeklyActuals(
+const _getWeeklyActuals = async (
   sgaName: string,
   startDate: string,
   endDate: string
-): Promise<WeeklyActual[]> {
+): Promise<WeeklyActual[]> => {
   const query = `
     WITH initial_calls AS (
       SELECT 
@@ -93,15 +94,21 @@ export async function getWeeklyActuals(
   const results = await runQuery<RawWeeklyActualResult>(query, params);
   
   return results.map(transformWeeklyActual);
-}
+};
+
+export const getWeeklyActuals = cachedQuery(
+  _getWeeklyActuals,
+  'getWeeklyActuals',
+  CACHE_TAGS.SGA_HUB
+);
 
 /**
  * Get weekly actuals for all SGAs (admin view)
  */
-export async function getAllSGAWeeklyActuals(
+const _getAllSGAWeeklyActuals = async (
   startDate: string,
   endDate: string
-): Promise<{ sgaName: string; actuals: WeeklyActual[] }[]> {
+): Promise<{ sgaName: string; actuals: WeeklyActual[] }[]> => {
   const query = `
     WITH initial_calls AS (
       SELECT 
@@ -193,7 +200,13 @@ export async function getAllSGAWeeklyActuals(
     sgaName,
     actuals,
   }));
-}
+};
+
+export const getAllSGAWeeklyActuals = cachedQuery(
+  _getAllSGAWeeklyActuals,
+  'getAllSGAWeeklyActuals',
+  CACHE_TAGS.SGA_HUB
+);
 
 /**
  * Transform raw BigQuery result to WeeklyActual

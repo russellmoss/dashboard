@@ -13,6 +13,7 @@ import {
 } from '@/types/bigquery-raw';
 import { DAILY_FORECAST_VIEW } from '@/config/constants';
 import { ForecastGoals } from '@/types/dashboard';
+import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
 // Output types for channel and source goals
 export interface ChannelForecastGoals extends ForecastGoals {
@@ -40,9 +41,9 @@ function hasForecastData(startDate: string): boolean {
  * Get aggregate forecast goals for the entire period (for scorecards)
  * Sums daily rates across the date range to get pro-rated goals
  */
-export async function getAggregateForecastGoals(
+const _getAggregateForecastGoals = async (
   filters: DashboardFilters
-): Promise<ForecastGoals | null> {
+): Promise<ForecastGoals | null> => {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
   
   // Check if we have forecast data for this date range
@@ -83,14 +84,20 @@ export async function getAggregateForecastGoals(
     sqos: toNumber(r.sqos_goal),
     joined: toNumber(r.joined_goal),
   };
-}
+};
+
+export const getAggregateForecastGoals = cachedQuery(
+  _getAggregateForecastGoals,
+  'getAggregateForecastGoals',
+  CACHE_TAGS.DASHBOARD
+);
 
 /**
  * Get forecast goals grouped by channel (for Channel Performance table)
  */
-export async function getChannelForecastGoals(
+const _getChannelForecastGoals = async (
   filters: DashboardFilters
-): Promise<ChannelForecastGoals[]> {
+): Promise<ChannelForecastGoals[]> => {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
   
   if (!hasForecastData(startDate)) {
@@ -124,16 +131,22 @@ export async function getChannelForecastGoals(
     sqos: toNumber(r.sqos_goal),
     joined: toNumber(r.joined_goal),
   }));
-}
+};
+
+export const getChannelForecastGoals = cachedQuery(
+  _getChannelForecastGoals,
+  'getChannelForecastGoals',
+  CACHE_TAGS.DASHBOARD
+);
 
 /**
  * Get forecast goals grouped by source (for Source Performance table)
  * Optionally filter by channel
  */
-export async function getSourceForecastGoals(
+const _getSourceForecastGoals = async (
   filters: DashboardFilters,
   channelFilter?: string | null
-): Promise<SourceForecastGoals[]> {
+): Promise<SourceForecastGoals[]> => {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
   
   if (!hasForecastData(startDate)) {
@@ -176,4 +189,10 @@ export async function getSourceForecastGoals(
     sqos: toNumber(r.sqos_goal),
     joined: toNumber(r.joined_goal),
   }));
-}
+};
+
+export const getSourceForecastGoals = cachedQuery(
+  _getSourceForecastGoals,
+  'getSourceForecastGoals',
+  CACHE_TAGS.DASHBOARD
+);

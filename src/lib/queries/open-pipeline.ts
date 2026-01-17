@@ -3,10 +3,11 @@ import { DetailRecord } from '@/types/dashboard';
 import { formatCurrency } from '../utils/date-helpers';
 import { RawDetailRecordResult, RawOpenPipelineResult, toNumber, toString } from '@/types/bigquery-raw';
 import { FULL_TABLE, OPEN_PIPELINE_STAGES, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
+import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
-export async function getOpenPipelineRecords(
+const _getOpenPipelineRecords = async (
   filters?: { channel?: string; source?: string; sga?: string; sgm?: string }
-): Promise<DetailRecord[]> {
+): Promise<DetailRecord[]> => {
   // Build conditions manually since we need table aliases
   const conditions: string[] = [];
   const params: Record<string, any> = {
@@ -123,13 +124,19 @@ export async function getOpenPipelineRecords(
       isOpenPipeline: OPEN_PIPELINE_STAGES.includes(toString(r.stage)),
     };
   });
-}
+};
 
-export async function getOpenPipelineSummary(): Promise<{
+export const getOpenPipelineRecords = cachedQuery(
+  _getOpenPipelineRecords,
+  'getOpenPipelineRecords',
+  CACHE_TAGS.DASHBOARD
+);
+
+const _getOpenPipelineSummary = async (): Promise<{
   totalAum: number;
   recordCount: number;
   byStage: { stage: string; count: number; aum: number }[];
-}> {
+}> => {
   const { conditions, params } = buildQueryParams({}); // No date filters for summary
   
   conditions.push(`recordtypeid = @recruitingRecordType`);
@@ -180,4 +187,10 @@ export async function getOpenPipelineSummary(): Promise<{
   });
   
   return { totalAum, recordCount, byStage };
-}
+};
+
+export const getOpenPipelineSummary = cachedQuery(
+  _getOpenPipelineSummary,
+  'getOpenPipelineSummary',
+  CACHE_TAGS.DASHBOARD
+);

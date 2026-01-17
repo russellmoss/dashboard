@@ -4,6 +4,7 @@ import { runQuery } from '@/lib/bigquery';
 import { ReEngagementOpportunity } from '@/types/sga-hub';
 import { toString, toNumber } from '@/types/bigquery-raw';
 import { FULL_TABLE, RE_ENGAGEMENT_RECORD_TYPE } from '@/config/constants';
+import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
 /**
  * Raw BigQuery result interface
@@ -30,9 +31,9 @@ interface RawReEngagementResult {
  * Get open re-engagement opportunities owned by the SGA
  * @param sgaName - Exact SGA name (from user.name)
  */
-export async function getReEngagementOpportunities(
+const _getReEngagementOpportunities = async (
   sgaName: string
-): Promise<ReEngagementOpportunity[]> {
+): Promise<ReEngagementOpportunity[]> => {
   const query = `
     SELECT DISTINCT
       re.Full_Opportunity_ID__c as id,
@@ -80,7 +81,13 @@ export async function getReEngagementOpportunities(
   
   const results = await runQuery<RawReEngagementResult>(query, params);
   return results.map(transformReEngagementOpportunity);
-}
+};
+
+export const getReEngagementOpportunities = cachedQuery(
+  _getReEngagementOpportunities,
+  'getReEngagementOpportunities',
+  CACHE_TAGS.SGA_HUB
+);
 
 /**
  * Transform raw BigQuery result to ReEngagementOpportunity

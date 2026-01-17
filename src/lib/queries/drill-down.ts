@@ -12,6 +12,7 @@ import {
 } from '@/types/drill-down';
 import { formatCurrency } from '@/lib/utils/date-helpers';
 import { toString, toNumber } from '@/types/bigquery-raw';
+import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
 /**
  * Extract date value from BigQuery DATE/TIMESTAMP field
@@ -106,11 +107,11 @@ function transformSQODrillDownRecord(raw: RawSQODrillDownRecord): SQODrillDownRe
 /**
  * Get Initial Calls drill-down records for a specific SGA and week
  */
-export async function getInitialCallsDrillDown(
+const _getInitialCallsDrillDown = async (
   sgaName: string,
   weekStartDate: string,
   weekEndDate: string
-): Promise<InitialCallRecord[]> {
+): Promise<InitialCallRecord[]> => {
   const query = `
     SELECT 
       v.primary_key,
@@ -140,16 +141,22 @@ export async function getInitialCallsDrillDown(
 
   const results = await runQuery<RawInitialCallRecord>(query, params);
   return results.map(transformInitialCallRecord);
-}
+};
+
+export const getInitialCallsDrillDown = cachedQuery(
+  _getInitialCallsDrillDown,
+  'getInitialCallsDrillDown',
+  CACHE_TAGS.DASHBOARD
+);
 
 /**
  * Get Qualification Calls drill-down records for a specific SGA and week
  */
-export async function getQualificationCallsDrillDown(
+const _getQualificationCallsDrillDown = async (
   sgaName: string,
   weekStartDate: string,
   weekEndDate: string
-): Promise<QualificationCallRecord[]> {
+): Promise<QualificationCallRecord[]> => {
   const query = `
     SELECT 
       v.primary_key,
@@ -181,17 +188,23 @@ export async function getQualificationCallsDrillDown(
 
   const results = await runQuery<RawQualificationCallRecord>(query, params);
   return results.map(transformQualificationCallRecord);
-}
+};
+
+export const getQualificationCallsDrillDown = cachedQuery(
+  _getQualificationCallsDrillDown,
+  'getQualificationCallsDrillDown',
+  CACHE_TAGS.DASHBOARD
+);
 
 /**
  * Get SQO drill-down records for a specific SGA and date range
  * Can be used for both weekly and quarterly views
  */
-export async function getSQODrillDown(
+const _getSQODrillDown = async (
   sgaName: string,
   startDate: string,
   endDate: string
-): Promise<SQODrillDownRecord[]> {
+): Promise<SQODrillDownRecord[]> => {
   const query = `
     SELECT 
       v.primary_key,
@@ -227,4 +240,10 @@ export async function getSQODrillDown(
 
   const results = await runQuery<RawSQODrillDownRecord>(query, params);
   return results.map(transformSQODrillDownRecord);
-}
+};
+
+export const getSQODrillDown = cachedQuery(
+  _getSQODrillDown,
+  'getSQODrillDown',
+  CACHE_TAGS.DASHBOARD
+);

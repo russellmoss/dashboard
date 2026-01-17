@@ -292,6 +292,12 @@ export const dashboardApi = {
         ...(userEmail && { userEmail }),
       }).toString()}`
     ),
+
+  refreshCache: () =>
+    apiFetch<{ success: boolean; message: string; tags: string[] }>(
+      '/api/admin/refresh-cache',
+      { method: 'POST' }
+    ),
 };
 
 /**

@@ -202,6 +202,55 @@ SELECT COUNT(Id) FROM Lead WHERE IsConverted = true AND ConvertedDate >= [START]
 - **MQL Period Comparison (Fixed: January 16, 2026)**: Converted `TIMESTAMP(v.mql_stage_entered_ts)` to `DATE(v.mql_stage_entered_ts)` in both WHERE clause and metric SQL, wrapped all date expressions in `DATE()`
 - **SQL Period Comparison (Fixed: January 16, 2026)**: Simplified `last_quarter` endDateSql to pure DATE expression, ensured `DATE(v.converted_date_raw)` comparisons throughout
 
+## Caching Strategy
+
+This project uses Next.js `unstable_cache()` with tag-based invalidation for BigQuery API routes.
+
+### How to Cache New Query Functions
+
+1. Import the cache utilities:
+```typescript
+   import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
+```
+
+2. Wrap query functions using this pattern:
+```typescript
+   // Internal function (not exported)
+   const _getMyData = async (filters: MyFilters): Promise => {
+     // ... query logic
+   };
+
+   // Export cached version
+   export const getMyData = cachedQuery(
+     _getMyData,
+     'getMyData',           // Explicit key name (required)
+     CACHE_TAGS.DASHBOARD   // Or CACHE_TAGS.SGA_HUB
+   );
+```
+
+### Cache Tags
+- `CACHE_TAGS.DASHBOARD` — Main dashboard routes (funnel-metrics, conversion-rates, etc.)
+- `CACHE_TAGS.SGA_HUB` — SGA Hub routes (weekly-actuals, quarterly-progress, etc.)
+
+### TTL Values
+- `DEFAULT_CACHE_TTL` (12 hours) — Standard routes
+- `DETAIL_RECORDS_TTL` (6 hours) — Large result sets only
+
+### Do NOT Cache
+- `agent-query.ts` — AI agent dynamic SQL exploration (must always be fresh)
+- `export-records.ts` — Export operations
+- Any user-specific or real-time data
+
+### Cache Invalidation
+- Automatic daily: 12 AM EST (after 11:30 PM daily transfer) - Sun-Thu, Sat
+- Automatic Fridays: 3pm, 4pm, 6pm EST (after hourly transfers)
+- Manual: Admin refresh button in DataFreshnessIndicator
+- API: `POST /api/admin/refresh-cache` (admin only)
+
+### API Routes
+- Do NOT use `export const dynamic = 'force-dynamic'` — caching is handled at query level
+- Do NOT set manual `Cache-Control` headers — handled by `unstable_cache()`
+
 ## Key Files Reference
 
 ### Core Query Logic

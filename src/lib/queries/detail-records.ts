@@ -5,11 +5,12 @@ import { buildAdvancedFilterClauses } from '../utils/filter-helpers';
 import { buildDateRangeFromFilters, formatCurrency } from '../utils/date-helpers';
 import { RawDetailRecordResult, toNumber, toString } from '@/types/bigquery-raw';
 import { FULL_TABLE, OPEN_PIPELINE_STAGES, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
+import { cachedQuery, CACHE_TAGS, DETAIL_RECORDS_TTL } from '@/lib/cache';
 
-export async function getDetailRecords(
+const _getDetailRecords = async (
   filters: DashboardFilters,
   limit: number = 50000
-): Promise<DetailRecord[]> {
+): Promise<DetailRecord[]> => {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
   
   // Extract advancedFilters from filters object
@@ -252,4 +253,11 @@ export async function getDetailRecords(
       isOpenPipeline: OPEN_PIPELINE_STAGES.includes(toString(r.stage)),
     };
   });
-}
+};
+
+export const getDetailRecords = cachedQuery(
+  _getDetailRecords,
+  'getDetailRecords',
+  CACHE_TAGS.DASHBOARD,
+  DETAIL_RECORDS_TTL
+);

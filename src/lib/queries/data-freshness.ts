@@ -1,4 +1,5 @@
 import { runQuery } from '@/lib/bigquery';
+import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
 /**
  * Raw BigQuery result interface matching the query columns
@@ -22,7 +23,7 @@ export interface DataFreshnessResult {
  * Get the most recent data transfer time from Lead and Opportunity tables
  * Uses __TABLES__ metadata to determine when data was last synced from Salesforce
  */
-export async function getDataFreshness(): Promise<DataFreshnessResult> {
+const _getDataFreshness = async (): Promise<DataFreshnessResult> => {
   const query = `
     SELECT 
       MAX(last_data_load) as last_updated,
@@ -65,4 +66,10 @@ export async function getDataFreshness(): Promise<DataFreshnessResult> {
     isStale: hoursAgo >= 24,
     status,
   };
-}
+};
+
+export const getDataFreshness = cachedQuery(
+  _getDataFreshness,
+  'getDataFreshness',
+  CACHE_TAGS.DASHBOARD
+);

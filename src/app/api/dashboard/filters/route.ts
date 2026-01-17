@@ -5,8 +5,6 @@ import { runQuery } from '@/lib/bigquery';
 import { FULL_TABLE, MAPPING_TABLE } from '@/config/constants';
 import { FilterOptions } from '@/types/filters';
 
-export const dynamic = 'force-dynamic';
-
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);

@@ -4,8 +4,6 @@ import { authOptions } from '@/lib/auth';
 import { getDataFreshness } from '@/lib/queries/data-freshness';
 import { logger } from '@/lib/logger';
 
-export const dynamic = 'force-dynamic';
-
 export async function GET(request: NextRequest) {
   try {
     // Check authentication (following pattern from other dashboard API routes)
@@ -16,11 +14,7 @@ export async function GET(request: NextRequest) {
 
     const freshness = await getDataFreshness();
 
-    return NextResponse.json(freshness, {
-      headers: {
-        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
-      },
-    });
+    return NextResponse.json(freshness);
   } catch (error) {
     logger.error('Error fetching data freshness:', error);
     return NextResponse.json(

@@ -14,6 +14,7 @@ import {
 } from '../utils/date-helpers';
 import { RawConversionRatesResult, RawConversionTrendResult, toNumber } from '@/types/bigquery-raw';
 import { FULL_TABLE, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
+import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
 /**
  * CONVERSION RATE CALCULATION MODES:
@@ -40,10 +41,10 @@ import { FULL_TABLE, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/cons
  * | SQL→SQO        | Date_Became_SQO__c   | converted_date_raw          | converted_date_raw        |
  * | SQO→Joined     | advisor_join_date__c | Date_Became_SQO__c          | Date_Became_SQO__c        |
  */
-export async function getConversionRates(
+const _getConversionRates = async (
   filters: DashboardFilters,
   mode: 'period' | 'cohort' = 'period'
-): Promise<ConversionRatesResponse> {
+): Promise<ConversionRatesResponse> => {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
   
   // Extract advancedFilters from filters object
@@ -354,7 +355,13 @@ export async function getConversionRates(
     },
     mode,
   };
-}
+};
+
+export const getConversionRates = cachedQuery(
+  _getConversionRates,
+  'getConversionRates',
+  CACHE_TAGS.DASHBOARD
+);
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
