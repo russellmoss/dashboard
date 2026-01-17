@@ -175,3 +175,47 @@ export function formatQuarterString(year: number, quarter: number): string {
 export function formatMonthString(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, '0')}`;
 }
+
+/**
+ * Parse period string to date range
+ * Supports formats: "2025-Q4" (quarter) or "2025-10" (month)
+ * @param period - Period string (e.g., "2025-Q4" or "2025-10")
+ * @returns Object with startDate and endDate (YYYY-MM-DD format)
+ */
+export function parsePeriodToDateRange(period: string): { startDate: string; endDate: string } {
+  // Check if it's a quarter format: "2025-Q4"
+  const quarterMatch = period.match(/^(\d{4})-Q(\d)$/);
+  if (quarterMatch) {
+    const year = parseInt(quarterMatch[1], 10);
+    const quarter = parseInt(quarterMatch[2], 10);
+    const startMonth = (quarter - 1) * 3 + 1;
+    const endMonth = quarter * 3;
+    return {
+      startDate: `${year}-${String(startMonth).padStart(2, '0')}-01`,
+      endDate: `${year}-${String(endMonth).padStart(2, '0')}-${getDaysInMonth(year, endMonth)}`,
+    };
+  }
+  
+  // Check if it's a month format: "2025-10"
+  const monthMatch = period.match(/^(\d{4})-(\d{2})$/);
+  if (monthMatch) {
+    const year = parseInt(monthMatch[1], 10);
+    const month = parseInt(monthMatch[2], 10);
+    return {
+      startDate: `${year}-${String(month).padStart(2, '0')}-01`,
+      endDate: `${year}-${String(month).padStart(2, '0')}-${getDaysInMonth(year, month)}`,
+    };
+  }
+  
+  // Fallback: return current quarter if format is unrecognized
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth() + 1;
+  const currentQuarter = Math.floor((currentMonth - 1) / 3) + 1;
+  const quarterStartMonth = (currentQuarter - 1) * 3 + 1;
+  const quarterEndMonth = currentQuarter * 3;
+  return {
+    startDate: `${currentYear}-${String(quarterStartMonth).padStart(2, '0')}-01`,
+    endDate: `${currentYear}-${String(quarterEndMonth).padStart(2, '0')}-${getDaysInMonth(currentYear, quarterEndMonth)}`,
+  };
+}

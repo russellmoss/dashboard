@@ -56,7 +56,8 @@ src/
 │   ├── api/               # API routes
 │   │   ├── dashboard/     # Dashboard endpoints (funnel-metrics, conversion-rates, etc.)
 │   │   ├── sga-hub/       # SGA Hub endpoints (weekly-goals, quarterly-progress, drill-down, etc.)
-│   │   ├── admin/         # Admin endpoints (sga-overview)
+│   │   ├── admin/         # Admin endpoints (sga-overview, refresh-cache)
+│   │   ├── cron/          # Cron endpoints (refresh-cache for scheduled invalidation)
 │   │   ├── auth/          # Authentication endpoints
 │   │   └── users/         # User management endpoints
 │   ├── dashboard/         # Dashboard pages
@@ -72,7 +73,7 @@ src/
 │   ├── settings/          # User management components
 │   └── ui/                # Reusable UI components
 ├── lib/
-│   ├── queries/           # BigQuery query functions
+│   ├── queries/           # BigQuery query functions (all wrapped with caching)
 │   │   ├── conversion-rates.ts
 │   │   ├── funnel-metrics.ts
 │   │   ├── source-performance.ts
@@ -80,6 +81,7 @@ src/
 │   │   ├── weekly-actuals.ts
 │   │   ├── quarterly-progress.ts
 │   │   └── closed-lost.ts
+│   ├── cache.ts           # Caching utilities (cachedQuery, CACHE_TAGS, TTL constants)
 │   ├── sheets/            # Google Sheets export functionality
 │   ├── utils/             # Helper functions (date formatting, CSV export, SGA Hub helpers)
 │   ├── bigquery.ts        # BigQuery client
@@ -93,6 +95,96 @@ src/
 │   └── filters.ts
 └── config/                # Constants (table names, record types)
 ```
+
+## 🚀 Caching Strategy
+
+This dashboard implements a multi-layer caching strategy using Next.js `unstable_cache()` to improve performance and reduce BigQuery costs.
+
+### Why We Cache
+
+1. **Performance**: BigQuery queries can take 2-5 seconds. Caching reduces response times to <100ms for cached requests
+2. **Cost Reduction**: BigQuery charges per query. Caching reduces query volume by ~95% during cache hit periods
+3. **User Experience**: Faster page loads and smoother interactions
+4. **Scalability**: Reduces load on BigQuery during peak usage
+
+### How It Works
+
+The caching system uses **Next.js `unstable_cache()`** with **tag-based invalidation**:
+
+- **Cache Layer**: All query functions in `src/lib/queries/` are wrapped with `cachedQuery()`
+- **Cache Keys**: Automatically generated from function name + parameters (different filters = different cache entries)
+- **Cache Tags**: Two tags for organized invalidation:
+  - `dashboard` - Main dashboard routes (funnel-metrics, conversion-rates, source-performance, etc.)
+  - `sga-hub` - SGA Hub routes (weekly-actuals, quarterly-progress, closed-lost, etc.)
+- **TTL (Time To Live)**:
+  - **Standard routes**: 12 hours (`DEFAULT_CACHE_TTL`)
+  - **Detail records**: 6 hours (`DETAIL_RECORDS_TTL`) - shorter due to large result sets
+
+### What's Cached
+
+✅ **Cached** (all query functions):
+- Funnel metrics (SQLs, SQOs, Joined, AUM)
+- Conversion rates (scorecard + trend data)
+- Channel and source performance
+- Detail records (with 6-hour TTL)
+- Weekly actuals
+- Quarterly progress
+- Closed lost records
+- Drill-down queries
+
+❌ **Not Cached**:
+- `agent-query.ts` - AI agent dynamic SQL exploration (must always be fresh)
+- `export-records.ts` - Export operations (user-specific, real-time)
+- User management endpoints
+- Authentication endpoints
+
+### Cache Invalidation
+
+The cache is automatically invalidated to ensure data freshness:
+
+1. **Automatic Daily**: 12 AM EST (after 11:30 PM daily BigQuery transfer)
+   - Runs via Vercel Cron: `0 5 * * *` (5 AM UTC = 12 AM EST)
+   - Ensures morning users always get fresh data
+
+2. **Manual Admin Refresh**: 
+   - Admin users see a refresh button in the header (compact variant) and filters section (detailed variant)
+   - Calls `POST /api/admin/refresh-cache` to invalidate all cache tags
+   - Useful for testing or when data needs immediate refresh
+
+3. **API Endpoint**: `POST /api/admin/refresh-cache` (admin only)
+   - Invalidates both `dashboard` and `sga-hub` cache tags
+   - Returns success/error status
+
+### Implementation Details
+
+**Adding Caching to New Query Functions**:
+
+```typescript
+import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
+
+// Internal function (not exported)
+const _getMyData = async (filters: MyFilters): Promise<MyData> => {
+  // ... query logic
+};
+
+// Export cached version
+export const getMyData = cachedQuery(
+  _getMyData,
+  'getMyData',           // Explicit key name (required)
+  CACHE_TAGS.DASHBOARD   // Or CACHE_TAGS.SGA_HUB
+  // Optional: DETAIL_RECORDS_TTL for large result sets
+);
+```
+
+**Cache Behavior**:
+- Different filter combinations automatically get different cache keys
+- Same filters = cache hit (fast response)
+- Different filters = cache miss (queries BigQuery, then caches result)
+- Cache misses are logged for monitoring
+
+**Monitoring**:
+- Cache misses are logged with `[Cache Miss]` prefix
+- Check logs to see cache hit rates and identify frequently missed queries
 
 ## ✅ Current Status
 
@@ -281,10 +373,10 @@ _No known issues at this time._
 ## 🔮 Future Enhancements
 
 - Add forecast comparison charts
-- Implement caching for API routes
 - Create additional dashboard pages (Channel Drilldown, Open Pipeline, Partner Performance, Experimentation)
 - Add pagination to drill-down modals (if records exceed 100)
 - Add filtering/sorting within drill-down modals
+- Add cache hit rate monitoring dashboard
 
 ## 📄 License
 
@@ -303,4 +395,4 @@ Proprietary - Savvy Wealth Internal Use Only
 ---
 
 **Last Updated**: January 2026  
-**Status**: All core phases complete (1-12), Full Funnel View implemented, SGA Hub & SGA Management implemented, Drill-Down feature complete
+**Status**: All core phases complete (1-12), Full Funnel View implemented, SGA Hub & SGA Management implemented, Drill-Down feature complete, Caching implementation complete

@@ -33,8 +33,10 @@ import {
 } from '@/types/dashboard';
 import { ViewModeToggle } from '@/components/dashboard/ViewModeToggle';
 import { FullFunnelScorecards } from '@/components/dashboard/FullFunnelScorecards';
-import { buildDateRangeFromFilters } from '@/lib/utils/date-helpers';
+import { buildDateRangeFromFilters, parsePeriodToDateRange } from '@/lib/utils/date-helpers';
+import { DashboardFilters } from '@/types/filters';
 import { getSessionPermissions } from '@/types/auth';
+import { VolumeDrillDownModal } from '@/components/dashboard/VolumeDrillDownModal';
 
 export const dynamic = 'force-dynamic';
 
@@ -94,6 +96,14 @@ export default function DashboardPage() {
   const [trendMode, setTrendMode] = useState<ConversionTrendMode>('cohort');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
+  
+  // Volume drill-down modal state
+  const [volumeDrillDownOpen, setVolumeDrillDownOpen] = useState(false);
+  const [volumeDrillDownRecords, setVolumeDrillDownRecords] = useState<DetailRecord[]>([]);
+  const [volumeDrillDownLoading, setVolumeDrillDownLoading] = useState(false);
+  const [volumeDrillDownError, setVolumeDrillDownError] = useState<string | null>(null);
+  const [volumeDrillDownTitle, setVolumeDrillDownTitle] = useState('');
+  const [volumeDrillDownMetric, setVolumeDrillDownMetric] = useState<'sql' | 'sqo' | 'joined' | null>(null);
   
   // Fetch filter options on mount
   useEffect(() => {
@@ -218,6 +228,58 @@ export default function DashboardPage() {
   // Handle modal close
   const handleCloseRecordModal = useCallback(() => {
     setSelectedRecordId(null);
+  }, []);
+
+  // Handle volume trend bar click
+  const handleVolumeBarClick = useCallback(async (metric: 'sql' | 'sqo' | 'joined', period: string) => {
+    setVolumeDrillDownLoading(true);
+    setVolumeDrillDownError(null);
+    setVolumeDrillDownOpen(true);
+    setVolumeDrillDownMetric(metric);
+    
+    // Parse period to date range
+    const { startDate, endDate } = parsePeriodToDateRange(period);
+    
+    // Set title
+    const metricLabels: Record<'sql' | 'sqo' | 'joined', string> = {
+      sql: 'SQLs',
+      sqo: 'SQOs',
+      joined: 'Joined',
+    };
+    setVolumeDrillDownTitle(`${metricLabels[metric]} - ${period}`);
+    
+    try {
+      // Build filters for the drill-down
+      const drillDownFilters: DashboardFilters = {
+        ...filters,
+        startDate,
+        endDate,
+        metricFilter: metric, // 'sql', 'sqo', or 'joined'
+        datePreset: 'custom',
+      };
+      
+      // Fetch records using getDetailRecords
+      const response = await dashboardApi.getDetailRecords(drillDownFilters, 50000);
+      setVolumeDrillDownRecords(response.records);
+    } catch (error) {
+      console.error('Error fetching volume drill-down records:', error);
+      setVolumeDrillDownError('Failed to load records. Please try again.');
+    } finally {
+      setVolumeDrillDownLoading(false);
+    }
+  }, [filters]);
+
+  // Handle record click from volume drill-down
+  const handleVolumeDrillDownRecordClick = useCallback((primaryKey: string) => {
+    setVolumeDrillDownOpen(false);
+    setSelectedRecordId(primaryKey);
+  }, []);
+
+  // Handle close volume drill-down modal
+  const handleCloseVolumeDrillDown = useCallback(() => {
+    setVolumeDrillDownOpen(false);
+    setVolumeDrillDownRecords([]);
+    setVolumeDrillDownMetric(null);
   }, []);
   
   // Build detail table description
@@ -346,6 +408,7 @@ export default function DashboardPage() {
               onGranularityChange={setTrendGranularity}
               granularity={trendGranularity}
               isLoading={loading}
+              onBarClick={handleVolumeBarClick}
             />
           </ChartErrorBoundary>
           
@@ -400,11 +463,31 @@ export default function DashboardPage() {
         />
       )}
 
+      {/* Volume Drill-Down Modal */}
+      {volumeDrillDownMetric && (
+        <VolumeDrillDownModal
+          isOpen={volumeDrillDownOpen}
+          onClose={handleCloseVolumeDrillDown}
+          records={volumeDrillDownRecords}
+          title={volumeDrillDownTitle}
+          loading={volumeDrillDownLoading}
+          error={volumeDrillDownError}
+          onRecordClick={handleVolumeDrillDownRecordClick}
+          metricFilter={volumeDrillDownMetric}
+        />
+      )}
+
       {/* Record Detail Modal */}
       <RecordDetailModal
         isOpen={selectedRecordId !== null}
         onClose={handleCloseRecordModal}
         recordId={selectedRecordId}
+        showBackButton={volumeDrillDownOpen}
+        onBack={() => {
+          setSelectedRecordId(null);
+          setVolumeDrillDownOpen(true);
+        }}
+        backButtonLabel="← Back to records"
       />
     </div>
   );

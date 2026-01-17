@@ -40,6 +40,7 @@ interface VolumeTrendChartProps {
   onGranularityChange?: (granularity: 'month' | 'quarter') => void;
   granularity?: 'month' | 'quarter';
   isLoading?: boolean;
+  onBarClick?: (metric: 'sql' | 'sqo' | 'joined', period: string) => void;
 }
 
 export function VolumeTrendChart({ 
@@ -47,6 +48,7 @@ export function VolumeTrendChart({
   onGranularityChange,
   granularity: granularityProp,
   isLoading = false,
+  onBarClick,
 }: VolumeTrendChartProps) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
@@ -242,6 +244,23 @@ export function VolumeTrendChart({
                 fill={VOLUME_COLORS[cat]}
                 radius={[4, 4, 0, 0]}
                 maxBarSize={50}
+                onClick={onBarClick ? (data: any, index: number, e: any) => {
+                  // Get the period from the clicked data point
+                  // data is the chart data object: { period: "2025-Q4", SQLs: 193, SQOs: 144, Joined: 17 }
+                  const period = data?.period;
+                  // Map category to metric type
+                  const metricMap: Record<string, 'sql' | 'sqo' | 'joined'> = {
+                    'SQLs': 'sql',
+                    'SQOs': 'sqo',
+                    'Joined': 'joined',
+                  };
+                  const metric = metricMap[cat];
+                  if (metric && period) {
+                    e?.stopPropagation?.();
+                    onBarClick(metric, period);
+                  }
+                } : undefined}
+                style={{ cursor: onBarClick ? 'pointer' : 'default' }}
               >
                 <LabelList 
                   dataKey={cat} 
