@@ -30,19 +30,14 @@ export function getBigQueryClient(): BigQuery {
       
       // Fix common issues: replace actual newlines in private_key with \n
       // This handles cases where JSON was copied with real newlines instead of escaped ones
-      // Use a more robust regex that handles multi-line private_key values
-      jsonString = jsonString.replace(/"private_key"\s*:\s*"([^"]*(?:\\.[^"]*)*)"/gs, (match) => {
-        // Extract the key content (everything between the quotes)
-        const keyMatch = match.match(/"private_key"\s*:\s*"([\s\S]*?)"/);
-        if (keyMatch && keyMatch[1]) {
-          // Replace actual newlines and carriage returns with \n escape sequences
-          const fixedKey = keyMatch[1]
-            .replace(/\r\n/g, '\\n')
-            .replace(/\n/g, '\\n')
-            .replace(/\r/g, '\\n');
-          return `"private_key":"${fixedKey}"`;
-        }
-        return match;
+      // Use [\s\S] instead of . with s flag for ES2017 compatibility
+      jsonString = jsonString.replace(/"private_key"\s*:\s*"([\s\S]*?)"/g, (match, keyContent) => {
+        // Replace actual newlines and carriage returns with \n escape sequences
+        const fixedKey = keyContent
+          .replace(/\r\n/g, '\\n')
+          .replace(/\n/g, '\\n')
+          .replace(/\r/g, '\\n');
+        return `"private_key":"${fixedKey}"`;
       });
       
       const credentials = JSON.parse(jsonString);
