@@ -34,7 +34,6 @@ import {
 import { ViewModeToggle } from '@/components/dashboard/ViewModeToggle';
 import { FullFunnelScorecards } from '@/components/dashboard/FullFunnelScorecards';
 import { buildDateRangeFromFilters, parsePeriodToDateRange } from '@/lib/utils/date-helpers';
-import { DashboardFilters } from '@/types/filters';
 import { getSessionPermissions } from '@/types/auth';
 import { VolumeDrillDownModal } from '@/components/dashboard/VolumeDrillDownModal';
 
