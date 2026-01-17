@@ -6,6 +6,7 @@ import { logger } from '@/lib/logger';
 export async function GET(request: NextRequest) {
   try {
     // Validate CRON_SECRET (auto-injected by Vercel)
+    // Vercel automatically adds CRON_SECRET to the Authorization header
     const authHeader = request.headers.get('authorization');
     const cronSecret = process.env.CRON_SECRET;
 
