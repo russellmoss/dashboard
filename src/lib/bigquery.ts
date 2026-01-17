@@ -24,9 +24,33 @@ export function getBigQueryClient(): BigQuery {
       delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
       
       // Parse the JSON string (it should be a single-line JSON string)
-      const credentials = typeof process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON === 'string'
-        ? JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)
-        : process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+      let jsonString = typeof process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON === 'string'
+        ? process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON
+        : JSON.stringify(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+      
+      // Fix common issues: replace actual newlines in private_key with \n
+      // This handles cases where JSON was copied with real newlines instead of escaped ones
+      // Use a more robust regex that handles multi-line private_key values
+      jsonString = jsonString.replace(/"private_key"\s*:\s*"([^"]*(?:\\.[^"]*)*)"/gs, (match) => {
+        // Extract the key content (everything between the quotes)
+        const keyMatch = match.match(/"private_key"\s*:\s*"([\s\S]*?)"/);
+        if (keyMatch && keyMatch[1]) {
+          // Replace actual newlines and carriage returns with \n escape sequences
+          const fixedKey = keyMatch[1]
+            .replace(/\r\n/g, '\\n')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\n');
+          return `"private_key":"${fixedKey}"`;
+        }
+        return match;
+      });
+      
+      const credentials = JSON.parse(jsonString);
+      
+      // Ensure private_key has proper newlines for PEM format
+      if (credentials.private_key && typeof credentials.private_key === 'string') {
+        credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
+      }
       
       bigqueryClient = new BigQuery({
         projectId,
@@ -40,7 +64,8 @@ export function getBigQueryClient(): BigQuery {
       }
     } catch (error) {
       console.error('[BigQuery] Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON:', error);
-      throw new Error('Invalid GOOGLE_APPLICATION_CREDENTIALS_JSON format. Must be valid JSON.');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`Invalid GOOGLE_APPLICATION_CREDENTIALS_JSON format: ${errorMessage}. Ensure the JSON is valid and private_key uses \\n for newlines.`);
     }
   } 
   // For local development: use file path

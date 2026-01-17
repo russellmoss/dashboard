@@ -37,6 +37,11 @@ export function DataFreshnessIndicator({
   variant = 'compact',
   className = '' 
 }: DataFreshnessIndicatorProps) {
+  // Hooks must be called unconditionally at the top level
+  const { data: session } = useSession();
+  const permissions = getSessionPermissions(session);
+  const isAdmin = permissions?.role === 'admin';
+
   const [freshness, setFreshness] = useState<DataFreshness | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -101,22 +106,30 @@ export function DataFreshnessIndicator({
     );
   }
 
-  const { data: session } = useSession();
-  const permissions = getSessionPermissions(session);
-  const isAdmin = permissions?.role === 'admin';
-
   const colors = getStatusColor(freshness!.status);
   const relativeTime = formatRelativeTime(freshness!.minutesAgo);
   const absoluteTime = formatAbsoluteTime(freshness!.lastUpdated);
 
   if (variant === 'compact') {
     return (
-      <div 
-        className={`flex items-center gap-1.5 text-xs ${colors.text} ${className}`}
-        title={`Last synced: ${absoluteTime}\nStatus: ${freshness!.status}`}
-      >
-        <span className={`w-2 h-2 rounded-full ${colors.dot}`} />
-        <span>Updated {relativeTime}</span>
+      <div className={`flex items-center gap-2 ${className}`}>
+        <div 
+          className={`flex items-center gap-1.5 text-xs ${colors.text}`}
+          title={`Last synced: ${absoluteTime}\nStatus: ${freshness!.status}`}
+        >
+          <span className={`w-2 h-2 rounded-full ${colors.dot}`} />
+          <span>Updated {relativeTime}</span>
+        </div>
+        {isAdmin && (
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-1 px-1.5 py-0.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="Refresh cache (admin only)"
+          >
+            <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </button>
+        )}
       </div>
     );
   }
