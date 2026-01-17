@@ -10,11 +10,7 @@
   "crons": [
     {
       "path": "/api/cron/refresh-cache",
-      "schedule": "0 20,21,23 * * 5"
-    },
-    {
-      "path": "/api/cron/refresh-cache",
-      "schedule": "0 5 * * 0-4,6"
+      "schedule": "0 5 * * *"
     }
   ]
 }
