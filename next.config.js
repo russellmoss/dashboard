@@ -24,6 +24,10 @@ const nextConfig = {
       },
     ],
   },
+  // Suppress Sentry global error handler warning
+  env: {
+    SENTRY_SUPPRESS_GLOBAL_ERROR_HANDLER_FILE_WARNING: '1',
+  },
 };
 
 module.exports = withSentryConfig(

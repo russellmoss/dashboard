@@ -356,6 +356,41 @@ The dashboard has been tested against Q4 2025 data with the following expected v
 - **SQL Injection Protection**: All queries use BigQuery parameterized queries
 - **Sensitive Data**: User credentials and service account keys are excluded from version control
 
+## 📊 Error Monitoring & Logging
+
+The dashboard uses **Sentry** for comprehensive error monitoring and logging:
+
+### Error Tracking
+
+- **Automatic Error Capture**: All unhandled exceptions and errors are automatically captured and sent to Sentry
+- **Client-Side Errors**: JavaScript errors, React component errors, and unhandled promise rejections
+- **Server-Side Errors**: API route errors, server component errors, and edge runtime errors
+- **Source Maps**: Full stack traces with source maps for easier debugging
+
+### Logging
+
+- **Console Logging Integration**: Automatically captures `console.log`, `console.warn`, and `console.error` calls as structured logs
+- **Structured Logging**: Logs include context, breadcrumbs, and user information for better debugging
+- **Log Levels**: Supports trace, debug, info, warn, error, and fatal log levels
+
+### Configuration
+
+Sentry is configured across three runtime environments:
+
+- **Client** (`sentry.client.config.ts`): Browser-side error tracking and session replay
+- **Server** (`sentry.server.config.ts`): Server-side API route and component error tracking
+- **Edge** (`sentry.edge.config.ts`): Middleware and edge function error tracking
+
+### Current Status
+
+- **Trial Period**: Currently on Sentry trial plan
+- **Post-Trial**: Will switch to Sentry's free Developer tier upon trial expiration
+- **Environment Variables**: Configured via `SENTRY_DSN` and `NEXT_PUBLIC_SENTRY_DSN` in Vercel
+
+### Testing
+
+A test page is available at `/sentry-example-page` to verify error tracking is working correctly.
+
 ## 📚 Documentation
 
 - **[Build Instructions](./docs/savvy-dashboard-build-instructions.md)**: Comprehensive guide for building and deploying the dashboard

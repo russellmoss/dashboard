@@ -10,9 +10,6 @@ Sentry.init({
   // Enable logging
   enableLogs: true,
 
-  // Adjust this value in production, or use tracesSampler for greater control
-  tracesSample: 0,
-
   // Setting this option to true will print useful information to the console while you're setting up Sentry.
   debug: false,
 
