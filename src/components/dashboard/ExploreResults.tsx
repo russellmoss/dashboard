@@ -515,6 +515,47 @@ export function ExploreResults({ response, isLoading, error, streamingMessage, c
     return null;
   }
 
+  // Helper to format date range as quarter string if it matches a quarter
+  function formatDateRangeAsQuarter(startDate: string, endDate: string): string | null {
+    // Check if the date range matches a quarter (Q1-Q4)
+    // Q1: 01-01 to 03-31
+    // Q2: 04-01 to 06-30
+    // Q3: 07-01 to 09-30
+    // Q4: 10-01 to 12-31
+    
+    const startMatch = startDate.match(/^(\d{4})-(\d{2})-01$/);
+    const endMatch = endDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    
+    if (!startMatch || !endMatch) return null;
+    
+    const startYear = parseInt(startMatch[1]);
+    const startMonth = parseInt(startMatch[2]);
+    const endYear = parseInt(endMatch[1]);
+    const endMonth = parseInt(endMatch[2]);
+    const endDay = parseInt(endMatch[3]);
+    
+    // Check if years match
+    if (startYear !== endYear) return null;
+    
+    // Check if it's a quarter boundary
+    let quarter: number | null = null;
+    if (startMonth === 1 && endMonth === 3 && endDay === 31) {
+      quarter = 1;
+    } else if (startMonth === 4 && endMonth === 6 && endDay === 30) {
+      quarter = 2;
+    } else if (startMonth === 7 && endMonth === 9 && endDay === 30) {
+      quarter = 3;
+    } else if (startMonth === 10 && endMonth === 12 && endDay === 31) {
+      quarter = 4;
+    }
+    
+    if (quarter) {
+      return `in Q${quarter} ${startYear}`;
+    }
+    
+    return null;
+  }
+
   // Unified handler for all drilldown types
   const handleDrillDown = async (
     drillDownType: 'metric' | 'bar' | 'line' | 'comparison' | 'aum' | 'conversion' | 'leaderboard',
@@ -685,7 +726,17 @@ export function ExploreResults({ response, isLoading, error, streamingMessage, c
       
       // Add date range explicitly
       if (dateRange) {
-        if (dateRange.preset) {
+        // Check for custom date range first (preset: "custom" with startDate/endDate)
+        if ((dateRange.preset === 'custom' || !dateRange.preset) && dateRange.startDate && dateRange.endDate) {
+          // Try to format as quarter first (e.g., "in Q3 2025")
+          const quarterFormat = formatDateRangeAsQuarter(dateRange.startDate, dateRange.endDate);
+          if (quarterFormat) {
+            question += ` ${quarterFormat}`;
+          } else {
+            // Custom date range - use explicit dates
+            question += ` from ${dateRange.startDate} to ${dateRange.endDate}`;
+          }
+        } else if (dateRange.preset) {
           // Map preset to natural language
           const presetMap: Record<string, string> = {
             'this_quarter': 'this quarter',
@@ -698,11 +749,11 @@ export function ExploreResults({ response, isLoading, error, streamingMessage, c
             'last_30_days': 'in the last 30 days',
             'last_90_days': 'in the last 90 days',
           };
-          const presetText = presetMap[dateRange.preset] || dateRange.preset;
-          question += ` ${presetText}`;
-        } else if (dateRange.startDate && dateRange.endDate) {
-          // Custom date range
-          question += ` from ${dateRange.startDate} to ${dateRange.endDate}`;
+          const presetText = presetMap[dateRange.preset];
+          if (presetText) {
+            question += ` ${presetText}`;
+          }
+          // If preset is not in map (e.g., unknown preset), don't add anything
         }
       }
       

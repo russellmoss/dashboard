@@ -405,25 +405,41 @@ export function buildDimensionFilterSql(filters: DimensionFilter[]): string {
     if (filter.dimension === 'experimentation_tag') {
       if (filter.operator === 'equals' || filter.operator === 'in') {
         const values = Array.isArray(filter.value) ? filter.value : [filter.value];
-        // For experimentation tags, support fuzzy matching using LIKE for partial matches
-        // This allows users to search for "LPL" and find tags like "LPL Experiment", "LPL Campaign", etc.
-        const conditions = values.map((v) => {
-          const escapedValue = String(v).replace(/'/g, "''").replace(/%/g, "\\%").replace(/_/g, "\\_");
-          // Use LIKE with wildcards for fuzzy matching (case-insensitive)
-          return `UPPER(tag) LIKE UPPER('%${escapedValue}%')`;
-        });
-        clauses.push(
-          `EXISTS (SELECT 1 FROM UNNEST(v.Experimentation_Tag_List) as tag WHERE ${conditions.join(' OR ')})`
-        );
+        
+        // Special case: "*" means "any experimentation tag exists" (array is not empty)
+        if (values.length === 1 && values[0] === '*') {
+          clauses.push(
+            `ARRAY_LENGTH(v.Experimentation_Tag_List) > 0`
+          );
+        } else {
+          // For experimentation tags, support fuzzy matching using LIKE for partial matches
+          // This allows users to search for "LPL" and find tags like "LPL Experiment", "LPL Campaign", etc.
+          const conditions = values.map((v) => {
+            const escapedValue = String(v).replace(/'/g, "''").replace(/%/g, "\\%").replace(/_/g, "\\_");
+            // Use LIKE with wildcards for fuzzy matching (case-insensitive)
+            return `UPPER(tag) LIKE UPPER('%${escapedValue}%')`;
+          });
+          clauses.push(
+            `EXISTS (SELECT 1 FROM UNNEST(v.Experimentation_Tag_List) as tag WHERE ${conditions.join(' OR ')})`
+          );
+        }
       } else if (filter.operator === 'not_equals' || filter.operator === 'not_in') {
         const values = Array.isArray(filter.value) ? filter.value : [filter.value];
-        const conditions = values.map((v) => {
-          const escapedValue = String(v).replace(/'/g, "''").replace(/%/g, "\\%").replace(/_/g, "\\_");
-          return `UPPER(tag) LIKE UPPER('%${escapedValue}%')`;
-        });
-        clauses.push(
-          `NOT EXISTS (SELECT 1 FROM UNNEST(v.Experimentation_Tag_List) as tag WHERE ${conditions.join(' OR ')})`
-        );
+        
+        // Special case: "*" means "no experimentation tag exists" (array is empty)
+        if (values.length === 1 && values[0] === '*') {
+          clauses.push(
+            `(ARRAY_LENGTH(v.Experimentation_Tag_List) = 0 OR v.Experimentation_Tag_List IS NULL)`
+          );
+        } else {
+          const conditions = values.map((v) => {
+            const escapedValue = String(v).replace(/'/g, "''").replace(/%/g, "\\%").replace(/_/g, "\\_");
+            return `UPPER(tag) LIKE UPPER('%${escapedValue}%')`;
+          });
+          clauses.push(
+            `NOT EXISTS (SELECT 1 FROM UNNEST(v.Experimentation_Tag_List) as tag WHERE ${conditions.join(' OR ')})`
+          );
+        }
       }
       continue;
     }

@@ -149,7 +149,13 @@ When responding, ALWAYS include:
      - "How many SQOs of all time did the LPL experiment garner?" → Omit dateRange (all time)
      - "How many SQOs did we have?" → dateRange: { "preset": "this_quarter" } (default)
 6. Match metric aliases (e.g., "conversions" → "sqls", "win rate" → "sqo_to_joined_rate")
-7. **For SGA/SGM names, support fuzzy matching:**
+7. **For experimentation tags:**
+   - When users mention a specific experiment name (e.g., "LPL experiment", "Commonwealth experiment"), use filters: [{ "dimension": "experimentation_tag", "operator": "in", "value": ["LPL"] }] or ["Commonwealth"]
+   - When users say "from experiments" (plural, without a specific name), this means ANY record that has an experimentation tag. Use filters: [{ "dimension": "experimentation_tag", "operator": "in", "value": ["*"] }] where "*" is a special value meaning "any experimentation tag exists"
+   - Examples:
+     - "SQOs from experiments" → filters: [{ "dimension": "experimentation_tag", "operator": "in", "value": ["*"] }]
+     - "SQOs from the LPL experiment" → filters: [{ "dimension": "experimentation_tag", "operator": "in", "value": ["LPL"] }]
+8. **For SGA/SGM names, support fuzzy matching:**
    - When users provide partial names (e.g., "Corey" instead of "Corey Marcello"), use the filter with the partial name
    - The system will automatically match names containing the provided text (case-insensitive)
    - Examples:
@@ -181,6 +187,10 @@ When responding, ALWAYS include:
 Question: "How many SQOs of all time did the LPL experiment garner?"
 → templateId: "single_metric", metric: "sqos", filters: [{ "dimension": "experimentation_tag", "operator": "in", "value": ["LPL"] }]
 Note: No dateRange parameter (all time query). When users mention experiment names, campaign names, or tags (like "LPL", "Q4 Campaign"), use the experimentation_tag dimension filter with "in" operator. For partial matches or fuzzy matching, use "in" operator with the exact tag value - the system will handle matching.
+
+Question: "how many sqos from experiments in q4 2025?"
+→ templateId: "single_metric", metric: "sqos", dateRange: { "preset": "custom", "startDate": "2025-10-01", "endDate": "2025-12-31" }, filters: [{ "dimension": "experimentation_tag", "operator": "in", "value": ["*"] }]
+Note: When users say "from experiments" (plural, without a specific experiment name), this means any record that has an experimentation tag. Use filters: [{ "dimension": "experimentation_tag", "operator": "in", "value": ["*"] }] where "*" is a special value that means "any experimentation tag exists". This will filter to records where the Experimentation_Tag_List array is not empty.
 
 Question: "who are the current open pipeline opportunities that have the SGM of Corey?"
 → templateId: "open_pipeline_list", filters: [{ "dimension": "sgm", "operator": "equals", "value": "Corey" }]
