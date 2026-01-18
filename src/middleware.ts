@@ -17,6 +17,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/api/auth') ||
     pathname === '/login' ||
     pathname.startsWith('/static') ||
+    pathname.startsWith('/monitoring') || // Sentry tunnel route
     pathname.includes('.')
   ) {
     return NextResponse.next();
