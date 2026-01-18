@@ -19,9 +19,14 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
   
   // Build conditions manually since we need table aliases
   const conditions: string[] = [];
+  // Use separate DATE and TIMESTAMP parameters to avoid type conflicts
+  // DATE parameters: plain date strings (YYYY-MM-DD)
+  // TIMESTAMP parameters: date strings with time (YYYY-MM-DD HH:MM:SS)
   const params: Record<string, any> = {
-    startDate,
-    endDate: endDate + ' 23:59:59',
+    startDate, // Used for DATE() comparisons
+    endDate, // Used for DATE() comparisons (without time)
+    startDateTimestamp: startDate + ' 00:00:00', // Used for TIMESTAMP() comparisons
+    endDateTimestamp: endDate + ' 23:59:59', // Used for TIMESTAMP() comparisons
     recruitingRecordType: RECRUITING_RECORD_TYPE,
   };
   
@@ -57,8 +62,8 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
       SUM(
         CASE 
           WHEN v.FilterDate IS NOT NULL
-            AND TIMESTAMP(v.FilterDate) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(v.FilterDate) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.FilterDate) >= TIMESTAMP(@startDateTimestamp) 
+            AND TIMESTAMP(v.FilterDate) <= TIMESTAMP(@endDateTimestamp)
           THEN 1 
           ELSE 0 
         END
@@ -67,8 +72,8 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
       SUM(
         CASE 
           WHEN v.stage_entered_contacting__c IS NOT NULL
-            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDateTimestamp) 
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDateTimestamp)
             AND v.is_contacted = 1
           THEN 1 
           ELSE 0 
@@ -78,8 +83,8 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
       SUM(
         CASE 
           WHEN v.mql_stage_entered_ts IS NOT NULL
-            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDateTimestamp) 
+            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDateTimestamp)
           THEN 1 
           ELSE 0 
         END
@@ -97,8 +102,8 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
       SUM(
         CASE 
           WHEN v.Date_Became_SQO__c IS NOT NULL
-            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDateTimestamp) 
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDateTimestamp)
             AND v.recordtypeid = @recruitingRecordType
             AND v.is_sqo_unique = 1
           THEN 1 
@@ -119,14 +124,14 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
       SAFE_DIVIDE(
         SUM(CASE 
           WHEN v.stage_entered_contacting__c IS NOT NULL
-            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDateTimestamp)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDateTimestamp)
           THEN v.contacted_to_mql_progression ELSE 0 
         END),
         SUM(CASE 
           WHEN v.stage_entered_contacting__c IS NOT NULL
-            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDateTimestamp)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDateTimestamp)
           THEN v.eligible_for_contacted_conversions ELSE 0 
         END)
       ) as contacted_to_mql_rate,
@@ -134,14 +139,14 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
       SAFE_DIVIDE(
         SUM(CASE 
           WHEN v.mql_stage_entered_ts IS NOT NULL
-            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDateTimestamp)
+            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDateTimestamp)
           THEN v.mql_to_sql_progression ELSE 0 
         END),
         SUM(CASE 
           WHEN v.mql_stage_entered_ts IS NOT NULL
-            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDateTimestamp)
+            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDateTimestamp)
           THEN v.eligible_for_mql_conversions ELSE 0 
         END)
       ) as mql_to_sql_rate,
@@ -149,14 +154,14 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
       SAFE_DIVIDE(
         SUM(CASE 
           WHEN v.converted_date_raw IS NOT NULL
-            AND DATE(v.converted_date_raw) >= TIMESTAMP(@startDate)
-            AND DATE(v.converted_date_raw) <= TIMESTAMP(@endDate)
+            AND DATE(v.converted_date_raw) >= DATE(@startDate)
+            AND DATE(v.converted_date_raw) <= DATE(@endDate)
           THEN v.sql_to_sqo_progression ELSE 0 
         END),
         SUM(CASE 
           WHEN v.converted_date_raw IS NOT NULL
-            AND DATE(v.converted_date_raw) >= TIMESTAMP(@startDate)
-            AND DATE(v.converted_date_raw) <= TIMESTAMP(@endDate)
+            AND DATE(v.converted_date_raw) >= DATE(@startDate)
+            AND DATE(v.converted_date_raw) <= DATE(@endDate)
           THEN v.eligible_for_sql_conversions ELSE 0 
         END)
       ) as sql_to_sqo_rate,
@@ -164,22 +169,22 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
       SAFE_DIVIDE(
         SUM(CASE 
           WHEN v.Date_Became_SQO__c IS NOT NULL
-            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDateTimestamp)
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDateTimestamp)
           THEN v.sqo_to_joined_progression ELSE 0 
         END),
         SUM(CASE 
           WHEN v.Date_Became_SQO__c IS NOT NULL
-            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDateTimestamp)
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDateTimestamp)
           THEN v.eligible_for_sqo_conversions ELSE 0 
         END)
       ) as sqo_to_joined_rate,
       SUM(
         CASE 
           WHEN v.Date_Became_SQO__c IS NOT NULL
-            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDateTimestamp) 
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDateTimestamp)
             AND v.recordtypeid = @recruitingRecordType
             AND v.is_sqo_unique = 1
           THEN v.Opportunity_AUM 
@@ -224,9 +229,14 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
   
   // Build conditions manually since we need table aliases
   const conditions: string[] = [];
+  // Use separate DATE and TIMESTAMP parameters to avoid type conflicts
+  // DATE parameters: plain date strings (YYYY-MM-DD)
+  // TIMESTAMP parameters: date strings with time (YYYY-MM-DD HH:MM:SS)
   const params: Record<string, any> = {
-    startDate,
-    endDate: endDate + ' 23:59:59',
+    startDate, // Used for DATE() comparisons
+    endDate, // Used for DATE() comparisons (without time)
+    startDateTimestamp: startDate + ' 00:00:00', // Used for TIMESTAMP() comparisons
+    endDateTimestamp: endDate + ' 23:59:59', // Used for TIMESTAMP() comparisons
     recruitingRecordType: RECRUITING_RECORD_TYPE,
   };
   
@@ -267,8 +277,8 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
       SUM(
         CASE 
           WHEN v.FilterDate IS NOT NULL
-            AND TIMESTAMP(v.FilterDate) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(v.FilterDate) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.FilterDate) >= TIMESTAMP(@startDateTimestamp) 
+            AND TIMESTAMP(v.FilterDate) <= TIMESTAMP(@endDateTimestamp)
           THEN 1 
           ELSE 0 
         END
@@ -277,8 +287,8 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
       SUM(
         CASE 
           WHEN v.stage_entered_contacting__c IS NOT NULL
-            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDateTimestamp) 
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDateTimestamp)
             AND v.is_contacted = 1
           THEN 1 
           ELSE 0 
@@ -288,8 +298,8 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
       SUM(
         CASE 
           WHEN v.mql_stage_entered_ts IS NOT NULL
-            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDateTimestamp) 
+            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDateTimestamp)
           THEN 1 
           ELSE 0 
         END
@@ -307,8 +317,8 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
       SUM(
         CASE 
           WHEN v.Date_Became_SQO__c IS NOT NULL
-            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDateTimestamp) 
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDateTimestamp)
             AND v.recordtypeid = @recruitingRecordType
             AND v.is_sqo_unique = 1
           THEN 1 
@@ -329,14 +339,14 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
       SAFE_DIVIDE(
         SUM(CASE 
           WHEN v.stage_entered_contacting__c IS NOT NULL
-            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDateTimestamp)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDateTimestamp)
           THEN v.contacted_to_mql_progression ELSE 0 
         END),
         SUM(CASE 
           WHEN v.stage_entered_contacting__c IS NOT NULL
-            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDateTimestamp)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDateTimestamp)
           THEN v.eligible_for_contacted_conversions ELSE 0 
         END)
       ) as contacted_to_mql_rate,
@@ -344,14 +354,14 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
       SAFE_DIVIDE(
         SUM(CASE 
           WHEN v.mql_stage_entered_ts IS NOT NULL
-            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDateTimestamp)
+            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDateTimestamp)
           THEN v.mql_to_sql_progression ELSE 0 
         END),
         SUM(CASE 
           WHEN v.mql_stage_entered_ts IS NOT NULL
-            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@startDateTimestamp)
+            AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@endDateTimestamp)
           THEN v.eligible_for_mql_conversions ELSE 0 
         END)
       ) as mql_to_sql_rate,
@@ -359,14 +369,14 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
       SAFE_DIVIDE(
         SUM(CASE 
           WHEN v.converted_date_raw IS NOT NULL
-            AND DATE(v.converted_date_raw) >= TIMESTAMP(@startDate)
-            AND DATE(v.converted_date_raw) <= TIMESTAMP(@endDate)
+            AND DATE(v.converted_date_raw) >= DATE(@startDate)
+            AND DATE(v.converted_date_raw) <= DATE(@endDate)
           THEN v.sql_to_sqo_progression ELSE 0 
         END),
         SUM(CASE 
           WHEN v.converted_date_raw IS NOT NULL
-            AND DATE(v.converted_date_raw) >= TIMESTAMP(@startDate)
-            AND DATE(v.converted_date_raw) <= TIMESTAMP(@endDate)
+            AND DATE(v.converted_date_raw) >= DATE(@startDate)
+            AND DATE(v.converted_date_raw) <= DATE(@endDate)
           THEN v.eligible_for_sql_conversions ELSE 0 
         END)
       ) as sql_to_sqo_rate,
@@ -374,22 +384,22 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
       SAFE_DIVIDE(
         SUM(CASE 
           WHEN v.Date_Became_SQO__c IS NOT NULL
-            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDateTimestamp)
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDateTimestamp)
           THEN v.sqo_to_joined_progression ELSE 0 
         END),
         SUM(CASE 
           WHEN v.Date_Became_SQO__c IS NOT NULL
-            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDateTimestamp)
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDateTimestamp)
           THEN v.eligible_for_sqo_conversions ELSE 0 
         END)
       ) as sqo_to_joined_rate,
       SUM(
         CASE 
           WHEN v.Date_Became_SQO__c IS NOT NULL
-            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDateTimestamp) 
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDateTimestamp)
             AND v.recordtypeid = @recruitingRecordType
             AND v.is_sqo_unique = 1
           THEN v.Opportunity_AUM 

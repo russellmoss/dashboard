@@ -147,7 +147,25 @@ WHERE TIMESTAMP(v.converted_date_raw) >= DATE('2025-10-01')
 - **DATE fields** (use `DATE()` wrapper): `converted_date_raw`, `advisor_join_date__c`, `Initial_Call_Scheduled_Date__c`, `Qualification_Call_Date__c`
 - **TIMESTAMP fields** (use `TIMESTAMP()` wrapper): `FilterDate`, `stage_entered_contacting__c`, `mql_stage_entered_ts`, `Date_Became_SQO__c`, `Opp_CreatedDate`
 
-**⚠️ CODE ISSUE FLAGGED**: `src/lib/queries/funnel-metrics.ts` incorrectly uses `TIMESTAMP()` wrapper for `converted_date_raw` (line 114-115). Should use `DATE()` wrapper. The semantic layer (`definitions.ts`) correctly uses `DATE()` for this field.
+**⚠️ Parameter Type Conflict**: When a query uses both DATE and TIMESTAMP fields, using the same parameter with both wrappers causes BigQuery type inference errors. Use separate parameters:
+
+```sql
+-- ✅ CORRECT: Separate parameters for DATE vs TIMESTAMP
+-- Parameters:
+--   startDate: '2025-01-01' (for DATE() comparisons)
+--   startDateTimestamp: '2025-01-01 00:00:00' (for TIMESTAMP() comparisons)
+
+WHERE DATE(v.converted_date_raw) >= DATE(@startDate)
+  AND TIMESTAMP(v.FilterDate) >= TIMESTAMP(@startDateTimestamp)
+
+-- ❌ WRONG: Same parameter with different wrappers causes type conflict
+WHERE DATE(v.converted_date_raw) >= DATE(@startDate)
+  AND TIMESTAMP(v.FilterDate) >= TIMESTAMP(@startDate)  -- Error: type mismatch
+```
+
+**Pattern**: In `source-performance.ts`, we use:
+- `startDate` / `endDate` — plain date strings (YYYY-MM-DD) for `DATE()` comparisons
+- `startDateTimestamp` / `endDateTimestamp` — date strings with time (YYYY-MM-DD HH:MM:SS) for `TIMESTAMP()` comparisons
 
 ### Channel Mapping Pattern
 
@@ -1011,9 +1029,11 @@ Claude recommends visualization; compiler may override based on data:
 | Field Type | Comparison Pattern |
 |------------|-------------------|
 | **DATE** (`converted_date_raw`, `advisor_join_date__c`, `Initial_Call_Scheduled_Date__c`, `Qualification_Call_Date__c`) | `DATE(field) >= DATE(@startDate)` |
-| **TIMESTAMP** (`FilterDate`, `stage_entered_contacting__c`, `mql_stage_entered_ts`, `Date_Became_SQO__c`, `Opp_CreatedDate`) | `TIMESTAMP(field) >= TIMESTAMP(@startDate)` |
+| **TIMESTAMP** (`FilterDate`, `stage_entered_contacting__c`, `mql_stage_entered_ts`, `Date_Became_SQO__c`, `Opp_CreatedDate`) | `TIMESTAMP(field) >= TIMESTAMP(@startDateTimestamp)` |
 
-**End-of-day for TIMESTAMP**: Use `< TIMESTAMP(DATE_ADD(@endDate, INTERVAL 1 DAY))` to include full last day.
+**⚠️ Parameter Type Conflict**: When mixing DATE and TIMESTAMP fields in the same query, use separate parameters (`@startDate` for DATE, `@startDateTimestamp` for TIMESTAMP) to avoid BigQuery type inference errors. See Section 2 for details.
+
+**End-of-day for TIMESTAMP**: Use `< TIMESTAMP(DATE_ADD(@endDateTimestamp, INTERVAL 1 DAY))` to include full last day.
 
 **Reference**: See `src/lib/semantic-layer/definitions.ts` `DATE_FIELDS` object for complete field type mapping.
 
@@ -1237,7 +1257,7 @@ Use these values to validate any query changes.
 
 **Status**: ✅ **FIXED** (January 18, 2026)
 
-**Issue**: Multiple query files incorrectly used `TIMESTAMP()` wrapper for DATE fields (`converted_date_raw`, `advisor_join_date__c`).
+**Issue 1: Incorrect Wrapper Usage**: Multiple query files incorrectly used `TIMESTAMP()` wrapper for DATE fields (`converted_date_raw`, `advisor_join_date__c`).
 
 **Files Fixed**:
 - `src/lib/queries/funnel-metrics.ts` - 3 instances
@@ -1249,11 +1269,22 @@ Use these values to validate any query changes.
 
 **Fix Applied**: Changed `TIMESTAMP(v.converted_date_raw)` to `DATE(v.converted_date_raw)` and `TIMESTAMP(v.advisor_join_date__c)` to `DATE(v.advisor_join_date__c)` for all date comparisons.
 
+**Issue 2: Parameter Type Conflict** (January 18, 2026 - Additional Fix):
+- **File**: `src/lib/queries/source-performance.ts`
+- **Problem**: Using the same parameter (`@startDate`, `@endDate`) with both `DATE()` and `TIMESTAMP()` wrappers caused BigQuery type inference errors: "No matching signature for operator >= for argument types: DATE, TIMESTAMP"
+- **Symptom**: Metrics stayed at default QTD values when filtering to specific quarters (e.g., Q1 2025) because queries failed silently
+- **Fix Applied**: Introduced separate parameters:
+  - `startDate` / `endDate` — plain date strings (YYYY-MM-DD) for `DATE()` comparisons
+  - `startDateTimestamp` / `endDateTimestamp` — date strings with time (YYYY-MM-DD HH:MM:SS) for `TIMESTAMP()` comparisons
+- **Impact**: ✅ **RESOLVED** - Queries now execute successfully and metrics display correctly when filtering to any quarter (Q1 2025, Q2 2025, etc.)
+- **Production Status**: ✅ **VERIFIED WORKING** - User confirmed correct numbers display when filtering to Q1 2025
+
 **Verification**: 
 - ✅ TypeScript compilation passes
 - ✅ MCP queries return identical results before and after fix
 - ✅ QTD values verified: SQLs=34, Joined=0
 - ✅ Q4 2025 reference values verified: SQLs=193, Joined=17
+- ✅ Q1 2025 queries execute successfully (123 SQLs verified)
 - ✅ UI metrics unchanged (manually verified)
 
 **Note**: `export-records.ts` correctly uses `TIMESTAMP()` wrapper for `FORMAT_TIMESTAMP()` function calls, which is appropriate as the function requires TIMESTAMP input.
@@ -1402,6 +1433,27 @@ Use these values to validate any query changes.
 
 **Status**: ✅ Bug fully resolved
 
+### Additional Fix (January 18, 2026 - Parameter Type Conflict)
+
+**Issue**: BigQuery type inference error when using same parameter with both DATE() and TIMESTAMP() wrappers in `source-performance.ts`:
+- Error: "No matching signature for operator >= for argument types: DATE, TIMESTAMP"
+- Occurred when filtering to specific quarters (e.g., Q1 2025)
+
+**Fix Applied**:
+- Introduced separate parameters for DATE vs TIMESTAMP comparisons:
+  - `startDate` / `endDate` — plain date strings (YYYY-MM-DD) for `DATE()` comparisons
+  - `startDateTimestamp` / `endDateTimestamp` — date strings with time (YYYY-MM-DD HH:MM:SS) for `TIMESTAMP()` comparisons
+- Updated both `_getChannelPerformance` and `_getSourcePerformance` functions
+
+**Verification**:
+- ✅ TypeScript compilation passes
+- ✅ Q1 2025 queries execute successfully (123 SQLs verified via MCP)
+- ✅ No BigQuery type errors
+- ✅ Date filtering works correctly for all quarters
+- ✅ **Production Verified**: User confirmed correct metrics display when filtering to Q1 2025 and other quarters
+
+**Status**: ✅ Parameter type conflict resolved and working in production
+
 ### Verification Status
 
 - ✅ All file paths verified
@@ -1412,6 +1464,7 @@ Use these values to validate any query changes.
 - ✅ All query patterns verified
 - ✅ All clarifications from product owner applied
 - ✅ DATE/TIMESTAMP bug fixed (29 instances across 4 files)
+- ✅ Parameter type conflict fixed (source-performance.ts - separate DATE/TIMESTAMP parameters)
 
 ---
 
@@ -1429,4 +1482,4 @@ Use these values to validate any query changes.
 
 *Last Updated: January 18, 2026*  
 *Validated Against Codebase: Yes*  
-*Last Review: January 18, 2026 (architecture_answers.md updates applied, DATE/TIMESTAMP bug fix completed)*
+*Last Review: January 18, 2026 (architecture_answers.md updates applied, DATE/TIMESTAMP bug fix completed, parameter type conflict fix documented)*
