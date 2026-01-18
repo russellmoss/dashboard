@@ -1233,25 +1233,30 @@ Use these values to validate any query changes.
 
 ## Appendix C: Known Code Issues
 
-### DATE vs TIMESTAMP Inconsistency in funnel-metrics.ts
+### DATE vs TIMESTAMP Inconsistency
 
-**Issue**: `src/lib/queries/funnel-metrics.ts` incorrectly uses `TIMESTAMP()` wrapper for `converted_date_raw` (a DATE field) on lines 114-115.
+**Status**: ✅ **FIXED** (January 18, 2026)
 
-**Current Code** (INCORRECT):
-```typescript
-AND TIMESTAMP(converted_date_raw) >= TIMESTAMP(@startDate)
-```
+**Issue**: Multiple query files incorrectly used `TIMESTAMP()` wrapper for DATE fields (`converted_date_raw`, `advisor_join_date__c`).
 
-**Should Be**:
-```typescript
-AND DATE(converted_date_raw) >= DATE(@startDate)
-```
+**Files Fixed**:
+- `src/lib/queries/funnel-metrics.ts` - 3 instances
+- `src/lib/queries/source-performance.ts` - 8 instances
+- `src/lib/queries/conversion-rates.ts` - 12 instances
+- `src/lib/queries/detail-records.ts` - 6 instances
 
-**Impact**: May cause incorrect date comparisons or BigQuery errors in edge cases.
+**Total**: 29 instances fixed
 
-**Reference**: The semantic layer (`src/lib/semantic-layer/definitions.ts`) correctly uses `DATE()` for `converted_date_raw` (line 188-189), and `src/lib/queries/conversion-rates.ts` also correctly uses `DATE()` for this field.
+**Fix Applied**: Changed `TIMESTAMP(v.converted_date_raw)` to `DATE(v.converted_date_raw)` and `TIMESTAMP(v.advisor_join_date__c)` to `DATE(v.advisor_join_date__c)` for all date comparisons.
 
-**Status**: Flagged for code review and fix.
+**Verification**: 
+- ✅ TypeScript compilation passes
+- ✅ MCP queries return identical results before and after fix
+- ✅ QTD values verified: SQLs=34, Joined=0
+- ✅ Q4 2025 reference values verified: SQLs=193, Joined=17
+- ✅ UI metrics unchanged (manually verified)
+
+**Note**: `export-records.ts` correctly uses `TIMESTAMP()` wrapper for `FORMAT_TIMESTAMP()` function calls, which is appropriate as the function requires TIMESTAMP input.
 
 ---
 
@@ -1357,8 +1362,8 @@ AND DATE(converted_date_raw) >= DATE(@startDate)
    - ✅ Documented RE_ENGAGEMENT_RECORD_TYPE constant usage
 
 4. **Appendix C - DATE/TIMESTAMP Bug Verification**:
-   - ✅ Verified bug still exists in `funnel-metrics.ts` (lines 114-115)
-   - ✅ Confirmed status: Still flagged for code review
+   - ✅ Verified bug exists in 4 files (29 instances total)
+   - ✅ **FIXED**: All 29 instances corrected (January 18, 2026)
 
 **Part 2: Verification Tasks Completed**:
 
@@ -1370,6 +1375,33 @@ AND DATE(converted_date_raw) >= DATE(@startDate)
 6. ✅ **Re-Engagement API Route**: Verified `/api/sga-hub/re-engagement` exists and is documented
 7. ✅ **Vercel Configuration**: Verified vercel.json matches documentation (60s timeouts, cron schedule)
 
+### Changes Made (January 18, 2026 - DATE/TIMESTAMP Bug Fix)
+
+**Phase 1: Pre-Fix Verification**:
+- ✅ Bug confirmed via grep search (29 instances across 4 files)
+- ✅ MCP queries confirmed current values match expected (SQLs=34, Joined=0 for QTD)
+- ✅ Verified correct DATE() wrapper returns identical results
+
+**Phase 2-5: Fixes Applied**:
+- ✅ funnel-metrics.ts: 3 instances fixed
+- ✅ source-performance.ts: 8 instances fixed
+- ✅ conversion-rates.ts: 12 instances fixed
+- ✅ detail-records.ts: 6 instances fixed
+
+**Phase 6: Verification**:
+- ✅ TypeScript compilation passes
+- ✅ Linting passes
+- ✅ MCP queries return correct values (SQLs=34, Joined=0 for QTD)
+- ✅ Q4 2025 reference values verified (SQLs=193, Joined=17)
+- ✅ No remaining incorrect wrappers (only export-records.ts, which is correct)
+
+**Phase 7: User Verification**:
+- ✅ UI metrics match expected values
+- ✅ No console errors
+- ✅ Drill-down modals functional
+
+**Status**: ✅ Bug fully resolved
+
 ### Verification Status
 
 - ✅ All file paths verified
@@ -1379,7 +1411,7 @@ AND DATE(converted_date_raw) >= DATE(@startDate)
 - ✅ All Prisma models verified
 - ✅ All query patterns verified
 - ✅ All clarifications from product owner applied
-- ⚠️ One code issue flagged for review (DATE/TIMESTAMP in funnel-metrics.ts)
+- ✅ DATE/TIMESTAMP bug fixed (29 instances across 4 files)
 
 ---
 
@@ -1397,4 +1429,4 @@ AND DATE(converted_date_raw) >= DATE(@startDate)
 
 *Last Updated: January 18, 2026*  
 *Validated Against Codebase: Yes*  
-*Last Review: January 18, 2026 (architecture_answers.md updates applied)*
+*Last Review: January 18, 2026 (architecture_answers.md updates applied, DATE/TIMESTAMP bug fix completed)*

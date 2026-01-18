@@ -288,14 +288,14 @@ const _getConversionRates = async (
         -- SQL→SQO (cohort by converted_date_raw)
         SUM(CASE 
           WHEN v.converted_date_raw IS NOT NULL
-            AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
+            AND DATE(v.converted_date_raw) >= DATE(@startDate)
+            AND DATE(v.converted_date_raw) <= DATE(@endDate)
           THEN v.sql_to_sqo_progression ELSE 0 
         END) as sql_numer,
         SUM(CASE 
           WHEN v.converted_date_raw IS NOT NULL
-            AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
+            AND DATE(v.converted_date_raw) >= DATE(@startDate)
+            AND DATE(v.converted_date_raw) <= DATE(@endDate)
           THEN v.eligible_for_sql_conversions ELSE 0 
         END) as sql_denom,
         
@@ -673,7 +673,7 @@ function buildPeriodModeQuery(
     -- ═══════════════════════════════════════════════════════════════════════════
     mql_to_sql_numer AS (
       SELECT
-        ${periodFn('TIMESTAMP(v.converted_date_raw)')} as period,
+        ${periodFn('DATE(v.converted_date_raw)')} as period,
         COUNT(*) as mql_to_sql_numer,
         COUNT(*) as sqls
       FROM \`${FULL_TABLE}\` v
@@ -693,7 +693,7 @@ function buildPeriodModeQuery(
       SELECT
         ${periodFn('v.mql_stage_entered_ts')} as period,
         COUNTIF(
-          ${periodFn('v.mql_stage_entered_ts')} = ${periodFn('TIMESTAMP(v.converted_date_raw)')}
+          ${periodFn('v.mql_stage_entered_ts')} = ${periodFn('DATE(v.converted_date_raw)')}
           OR (
             v.lead_closed_date IS NOT NULL 
             AND ${periodFn('v.mql_stage_entered_ts')} = ${periodFn('v.lead_closed_date')}
@@ -714,14 +714,14 @@ function buildPeriodModeQuery(
     -- ═══════════════════════════════════════════════════════════════════════════
     sql_to_sqo_numer AS (
       SELECT
-        ${periodFn('TIMESTAMP(v.converted_date_raw)')} as period,
+        ${periodFn('DATE(v.converted_date_raw)')} as period,
         COUNTIF(
           LOWER(v.SQO_raw) = 'yes'
           AND v.Date_Became_SQO__c IS NOT NULL
           AND v.is_sqo_unique = 1
           AND v.recordtypeid = @recruitingRecordType
           -- Ensure SQO date is in same period as SQL date
-          AND ${periodFn('TIMESTAMP(v.converted_date_raw)')} = ${periodFn('v.Date_Became_SQO__c')}
+          AND ${periodFn('DATE(v.converted_date_raw)')} = ${periodFn('v.Date_Became_SQO__c')}
         ) as sql_to_sqo_numer
         -- ✅ REMOVED: sqos field - now using separate sqo_volume CTE
       FROM \`${FULL_TABLE}\` v
@@ -739,19 +739,19 @@ function buildPeriodModeQuery(
     -- ═══════════════════════════════════════════════════════════════════════════
     sql_to_sqo_denom AS (
       SELECT
-        ${periodFn('TIMESTAMP(v.converted_date_raw)')} as period,
+        ${periodFn('DATE(v.converted_date_raw)')} as period,
         COUNTIF(
           v.recordtypeid = @recruitingRecordType
           AND (
             -- Resolved by becoming SQO in same period
             (LOWER(v.SQO_raw) = 'yes' 
              AND v.Date_Became_SQO__c IS NOT NULL
-             AND ${periodFn('TIMESTAMP(v.converted_date_raw)')} = ${periodFn('v.Date_Became_SQO__c')})
+             AND ${periodFn('DATE(v.converted_date_raw)')} = ${periodFn('v.Date_Became_SQO__c')})
             OR
             -- Resolved by being closed lost in same period
             (v.StageName = 'Closed Lost' 
              AND v.Stage_Entered_Closed__c IS NOT NULL
-             AND ${periodFn('TIMESTAMP(v.converted_date_raw)')} = ${periodFn('v.Stage_Entered_Closed__c')})
+             AND ${periodFn('DATE(v.converted_date_raw)')} = ${periodFn('v.Stage_Entered_Closed__c')})
           )
         ) as sql_to_sqo_denom
       FROM \`${FULL_TABLE}\` v
@@ -775,7 +775,7 @@ function buildPeriodModeQuery(
           AND v.is_joined_unique = 1
           AND v.recordtypeid = @recruitingRecordType
           -- Ensure Joined date is in same period as SQO date
-          AND ${periodFn('v.Date_Became_SQO__c')} = ${periodFn('TIMESTAMP(v.advisor_join_date__c)')}
+          AND ${periodFn('v.Date_Became_SQO__c')} = ${periodFn('DATE(v.advisor_join_date__c)')}
         ) as sqo_to_joined_numer
         -- ✅ REMOVED: joined field - now using separate joined_volume CTE
       FROM \`${FULL_TABLE}\` v
@@ -802,7 +802,7 @@ function buildPeriodModeQuery(
           AND (
             -- Resolved by joining in same period
             (v.advisor_join_date__c IS NOT NULL 
-             AND ${periodFn('v.Date_Became_SQO__c')} = ${periodFn('TIMESTAMP(v.advisor_join_date__c)')})
+             AND ${periodFn('v.Date_Became_SQO__c')} = ${periodFn('DATE(v.advisor_join_date__c)')})
             OR
             -- Resolved by being closed lost in same period
             (v.StageName = 'Closed Lost' 
@@ -955,8 +955,8 @@ function buildCohortModeQuery(
       FROM \`${FULL_TABLE}\` v
       LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.converted_date_raw IS NOT NULL
-        AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@trendStartDate)
-        AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@trendEndDate)
+        AND DATE(v.converted_date_raw) >= DATE(@trendStartDate)
+        AND DATE(v.converted_date_raw) <= DATE(@trendEndDate)
         ${filterWhereClause}
       GROUP BY period
     ),

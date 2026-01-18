@@ -111,8 +111,8 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
       SUM(
         CASE 
           WHEN converted_date_raw IS NOT NULL
-            AND TIMESTAMP(converted_date_raw) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(converted_date_raw) <= TIMESTAMP(@endDate)
+            AND DATE(converted_date_raw) >= DATE(@startDate) 
+            AND DATE(converted_date_raw) <= DATE(@endDate)
             AND is_sql = 1
             ${sgaFilterForLead}
           THEN 1 
@@ -134,8 +134,8 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
       SUM(
         CASE 
           WHEN advisor_join_date__c IS NOT NULL
-            AND TIMESTAMP(advisor_join_date__c) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(advisor_join_date__c) <= TIMESTAMP(@endDate)
+            AND DATE(advisor_join_date__c) >= DATE(@startDate) 
+            AND DATE(advisor_join_date__c) <= DATE(@endDate)
             AND is_joined_unique = 1
             ${sgaFilterForOpp}
           THEN 1 
@@ -147,8 +147,8 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
       SUM(
         CASE 
           WHEN advisor_join_date__c IS NOT NULL
-            AND TIMESTAMP(advisor_join_date__c) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(advisor_join_date__c) <= TIMESTAMP(@endDate)
+            AND DATE(advisor_join_date__c) >= DATE(@startDate) 
+            AND DATE(advisor_join_date__c) <= DATE(@endDate)
             AND is_joined_unique = 1
             ${sgaFilterForOpp}
           THEN Opportunity_AUM 

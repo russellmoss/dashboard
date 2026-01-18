@@ -98,8 +98,8 @@ const _getDetailRecords = async (
       dateFieldAlias = 'relevant_date';
       conditions.push('is_sql = 1');
       conditions.push('converted_date_raw IS NOT NULL');
-      conditions.push('TIMESTAMP(converted_date_raw) >= TIMESTAMP(@startDate)');
-      conditions.push('TIMESTAMP(converted_date_raw) <= TIMESTAMP(@endDate)');
+      conditions.push('DATE(converted_date_raw) >= DATE(@startDate)');
+      conditions.push('DATE(converted_date_raw) <= DATE(@endDate)');
       break;
     case 'sqo':
       // SQOs: Filter by Date_Became_SQO__c within date range AND recruiting record type
@@ -118,8 +118,8 @@ const _getDetailRecords = async (
       dateFieldAlias = 'relevant_date';
       conditions.push('is_joined_unique = 1');
       conditions.push('advisor_join_date__c IS NOT NULL');
-      conditions.push('TIMESTAMP(advisor_join_date__c) >= TIMESTAMP(@startDate)');
-      conditions.push('TIMESTAMP(advisor_join_date__c) <= TIMESTAMP(@endDate)');
+      conditions.push('DATE(advisor_join_date__c) >= DATE(@startDate)');
+      conditions.push('DATE(advisor_join_date__c) <= DATE(@endDate)');
       break;
     case 'openPipeline':
       // Open Pipeline: No date filter (current state), but filter by stages
@@ -163,8 +163,8 @@ const _getDetailRecords = async (
         dateFieldAlias = 'relevant_date';
         conditions.push('is_sql = 1');
         conditions.push('converted_date_raw IS NOT NULL');
-        conditions.push('TIMESTAMP(converted_date_raw) >= TIMESTAMP(@startDate)');
-        conditions.push('TIMESTAMP(converted_date_raw) <= TIMESTAMP(@endDate)');
+        conditions.push('DATE(converted_date_raw) >= DATE(@startDate)');
+        conditions.push('DATE(converted_date_raw) <= DATE(@endDate)');
       }
   }
   

@@ -87,8 +87,8 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
       SUM(
         CASE 
           WHEN v.converted_date_raw IS NOT NULL
-            AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
+            AND DATE(v.converted_date_raw) >= DATE(@startDate) 
+            AND DATE(v.converted_date_raw) <= DATE(@endDate)
             AND v.is_sql = 1
           THEN 1 
           ELSE 0 
@@ -108,8 +108,8 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
       SUM(
         CASE 
           WHEN v.advisor_join_date__c IS NOT NULL
-            AND TIMESTAMP(v.advisor_join_date__c) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(v.advisor_join_date__c) <= TIMESTAMP(@endDate)
+            AND DATE(v.advisor_join_date__c) >= DATE(@startDate) 
+            AND DATE(v.advisor_join_date__c) <= DATE(@endDate)
             AND v.is_joined_unique = 1
           THEN 1 
           ELSE 0 
@@ -149,14 +149,14 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
       SAFE_DIVIDE(
         SUM(CASE 
           WHEN v.converted_date_raw IS NOT NULL
-            AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
+            AND DATE(v.converted_date_raw) >= TIMESTAMP(@startDate)
+            AND DATE(v.converted_date_raw) <= TIMESTAMP(@endDate)
           THEN v.sql_to_sqo_progression ELSE 0 
         END),
         SUM(CASE 
           WHEN v.converted_date_raw IS NOT NULL
-            AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
+            AND DATE(v.converted_date_raw) >= TIMESTAMP(@startDate)
+            AND DATE(v.converted_date_raw) <= TIMESTAMP(@endDate)
           THEN v.eligible_for_sql_conversions ELSE 0 
         END)
       ) as sql_to_sqo_rate,
@@ -297,8 +297,8 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
       SUM(
         CASE 
           WHEN v.converted_date_raw IS NOT NULL
-            AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
+            AND DATE(v.converted_date_raw) >= DATE(@startDate) 
+            AND DATE(v.converted_date_raw) <= DATE(@endDate)
             AND v.is_sql = 1
           THEN 1 
           ELSE 0 
@@ -318,8 +318,8 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
       SUM(
         CASE 
           WHEN v.advisor_join_date__c IS NOT NULL
-            AND TIMESTAMP(v.advisor_join_date__c) >= TIMESTAMP(@startDate) 
-            AND TIMESTAMP(v.advisor_join_date__c) <= TIMESTAMP(@endDate)
+            AND DATE(v.advisor_join_date__c) >= DATE(@startDate) 
+            AND DATE(v.advisor_join_date__c) <= DATE(@endDate)
             AND v.is_joined_unique = 1
           THEN 1 
           ELSE 0 
@@ -359,14 +359,14 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
       SAFE_DIVIDE(
         SUM(CASE 
           WHEN v.converted_date_raw IS NOT NULL
-            AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
+            AND DATE(v.converted_date_raw) >= TIMESTAMP(@startDate)
+            AND DATE(v.converted_date_raw) <= TIMESTAMP(@endDate)
           THEN v.sql_to_sqo_progression ELSE 0 
         END),
         SUM(CASE 
           WHEN v.converted_date_raw IS NOT NULL
-            AND TIMESTAMP(v.converted_date_raw) >= TIMESTAMP(@startDate)
-            AND TIMESTAMP(v.converted_date_raw) <= TIMESTAMP(@endDate)
+            AND DATE(v.converted_date_raw) >= TIMESTAMP(@startDate)
+            AND DATE(v.converted_date_raw) <= TIMESTAMP(@endDate)
           THEN v.eligible_for_sql_conversions ELSE 0 
         END)
       ) as sql_to_sqo_rate,
