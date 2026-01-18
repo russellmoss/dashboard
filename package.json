@@ -19,6 +19,7 @@
     "@google-cloud/bigquery": "^7.9.4",
     "@prisma/client": "6.19.0",
     "@tremor/react": "^3.18.7",
+    "@vercel/analytics": "^1.6.1",
     "@vercel/postgres": "^0.10.0",
     "bcryptjs": "^3.0.3",
     "date-fns": "^3.6.0",
