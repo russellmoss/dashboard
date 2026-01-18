@@ -14,6 +14,7 @@ interface VolumeDrillDownModalProps {
   error: string | null;
   onRecordClick: (recordId: string) => void;
   metricFilter?: 'sql' | 'sqo' | 'joined';
+  canExport?: boolean;
 }
 
 export function VolumeDrillDownModal({
@@ -25,6 +26,7 @@ export function VolumeDrillDownModal({
   error,
   onRecordClick,
   metricFilter,
+  canExport = false,
 }: VolumeDrillDownModalProps) {
   // Handle ESC key
   useEffect(() => {
@@ -99,7 +101,7 @@ export function VolumeDrillDownModal({
               records={records}
               title=""
               filterDescription={title}
-              canExport={false}
+              canExport={canExport}
               onRecordClick={onRecordClick}
               metricFilter={metricFilter}
             />

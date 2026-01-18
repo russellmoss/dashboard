@@ -473,6 +473,7 @@ export default function DashboardPage() {
           error={volumeDrillDownError}
           onRecordClick={handleVolumeDrillDownRecordClick}
           metricFilter={volumeDrillDownMetric}
+          canExport={permissions?.canExport ?? false}
         />
       )}
 
