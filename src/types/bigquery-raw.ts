@@ -67,15 +67,21 @@ export interface RawDetailRecordResult {
   sgm: string | null;
   aum: number | null;
   salesforce_url: string | null;
-  filter_date?: { value: string } | null; // Legacy field name
-  relevant_date?: string | { value: string } | null; // The relevant date field (Date_Became_SQO__c, converted_date_raw, etc.)
-  initial_call_scheduled_date?: string | { value: string } | null; // Initial_Call_Scheduled_Date__c (DATE field)
-  qualification_call_date?: string | { value: string } | null; // Qualification_Call_Date__c (DATE field)
+  filter_date?: string | { value: string } | null;
+  contacted_date?: string | { value: string } | null; // stage_entered_contacting__c (TIMESTAMP)
+  mql_date?: string | { value: string } | null; // mql_stage_entered_ts (TIMESTAMP)
+  sql_date?: string | { value: string } | null; // converted_date_raw (DATE)
+  sqo_date?: string | { value: string } | null; // Date_Became_SQO__c (TIMESTAMP)
+  joined_date?: string | { value: string } | null; // advisor_join_date__c (DATE)
+  relevant_date?: string | { value: string } | null; // Legacy - keep for backward compatibility
+  initial_call_scheduled_date?: string | { value: string } | null;
+  qualification_call_date?: string | { value: string } | null;
   is_contacted: number;
   is_mql: number;
   is_sql: number;
   is_sqo: number;
   is_joined: number;
+  recordtypeid?: string | null;
 }
 
 // Forecast Goals Raw Results

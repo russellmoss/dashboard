@@ -897,6 +897,11 @@ export function ExploreResults({ response, isLoading, error, streamingMessage, c
             aumFormatted: aum ? formatCurrency(aum) : '-',
             salesforceUrl,
             relevantDate,
+            contactedDate: row.contacted_date as string || row.stage_entered_contacting__c as string || null,
+            mqlDate: row.mql_date as string || row.mql_stage_entered_ts as string || null,
+            sqlDate: row.sql_date as string || row.converted_date_raw as string || null,
+            sqoDate: row.sqo_date as string || row.Date_Became_SQO__c as string || null,
+            joinedDate: row.joined_date as string || row.advisor_join_date__c as string || null,
             initialCallScheduledDate: row.initial_call_scheduled_date as string || row.Initial_Call_Scheduled_Date__c as string || null,
             qualificationCallDate: row.qualification_call_date as string || row.Qualification_Call_Date__c as string || null,
             isContacted,
@@ -905,6 +910,7 @@ export function ExploreResults({ response, isLoading, error, streamingMessage, c
             isSqo,
             isJoined,
             isOpenPipeline,
+            recordTypeId: row.recordtypeid as string || null,
           };
         });
 

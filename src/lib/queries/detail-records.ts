@@ -66,13 +66,22 @@ const _getDetailRecords = async (
   
   switch (filters.metricFilter) {
     case 'prospect':
-      // Prospects: Filter by FilterDate within date range (all records)
+      // Prospects: Include ALL records where ANY stage date is within the date range
+      // This allows client-side filtering to show all SQOs/SQLs/MQLs that entered those stages in the period,
+      // not just records that became prospects in the period
+      // NOTE: Do NOT filter by recordtypeid here - match scorecard behavior (MQLs/SQLs/Contacted count all record types)
+      // SQOs will be filtered by recordtypeid in the client-side filter to match scorecard behavior
       dateField = 'FilterDate';
       dateFieldAlias = 'relevant_date';
-      conditions.push('FilterDate IS NOT NULL');
-      conditions.push('TIMESTAMP(FilterDate) >= TIMESTAMP(@startDate)');
-      conditions.push('TIMESTAMP(FilterDate) <= TIMESTAMP(@endDate)');
-      // No additional filters needed
+      // Include records where any stage date is in range
+      conditions.push(`(
+        (FilterDate IS NOT NULL AND TIMESTAMP(FilterDate) >= TIMESTAMP(@startDate) AND TIMESTAMP(FilterDate) <= TIMESTAMP(@endDate))
+        OR (Date_Became_SQO__c IS NOT NULL AND TIMESTAMP(Date_Became_SQO__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(Date_Became_SQO__c) <= TIMESTAMP(@endDate))
+        OR (converted_date_raw IS NOT NULL AND DATE(converted_date_raw) >= DATE(@startDate) AND DATE(converted_date_raw) <= DATE(@endDate))
+        OR (mql_stage_entered_ts IS NOT NULL AND TIMESTAMP(mql_stage_entered_ts) >= TIMESTAMP(@startDate) AND TIMESTAMP(mql_stage_entered_ts) <= TIMESTAMP(@endDate))
+        OR (stage_entered_contacting__c IS NOT NULL AND TIMESTAMP(stage_entered_contacting__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(stage_entered_contacting__c) <= TIMESTAMP(@endDate))
+        OR (advisor_join_date__c IS NOT NULL AND DATE(advisor_join_date__c) >= DATE(@startDate) AND DATE(advisor_join_date__c) <= DATE(@endDate))
+      )`);
       break;
     case 'contacted':
       // Contacted: Filter by stage_entered_contacting__c within date range AND is_contacted = 1
@@ -181,14 +190,20 @@ const _getDetailRecords = async (
       v.SGM_Owner_Name__c as sgm,
       v.Opportunity_AUM as aum,
       v.salesforce_url,
-      ${dateField} as relevant_date,
+      v.FilterDate as filter_date,
+      v.stage_entered_contacting__c as contacted_date,
+      v.mql_stage_entered_ts as mql_date,
+      v.converted_date_raw as sql_date,
+      v.Date_Became_SQO__c as sqo_date,
+      v.advisor_join_date__c as joined_date,
       v.Initial_Call_Scheduled_Date__c as initial_call_scheduled_date,
       v.Qualification_Call_Date__c as qualification_call_date,
       v.is_contacted,
       v.is_mql,
       v.is_sql,
       v.is_sqo_unique as is_sqo,
-      v.is_joined_unique as is_joined
+      v.is_joined_unique as is_joined,
+      v.recordtypeid
     FROM \`${FULL_TABLE}\` v
     LEFT JOIN \`${MAPPING_TABLE}\` nm
       ON v.Original_source = nm.original_source
@@ -200,16 +215,24 @@ const _getDetailRecords = async (
   const results = await runQuery<RawDetailRecordResult>(query, params);
   
   return results.map(r => {
-    // Extract date value - handle both DATE and TIMESTAMP types, and both field names
-    let dateValue = '';
-    const dateField = r.relevant_date || r.filter_date;
-    if (dateField) {
-      if (typeof dateField === 'object' && dateField.value) {
-        dateValue = dateField.value;
-      } else if (typeof dateField === 'string') {
-        dateValue = dateField;
-      }
-    }
+    // Helper function to extract date values (handles both DATE and TIMESTAMP types)
+    // BigQuery returns DATE fields as strings, TIMESTAMP fields as objects with .value
+    const extractDate = (field: any): string | null => {
+      if (!field) return null;
+      if (typeof field === 'string') return field;
+      if (typeof field === 'object' && field.value) return field.value;
+      return null;
+    };
+    
+    // Extract all date fields
+    // Note: FilterDate, stage_entered_contacting__c, mql_stage_entered_ts, Date_Became_SQO__c are TIMESTAMP
+    // converted_date_raw and advisor_join_date__c are DATE
+    const filterDate = extractDate(r.filter_date) || '';
+    const contactedDate = extractDate(r.contacted_date);
+    const mqlDate = extractDate(r.mql_date);
+    const sqlDate = extractDate(r.sql_date); // DATE field
+    const sqoDate = extractDate(r.sqo_date);
+    const joinedDate = extractDate(r.joined_date); // DATE field
     
     // Extract Initial Call Scheduled Date (DATE field - direct string)
     let initialCallDate: string | null = null;
@@ -242,7 +265,12 @@ const _getDetailRecords = async (
       aum: toNumber(r.aum),
       aumFormatted: formatCurrency(r.aum),
       salesforceUrl: toString(r.salesforce_url) || '',
-      relevantDate: dateValue,
+      relevantDate: filterDate, // FilterDate as fallback
+      contactedDate: contactedDate,
+      mqlDate: mqlDate,
+      sqlDate: sqlDate,
+      sqoDate: sqoDate,
+      joinedDate: joinedDate,
       initialCallScheduledDate: initialCallDate,
       qualificationCallDate: qualCallDate,
       isContacted: r.is_contacted === 1,
@@ -251,6 +279,7 @@ const _getDetailRecords = async (
       isSqo: r.is_sqo === 1,
       isJoined: r.is_joined === 1,
       isOpenPipeline: OPEN_PIPELINE_STAGES.includes(toString(r.stage)),
+      recordTypeId: r.recordtypeid ? toString(r.recordtypeid) : null,
     };
   });
 };

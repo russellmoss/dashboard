@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Badge, Button, TextInput } from '@tremor/react';
 import { DetailRecord, ViewMode } from '@/types/dashboard';
 import { AdvancedFilters } from '@/types/filters';
@@ -22,6 +22,10 @@ interface DetailRecordsTableProps {
   advancedFilters?: AdvancedFilters; // To determine which date columns to show
   metricFilter?: 'all' | 'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'joined' | 'openPipeline'; // To determine what date is shown
   onRecordClick?: (recordId: string) => void;
+  // New props for stage filter dropdown
+  stageFilter?: string;
+  onStageFilterChange?: (stage: string) => void;
+  availableOpportunityStages?: string[];
 }
 
 /**
@@ -114,6 +118,8 @@ function sortRecords(records: DetailRecord[], sortColumn: SortColumn, sortDirect
         comparison = (a.stage || '').toLowerCase().localeCompare((b.stage || '').toLowerCase());
         break;
       case 'date':
+        // Note: This standalone function uses relevantDate for backward compatibility
+        // The actual sorting in the component uses getDisplayDate via inline logic
         const aDate = a.relevantDate ? new Date(a.relevantDate).getTime() : 0;
         const bDate = b.relevantDate ? new Date(b.relevantDate).getTime() : 0;
         comparison = aDate - bDate;
@@ -139,7 +145,7 @@ function sortRecords(records: DetailRecord[], sortColumn: SortColumn, sortDirect
   });
 }
 
-export function DetailRecordsTable({ records, title = 'Detail Records', filterDescription, canExport = false, viewMode = 'focused', advancedFilters, metricFilter = 'all', onRecordClick }: DetailRecordsTableProps) {
+export function DetailRecordsTable({ records, title = 'Detail Records', filterDescription, canExport = false, viewMode = 'focused', advancedFilters, metricFilter = 'all', onRecordClick, stageFilter = 'sqo', onStageFilterChange, availableOpportunityStages = [] }: DetailRecordsTableProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchField, setSearchField] = useState<SearchField>('advisor');
   const [currentPage, setCurrentPage] = useState(1);
@@ -151,6 +157,34 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
   const showInitialCallColumn = advancedFilters?.initialCallScheduled?.enabled ?? false;
   const showQualCallColumn = advancedFilters?.qualificationCallDate?.enabled ?? false;
   
+  // Helper function to get the display date based on stage filter
+  const getDisplayDate = useCallback((record: DetailRecord): string => {
+    // Check advanced filters first (they take precedence)
+    if (advancedFilters?.initialCallScheduled?.enabled) {
+      return record.initialCallScheduledDate || record.relevantDate || '';
+    }
+    if (advancedFilters?.qualificationCallDate?.enabled) {
+      return record.qualificationCallDate || record.relevantDate || '';
+    }
+    
+    // Then check stage filter
+    switch (stageFilter) {
+      case 'contacted':
+        return record.contactedDate || record.relevantDate || '';
+      case 'mql':
+        return record.mqlDate || record.relevantDate || '';
+      case 'sql':
+        return record.sqlDate || record.relevantDate || '';
+      case 'sqo':
+        return record.sqoDate || record.relevantDate || '';
+      case 'joined':
+        return record.joinedDate || record.relevantDate || '';
+      case 'prospect':
+      default:
+        return record.relevantDate || ''; // FilterDate
+    }
+  }, [advancedFilters, stageFilter]);
+  
   // Determine what date description to show in tooltip
   const getDateColumnDescription = (): string => {
     // Check advanced filters first
@@ -161,8 +195,8 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
       return 'Shows the Opportunity Created Date for each record. This is the date when the opportunity was created, filtered by Qualification Call Date.';
     }
     
-    // Then check metric filter
-    switch (metricFilter) {
+    // Then check stage filter (not metricFilter)
+    switch (stageFilter) {
       case 'prospect':
         return 'Shows the Filter Date (cohort date) for each prospect. This is the date when they became a prospect in the system.';
       case 'contacted':
@@ -178,7 +212,8 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
       case 'openPipeline':
         return 'Shows the Filter Date for open pipeline records. These are current opportunities in active stages.';
       default:
-        return 'Shows the SQL conversion date (when they converted from MQL to SQL). When advanced filters are active, this may show different dates.';
+        // Opportunity stages - show FilterDate
+        return 'Shows the Filter Date (cohort date) for each record.';
     }
   };
   
@@ -243,8 +278,49 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
 
   // Sort filtered records
   const sortedRecords = useMemo(() => {
-    return sortRecords(filteredRecords, sortColumn, sortDirection);
-  }, [filteredRecords, sortColumn, sortDirection]);
+    if (!sortColumn) return filteredRecords;
+    
+    return [...filteredRecords].sort((a, b) => {
+      let comparison = 0;
+      
+      switch (sortColumn) {
+        case 'advisor':
+          const aFirstName = getFirstName(a.advisorName).toLowerCase();
+          const bFirstName = getFirstName(b.advisorName).toLowerCase();
+          comparison = aFirstName.localeCompare(bFirstName);
+          break;
+        case 'source':
+          comparison = (a.source || '').toLowerCase().localeCompare((b.source || '').toLowerCase());
+          break;
+        case 'channel':
+          comparison = (a.channel || '').toLowerCase().localeCompare((b.channel || '').toLowerCase());
+          break;
+        case 'stage':
+          comparison = (a.stage || '').toLowerCase().localeCompare((b.stage || '').toLowerCase());
+          break;
+        case 'date':
+          const aDate = getDisplayDate(a) ? new Date(getDisplayDate(a)).getTime() : 0;
+          const bDate = getDisplayDate(b) ? new Date(getDisplayDate(b)).getTime() : 0;
+          comparison = aDate - bDate;
+          break;
+        case 'sga':
+          const aSga = (a.sga || '').toLowerCase();
+          const bSga = (b.sga || '').toLowerCase();
+          comparison = getFirstName(aSga).localeCompare(getFirstName(bSga));
+          break;
+        case 'sgm':
+          const aSgm = (a.sgm || '').toLowerCase();
+          const bSgm = (b.sgm || '').toLowerCase();
+          comparison = getFirstName(aSgm).localeCompare(getFirstName(bSgm));
+          break;
+        case 'aum':
+          comparison = (a.aum || 0) - (b.aum || 0);
+          break;
+      }
+      
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+  }, [filteredRecords, sortColumn, sortDirection, getDisplayDate]);
 
   // Pagination logic
   const totalPages = Math.ceil(sortedRecords.length / recordsPerPage);
@@ -314,7 +390,40 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
         {canExport && <ExportButton data={sortedRecords} filename="detail-records" />}
       </div>
       
-      {/* Search Input */}
+      {/* Stage Filter Dropdown - Add BEFORE the search section */}
+      <div className="mb-4">
+        <div className="flex items-center gap-2">
+          <label 
+            htmlFor="stage-filter" 
+            className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap"
+          >
+            Stage:
+          </label>
+          <select
+            id="stage-filter"
+            value={stageFilter}
+            onChange={(e) => onStageFilterChange?.(e.target.value)}
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[160px]"
+          >
+            <optgroup label="Funnel Stages">
+              <option value="prospect">Prospects</option>
+              <option value="contacted">Contacted</option>
+              <option value="mql">MQL</option>
+              <option value="sql">SQL</option>
+              <option value="sqo">SQO</option>
+            </optgroup>
+            {availableOpportunityStages.length > 0 && (
+              <optgroup label="Opportunity Stages">
+                {availableOpportunityStages.map(stage => (
+                  <option key={stage} value={stage}>{stage}</option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </div>
+      </div>
+
+      {/* Search Input - Keep existing structure, no changes needed */}
       <div className="mb-4">
         {/* Search Field Selector */}
         <div className="flex items-center gap-2 mb-2">
@@ -434,7 +543,7 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
                     </div>
                   </TableCell>
                   <TableCell className="text-sm border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
-                    {formatDate(record.relevantDate) || '-'}
+                    {getDisplayDate(record) ? formatDate(getDisplayDate(record)) : '-'}
                   </TableCell>
                   {showInitialCallColumn && (
                     <TableCell className="text-sm border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">

@@ -66,7 +66,6 @@ export function FullFunnelScorecards({
   if (!metrics) return null;
   
   const goals = metrics.goals;
-  const isSelected = (id: string) => selectedMetric === id;
   
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -74,11 +73,7 @@ export function FullFunnelScorecards({
       <Card 
         className={`p-4 dark:bg-gray-800 dark:border-gray-700 ${
           onMetricClick 
-            ? `cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                isSelected('prospect') 
-                  ? 'ring-2 ring-blue-500 dark:ring-blue-400 bg-blue-50 dark:bg-blue-900/30' 
-                  : ''
-              }` 
+            ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md' 
             : ''
         }`}
         onClick={() => onMetricClick?.('prospect')}
@@ -102,11 +97,7 @@ export function FullFunnelScorecards({
       <Card 
         className={`p-4 dark:bg-gray-800 dark:border-gray-700 ${
           onMetricClick 
-            ? `cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                isSelected('contacted') 
-                  ? 'ring-2 ring-blue-500 dark:ring-blue-400 bg-blue-50 dark:bg-blue-900/30' 
-                  : ''
-              }` 
+            ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md' 
             : ''
         }`}
         onClick={() => onMetricClick?.('contacted')}
@@ -128,11 +119,7 @@ export function FullFunnelScorecards({
       <Card 
         className={`p-4 dark:bg-gray-800 dark:border-gray-700 ${
           onMetricClick 
-            ? `cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                isSelected('mql') 
-                  ? 'ring-2 ring-blue-500 dark:ring-blue-400 bg-blue-50 dark:bg-blue-900/30' 
-                  : ''
-              }` 
+            ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md' 
             : ''
         }`}
         onClick={() => onMetricClick?.('mql')}

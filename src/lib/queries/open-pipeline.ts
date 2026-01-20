@@ -60,7 +60,8 @@ const _getOpenPipelineRecords = async (
       v.Initial_Call_Scheduled_Date__c as initial_call_scheduled_date,
       v.Qualification_Call_Date__c as qualification_call_date,
       v.is_contacted,
-      v.is_mql
+      v.is_mql,
+      v.recordtypeid
     FROM \`${FULL_TABLE}\` v
     LEFT JOIN \`${MAPPING_TABLE}\` nm
       ON v.Original_source = nm.original_source
@@ -71,16 +72,21 @@ const _getOpenPipelineRecords = async (
   const results = await runQuery<RawDetailRecordResult>(query, params);
   
   return results.map(r => {
-    // Extract date value - handle both DATE and TIMESTAMP types
-    let dateValue = '';
-    const dateField = r.relevant_date || r.filter_date;
-    if (dateField) {
-      if (typeof dateField === 'object' && dateField.value) {
-        dateValue = dateField.value;
-      } else if (typeof dateField === 'string') {
-        dateValue = dateField;
-      }
-    }
+    // Helper function to extract date values (handles both DATE and TIMESTAMP types)
+    const extractDate = (field: any): string | null => {
+      if (!field) return null;
+      if (typeof field === 'string') return field;
+      if (typeof field === 'object' && field.value) return field.value;
+      return null;
+    };
+    
+    // Extract all date fields
+    const filterDate = extractDate(r.filter_date) || '';
+    const contactedDate = extractDate(r.contacted_date);
+    const mqlDate = extractDate(r.mql_date);
+    const sqlDate = extractDate(r.sql_date);
+    const sqoDate = extractDate(r.sqo_date);
+    const joinedDate = extractDate(r.joined_date);
     
     // Extract Initial Call Scheduled Date (DATE field - direct string)
     let initialCallDate: string | null = null;
@@ -113,7 +119,12 @@ const _getOpenPipelineRecords = async (
       aum: toNumber(r.aum),
       aumFormatted: formatCurrency(r.aum),
       salesforceUrl: toString(r.salesforce_url) || '',
-      relevantDate: dateValue,
+      relevantDate: filterDate,
+      contactedDate: contactedDate,
+      mqlDate: mqlDate,
+      sqlDate: sqlDate,
+      sqoDate: sqoDate,
+      joinedDate: joinedDate,
       initialCallScheduledDate: initialCallDate,
       qualificationCallDate: qualCallDate,
       isContacted: r.is_contacted === 1,
@@ -122,6 +133,7 @@ const _getOpenPipelineRecords = async (
       isSqo: true,
       isJoined: false,
       isOpenPipeline: OPEN_PIPELINE_STAGES.includes(toString(r.stage)),
+      recordTypeId: r.recordtypeid ? toString(r.recordtypeid) : null,
     };
   });
 };

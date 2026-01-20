@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { Title, Text } from '@tremor/react';
 import { GlobalFilters } from '@/components/dashboard/GlobalFilters';
@@ -36,6 +36,7 @@ import { FullFunnelScorecards } from '@/components/dashboard/FullFunnelScorecard
 import { buildDateRangeFromFilters, parsePeriodToDateRange } from '@/lib/utils/date-helpers';
 import { getSessionPermissions } from '@/types/auth';
 import { VolumeDrillDownModal } from '@/components/dashboard/VolumeDrillDownModal';
+import { RECRUITING_RECORD_TYPE } from '@/config/constants';
 
 export const dynamic = 'force-dynamic';
 
@@ -102,7 +103,12 @@ export default function DashboardPage() {
   const [volumeDrillDownLoading, setVolumeDrillDownLoading] = useState(false);
   const [volumeDrillDownError, setVolumeDrillDownError] = useState<string | null>(null);
   const [volumeDrillDownTitle, setVolumeDrillDownTitle] = useState('');
-  const [volumeDrillDownMetric, setVolumeDrillDownMetric] = useState<'sql' | 'sqo' | 'joined' | null>(null);
+  const [volumeDrillDownMetric, setVolumeDrillDownMetric] = useState<
+    'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'joined' | 'openPipeline' | null
+  >(null);
+  
+  // Stage filter for DetailRecordsTable (defaults to SQO - middle funnel focus)
+  const [stageFilter, setStageFilter] = useState<string>('sqo');
   
   // Fetch filter options on mount
   useEffect(() => {
@@ -119,6 +125,97 @@ export default function DashboardPage() {
     fetchFilterOptions();
   }, []);
   
+  // Always show all predefined opportunity stages, even if no records match
+  // Order: Qualifying, Discovery, Sales Process, Negotiating, Signed, Joined, On Hold, Planned Nurture, Re-Engaged
+  const availableOpportunityStages = useMemo(() => {
+    // Define all possible opportunity stages in preferred order
+    // These should always appear in the dropdown, even if no records match
+    // Based on user requirements and semantic layer definitions
+    const preferredOrder = [
+      'Qualifying',
+      'Discovery',
+      'Sales Process',
+      'Negotiating',
+      'Signed',
+      'Joined',
+      'On Hold',
+      'Planned Nurture',
+      'Re-Engaged'
+    ];
+    
+    // Also collect any additional stages found in the data that aren't in the predefined list
+    const additionalStages = new Set<string>();
+    const funnelStages = ['Prospect', 'Contacted', 'MQL', 'SQL', 'SQO'];
+    
+    if (detailRecords && detailRecords.length > 0) {
+      detailRecords.forEach(record => {
+        if (record.stage && !funnelStages.includes(record.stage) && !preferredOrder.includes(record.stage)) {
+          additionalStages.add(record.stage);
+        }
+      });
+    }
+    
+    // Sort additional stages alphabetically
+    const sortedAdditional = Array.from(additionalStages).sort();
+    
+    // Return all predefined stages first, then any additional stages found in data
+    return [...preferredOrder, ...sortedAdditional];
+  }, [detailRecords]);
+  
+  // Filter detail records based on stage filter selection
+  // When a stage is selected, filter by both the boolean flag AND the stage-specific date within the date range
+  const filteredDetailRecords = useMemo(() => {
+    if (!detailRecords || detailRecords.length === 0) return [];
+    
+    // Get date range from filters
+    const dateRange = buildDateRangeFromFilters(filters);
+    const startDate = new Date(dateRange.startDate);
+    const endDate = new Date(dateRange.endDate + ' 23:59:59'); // Include full end date
+    
+    // Helper to check if a date string is within range
+    const isDateInRange = (dateStr: string | null): boolean => {
+      if (!dateStr) return false;
+      const date = new Date(dateStr);
+      return date >= startDate && date <= endDate;
+    };
+    
+    return detailRecords.filter(record => {
+      switch (stageFilter) {
+        case 'prospect':
+          // Prospects: Filter by FilterDate (cohort date) within range
+          return isDateInRange(record.relevantDate);
+        case 'contacted':
+          // Contacted: Must be contacted AND contacted date in range
+          return record.isContacted === true && isDateInRange(record.contactedDate);
+        case 'mql':
+          // MQL: Must be MQL AND MQL date in range
+          return record.isMql === true && isDateInRange(record.mqlDate);
+        case 'sql':
+          // SQL: Must be SQL AND SQL conversion date in range
+          return record.isSql === true && isDateInRange(record.sqlDate);
+        case 'sqo':
+          // SQO: Must be SQO AND SQO date in range AND recruiting record type (matches scorecard behavior)
+          return record.isSqo === true 
+            && isDateInRange(record.sqoDate)
+            && record.recordTypeId === RECRUITING_RECORD_TYPE;
+        case 'joined':
+          // Joined: Must be joined AND join date in range (for legacy 'joined' value)
+          return record.isJoined === true && isDateInRange(record.joinedDate);
+        case 'openPipeline':
+          // Open Pipeline: Current state, no date filter needed
+          return record.isOpenPipeline === true;
+        default:
+          // Handle opportunity stage names (e.g., "Discovery", "Qualifying", "Joined")
+          // For "Joined" stage name, also check join date in range
+          if (stageFilter === 'Joined') {
+            return record.stage === 'Joined' && record.isJoined === true && isDateInRange(record.joinedDate);
+          }
+          // For other opportunity stages, show all records with that stage (no date filter)
+          return record.stage === stageFilter;
+      }
+    });
+  }, [detailRecords, stageFilter, filters]);
+  
   // Fetch dashboard data when filters change
   const fetchDashboardData = useCallback(async () => {
     if (!filterOptions) return; // Wait for filter options
@@ -134,7 +231,8 @@ export default function DashboardPage() {
         ...filters,
         startDate: dateRange.startDate,
         endDate: dateRange.endDate,
-        metricFilter: (selectedMetric || 'all') as DashboardFilters['metricFilter'],
+        // Always fetch all records (prospects) for client-side filtering via stage dropdown
+        metricFilter: 'prospect' as DashboardFilters['metricFilter'],
       };
       
       // Fetch all data in parallel
@@ -143,7 +241,7 @@ export default function DashboardPage() {
         dashboardApi.getConversionRates(currentFilters, { includeTrends: true, granularity: trendGranularity, mode: trendMode }),
         dashboardApi.getChannelPerformance(currentFilters, viewMode),
         dashboardApi.getSourcePerformance(currentFilters, viewMode),
-        dashboardApi.getDetailRecords(currentFilters, 50000), // Increased limit to fetch all records
+        dashboardApi.getDetailRecords(currentFilters, 50000), // Fetch all records for client-side filtering
       ]);
       
       setMetrics(metricsData);
@@ -161,7 +259,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters, selectedMetric, trendGranularity, trendMode, filterOptions, viewMode]);
+  }, [filters, trendGranularity, trendMode, filterOptions, viewMode]);
   
   useEffect(() => {
     if (filterOptions) {
@@ -170,15 +268,68 @@ export default function DashboardPage() {
   }, [fetchDashboardData, filterOptions]);
   
   // Handle metric card click
-  const handleMetricClick = (metric: string) => {
-    const newMetric = selectedMetric === metric ? null : metric;
-    setSelectedMetric(newMetric);
+  const handleMetricClick = async (metric: string) => {
+    // Open drill-down modal instead of filtering the main table
+    // Clear any previous selection state (no visual highlighting)
+    setSelectedMetric(null);
     
-    // Update filters to fetch appropriate detail records
-    setFilters(prev => ({
-      ...prev,
-      metricFilter: (newMetric || 'all') as DashboardFilters['metricFilter'],
-    }));
+    // Map metric IDs to proper metric filter values
+    const metricMap: Record<string, 'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'joined' | 'openPipeline'> = {
+      'prospect': 'prospect',
+      'contacted': 'contacted',
+      'mql': 'mql',
+      'sql': 'sql',
+      'sqo': 'sqo',
+      'joined': 'joined',
+      'openPipeline': 'openPipeline',
+    };
+    
+    const metricFilter = metricMap[metric];
+    if (!metricFilter) {
+      console.warn(`Unknown metric: ${metric}`);
+      return;
+    }
+    
+    // Set modal state
+    setVolumeDrillDownMetric(metricFilter);
+    setVolumeDrillDownLoading(true);
+    setVolumeDrillDownError(null);
+    setVolumeDrillDownOpen(true);
+    
+    // Build title with metric name and date range
+    const metricLabels: Record<string, string> = {
+      prospect: 'Prospects',
+      contacted: 'Contacted',
+      mql: 'MQLs',
+      sql: 'SQLs',
+      sqo: 'SQOs',
+      joined: 'Joined',
+      openPipeline: 'Open Pipeline',
+    };
+    
+    const dateRange = buildDateRangeFromFilters(filters);
+    const dateRangeText = filters.datePreset === 'custom' 
+      ? `${dateRange.startDate} to ${dateRange.endDate}`
+      : filters.datePreset?.toUpperCase() || 'Selected Period';
+    
+    setVolumeDrillDownTitle(`${metricLabels[metricFilter]} - ${dateRangeText}`);
+    
+    try {
+      // Build filters for the drill-down query
+      const drillDownFilters: DashboardFilters = {
+        ...filters,
+        metricFilter: metricFilter,
+      };
+      
+      // Fetch records for the selected metric
+      const response = await dashboardApi.getDetailRecords(drillDownFilters, 50000);
+      setVolumeDrillDownRecords(response.records);
+    } catch (error) {
+      console.error('Error fetching drill-down records:', error);
+      setVolumeDrillDownError('Failed to load records. Please try again.');
+    } finally {
+      setVolumeDrillDownLoading(false);
+    }
   };
 
   // Handle view mode changes to clear full-funnel metric selections when switching to focused view
@@ -284,18 +435,20 @@ export default function DashboardPage() {
   // Build detail table description
   const getDetailDescription = () => {
     const parts = [];
-    if (selectedMetric) {
-      const metricLabels: Record<string, string> = {
-        prospect: 'Prospects',
-        contacted: 'Contacted',
-        mql: 'MQLs',
-        sql: 'SQLs',
-        sqo: 'SQOs',
-        joined: 'Joined',
-        openPipeline: 'Open Pipeline',
-      };
-      parts.push(metricLabels[selectedMetric] || selectedMetric.toUpperCase());
-    }
+    
+    // Add stage filter to description (replaces selectedMetric)
+    const stageLabels: Record<string, string> = {
+      prospect: 'Prospects',
+      contacted: 'Contacted',
+      mql: 'MQLs',
+      sql: 'SQLs',
+      sqo: 'SQOs',
+      joined: 'Joined',
+      openPipeline: 'Open Pipeline',
+    };
+    const stageLabel = stageLabels[stageFilter] || stageFilter;
+    parts.push(stageLabel);
+    
     if (selectedChannel) parts.push(`Channel: ${selectedChannel}`);
     if (selectedSource) parts.push(`Source: ${selectedSource}`);
     
@@ -303,8 +456,8 @@ export default function DashboardPage() {
       return `Filtered by: ${parts.join(', ')}`;
     }
     
-    // Default description based on view mode
-    return viewMode === 'fullFunnel' ? 'All Records' : 'All SQLs';
+    // Default to SQOs (since that's the default stage filter)
+    return 'All SQOs';
   };
 
   if (!filterOptions) {
@@ -435,14 +588,17 @@ export default function DashboardPage() {
           {/* Detail Records */}
           <TableErrorBoundary>
             <DetailRecordsTable
-              records={detailRecords}
+              records={filteredDetailRecords}
               title="Record Details"
               filterDescription={getDetailDescription()}
               canExport={permissions?.canExport ?? false}
               viewMode={viewMode}
               advancedFilters={filters.advancedFilters}
-              metricFilter={filters.metricFilter}
+              metricFilter="prospect"
               onRecordClick={handleRecordClick}
+              stageFilter={stageFilter}
+              onStageFilterChange={setStageFilter}
+              availableOpportunityStages={availableOpportunityStages}
             />
           </TableErrorBoundary>
         </>

@@ -124,15 +124,21 @@ export interface DetailRecord {
   aum: number;
   aumFormatted: string;
   salesforceUrl: string;
-  relevantDate: string; // The relevant date field based on metric filter (Date_Became_SQO__c, converted_date_raw, advisor_join_date__c, etc.)
-  initialCallScheduledDate: string | null; // Initial_Call_Scheduled_Date__c (DATE field)
-  qualificationCallDate: string | null; // Qualification_Call_Date__c (DATE field)
+  relevantDate: string; // FilterDate (fallback)
+  contactedDate: string | null; // stage_entered_contacting__c
+  mqlDate: string | null; // mql_stage_entered_ts
+  sqlDate: string | null; // converted_date_raw
+  sqoDate: string | null; // Date_Became_SQO__c
+  joinedDate: string | null; // advisor_join_date__c
+  initialCallScheduledDate: string | null;
+  qualificationCallDate: string | null;
   isContacted: boolean;
   isMql: boolean;
   isSql: boolean;
   isSqo: boolean;
   isJoined: boolean;
   isOpenPipeline: boolean;
+  recordTypeId: string | null; // For filtering SQOs by recruiting record type
 }
 
 export interface ForecastData {

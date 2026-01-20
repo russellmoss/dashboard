@@ -47,7 +47,6 @@ function GoalDisplay({
 }
 
 export function Scorecards({ metrics, selectedMetric, onMetricClick }: ScorecardsProps) {
-  const isSelected = (id: string) => selectedMetric === id;
   const goals = metrics.goals;
   
   return (
@@ -56,11 +55,7 @@ export function Scorecards({ metrics, selectedMetric, onMetricClick }: Scorecard
       <Card 
         className={`p-4 dark:bg-gray-800 dark:border-gray-700 ${
           onMetricClick 
-            ? `cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                isSelected('sql') 
-                  ? 'ring-2 ring-blue-500 dark:ring-blue-400 bg-blue-50 dark:bg-blue-900/30' 
-                  : ''
-              }` 
+            ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md' 
             : ''
         }`}
         onClick={() => onMetricClick?.('sql')}
@@ -84,11 +79,7 @@ export function Scorecards({ metrics, selectedMetric, onMetricClick }: Scorecard
       <Card 
         className={`p-4 dark:bg-gray-800 dark:border-gray-700 ${
           onMetricClick 
-            ? `cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                isSelected('sqo') 
-                  ? 'ring-2 ring-blue-500 dark:ring-blue-400 bg-blue-50 dark:bg-blue-900/30' 
-                  : ''
-              }` 
+            ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md' 
             : ''
         }`}
         onClick={() => onMetricClick?.('sqo')}
@@ -112,11 +103,7 @@ export function Scorecards({ metrics, selectedMetric, onMetricClick }: Scorecard
       <Card 
         className={`p-4 dark:bg-gray-800 dark:border-gray-700 ${
           onMetricClick 
-            ? `cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                isSelected('joined') 
-                  ? 'ring-2 ring-blue-500 dark:ring-blue-400 bg-blue-50 dark:bg-blue-900/30' 
-                  : ''
-              }` 
+            ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md' 
             : ''
         }`}
         onClick={() => onMetricClick?.('joined')}
@@ -140,11 +127,7 @@ export function Scorecards({ metrics, selectedMetric, onMetricClick }: Scorecard
       <Card 
         className={`p-4 dark:bg-gray-800 dark:border-gray-700 ${
           onMetricClick 
-            ? `cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                isSelected('openPipeline') 
-                  ? 'ring-2 ring-blue-500 dark:ring-blue-400 bg-blue-50 dark:bg-blue-900/30' 
-                  : ''
-              }` 
+            ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md' 
             : ''
         }`}
         onClick={() => onMetricClick?.('openPipeline')}
