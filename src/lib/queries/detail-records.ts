@@ -86,6 +86,7 @@ const _getDetailRecords = async (
         OR (Stage_Entered_Sales_Process__c IS NOT NULL AND TIMESTAMP(Stage_Entered_Sales_Process__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(Stage_Entered_Sales_Process__c) <= TIMESTAMP(@endDate))
         OR (Stage_Entered_Negotiating__c IS NOT NULL AND TIMESTAMP(Stage_Entered_Negotiating__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(Stage_Entered_Negotiating__c) <= TIMESTAMP(@endDate))
         OR (Stage_Entered_On_Hold__c IS NOT NULL AND TIMESTAMP(Stage_Entered_On_Hold__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(Stage_Entered_On_Hold__c) <= TIMESTAMP(@endDate))
+        OR (Stage_Entered_Closed__c IS NOT NULL AND TIMESTAMP(Stage_Entered_Closed__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(Stage_Entered_Closed__c) <= TIMESTAMP(@endDate))
       )`);
       break;
     case 'contacted':
@@ -217,6 +218,7 @@ const _getDetailRecords = async (
       v.Stage_Entered_Sales_Process__c as sales_process_date,
       v.Stage_Entered_Negotiating__c as negotiating_date,
       v.Stage_Entered_On_Hold__c as on_hold_date,
+      v.Stage_Entered_Closed__c as closed_date,
       v.is_contacted,
       v.is_mql,
       v.is_sql,
@@ -260,6 +262,7 @@ const _getDetailRecords = async (
     const salesProcessDate = extractDate(r.sales_process_date);
     const negotiatingDate = extractDate(r.negotiating_date);
     const onHoldDate = extractDate(r.on_hold_date);
+    const closedDate = extractDate(r.closed_date);
     
     // Extract Initial Call Scheduled Date (DATE field - direct string)
     let initialCallDate: string | null = null;
@@ -303,6 +306,7 @@ const _getDetailRecords = async (
       salesProcessDate: salesProcessDate,
       negotiatingDate: negotiatingDate,
       onHoldDate: onHoldDate,
+      closedDate: closedDate,
       initialCallScheduledDate: initialCallDate,
       qualificationCallDate: qualCallDate,
       isContacted: r.is_contacted === 1,

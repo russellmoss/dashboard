@@ -130,6 +130,7 @@ const _getOpenPipelineRecords = async (
       salesProcessDate: null,
       negotiatingDate: null,
       onHoldDate: null,
+      closedDate: null,
       initialCallScheduledDate: initialCallDate,
       qualificationCallDate: qualCallDate,
       isContacted: r.is_contacted === 1,

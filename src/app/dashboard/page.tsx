@@ -126,7 +126,7 @@ export default function DashboardPage() {
   }, []);
   
   // Always show all predefined opportunity stages, even if no records match
-  // Order: Qualifying, Discovery, Sales Process, Negotiating, Signed, Joined, On Hold, Planned Nurture, Re-Engaged
+  // Order: Qualifying, Discovery, Sales Process, Negotiating, Signed, On Hold, Closed Lost, Joined
   const availableOpportunityStages = useMemo(() => {
     // Define all possible opportunity stages in preferred order
     // These should always appear in the dropdown, even if no records match
@@ -137,10 +137,9 @@ export default function DashboardPage() {
       'Sales Process',
       'Negotiating',
       'Signed',
-      'Joined',
       'On Hold',
-      'Planned Nurture',
-      'Re-Engaged'
+      'Closed Lost',
+      'Joined'
     ];
     
     // Also collect any additional stages found in the data that aren't in the predefined list
@@ -230,6 +229,10 @@ export default function DashboardPage() {
           // For "On Hold" stage, check on hold date in range (regardless of current stage)
           if (stageFilter === 'On Hold') {
             return record.onHoldDate !== null && isDateInRange(record.onHoldDate);
+          }
+          // For "Closed Lost" stage, check closed date in range (regardless of current stage)
+          if (stageFilter === 'Closed Lost') {
+            return record.closedDate !== null && isDateInRange(record.closedDate) && record.stage === 'Closed Lost';
           }
           // For other opportunity stages (e.g., "Qualifying"), show all records with that stage (no date filter)
           return record.stage === stageFilter;

@@ -907,6 +907,7 @@ export function ExploreResults({ response, isLoading, error, streamingMessage, c
             salesProcessDate: row.sales_process_date as string || row.Stage_Entered_Sales_Process__c as string || null,
             negotiatingDate: row.negotiating_date as string || row.Stage_Entered_Negotiating__c as string || null,
             onHoldDate: row.on_hold_date as string || row.Stage_Entered_On_Hold__c as string || null,
+            closedDate: row.closed_date as string || row.Stage_Entered_Closed__c as string || null,
             initialCallScheduledDate: row.initial_call_scheduled_date as string || row.Initial_Call_Scheduled_Date__c as string || null,
             qualificationCallDate: row.qualification_call_date as string || row.Qualification_Call_Date__c as string || null,
             isContacted,

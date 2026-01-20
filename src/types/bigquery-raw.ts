@@ -79,6 +79,7 @@ export interface RawDetailRecordResult {
   sales_process_date?: string | { value: string } | null; // Stage_Entered_Sales_Process__c (TIMESTAMP)
   negotiating_date?: string | { value: string } | null; // Stage_Entered_Negotiating__c (TIMESTAMP)
   on_hold_date?: string | { value: string } | null; // Stage_Entered_On_Hold__c (TIMESTAMP)
+  closed_date?: string | { value: string } | null; // Stage_Entered_Closed__c (TIMESTAMP)
   relevant_date?: string | { value: string } | null; // Legacy - keep for backward compatibility
   initial_call_scheduled_date?: string | { value: string } | null;
   qualification_call_date?: string | { value: string } | null;

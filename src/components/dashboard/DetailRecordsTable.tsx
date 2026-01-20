@@ -189,6 +189,8 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
         return record.negotiatingDate || record.relevantDate || '';
       case 'On Hold':
         return record.onHoldDate || record.relevantDate || '';
+      case 'Closed Lost':
+        return record.closedDate || record.relevantDate || '';
       case 'prospect':
       default:
         return record.relevantDate || ''; // FilterDate
@@ -231,6 +233,8 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
         return 'Shows the date when each opportunity entered the Negotiating stage.';
       case 'On Hold':
         return 'Shows the date when each opportunity entered the On Hold stage.';
+      case 'Closed Lost':
+        return 'Shows the date when each opportunity entered the Closed Lost stage. This is when the opportunity was closed without joining.';
       default:
         // Other opportunity stages (e.g., "Qualifying") - show FilterDate
         return 'Shows the Filter Date (cohort date) for each record.';

@@ -41,7 +41,6 @@ export function OpenPipelineAumTooltip() {
               <li>Joined</li>
               <li>On Hold</li>
               <li>Signed</li>
-              <li>Planned Nurture</li>
             </ul>
             
             <p className="text-yellow-200 pt-1 border-t border-gray-700">

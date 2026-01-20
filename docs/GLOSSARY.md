@@ -54,6 +54,48 @@ This document defines business terms and concepts used in the Savvy Funnel Analy
 - **Business Context**: Final stage - advisor has completed onboarding
 - **Date Field**: `advisor_join_date__c` (used for both period and cohort grouping)
 
+## Opportunity Stages
+
+After a lead converts to an opportunity (SQL), the opportunity progresses through various stages. These stages are tracked via `StageName` and have associated `Stage_Entered_*` timestamp fields that record when the opportunity entered each stage.
+
+### Stage Order and Date Fields
+
+| Stage Name | Date Field | Data Type | Description | Filtering Logic |
+|------------|------------|-----------|-------------|-----------------|
+| **Qualifying** | None (uses `StageName`) | N/A | Initial opportunity qualification stage | Filter by `StageName = 'Qualifying'` (no date filter) |
+| **Discovery** | `Stage_Entered_Discovery__c` | TIMESTAMP | Opportunity entered discovery phase | Filter by `Stage_Entered_Discovery__c` in date range |
+| **Sales Process** | `Stage_Entered_Sales_Process__c` | TIMESTAMP | Opportunity entered active sales process | Filter by `Stage_Entered_Sales_Process__c` in date range |
+| **Negotiating** | `Stage_Entered_Negotiating__c` | TIMESTAMP | Opportunity entered negotiation phase | Filter by `Stage_Entered_Negotiating__c` in date range |
+| **Signed** | `Stage_Entered_Signed__c` | TIMESTAMP | Opportunity signed agreement | Filter by `Stage_Entered_Signed__c` in date range, use `is_primary_opp_record = 1` for deduplication |
+| **On Hold** | `Stage_Entered_On_Hold__c` | TIMESTAMP | Opportunity placed on hold | Filter by `Stage_Entered_On_Hold__c` in date range |
+| **Closed Lost** | `Stage_Entered_Closed__c` | TIMESTAMP | Opportunity closed without joining | Filter by `Stage_Entered_Closed__c` in date range AND `StageName = 'Closed Lost'` |
+| **Joined** | `advisor_join_date__c` | DATE | Advisor officially joined (final stage) | Filter by `advisor_join_date__c` in date range, use `is_joined_unique = 1` for deduplication |
+
+### Important Notes
+
+1. **Date Type Handling**:
+   - **TIMESTAMP fields** (`Stage_Entered_*`): Use `TIMESTAMP(field) >= TIMESTAMP(@startDate)` in queries
+   - **DATE fields** (`advisor_join_date__c`): Use `DATE(field) >= DATE(@startDate)` in queries
+
+2. **Deduplication**:
+   - **Signed**: Use `is_primary_opp_record = 1` to ensure one count per opportunity (handles multiple leads converting to same opportunity)
+   - **Joined**: Use `is_joined_unique = 1` for volume counts
+   - **Other stages**: Filtering by date field automatically handles deduplication when combined with `is_primary_opp_record = 1`
+
+3. **Filtering Logic**:
+   - Stages with date fields (Discovery, Sales Process, Negotiating, Signed, On Hold, Closed Lost): Filter by their `Stage_Entered_*` date being in the selected date range, regardless of current `StageName`
+   - Stages without date fields (Qualifying): Filter by `StageName` matching the stage name
+
+4. **Stage Progression**:
+   - Opportunities can move forward through stages (e.g., Discovery → Sales Process → Negotiating → Signed → Joined)
+   - Opportunities can also move backward or skip stages
+   - When filtering by a stage's date, records that have moved past that stage are still included if they entered that stage in the date range
+
+5. **Record Detail Table Display**:
+   - The date column dynamically shows the stage-specific date based on the selected stage filter
+   - For example, when "Signed" is selected, the date column shows `Stage_Entered_Signed__c`
+   - When "Discovery" is selected, the date column shows `Stage_Entered_Discovery__c`
+
 ## Roles
 
 ### SGA (Sales Growth Advisor)

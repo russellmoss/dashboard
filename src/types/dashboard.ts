@@ -136,6 +136,7 @@ export interface DetailRecord {
   salesProcessDate: string | null; // Stage_Entered_Sales_Process__c
   negotiatingDate: string | null; // Stage_Entered_Negotiating__c
   onHoldDate: string | null; // Stage_Entered_On_Hold__c
+  closedDate: string | null; // Stage_Entered_Closed__c
   initialCallScheduledDate: string | null;
   qualificationCallDate: string | null;
   isContacted: boolean;

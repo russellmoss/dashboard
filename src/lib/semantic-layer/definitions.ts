@@ -26,7 +26,7 @@ export const CONSTANTS = {
   // Open Pipeline Stages (current state, excludes closed and inactive)
   // Must match actual Salesforce StageName values
   // These are opportunities that are currently active and actively progressing
-  // Excludes: Closed Lost, Joined, On Hold, Signed, Planned Nurture
+  // Excludes: Closed Lost, Joined, On Hold, Signed
   OPEN_PIPELINE_STAGES: [
     'Qualifying',
     'Discovery', 
@@ -584,7 +584,7 @@ export const DIMENSIONS = {
     groupable: true,
     allowedValues: [
       'Qualifying', 'Discovery', 'Sales Process', 'Negotiating',
-      'Signed', 'On Hold', 'Closed Lost', 'Joined', 'Planned Nurture'
+      'Signed', 'On Hold', 'Closed Lost', 'Joined'
     ],
     aliases: ['stage', 'opportunity stage'],
   },

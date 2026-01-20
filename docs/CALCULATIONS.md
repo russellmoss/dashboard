@@ -7,9 +7,10 @@ This document provides explicit formulas and SQL snippets for all metrics calcul
 1. [Calculation Modes Overview](#calculation-modes-overview)
 2. [Conversion Rate Formulas](#conversion-rate-formulas)
 3. [Volume Metrics](#volume-metrics)
-4. [Open Pipeline AUM](#open-pipeline-aum)
-5. [Resolution and Flagging Logic](#resolution-and-flagging-logic)
-6. [Period vs Cohort Mode Details](#period-vs-cohort-mode-details)
+4. [Opportunity Stage Metrics](#opportunity-stage-metrics)
+5. [Open Pipeline AUM](#open-pipeline-aum)
+6. [Resolution and Flagging Logic](#resolution-and-flagging-logic)
+7. [Period vs Cohort Mode Details](#period-vs-cohort-mode-details)
 
 ---
 
@@ -520,14 +521,102 @@ COUNT(*) WHERE
 SUM(
   CASE 
     WHEN advisor_join_date__c IS NOT NULL
-      AND TIMESTAMP(advisor_join_date__c) >= TIMESTAMP(@startDate) 
-      AND TIMESTAMP(advisor_join_date__c) <= TIMESTAMP(@endDate)
+      AND DATE(advisor_join_date__c) >= DATE(@startDate) 
+      AND DATE(advisor_join_date__c) <= DATE(@endDate)
       AND is_joined_unique = 1  -- Deduplication: one count per opportunity
     THEN 1 
     ELSE 0 
   END
 ) as joined
 ```
+
+### Signed
+```
+COUNT(*) WHERE 
+  Stage_Entered_Signed__c IN date_range
+  AND is_primary_opp_record = 1  -- CRITICAL: Use primary record flag for deduplication
+```
+
+**SQL**:
+```sql
+SUM(
+  CASE 
+    WHEN Stage_Entered_Signed__c IS NOT NULL
+      AND TIMESTAMP(Stage_Entered_Signed__c) >= TIMESTAMP(@startDate) 
+      AND TIMESTAMP(Stage_Entered_Signed__c) <= TIMESTAMP(@endDate)
+      AND is_primary_opp_record = 1  -- Deduplication: one count per opportunity
+    THEN 1 
+    ELSE 0 
+  END
+) as signed
+```
+
+**Important Notes**:
+- Uses `is_primary_opp_record = 1` (not `is_signed_unique`) to handle multiple leads converting to same opportunity
+- Records may have moved past "Signed" stage (e.g., to "Joined") but are still counted if they entered "Signed" in the date range
+- Date field is TIMESTAMP type, so use `TIMESTAMP()` wrapper in queries
+
+---
+
+## Opportunity Stage Metrics
+
+Opportunity stages represent the progression of an opportunity after a lead converts (SQL). Each stage has an associated `Stage_Entered_*` timestamp field that records when the opportunity entered that stage.
+
+### Stage Date Fields and Data Types
+
+| Stage Name | Date Field | Data Type | Query Pattern | Deduplication |
+|------------|------------|-----------|---------------|---------------|
+| **Qualifying** | None | N/A | Filter by `StageName = 'Qualifying'` | N/A |
+| **Discovery** | `Stage_Entered_Discovery__c` | TIMESTAMP | `TIMESTAMP(Stage_Entered_Discovery__c) >= TIMESTAMP(@startDate)` | Use `is_primary_opp_record = 1` |
+| **Sales Process** | `Stage_Entered_Sales_Process__c` | TIMESTAMP | `TIMESTAMP(Stage_Entered_Sales_Process__c) >= TIMESTAMP(@startDate)` | Use `is_primary_opp_record = 1` |
+| **Negotiating** | `Stage_Entered_Negotiating__c` | TIMESTAMP | `TIMESTAMP(Stage_Entered_Negotiating__c) >= TIMESTAMP(@startDate)` | Use `is_primary_opp_record = 1` |
+| **Signed** | `Stage_Entered_Signed__c` | TIMESTAMP | `TIMESTAMP(Stage_Entered_Signed__c) >= TIMESTAMP(@startDate)` | Use `is_primary_opp_record = 1` |
+| **On Hold** | `Stage_Entered_On_Hold__c` | TIMESTAMP | `TIMESTAMP(Stage_Entered_On_Hold__c) >= TIMESTAMP(@startDate)` | Use `is_primary_opp_record = 1` |
+| **Closed Lost** | `Stage_Entered_Closed__c` | TIMESTAMP | `TIMESTAMP(Stage_Entered_Closed__c) >= TIMESTAMP(@startDate)` AND `StageName = 'Closed Lost'` | Use `is_primary_opp_record = 1` |
+| **Joined** | `advisor_join_date__c` | DATE | `DATE(advisor_join_date__c) >= DATE(@startDate)` | Use `is_joined_unique = 1` |
+
+### Filtering Logic
+
+When filtering records by opportunity stage in the Record Details table:
+
+1. **Stages with Date Fields** (Discovery, Sales Process, Negotiating, Signed, On Hold):
+   - Filter by the `Stage_Entered_*` date being within the selected date range
+   - **Important**: Records that have moved past the stage are still included if they entered that stage in the date range
+   - Example: A record currently in "Joined" stage will appear when filtering by "Signed" if `Stage_Entered_Signed__c` is in the date range
+
+2. **Stages without Date Fields** (Qualifying):
+   - Filter by `StageName` matching the stage name
+   - No date filtering applied
+
+### Example: Signed Stage Filtering
+
+```sql
+-- Count signed opportunities in Q4 2025
+SELECT COUNT(*) 
+FROM `savvy-gtm-analytics.Tableau_Views.vw_funnel_master`
+WHERE Stage_Entered_Signed__c IS NOT NULL
+  AND TIMESTAMP(Stage_Entered_Signed__c) >= TIMESTAMP('2025-10-01')
+  AND TIMESTAMP(Stage_Entered_Signed__c) <= TIMESTAMP('2025-12-31 23:59:59')
+  AND is_primary_opp_record = 1
+```
+
+**Key Points**:
+- Uses `TIMESTAMP()` wrapper because `Stage_Entered_Signed__c` is TIMESTAMP type
+- Uses `is_primary_opp_record = 1` to deduplicate opportunities with multiple leads
+- Includes records even if they've moved past "Signed" (e.g., to "Joined")
+
+### Date Column Display
+
+The Record Details table dynamically displays the stage-specific date based on the selected stage filter:
+
+- **Signed selected**: Shows `Stage_Entered_Signed__c`
+- **Discovery selected**: Shows `Stage_Entered_Discovery__c`
+- **Sales Process selected**: Shows `Stage_Entered_Sales_Process__c`
+- **Negotiating selected**: Shows `Stage_Entered_Negotiating__c`
+- **On Hold selected**: Shows `Stage_Entered_On_Hold__c`
+- **Joined selected**: Shows `advisor_join_date__c`
+
+This ensures users see the date relevant to the stage they're filtering by, not just the `FilterDate` or current stage date.
 
 ---
 
@@ -538,7 +627,7 @@ Open Pipeline AUM is a **snapshot metric** showing current state, not filtered b
 ```
 SUM(Opportunity_AUM) WHERE 
   recordtypeid = '012Dn000000mrO3IAI'
-  AND StageName IN ('Engaged', 'Qualifying', 'Call Scheduled', 'Discovery', 'Sales Process', 'Negotiating', 'Outreach', 'Re-Engaged')
+  AND StageName IN ('Qualifying', 'Discovery', 'Sales Process', 'Negotiating')
   AND is_sqo_unique = 1
   AND is_primary_opp_record = 1  -- One AUM value per opportunity
 ```
@@ -557,7 +646,7 @@ WHERE v.recordtypeid = @recruitingRecordType
 - **No date filter**: Shows current state, all time
 - **No channel/source/SGA/SGM filters**: Shows all open pipeline
 - **Uses `is_primary_opp_record`**: Ensures AUM counted once per opportunity
-- **Stage filter**: Only includes active stages (excludes 'Closed Lost', 'Joined', 'Planned Nurture')
+- **Stage filter**: Only includes active stages (excludes 'Closed Lost', 'Joined', 'On Hold', 'Signed')
 
 ---
 
