@@ -9,6 +9,8 @@ import { ViewMode } from '@/types/dashboard';
 import { buildDateRangeFromFilters } from '@/lib/utils/date-helpers';
 import { logger } from '@/lib/logger';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);

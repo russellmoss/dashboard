@@ -11,6 +11,8 @@ import { formatCurrency } from '@/lib/utils/date-helpers';
 import { prisma } from '@/lib/prisma';
 import { QuarterlyProgress } from '@/types/sga-hub';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/sga-hub/quarterly-progress
  * Get quarterly progress with pacing calculation for the logged-in user or specified SGA

@@ -12,6 +12,8 @@ import {
 } from '@/lib/queries/quarterly-goals';
 import { getCurrentQuarter } from '@/lib/utils/sga-hub-helpers';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/sga-hub/quarterly-goals
  * Get quarterly goals for the logged-in user or all SGAs (admin)

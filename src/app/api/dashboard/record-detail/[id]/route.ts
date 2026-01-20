@@ -5,6 +5,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getRecordDetail } from '@/lib/queries/record-detail';
 
+export const dynamic = 'force-dynamic';
+
 interface RouteParams {
   params: { id: string };
 }

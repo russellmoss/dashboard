@@ -9,6 +9,8 @@ import { getCurrentQuarter } from '@/lib/utils/sga-hub-helpers';
 import { prisma } from '@/lib/prisma';
 import { SQODetail } from '@/types/sga-hub';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/sga-hub/sqo-details
  * Get detailed SQO records for a specific quarter

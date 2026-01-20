@@ -3,6 +3,8 @@ import { revalidateTag } from 'next/cache';
 import { CACHE_TAGS } from '@/lib/cache';
 import { logger } from '@/lib/logger';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     // Validate CRON_SECRET (auto-injected by Vercel)

@@ -5,6 +5,8 @@ import { getConversionRates, getConversionTrends } from '@/lib/queries/conversio
 import { getUserPermissions } from '@/lib/permissions';
 import { DashboardFilters } from '@/types/filters';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);

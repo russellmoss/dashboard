@@ -8,6 +8,8 @@ import { getClosedLostRecords } from '@/lib/queries/closed-lost';
 import { ClosedLostTimeBucket } from '@/types/sga-hub';
 import { prisma } from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/sga-hub/closed-lost
  * Get closed lost records for the logged-in SGA or specified SGA (admin/manager only)

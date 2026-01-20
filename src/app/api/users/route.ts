@@ -5,6 +5,8 @@ import { getAllUsers, createUser } from '@/lib/users';
 import { getUserPermissions } from '@/lib/permissions';
 import { SafeUser } from '@/types/user';
 
+export const dynamic = 'force-dynamic';
+
 // GET /api/users - List all users
 export async function GET() {
   try {

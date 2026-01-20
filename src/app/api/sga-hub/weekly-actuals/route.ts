@@ -8,6 +8,8 @@ import { getWeeklyActuals, getAllSGAWeeklyActuals } from '@/lib/queries/weekly-a
 import { getDefaultWeekRange } from '@/lib/utils/sga-hub-helpers';
 import { prisma } from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/sga-hub/weekly-actuals
  * Get weekly actuals from BigQuery for the logged-in user or specified SGA

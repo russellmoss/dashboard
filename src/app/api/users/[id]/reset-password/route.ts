@@ -4,6 +4,8 @@ import { authOptions } from '@/lib/auth';
 import { resetPassword } from '@/lib/users';
 import { getUserPermissions } from '@/lib/permissions';
 
+export const dynamic = 'force-dynamic';
+
 interface RouteParams {
   params: { id: string };
 }

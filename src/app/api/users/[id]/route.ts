@@ -6,6 +6,8 @@ import { getUserPermissions } from '@/lib/permissions';
 import { SafeUser } from '@/types/user';
 import prisma from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic';
+
 interface RouteParams {
   params: { id: string };
 }

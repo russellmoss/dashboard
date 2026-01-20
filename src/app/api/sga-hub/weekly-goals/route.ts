@@ -12,6 +12,8 @@ import {
 import { getDefaultWeekRange, getWeekMondayDate, isMonday } from '@/lib/utils/sga-hub-helpers';
 import { WeeklyGoalInput } from '@/types/sga-hub';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/sga-hub/weekly-goals
  * Get weekly goals for the logged-in user or a specific user (admin only)

@@ -12,6 +12,7 @@ import { getFunnelMetrics } from '@/lib/queries/funnel-metrics';
 import { buildDateRangeFromFilters } from '@/lib/utils/date-helpers';
 import { logger } from '@/lib/logger';
 
+export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Allow up to 60 seconds for export
 
 export async function POST(request: NextRequest) {

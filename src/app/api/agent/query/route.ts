@@ -12,6 +12,8 @@ import { logger } from '@/lib/logger';
 import { runQuery } from '@/lib/bigquery';
 import Anthropic from '@anthropic-ai/sdk';
 
+export const dynamic = 'force-dynamic';
+
 // EXACT AUTHENTICATION PATTERN:
 // const session = await getServerSession(authOptions);
 // if (!session) {

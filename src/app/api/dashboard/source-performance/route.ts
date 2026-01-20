@@ -12,6 +12,8 @@ import {
   SourcePerformanceWithGoals 
 } from '@/types/dashboard';
 
+export const dynamic = 'force-dynamic';
+
 // Helper to merge channel performance with goals
 function mergeChannelGoals(
   channels: ChannelPerformance[],

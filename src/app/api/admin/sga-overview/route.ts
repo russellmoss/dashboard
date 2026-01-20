@@ -14,6 +14,8 @@ import { calculateQuarterPacing, getCurrentQuarter, getWeekMondayDate } from '@/
 import { formatCurrency } from '@/lib/utils/date-helpers';
 import { AdminSGAOverview } from '@/types/sga-hub';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/admin/sga-overview
  * Get aggregated SGA performance data for admin/manager view

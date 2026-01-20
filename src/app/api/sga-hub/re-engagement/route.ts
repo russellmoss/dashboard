@@ -7,6 +7,8 @@ import { getUserPermissions } from '@/lib/permissions';
 import { getReEngagementOpportunities } from '@/lib/queries/re-engagement';
 import { prisma } from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/sga-hub/re-engagement
  * Get open re-engagement opportunities for the logged-in SGA or specified SGA (admin/manager only)
