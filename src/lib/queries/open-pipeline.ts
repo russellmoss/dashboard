@@ -125,6 +125,11 @@ const _getOpenPipelineRecords = async (
       sqlDate: sqlDate,
       sqoDate: sqoDate,
       joinedDate: joinedDate,
+      signedDate: null, // Open pipeline doesn't include signed opportunities
+      discoveryDate: null,
+      salesProcessDate: null,
+      negotiatingDate: null,
+      onHoldDate: null,
       initialCallScheduledDate: initialCallDate,
       qualificationCallDate: qualCallDate,
       isContacted: r.is_contacted === 1,
@@ -134,6 +139,8 @@ const _getOpenPipelineRecords = async (
       isJoined: false,
       isOpenPipeline: OPEN_PIPELINE_STAGES.includes(toString(r.stage)),
       recordTypeId: r.recordtypeid ? toString(r.recordtypeid) : null,
+      isPrimaryOppRecord: true, // Open pipeline records are already filtered to primary records
+      opportunityId: null, // Not needed for open pipeline
     };
   });
 };

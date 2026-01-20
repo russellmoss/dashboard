@@ -133,6 +133,17 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
       ) as sqos,
       SUM(
         CASE 
+          WHEN Stage_Entered_Signed__c IS NOT NULL
+            AND TIMESTAMP(Stage_Entered_Signed__c) >= TIMESTAMP(@startDate) 
+            AND TIMESTAMP(Stage_Entered_Signed__c) <= TIMESTAMP(@endDate)
+            AND is_primary_opp_record = 1
+            ${sgaFilterForOpp}
+          THEN 1 
+          ELSE 0 
+        END
+      ) as signed,
+      SUM(
+        CASE 
           WHEN advisor_join_date__c IS NOT NULL
             AND DATE(advisor_join_date__c) >= DATE(@startDate) 
             AND DATE(advisor_join_date__c) <= DATE(@endDate)
@@ -200,6 +211,7 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
     mqls: toNumber(metrics.mqls),
     sqls: toNumber(metrics.sqls),
     sqos: toNumber(metrics.sqos),
+    signed: toNumber(metrics.signed),
     joined: toNumber(metrics.joined),
     pipelineAum: toNumber(metrics.pipeline_aum),
     joinedAum: toNumber(metrics.joined_aum),

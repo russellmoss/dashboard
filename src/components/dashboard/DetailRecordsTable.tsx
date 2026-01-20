@@ -20,7 +20,7 @@ interface DetailRecordsTableProps {
   canExport?: boolean;
   viewMode?: ViewMode;
   advancedFilters?: AdvancedFilters; // To determine which date columns to show
-  metricFilter?: 'all' | 'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'joined' | 'openPipeline'; // To determine what date is shown
+  metricFilter?: 'all' | 'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'signed' | 'joined' | 'openPipeline'; // To determine what date is shown
   onRecordClick?: (recordId: string) => void;
   // New props for stage filter dropdown
   stageFilter?: string;
@@ -179,6 +179,16 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
         return record.sqoDate || record.relevantDate || '';
       case 'joined':
         return record.joinedDate || record.relevantDate || '';
+      case 'Signed':
+        return record.signedDate || record.relevantDate || '';
+      case 'Discovery':
+        return record.discoveryDate || record.relevantDate || '';
+      case 'Sales Process':
+        return record.salesProcessDate || record.relevantDate || '';
+      case 'Negotiating':
+        return record.negotiatingDate || record.relevantDate || '';
+      case 'On Hold':
+        return record.onHoldDate || record.relevantDate || '';
       case 'prospect':
       default:
         return record.relevantDate || ''; // FilterDate
@@ -211,8 +221,18 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
         return 'Shows the advisor join date for each person who joined. This is when they officially joined as an advisor.';
       case 'openPipeline':
         return 'Shows the Filter Date for open pipeline records. These are current opportunities in active stages.';
+      case 'Signed':
+        return 'Shows the date when each opportunity entered the Signed stage. This is when they signed the agreement.';
+      case 'Discovery':
+        return 'Shows the date when each opportunity entered the Discovery stage.';
+      case 'Sales Process':
+        return 'Shows the date when each opportunity entered the Sales Process stage.';
+      case 'Negotiating':
+        return 'Shows the date when each opportunity entered the Negotiating stage.';
+      case 'On Hold':
+        return 'Shows the date when each opportunity entered the On Hold stage.';
       default:
-        // Opportunity stages - show FilterDate
+        // Other opportunity stages (e.g., "Qualifying") - show FilterDate
         return 'Shows the Filter Date (cohort date) for each record.';
     }
   };

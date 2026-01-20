@@ -13,6 +13,11 @@ export function buildDateRangeFromFilters(filters: DashboardFilters): {
     : (filters.year || currentYear);
   
   switch (filters.datePreset) {
+    case 'alltime':
+      // All Time: Use a very early date (2000-01-01) to today
+      // This ensures we capture all historical data
+      return { startDate: '2000-01-01', endDate: today };
+    
     case 'ytd':
       return { startDate: `${year}-01-01`, endDate: today };
     

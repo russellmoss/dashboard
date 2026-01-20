@@ -10,6 +10,7 @@ export interface FunnelMetrics {
   mqls: number;       // Already calculated in query, just add to type
   sqls: number;
   sqos: number;
+  signed: number;     // Count by Stage_Entered_Signed__c
   joined: number;
   pipelineAum: number;
   joinedAum: number;
@@ -130,6 +131,11 @@ export interface DetailRecord {
   sqlDate: string | null; // converted_date_raw
   sqoDate: string | null; // Date_Became_SQO__c
   joinedDate: string | null; // advisor_join_date__c
+  signedDate: string | null; // Stage_Entered_Signed__c
+  discoveryDate: string | null; // Stage_Entered_Discovery__c
+  salesProcessDate: string | null; // Stage_Entered_Sales_Process__c
+  negotiatingDate: string | null; // Stage_Entered_Negotiating__c
+  onHoldDate: string | null; // Stage_Entered_On_Hold__c
   initialCallScheduledDate: string | null;
   qualificationCallDate: string | null;
   isContacted: boolean;
@@ -139,6 +145,8 @@ export interface DetailRecord {
   isJoined: boolean;
   isOpenPipeline: boolean;
   recordTypeId: string | null; // For filtering SQOs by recruiting record type
+  isPrimaryOppRecord: boolean; // For deduplicating opportunities with multiple leads
+  opportunityId: string | null; // For deduplicating opportunities with multiple leads
 }
 
 export interface ForecastData {

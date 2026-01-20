@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     
     const body = await request.json();
     const filters: DashboardFilters = body.filters;
-    const limit = body.limit || 50000; // Increased default limit to fetch all records
+    const limit = body.limit || 10000; // Reduced default limit to prevent cache errors (2MB limit)
     
     // Note: SGA/SGM filters are NOT automatically applied to main dashboard
     // All users (including SGAs) can see all data on the funnel performance dashboard

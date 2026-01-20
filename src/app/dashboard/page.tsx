@@ -104,7 +104,7 @@ export default function DashboardPage() {
   const [volumeDrillDownError, setVolumeDrillDownError] = useState<string | null>(null);
   const [volumeDrillDownTitle, setVolumeDrillDownTitle] = useState('');
   const [volumeDrillDownMetric, setVolumeDrillDownMetric] = useState<
-    'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'joined' | 'openPipeline' | null
+    'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'signed' | 'joined' | 'openPipeline' | null
   >(null);
   
   // Stage filter for DetailRecordsTable (defaults to SQO - middle funnel focus)
@@ -205,15 +205,83 @@ export default function DashboardPage() {
           // Open Pipeline: Current state, no date filter needed
           return record.isOpenPipeline === true;
         default:
-          // Handle opportunity stage names (e.g., "Discovery", "Qualifying", "Joined")
+          // Handle opportunity stage names (e.g., "Discovery", "Qualifying", "Signed", "Joined")
           // For "Joined" stage name, also check join date in range
           if (stageFilter === 'Joined') {
             return record.stage === 'Joined' && record.isJoined === true && isDateInRange(record.joinedDate);
           }
-          // For other opportunity stages, show all records with that stage (no date filter)
+          // For "Signed" stage, check signed date in range (regardless of current stage)
+          // Records may have moved past "Signed" (e.g., to "Joined") but we still want to show them
+          if (stageFilter === 'Signed') {
+            return record.signedDate !== null && isDateInRange(record.signedDate);
+          }
+          // For "Discovery" stage, check discovery date in range (regardless of current stage)
+          if (stageFilter === 'Discovery') {
+            return record.discoveryDate !== null && isDateInRange(record.discoveryDate);
+          }
+          // For "Sales Process" stage, check sales process date in range (regardless of current stage)
+          if (stageFilter === 'Sales Process') {
+            return record.salesProcessDate !== null && isDateInRange(record.salesProcessDate);
+          }
+          // For "Negotiating" stage, check negotiating date in range (regardless of current stage)
+          if (stageFilter === 'Negotiating') {
+            return record.negotiatingDate !== null && isDateInRange(record.negotiatingDate);
+          }
+          // For "On Hold" stage, check on hold date in range (regardless of current stage)
+          if (stageFilter === 'On Hold') {
+            return record.onHoldDate !== null && isDateInRange(record.onHoldDate);
+          }
+          // For other opportunity stages (e.g., "Qualifying"), show all records with that stage (no date filter)
           return record.stage === stageFilter;
       }
-    });
+    })
+    // Deduplicate: For opportunities with multiple leads, keep the most advanced record
+    // (e.g., the one that has progressed furthest - has join date, or is in a later stage)
+    .reduce((acc: DetailRecord[], record) => {
+      // Lead-only records (no opportunity) are always included
+      if (!record.opportunityId) {
+        acc.push(record);
+        return acc;
+      }
+      
+      // For opportunities, check if we already have a record for this opportunity
+      const existingIndex = acc.findIndex(r => r.opportunityId === record.opportunityId);
+      
+      if (existingIndex === -1) {
+        // First record for this opportunity - add it
+        acc.push(record);
+      } else {
+        // We already have a record for this opportunity - keep the most advanced one
+        const existing = acc[existingIndex];
+        
+        // Prefer the record that has progressed furthest:
+        // 1. Has join date (most advanced)
+        // 2. Has signed date
+        // 3. Has more stage dates
+        // 4. Is in a later stage
+        const recordScore = (record.isJoined ? 1000 : 0) +
+                           (record.joinedDate ? 500 : 0) +
+                           (record.signedDate ? 400 : 0) +
+                           (record.salesProcessDate ? 300 : 0) +
+                           (record.discoveryDate ? 200 : 0) +
+                           (record.negotiatingDate ? 100 : 0);
+        
+        const existingScore = (existing.isJoined ? 1000 : 0) +
+                              (existing.joinedDate ? 500 : 0) +
+                              (existing.signedDate ? 400 : 0) +
+                              (existing.salesProcessDate ? 300 : 0) +
+                              (existing.discoveryDate ? 200 : 0) +
+                              (existing.negotiatingDate ? 100 : 0);
+        
+        if (recordScore > existingScore) {
+          // Replace with the more advanced record
+          acc[existingIndex] = record;
+        }
+        // Otherwise keep the existing record
+      }
+      
+      return acc;
+    }, []);
   }, [detailRecords, stageFilter, filters]);
   
   // Fetch dashboard data when filters change
@@ -274,12 +342,13 @@ export default function DashboardPage() {
     setSelectedMetric(null);
     
     // Map metric IDs to proper metric filter values
-    const metricMap: Record<string, 'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'joined' | 'openPipeline'> = {
+    const metricMap: Record<string, 'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'signed' | 'joined' | 'openPipeline'> = {
       'prospect': 'prospect',
       'contacted': 'contacted',
       'mql': 'mql',
       'sql': 'sql',
       'sqo': 'sqo',
+      'signed': 'signed',
       'joined': 'joined',
       'openPipeline': 'openPipeline',
     };
@@ -303,6 +372,7 @@ export default function DashboardPage() {
       mql: 'MQLs',
       sql: 'SQLs',
       sqo: 'SQOs',
+      signed: 'Signed',
       joined: 'Joined',
       openPipeline: 'Open Pipeline',
     };

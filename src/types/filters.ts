@@ -101,7 +101,7 @@ export function countActiveAdvancedFilters(filters: AdvancedFilters): number {
 export interface DashboardFilters {
   startDate: string;
   endDate: string;
-  datePreset: 'ytd' | 'qtd' | 'q1' | 'q2' | 'q3' | 'q4' | 'custom' | 'last30' | 'last90';
+  datePreset: 'ytd' | 'qtd' | 'q1' | 'q2' | 'q3' | 'q4' | 'custom' | 'last30' | 'last90' | 'alltime';
   year: number;
   channel: string | null;
   source: string | null;
@@ -109,7 +109,7 @@ export interface DashboardFilters {
   sgm: string | null;
   stage: string | null;
   experimentationTag: string | null;
-  metricFilter: 'all' | 'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'joined' | 'openPipeline';
+  metricFilter: 'all' | 'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'signed' | 'joined' | 'openPipeline';
   advancedFilters?: AdvancedFilters;  // Optional for backward compatibility
 }
 

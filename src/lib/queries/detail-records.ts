@@ -9,7 +9,7 @@ import { cachedQuery, CACHE_TAGS, DETAIL_RECORDS_TTL } from '@/lib/cache';
 
 const _getDetailRecords = async (
   filters: DashboardFilters,
-  limit: number = 50000
+  limit: number = 10000  // Reduced to prevent Next.js cache errors (2MB limit)
 ): Promise<DetailRecord[]> => {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
   
@@ -67,13 +67,13 @@ const _getDetailRecords = async (
   switch (filters.metricFilter) {
     case 'prospect':
       // Prospects: Include ALL records where ANY stage date is within the date range
-      // This allows client-side filtering to show all SQOs/SQLs/MQLs that entered those stages in the period,
+      // This allows client-side filtering to show all SQOs/SQLs/MQLs/Signed/etc that entered those stages in the period,
       // not just records that became prospects in the period
       // NOTE: Do NOT filter by recordtypeid here - match scorecard behavior (MQLs/SQLs/Contacted count all record types)
       // SQOs will be filtered by recordtypeid in the client-side filter to match scorecard behavior
       dateField = 'FilterDate';
       dateFieldAlias = 'relevant_date';
-      // Include records where any stage date is in range
+      // Include records where any stage date is in range (including all opportunity stage_entered dates)
       conditions.push(`(
         (FilterDate IS NOT NULL AND TIMESTAMP(FilterDate) >= TIMESTAMP(@startDate) AND TIMESTAMP(FilterDate) <= TIMESTAMP(@endDate))
         OR (Date_Became_SQO__c IS NOT NULL AND TIMESTAMP(Date_Became_SQO__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(Date_Became_SQO__c) <= TIMESTAMP(@endDate))
@@ -81,6 +81,11 @@ const _getDetailRecords = async (
         OR (mql_stage_entered_ts IS NOT NULL AND TIMESTAMP(mql_stage_entered_ts) >= TIMESTAMP(@startDate) AND TIMESTAMP(mql_stage_entered_ts) <= TIMESTAMP(@endDate))
         OR (stage_entered_contacting__c IS NOT NULL AND TIMESTAMP(stage_entered_contacting__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(stage_entered_contacting__c) <= TIMESTAMP(@endDate))
         OR (advisor_join_date__c IS NOT NULL AND DATE(advisor_join_date__c) >= DATE(@startDate) AND DATE(advisor_join_date__c) <= DATE(@endDate))
+        OR (Stage_Entered_Signed__c IS NOT NULL AND TIMESTAMP(Stage_Entered_Signed__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(Stage_Entered_Signed__c) <= TIMESTAMP(@endDate))
+        OR (Stage_Entered_Discovery__c IS NOT NULL AND TIMESTAMP(Stage_Entered_Discovery__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(Stage_Entered_Discovery__c) <= TIMESTAMP(@endDate))
+        OR (Stage_Entered_Sales_Process__c IS NOT NULL AND TIMESTAMP(Stage_Entered_Sales_Process__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(Stage_Entered_Sales_Process__c) <= TIMESTAMP(@endDate))
+        OR (Stage_Entered_Negotiating__c IS NOT NULL AND TIMESTAMP(Stage_Entered_Negotiating__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(Stage_Entered_Negotiating__c) <= TIMESTAMP(@endDate))
+        OR (Stage_Entered_On_Hold__c IS NOT NULL AND TIMESTAMP(Stage_Entered_On_Hold__c) >= TIMESTAMP(@startDate) AND TIMESTAMP(Stage_Entered_On_Hold__c) <= TIMESTAMP(@endDate))
       )`);
       break;
     case 'contacted':
@@ -120,6 +125,15 @@ const _getDetailRecords = async (
       conditions.push('TIMESTAMP(Date_Became_SQO__c) >= TIMESTAMP(@startDate)');
       conditions.push('TIMESTAMP(Date_Became_SQO__c) <= TIMESTAMP(@endDate)');
       params.recruitingRecordType = RECRUITING_RECORD_TYPE;
+      break;
+    case 'signed':
+      // Signed: Filter by Stage_Entered_Signed__c within date range AND is_primary_opp_record = 1 (deduplicate)
+      dateField = 'Stage_Entered_Signed__c';
+      dateFieldAlias = 'relevant_date';
+      conditions.push('is_primary_opp_record = 1');
+      conditions.push('Stage_Entered_Signed__c IS NOT NULL');
+      conditions.push('TIMESTAMP(Stage_Entered_Signed__c) >= TIMESTAMP(@startDate)');
+      conditions.push('TIMESTAMP(Stage_Entered_Signed__c) <= TIMESTAMP(@endDate)');
       break;
     case 'joined':
       // Joined: Filter by advisor_join_date__c within date range
@@ -198,12 +212,19 @@ const _getDetailRecords = async (
       v.advisor_join_date__c as joined_date,
       v.Initial_Call_Scheduled_Date__c as initial_call_scheduled_date,
       v.Qualification_Call_Date__c as qualification_call_date,
+      v.Stage_Entered_Signed__c as signed_date,
+      v.Stage_Entered_Discovery__c as discovery_date,
+      v.Stage_Entered_Sales_Process__c as sales_process_date,
+      v.Stage_Entered_Negotiating__c as negotiating_date,
+      v.Stage_Entered_On_Hold__c as on_hold_date,
       v.is_contacted,
       v.is_mql,
       v.is_sql,
       v.is_sqo_unique as is_sqo,
       v.is_joined_unique as is_joined,
-      v.recordtypeid
+      v.recordtypeid,
+      v.is_primary_opp_record,
+      v.Full_Opportunity_ID__c as opportunity_id
     FROM \`${FULL_TABLE}\` v
     LEFT JOIN \`${MAPPING_TABLE}\` nm
       ON v.Original_source = nm.original_source
@@ -227,12 +248,18 @@ const _getDetailRecords = async (
     // Extract all date fields
     // Note: FilterDate, stage_entered_contacting__c, mql_stage_entered_ts, Date_Became_SQO__c are TIMESTAMP
     // converted_date_raw and advisor_join_date__c are DATE
+    // Stage_Entered_* fields are TIMESTAMP
     const filterDate = extractDate(r.filter_date) || '';
     const contactedDate = extractDate(r.contacted_date);
     const mqlDate = extractDate(r.mql_date);
     const sqlDate = extractDate(r.sql_date); // DATE field
     const sqoDate = extractDate(r.sqo_date);
     const joinedDate = extractDate(r.joined_date); // DATE field
+    const signedDate = extractDate(r.signed_date);
+    const discoveryDate = extractDate(r.discovery_date);
+    const salesProcessDate = extractDate(r.sales_process_date);
+    const negotiatingDate = extractDate(r.negotiating_date);
+    const onHoldDate = extractDate(r.on_hold_date);
     
     // Extract Initial Call Scheduled Date (DATE field - direct string)
     let initialCallDate: string | null = null;
@@ -271,6 +298,11 @@ const _getDetailRecords = async (
       sqlDate: sqlDate,
       sqoDate: sqoDate,
       joinedDate: joinedDate,
+      signedDate: signedDate,
+      discoveryDate: discoveryDate,
+      salesProcessDate: salesProcessDate,
+      negotiatingDate: negotiatingDate,
+      onHoldDate: onHoldDate,
       initialCallScheduledDate: initialCallDate,
       qualificationCallDate: qualCallDate,
       isContacted: r.is_contacted === 1,
@@ -280,6 +312,8 @@ const _getDetailRecords = async (
       isJoined: r.is_joined === 1,
       isOpenPipeline: OPEN_PIPELINE_STAGES.includes(toString(r.stage)),
       recordTypeId: r.recordtypeid ? toString(r.recordtypeid) : null,
+      isPrimaryOppRecord: (r.is_primary_opp_record ?? 0) === 1,
+      opportunityId: r.opportunity_id ? toString(r.opportunity_id) : null,
     };
   });
 };

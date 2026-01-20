@@ -10,7 +10,7 @@ import {
   getVarianceColorClass,
   getVarianceBadgeColor 
 } from '@/lib/utils/goal-helpers';
-import { TrendingUp, Users, DollarSign, Package } from 'lucide-react';
+import { TrendingUp, Users, DollarSign, Package, FileCheck } from 'lucide-react';
 import { OpenPipelineAumTooltip } from './OpenPipelineAumTooltip';
 
 interface ScorecardsProps {
@@ -97,6 +97,28 @@ export function Scorecards({ metrics, selectedMetric, onMetricClick }: Scorecard
         {goals && goals.sqos > 0 && (
           <GoalDisplay actual={metrics.sqos} goal={goals.sqos} label="SQO" />
         )}
+      </Card>
+
+      {/* Signed Card */}
+      <Card 
+        className={`p-4 dark:bg-gray-800 dark:border-gray-700 ${
+          onMetricClick 
+            ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md' 
+            : ''
+        }`}
+        onClick={() => onMetricClick?.('signed')}
+      >
+        <div className="flex items-center justify-between mb-2">
+          <Text className="text-gray-600 dark:text-gray-400">Signed</Text>
+          <FileCheck className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
+        </div>
+        <Metric className="text-2xl font-bold text-gray-900 dark:text-white">
+          {formatNumber(metrics.signed)}
+        </Metric>
+        <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          Signed Advisors
+        </Text>
+        {/* No goals for signed */}
       </Card>
 
       {/* Joined Card */}

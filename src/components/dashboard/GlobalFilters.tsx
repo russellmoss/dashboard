@@ -14,6 +14,7 @@ interface GlobalFiltersProps {
 }
 
 const DATE_PRESETS = [
+  { value: 'alltime', label: 'All Time' },
   { value: 'ytd', label: 'Year to Date' },
   { value: 'qtd', label: 'Quarter to Date' },
   { value: 'q1', label: 'Q1' },

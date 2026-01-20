@@ -902,6 +902,11 @@ export function ExploreResults({ response, isLoading, error, streamingMessage, c
             sqlDate: row.sql_date as string || row.converted_date_raw as string || null,
             sqoDate: row.sqo_date as string || row.Date_Became_SQO__c as string || null,
             joinedDate: row.joined_date as string || row.advisor_join_date__c as string || null,
+            signedDate: row.signed_date as string || row.Stage_Entered_Signed__c as string || null,
+            discoveryDate: row.discovery_date as string || row.Stage_Entered_Discovery__c as string || null,
+            salesProcessDate: row.sales_process_date as string || row.Stage_Entered_Sales_Process__c as string || null,
+            negotiatingDate: row.negotiating_date as string || row.Stage_Entered_Negotiating__c as string || null,
+            onHoldDate: row.on_hold_date as string || row.Stage_Entered_On_Hold__c as string || null,
             initialCallScheduledDate: row.initial_call_scheduled_date as string || row.Initial_Call_Scheduled_Date__c as string || null,
             qualificationCallDate: row.qualification_call_date as string || row.Qualification_Call_Date__c as string || null,
             isContacted,
@@ -911,6 +916,8 @@ export function ExploreResults({ response, isLoading, error, streamingMessage, c
             isJoined,
             isOpenPipeline,
             recordTypeId: row.recordtypeid as string || null,
+            isPrimaryOppRecord: (row.is_primary_opp_record as number ?? 0) === 1,
+            opportunityId: (row.Full_Opportunity_ID__c as string) || null,
           };
         });
 

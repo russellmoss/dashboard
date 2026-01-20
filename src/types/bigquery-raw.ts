@@ -6,6 +6,7 @@ export interface RawFunnelMetricsResult {
   mqls?: number | null;
   sqls: number | null;
   sqos: number | null;
+  signed: number | null;
   joined: number | null;
   pipeline_aum: number | null;
   joined_aum: number | null;
@@ -73,6 +74,11 @@ export interface RawDetailRecordResult {
   sql_date?: string | { value: string } | null; // converted_date_raw (DATE)
   sqo_date?: string | { value: string } | null; // Date_Became_SQO__c (TIMESTAMP)
   joined_date?: string | { value: string } | null; // advisor_join_date__c (DATE)
+  signed_date?: string | { value: string } | null; // Stage_Entered_Signed__c (TIMESTAMP)
+  discovery_date?: string | { value: string } | null; // Stage_Entered_Discovery__c (TIMESTAMP)
+  sales_process_date?: string | { value: string } | null; // Stage_Entered_Sales_Process__c (TIMESTAMP)
+  negotiating_date?: string | { value: string } | null; // Stage_Entered_Negotiating__c (TIMESTAMP)
+  on_hold_date?: string | { value: string } | null; // Stage_Entered_On_Hold__c (TIMESTAMP)
   relevant_date?: string | { value: string } | null; // Legacy - keep for backward compatibility
   initial_call_scheduled_date?: string | { value: string } | null;
   qualification_call_date?: string | { value: string } | null;
@@ -82,6 +88,8 @@ export interface RawDetailRecordResult {
   is_sqo: number;
   is_joined: number;
   recordtypeid?: string | null;
+  is_primary_opp_record?: number | null;
+  opportunity_id?: string | null;
 }
 
 // Forecast Goals Raw Results

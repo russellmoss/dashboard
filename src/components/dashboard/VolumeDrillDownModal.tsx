@@ -13,7 +13,7 @@ interface VolumeDrillDownModalProps {
   loading: boolean;
   error: string | null;
   onRecordClick: (recordId: string) => void;
-  metricFilter?: 'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'joined' | 'openPipeline';
+  metricFilter?: 'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'signed' | 'joined' | 'openPipeline';
   canExport?: boolean;
 }
 
