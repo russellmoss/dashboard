@@ -609,14 +609,14 @@ export function ExploreResults({ response, isLoading, error, streamingMessage, c
         return;
       }
 
-      // For MQLs, SQLs, and other lead-level metrics, we'll let the agent select the template
-      // based on the natural language question. For SQOs and Joined, use sqo_detail_list.
-      if (metric === 'sqos' || metric === 'joined') {
+      // For MQLs, SQLs, Prospects, Contacted, and Joined - use generic_detail_list
+      // For SQOs, use sqo_detail_list
+      if (metric === 'sqos') {
         detailTemplate = 'sqo_detail_list';
       } else {
-        // For MQLs, SQLs, Prospects, Contacted - let agent select template
+        // For MQLs, SQLs, Prospects, Contacted, Joined - use generic_detail_list
         // The question will be specific enough for the agent to choose correctly
-        detailTemplate = 'sqo_detail_list'; // Fallback, but agent should override
+        detailTemplate = 'generic_detail_list';
       }
       title = `${metric.toUpperCase()} Details`;
     }
@@ -716,12 +716,14 @@ export function ExploreResults({ response, isLoading, error, streamingMessage, c
         question = `show me all ${metric || 'records'}`;
       }
       
-      // For MQLs and SQLs, use "show me all" format to avoid sqo_detail_list template
-      // The agent should select a different template for lead-level metrics
+      // For MQLs, SQLs, and Joined, use "show me all" format to ensure generic_detail_list template
+      // The agent should select generic_detail_list for these metrics
       if (metric === 'mqls') {
         question = 'show me all MQLs';
       } else if (metric === 'sqls') {
         question = 'show me all SQLs';
+      } else if (metric === 'joined') {
+        question = 'show me all joined advisors';
       }
       
       // Add date range explicitly

@@ -212,7 +212,11 @@ Note: For lead-level metrics (MQLs, SQLs, Contacted, Prospects), use the generic
 
 Question: "show me all SQLs last quarter"
 → templateId: "generic_detail_list", metric: "sqls", dateRange: { "preset": "last_quarter" }
-Note: Use generic_detail_list for SQLs, MQLs, Contacted, and Prospects. For SQOs and Joined, use sqo_detail_list instead.
+Note: Use generic_detail_list for SQLs, MQLs, Contacted, Prospects, and Joined. For SQOs, use sqo_detail_list instead.
+
+Question: "show me all joined advisors last quarter"
+→ templateId: "generic_detail_list", metric: "joined", dateRange: { "preset": "last_quarter" }
+Note: For joined advisors, always use generic_detail_list with metric: "joined". This template filters by advisor_join_date__c and is_joined_unique = 1, not by SQO fields.
 
 Question: "How many SQOs did we have this quarter?"
 → templateId: "single_metric", metric: "sqos", dateRange.preset: "this_quarter"
