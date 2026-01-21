@@ -1245,6 +1245,428 @@ src/
 
 ---
 
+## Saved Reports Feature Patterns
+
+### Overview
+
+The Saved Reports feature allows users to save filter presets with custom feature selection (which dashboard components to show). Users can create personal reports, and admins can create template reports visible to all users.
+
+**Key Files:**
+- `src/types/saved-reports.ts` - Saved report type definitions and FeatureSelection interface
+- `src/app/api/saved-reports/` - API routes for CRUD operations
+- `src/components/dashboard/SaveReportModal.tsx` - Modal for creating/editing reports
+- `src/components/dashboard/SavedReportsDropdown.tsx` - Dropdown for selecting reports
+- `src/components/dashboard/DeleteConfirmModal.tsx` - Confirmation modal for deletion
+- `src/app/dashboard/page.tsx` - Main dashboard integration with feature selection state
+
+### Critical Patterns
+
+#### 1. Feature Selection State Management
+
+**⚠️ CRITICAL**: Feature selection controls which dashboard components are visible. State is managed in `src/app/dashboard/page.tsx`:
+
+```typescript
+const [featureSelection, setFeatureSelection] = useState<FeatureSelection>(
+  DEFAULT_FEATURE_SELECTION
+);
+```
+
+**Pattern**: When loading a saved report:
+```typescript
+const applyReport = useCallback((report: SavedReport) => {
+  setActiveReportId(report.id);
+  setFilters(report.filters as DashboardFilters);
+  setFeatureSelection(getEffectiveFeatureSelection(report.featureSelection));
+  if (report.viewMode) {
+    setViewMode(report.viewMode as ViewMode);
+  }
+}, []);
+```
+
+**Why**: `getEffectiveFeatureSelection()` handles backward compatibility - reports without featureSelection show all features, and converts old grouped format to new granular format.
+
+#### 2. Granular Feature Selection Structure
+
+**⚠️ CRITICAL**: Feature selection uses granular control over individual scorecards and conversion rate cards, not grouped components.
+
+**Pattern**: Features are individually selectable:
+
+```typescript
+interface FeatureSelection {
+  scorecards: {
+    prospects: boolean;      // Individual
+    contacted: boolean;      // Individual
+    mqls: boolean;          // Individual
+    sqls: boolean;         // Individual
+    sqos: boolean;         // Individual
+    signed: boolean;       // Individual
+    joined: boolean;       // Individual
+    openPipeline: boolean; // Individual (standalone section)
+  };
+  conversionRates: {
+    contactedToMql: boolean;  // Individual
+    mqlToSql: boolean;       // Individual
+    sqlToSqo: boolean;       // Individual
+    sqoToJoined: boolean;     // Individual
+  };
+  charts: {
+    conversionTrends: boolean;  // Individual
+    volumeTrends: boolean;       // Individual
+  };
+  tables: {
+    channelPerformance: boolean;  // Individual
+    sourcePerformance: boolean;   // Individual
+    detailRecords: boolean;       // Individual
+  };
+}
+```
+
+**Why**: Users can selectively show/hide individual metrics. "Open Pipeline" is its own standalone scorecard section, not grouped with volume scorecards.
+
+#### 3. Conditional Data Fetching Based on Feature Selection
+
+**⚠️ CRITICAL**: Only fetch data for visible features to improve performance.
+
+**Pattern**:
+```typescript
+// Check if any scorecard metrics are visible
+const needsMetrics = 
+  featureSelection.scorecards.prospects ||
+  featureSelection.scorecards.contacted ||
+  featureSelection.scorecards.mqls ||
+  featureSelection.scorecards.sqls ||
+  featureSelection.scorecards.sqos ||
+  featureSelection.scorecards.signed ||
+  featureSelection.scorecards.joined ||
+  featureSelection.scorecards.openPipeline ||
+  featureSelection.tables.channelPerformance ||
+  featureSelection.tables.sourcePerformance;
+
+if (needsMetrics) {
+  promises.push(dashboardApi.getFunnelMetrics(currentFilters, viewMode).then(setMetrics));
+}
+
+// Check if conversion rates are visible
+if (featureSelection.conversionRates.contactedToMql || 
+    featureSelection.conversionRates.mqlToSql ||
+    featureSelection.conversionRates.sqlToSqo ||
+    featureSelection.conversionRates.sqoToJoined) {
+  promises.push(dashboardApi.getConversionRates(currentFilters, viewMode).then(setConversionRates));
+}
+```
+
+**Why**: Reduces unnecessary API calls and improves dashboard load time.
+
+#### 4. Conditional Component Rendering
+
+**Pattern**: Wrap each dashboard component with feature selection check:
+
+```typescript
+{featureSelection.scorecards.prospects && viewMode === 'fullFunnel' && metrics && (
+  <CardErrorBoundary>
+    <FullFunnelScorecards visibleMetrics={{ prospects: true }} ... />
+  </CardErrorBoundary>
+)}
+
+{featureSelection.scorecards.sqls && metrics && (
+  <CardErrorBoundary>
+    <Scorecards visibleMetrics={{ sqls: true }} ... />
+  </CardErrorBoundary>
+)}
+
+{featureSelection.conversionRates.contactedToMql && conversionRates && (
+  <CardErrorBoundary>
+    <ConversionRateCards visibleRates={{ contactedToMql: true }} ... />
+  </CardErrorBoundary>
+)}
+```
+
+**Why**: Maintains ErrorBoundary pattern while respecting granular feature selection. Components receive `visibleMetrics`/`visibleRates` props for internal conditional rendering.
+
+#### 5. View Mode Override for Custom Reports
+
+**⚠️ CRITICAL**: When loading a custom report, the report's `viewMode` should override the current view mode.
+
+**Pattern**:
+```typescript
+const applyReport = useCallback((report: SavedReport) => {
+  setActiveReportId(report.id);
+  setFilters(report.filters as DashboardFilters);
+  setFeatureSelection(getEffectiveFeatureSelection(report.featureSelection));
+  // Override view mode if report has one
+  if (report.viewMode) {
+    setViewMode(report.viewMode as ViewMode);
+  }
+}, []);
+```
+
+**Why**: Custom reports should display exactly as saved, regardless of current view mode setting.
+
+#### 6. Default Report Loading on Dashboard Mount
+
+**Pattern**:
+```typescript
+useEffect(() => {
+  const initializeReports = async () => {
+    await fetchSavedReports();
+    await loadDefaultReport();
+  };
+  initializeReports();
+}, [fetchSavedReports, loadDefaultReport]);
+
+const loadDefaultReport = useCallback(async () => {
+  try {
+    const defaultReport = await dashboardApi.getDefaultReport();
+    if (defaultReport) {
+      applyReport(defaultReport);
+    }
+  } catch (error) {
+    console.error('Failed to load default report:', error);
+  }
+}, [applyReport]);
+```
+
+**Why**: Users expect their default report to load automatically when visiting the dashboard. Ensure `fetchSavedReports()` completes before `loadDefaultReport()`.
+
+#### 7. Active Report Clearing on Manual Filter Changes
+
+**Pattern**:
+```typescript
+onFiltersChange={(newFilters) => {
+  setFilters(newFilters);
+  setActiveReportId(null); // Clear active report when manually changing filters
+}}
+```
+
+**Why**: If user manually changes filters, they're no longer viewing a saved report. Clear the active report ID to reflect this.
+
+#### 8. Admin Template Access Control
+
+**Pattern**:
+```typescript
+// In API routes
+const permissions = await getUserPermissions(session.user.email);
+const isAdminTemplate = reportType === 'admin_template';
+if (isAdminTemplate && !['admin', 'manager'].includes(permissions.role)) {
+  return NextResponse.json({ error: 'Only admins can create templates' }, { status: 403 });
+}
+
+// In SavedReportsDropdown - pass isAdmin prop
+<SavedReportsDropdown
+  isAdmin={isAdmin}
+  // ... other props
+/>
+
+// In dropdown - conditionally enable edit/delete for admin templates
+{report.reportType === 'admin_template' && (
+  <ReportItem
+    canEdit={isAdmin}
+    canDelete={isAdmin}
+    // ... other props
+  />
+)}
+```
+
+**Why**: Only admins/managers can create, edit, and delete templates. Regular users can view and duplicate templates but cannot modify them. Admin templates have `userId` set to creator's ID (not null) for tracking, but `reportType` field distinguishes them.
+
+#### 9. One Default Per User Enforcement
+
+**⚠️ CRITICAL**: Prisma doesn't support WHERE clauses in `@@unique` constraints. Must enforce in application logic.
+
+**Pattern**:
+```typescript
+// When setting as default, unset any existing default FIRST
+if (isDefault && !isAdminTemplate) {
+  await prisma.savedReport.updateMany({
+    where: {
+      userId: user.id,
+      isDefault: true,
+      isActive: true,
+      id: { not: params.id }, // Exclude current report if updating
+    },
+    data: { isDefault: false },
+  });
+}
+
+// Then set this report as default
+await prisma.savedReport.update({
+  where: { id: params.id },
+  data: { isDefault: true },
+});
+```
+
+**Why**: Ensures only one default report per user. Must be done in application logic, not database constraint.
+
+#### 10. Backward Compatibility for Feature Selection
+
+**Pattern**: Use `getEffectiveFeatureSelection()` helper:
+
+```typescript
+export function getEffectiveFeatureSelection(
+  featureSelection: FeatureSelection | null | undefined
+): FeatureSelection {
+  if (!featureSelection) {
+    return DEFAULT_FEATURE_SELECTION; // Show all features
+  }
+  
+  // Handle backward compatibility: convert old grouped format to new granular format
+  const oldFormat = featureSelection as any;
+  if (oldFormat.scorecards?.fullFunnel !== undefined || oldFormat.scorecards?.volume !== undefined) {
+    // Old format detected - convert to new format
+    const fullFunnel = oldFormat.scorecards?.fullFunnel ?? true;
+    const volume = oldFormat.scorecards?.volume ?? true;
+    return {
+      scorecards: {
+        prospects: fullFunnel,
+        contacted: fullFunnel,
+        mqls: fullFunnel,
+        sqls: volume,
+        sqos: volume,
+        signed: volume,
+        joined: volume,
+        openPipeline: volume,
+      },
+      // ... convert conversionRates from boolean to object if needed
+    };
+  }
+  
+  // New format - merge with defaults for backward compatibility
+  return {
+    scorecards: {
+      prospects: featureSelection.scorecards?.prospects ?? true,
+      contacted: featureSelection.scorecards?.contacted ?? true,
+      // ... etc
+    },
+    // ... etc
+  };
+}
+```
+
+**Why**: Old reports without featureSelection should show all features. Old reports with grouped format (fullFunnel/volume) are converted to granular format. New reports use granular format directly.
+
+#### 11. Admin Template userId Tracking
+
+**⚠️ CRITICAL**: Admin templates should have `userId` set to the creator's ID (not null) for tracking purposes.
+
+**Pattern**:
+```typescript
+// In POST /api/saved-reports/route.ts
+const report = await prisma.savedReport.create({
+  data: {
+    userId: user.id, // Always set userId, even for admin templates
+    name,
+    description,
+    filters,
+    featureSelection,
+    viewMode,
+    dashboard: 'funnel_performance',
+    reportType: isAdminTemplate ? 'admin_template' : 'user',
+    isDefault,
+    isActive: true,
+    createdBy: user.email,
+  },
+});
+```
+
+**Why**: `userId` tracks who created the template (for edit/delete permissions). `reportType` field distinguishes admin templates from user reports. This allows admins to edit/delete templates they created.
+
+### Common Pitfalls - Saved Reports
+
+#### ❌ Not Clearing Active Report on Manual Filter Changes
+- **WRONG**: User changes filters manually but `activeReportId` still set
+- **RIGHT**: Clear `activeReportId` when filters change manually
+- **WHY**: UI should reflect that user is no longer viewing a saved report
+
+#### ❌ Fetching Data for Hidden Features
+- **WRONG**: Always fetching all data regardless of feature selection
+- **RIGHT**: Conditionally fetch based on `featureSelection` state
+- **WHY**: Improves performance and reduces unnecessary API calls
+
+#### ❌ Not Overriding View Mode When Loading Custom Report
+- **WRONG**: Loading report but keeping current view mode
+- **RIGHT**: Set `viewMode` from report if present
+- **WHY**: Custom reports should display exactly as saved
+
+#### ❌ Using Database Constraint for One Default Per User
+- **WRONG**: `@@unique([userId, isDefault], where: { isDefault: true })`
+- **RIGHT**: Enforce in application logic with `updateMany` before setting default
+- **WHY**: Prisma doesn't support WHERE clauses in `@@unique` constraints
+
+#### ❌ Not Using getUserPermissions for Admin Checks
+- **WRONG**: `user.role === 'admin'`
+- **RIGHT**: `const permissions = await getUserPermissions(email); permissions.role === 'admin'`
+- **WHY**: Permissions system centralizes role checks and includes additional context
+
+#### ❌ Not Handling Null featureSelection in Saved Reports
+- **WRONG**: `report.featureSelection` used directly
+- **RIGHT**: `getEffectiveFeatureSelection(report.featureSelection)`
+- **WHY**: Backward compatibility - old reports may have null featureSelection
+
+#### ❌ Setting userId to null for Admin Templates
+- **WRONG**: `userId: isAdminTemplate ? null : user.id`
+- **RIGHT**: `userId: user.id` (always set to creator's ID)
+- **WHY**: Tracks creator for edit/delete permissions. `reportType` field distinguishes admin templates.
+
+#### ❌ Not Passing isAdmin Prop to SavedReportsDropdown
+- **WRONG**: `<SavedReportsDropdown ... />` without `isAdmin` prop
+- **RIGHT**: `<SavedReportsDropdown isAdmin={isAdmin} ... />`
+- **WHY**: Dropdown needs to know if user is admin to enable edit/delete for admin templates
+
+### Saved Reports File Structure
+
+```
+src/
+├── types/
+│   └── saved-reports.ts (FeatureSelection, SavedReport, SavedReportInput, helper functions)
+├── app/
+│   └── api/
+│       └── saved-reports/
+│           ├── route.ts (GET list, POST create)
+│           ├── [id]/route.ts (GET, PUT, DELETE)
+│           ├── [id]/set-default/route.ts (POST)
+│           ├── [id]/duplicate/route.ts (POST)
+│           └── default/route.ts (GET)
+├── components/
+│   └── dashboard/
+│       ├── SaveReportModal.tsx (granular feature selection UI)
+│       ├── SavedReportsDropdown.tsx (with isAdmin prop)
+│       └── DeleteConfirmModal.tsx
+├── lib/
+│   └── api-client.ts (dashboardApi.getSavedReports, etc.)
+└── app/
+    └── dashboard/
+        └── page.tsx (feature selection state, conditional rendering, conditional fetching)
+```
+
+### Testing Saved Reports Features
+
+**Before making changes:**
+1. Verify feature selection state is properly initialized
+2. Test default report loading on page refresh
+3. Verify conditional data fetching (check Network tab)
+4. Test admin template creation/editing permissions
+5. Verify one default per user enforcement
+6. Test backward compatibility with reports without featureSelection
+7. Verify granular feature selection (individual scorecards/conversion rates)
+8. Test view mode override when loading custom reports
+9. Verify admin templates have userId set to creator's ID
+
+**Common Test Cases:**
+- Default report loads on dashboard visit
+- Manual filter changes clear active report
+- Hidden features don't fetch data
+- Individual scorecards can be hidden/shown independently
+- Individual conversion rate cards can be hidden/shown independently
+- Custom report view mode overrides current view mode
+- Admin templates visible to all users
+- Non-admins cannot edit/delete admin templates (only duplicate)
+- Admins can edit/delete templates they created
+- One default per user enforced
+- Reports without featureSelection show all features
+- Old grouped format reports converted to granular format
+
+---
+
 ## Explore Feature - Drilldown and Detail Lists
 
 ### Generic Detail List Template for Lead-Level Metrics (CRITICAL)

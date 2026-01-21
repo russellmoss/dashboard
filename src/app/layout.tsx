@@ -10,8 +10,11 @@ const inter = Inter({ subsets: ['latin'] });
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Savvy Analytics - Funnel Dashboard',
-  description: 'Funnel performance analytics dashboard',
+  title: 'Savvy GTM Dashboard',
+  description: 'GTM Analytics Dashboard',
+  icons: {
+    icon: '/favicon.svg',
+  },
 };
 
 export default function RootLayout({

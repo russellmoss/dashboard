@@ -1,16 +1,38 @@
 {
   "functions": {
-    "src/app/api/dashboard/export-sheets/route.ts": {
-      "maxDuration": 60
-    },
-    "src/app/api/agent/query/route.ts": {
-      "maxDuration": 60
-    }
+    "src/app/api/dashboard/export-sheets/route.ts": { "maxDuration": 60 },
+    "src/app/api/agent/query/route.ts": { "maxDuration": 60 },
+    "src/app/api/admin/trigger-transfer/route.ts": { "maxDuration": 60 },
+    "src/app/api/cron/trigger-transfer/route.ts": { "maxDuration": 60 }
   },
   "crons": [
     {
       "path": "/api/cron/refresh-cache",
-      "schedule": "0 5 * * *"
+      "schedule": "10 4 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-cache",
+      "schedule": "10 10 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-cache",
+      "schedule": "10 16 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-cache",
+      "schedule": "10 22 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-cache",
+      "schedule": "47 19 * * 5"
+    },
+    {
+      "path": "/api/cron/refresh-cache",
+      "schedule": "47 20 * * 5"
+    },
+    {
+      "path": "/api/cron/refresh-cache",
+      "schedule": "47 22 * * 5"
     }
   ]
 }

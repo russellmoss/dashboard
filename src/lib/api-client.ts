@@ -342,6 +342,61 @@ export const dashboardApi = {
   getDefaultReport: () =>
     apiFetch<{ report: SavedReport | null }>('/api/saved-reports/default')
       .then(data => data.report),
+
+  /**
+   * Trigger a manual data transfer (admin/manager only)
+   */
+  async triggerDataTransfer(): Promise<{
+    success: boolean;
+    runId?: string;
+    message: string;
+    estimatedDuration?: string;
+    cooldownMinutes?: number;
+  }> {
+    return apiFetch<{
+      success: boolean;
+      runId?: string;
+      message: string;
+      estimatedDuration?: string;
+      cooldownMinutes?: number;
+    }>('/api/admin/trigger-transfer', {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * Check the status of a transfer run
+   */
+  async getTransferStatus(runId: string): Promise<{
+    runId: string;
+    state: string;
+    isComplete: boolean;
+    success: boolean;
+    errorMessage?: string;
+    cacheInvalidated?: boolean;
+  }> {
+    return apiFetch<{
+      runId: string;
+      state: string;
+      isComplete: boolean;
+      success: boolean;
+      errorMessage?: string;
+      cacheInvalidated?: boolean;
+    }>(`/api/admin/trigger-transfer?runId=${encodeURIComponent(runId)}`);
+  },
+
+  /**
+   * Check cooldown status
+   */
+  async getTransferCooldownStatus(): Promise<{
+    cooldown: boolean;
+    cooldownMinutes: number;
+  }> {
+    return apiFetch<{
+      cooldown: boolean;
+      cooldownMinutes: number;
+    }>('/api/admin/trigger-transfer');
+  },
 };
 
 /**

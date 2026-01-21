@@ -17,6 +17,7 @@
     "@anthropic-ai/sdk": "^0.71.2",
     "@auth/prisma-adapter": "^2.11.1",
     "@google-cloud/bigquery": "^7.9.4",
+    "@google-cloud/bigquery-data-transfer": "^5.1.2",
     "@prisma/client": "6.19.0",
     "@sentry/nextjs": "^10.34.0",
     "@tremor/react": "^3.18.7",

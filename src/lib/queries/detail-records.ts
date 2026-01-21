@@ -5,7 +5,6 @@ import { buildAdvancedFilterClauses } from '../utils/filter-helpers';
 import { buildDateRangeFromFilters, formatCurrency } from '../utils/date-helpers';
 import { RawDetailRecordResult, toNumber, toString } from '@/types/bigquery-raw';
 import { FULL_TABLE, OPEN_PIPELINE_STAGES, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
-import { cachedQuery, CACHE_TAGS, DETAIL_RECORDS_TTL } from '@/lib/cache';
 
 const _getDetailRecords = async (
   filters: DashboardFilters,
@@ -322,9 +321,4 @@ const _getDetailRecords = async (
   });
 };
 
-export const getDetailRecords = cachedQuery(
-  _getDetailRecords,
-  'getDetailRecords',
-  CACHE_TAGS.DASHBOARD,
-  DETAIL_RECORDS_TTL
-);
+export const getDetailRecords = _getDetailRecords;

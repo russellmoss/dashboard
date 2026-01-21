@@ -14,22 +14,23 @@ export const CACHE_TAGS = {
 } as const;
 
 /**
- * Default cache TTL: 12 hours (43200 seconds)
+ * Default cache TTL: 4 hours (14400 seconds)
  * 
  * Aligns with BigQuery data transfer schedule:
- * - Normal: 24-hour transfers
- * - Fridays 3-6pm EST: Hourly transfers
- * - Future: 12-hour transfers + on-demand
+ * - Transfers run every 6 hours reliably (99% success rate)
+ * - Cache refresh cron jobs run 10 minutes after transfers complete
+ * - Reduced TTL ensures cache expires before next transfer, preventing stale data
+ * - 4-hour TTL provides buffer while ensuring fresh data after each transfer cycle
  */
-export const DEFAULT_CACHE_TTL = 43200; // 12 hours in seconds
+export const DEFAULT_CACHE_TTL = 14400; // 4 hours in seconds (shorter than 6h transfer interval)
 
 /**
- * Detail records cache TTL: 6 hours (21600 seconds)
+ * Detail records cache TTL: 2 hours (7200 seconds)
  * 
  * Shorter TTL due to large result sets (up to 95k rows).
- * This balances performance gains with memory considerations.
+ * This balances performance gains with data freshness for large result sets.
  */
-export const DETAIL_RECORDS_TTL = 21600; // 6 hours in seconds
+export const DETAIL_RECORDS_TTL = 7200;  // 2 hours in seconds
 
 /**
  * Wrapper for unstable_cache with consistent configuration
@@ -46,7 +47,7 @@ export const DETAIL_RECORDS_TTL = 21600; // 6 hours in seconds
  * @param fn - Async function to cache
  * @param keyName - Explicit cache key name (required, as arrow functions don't have names)
  * @param tag - Cache tag for invalidation (use CACHE_TAGS.DASHBOARD or CACHE_TAGS.SGA_HUB)
- * @param ttl - Time to live in seconds (default: 12 hours, use DETAIL_RECORDS_TTL for detail-records)
+ * @param ttl - Time to live in seconds (default: 4 hours, use DETAIL_RECORDS_TTL for detail-records)
  * @returns Cached version of the function
  * 
  * @example
