@@ -5,6 +5,9 @@ import { runQuery } from '@/lib/bigquery';
 import { FULL_TABLE, RECRUITING_RECORD_TYPE, OPEN_PIPELINE_STAGES } from '@/config/constants';
 import { SgmOption } from '@/types/dashboard';
 
+// Force dynamic rendering (uses headers for authentication)
+export const dynamic = 'force-dynamic';
+
 interface RawSgmResult {
   sgm: string | null;
   isActive: boolean | number | null;

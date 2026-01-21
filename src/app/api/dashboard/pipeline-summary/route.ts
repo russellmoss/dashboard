@@ -4,6 +4,9 @@ import { authOptions } from '@/lib/auth';
 import { getOpenPipelineSummary } from '@/lib/queries/open-pipeline';
 import { formatCurrency } from '@/lib/utils/date-helpers';
 
+// Force dynamic rendering (uses headers for authentication)
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
