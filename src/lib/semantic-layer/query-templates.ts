@@ -549,6 +549,9 @@ export const QUERY_TEMPLATES = {
       'List all SQLs from last month',
       'Who are the people that became MQLs?',
       'Show me all contacted leads this week',
+      'Who signed last quarter?',
+      'List all signed opportunities this quarter',
+      'Who joined last quarter?',
     ],
   },
 

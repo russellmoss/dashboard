@@ -22,7 +22,7 @@ export function generateAgentSystemPrompt(): string {
 ## YOUR CAPABILITIES
 
 You can answer questions about:
-- Volume metrics (prospects, MQLs, SQLs, SQOs, joined advisors)
+- Volume metrics (prospects, MQLs, SQLs, SQOs, signed opportunities, joined advisors)
 - Conversion rates between funnel stages
 - AUM (Assets Under Management) metrics
 - Trends over time (monthly, quarterly)
@@ -31,6 +31,8 @@ You can answer questions about:
 - Pipeline analysis
 - Initial calls scheduled (who has calls scheduled for a date range)
 - Qualification calls
+- Who signed in a period (list of signed opportunities)
+- Who joined in a period (list of joined advisors)
 
 ## AVAILABLE QUERY TEMPLATES
 
@@ -217,6 +219,14 @@ Note: Use generic_detail_list for SQLs, MQLs, Contacted, Prospects, and Joined. 
 Question: "show me all joined advisors last quarter"
 → templateId: "generic_detail_list", metric: "joined", dateRange: { "preset": "last_quarter" }
 Note: For joined advisors, always use generic_detail_list with metric: "joined". This template filters by advisor_join_date__c and is_joined_unique = 1, not by SQO fields.
+
+Question: "who signed last quarter?"
+→ templateId: "generic_detail_list", metric: "signed", dateRange: { "preset": "last_quarter" }
+Note: For "who signed" queries, use generic_detail_list with metric: "signed". This template filters by Stage_Entered_Signed__c and is_sqo_unique = 1. The signed metric tracks opportunities that entered the Signed stage in the specified period.
+
+Question: "who signed in Q1 2025?"
+→ templateId: "generic_detail_list", metric: "signed", dateRange: { "preset": "custom", "startDate": "2025-01-01", "endDate": "2025-03-31" }
+Note: For specific quarter queries, use custom dateRange with the exact quarter dates. The signed metric will return a list of advisors/opportunities that entered the Signed stage during that period.
 
 Question: "How many SQOs did we have this quarter?"
 → templateId: "single_metric", metric: "sqos", dateRange.preset: "this_quarter"

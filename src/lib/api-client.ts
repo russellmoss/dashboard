@@ -420,9 +420,28 @@ export const agentApi = {
     console.log('[agentApi] Response status:', response.status, response.statusText);
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Failed to parse error response' }));
-      console.error('[agentApi] Error response:', error);
-      throw new Error(error.error?.message || error.error || `Query failed with status ${response.status}`);
+      let errorData;
+      try {
+        const text = await response.text();
+        errorData = text ? JSON.parse(text) : {};
+      } catch (parseError) {
+        errorData = { 
+          error: { 
+            code: 'PARSE_ERROR', 
+            message: `Query failed with status ${response.status}. Failed to parse error response.` 
+          } 
+        };
+      }
+      console.error('[agentApi] Error response:', errorData);
+      
+      // Handle different error response formats
+      const errorMessage = 
+        errorData.error?.message || 
+        errorData.error?.code || 
+        errorData.error || 
+        `Query failed with status ${response.status}`;
+      
+      throw new Error(errorMessage);
     }
 
     const result = await response.json();

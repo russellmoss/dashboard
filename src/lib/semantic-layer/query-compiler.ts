@@ -2420,6 +2420,13 @@ function compileGenericDetailList(params: TemplateSelection['parameters']): Comp
     metricFilter = 'v.FilterDate IS NOT NULL';
     dateColumnAlias = 'prospect_date';
     isOppLevel = false;
+  } else if (metric === 'signed') {
+    dateField = 'Stage_Entered_Signed__c';
+    dateFieldType = 'TIMESTAMP';
+    metricFilter = 'v.Stage_Entered_Signed__c IS NOT NULL AND v.is_sqo_unique = 1';
+    dateColumnAlias = 'signed_date';
+    isOppLevel = true;
+    queryParams.recruitingRecordType = CONSTANTS.RECRUITING_RECORD_TYPE;
   } else {
     // Default fallback - try to use a generic approach
     throw new Error(`Unsupported metric for generic_detail_list: ${metric}`);
