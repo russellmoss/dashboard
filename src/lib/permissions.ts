@@ -4,31 +4,31 @@ import { getUserByEmail } from './users';
 const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmFilter'>> = {
   admin: {
     role: 'admin',
-    allowedPages: [1, 7, 8, 9, 10],
+    allowedPages: [1, 3, 7, 8, 9, 10],
     canExport: true,
     canManageUsers: true,
   },
   manager: {
     role: 'manager',
-    allowedPages: [1, 7, 8, 9, 10],
+    allowedPages: [1, 3, 7, 8, 9, 10],
     canExport: true,
     canManageUsers: true,
   },
   sgm: {
     role: 'sgm',
-    allowedPages: [1, 10],
+    allowedPages: [1, 3, 10],
     canExport: true,
     canManageUsers: false,
   },
   sga: {
     role: 'sga',
-    allowedPages: [1, 8, 10],
+    allowedPages: [1, 3, 8, 10],
     canExport: true,
     canManageUsers: false,
   },
   viewer: {
     role: 'viewer',
-    allowedPages: [1, 10],
+    allowedPages: [1, 3, 10],
     canExport: false,
     canManageUsers: false,
   },
@@ -40,7 +40,7 @@ export async function getUserPermissions(email: string): Promise<UserPermissions
   if (!user) {
     return {
       role: 'viewer',
-      allowedPages: [1, 10],
+      allowedPages: [1, 3, 10],
       sgaFilter: null,
       sgmFilter: null,
       canExport: false,

@@ -7,11 +7,12 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { 
   BarChart3, Settings, Menu, X, Target,
-  Bot, Users
+  Bot, Users, Layers
 } from 'lucide-react';
 
 const PAGES = [
   { id: 1, name: 'Funnel Performance', href: '/dashboard', icon: BarChart3 },
+  { id: 3, name: 'Open Pipeline', href: '/dashboard/pipeline', icon: Layers },
   { id: 10, name: 'Explore', href: '/dashboard/explore', icon: Bot },
   { id: 7, name: 'Settings', href: '/dashboard/settings', icon: Settings },
   { id: 8, name: 'SGA Hub', href: '/dashboard/sga-hub', icon: Target },

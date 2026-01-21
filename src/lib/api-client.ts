@@ -11,7 +11,9 @@ import {
   DetailRecord, 
   TrendDataPoint,
   ViewMode,
-  DataFreshness
+  DataFreshness,
+  OpenPipelineSummary,
+  SgmOption
 } from '@/types/dashboard';
 import { RecordDetailFull } from '@/types/record-detail';
 import { 
@@ -173,6 +175,63 @@ export const dashboardApi = {
     }),
 
   getDataFreshness: () => apiFetch<DataFreshness>('/api/dashboard/data-freshness'),
+
+  /**
+   * Get SGM options for pipeline page filter
+   */
+  getPipelineSgmOptions: async (): Promise<{ sgmOptions: SgmOption[] }> => {
+    const response = await fetch('/api/dashboard/pipeline-sgm-options', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to fetch SGM options');
+    }
+    
+    return response.json();
+  },
+
+  /**
+   * Get open pipeline summary with by-stage breakdown
+   */
+  getPipelineSummary: async (stages?: string[], sgms?: string[]): Promise<OpenPipelineSummary> => {
+    const response = await fetch('/api/dashboard/pipeline-summary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stages, sgms }),
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to fetch pipeline summary');
+    }
+    
+    return response.json();
+  },
+
+  /**
+   * Get pipeline records for a specific stage (drill-down)
+   */
+  getPipelineDrilldown: async (
+    stage: string,
+    filters?: { channel?: string; source?: string; sga?: string; sgm?: string },
+    sgms?: string[]
+  ): Promise<{ records: DetailRecord[]; stage: string }> => {
+    const response = await fetch('/api/dashboard/pipeline-drilldown', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stage, filters, sgms }),
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to fetch pipeline drilldown');
+    }
+    
+    return response.json();
+  },
 
   async getAllDashboardData(filters: DashboardFilters) {
     const [metrics, { rates, trends }, { channels }, { sources }, { records }] = await Promise.all([

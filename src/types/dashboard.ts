@@ -181,3 +181,59 @@ export interface DataFreshness {
   isStale: boolean;
   status: DataFreshnessStatus;
 }
+
+// Open Pipeline Types
+/**
+ * Open Pipeline stage breakdown for bar chart
+ */
+export interface OpenPipelineByStage {
+  stage: string;
+  advisorCount: number;
+  totalAum: number;
+  aumFormatted: string;
+  aumInBillions: number;
+}
+
+/**
+ * Open Pipeline summary with totals and by-stage breakdown
+ */
+export interface OpenPipelineSummary {
+  totalAum: number;
+  totalAumFormatted: string;
+  advisorCount: number;
+  byStage: OpenPipelineByStage[];
+}
+
+/**
+ * Available stages for filtering
+ */
+export interface PipelineStageOption {
+  value: string;
+  label: string;
+  isDefault: boolean;
+}
+
+/**
+ * SGM option with active status (for pipeline filters)
+ */
+export interface SgmOption {
+  value: string;
+  label: string;
+  isActive: boolean;
+}
+
+/**
+ * Multi-select filter state
+ */
+export interface MultiSelectFilterState {
+  selectAll: boolean;
+  selected: string[];
+}
+
+/**
+ * Pipeline page filter state
+ */
+export interface PipelinePageFilters {
+  stages: MultiSelectFilterState;
+  sgms: MultiSelectFilterState;
+}
