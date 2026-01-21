@@ -166,7 +166,7 @@ export async function getTransferRunStatus(runId: string): Promise<{
       state,
       isComplete,
       success,
-      errorMessage: run.errorStatus?.message,
+      errorMessage: run.errorStatus?.message ?? undefined,
       startTime: run.runTime?.seconds 
         ? new Date(Number(run.runTime.seconds) * 1000).toISOString() 
         : undefined,
