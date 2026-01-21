@@ -47,11 +47,11 @@ export function PipelineScorecard({
         onClick={onAumClick}
       >
         <div className="flex items-center gap-2">
-          <Text>Open Pipeline AUM</Text>
+          <Text className="text-base">Open Pipeline AUM</Text>
           <OpenPipelineAumTooltip />
         </div>
-        <Metric className="mt-1">${aumInBillions}B</Metric>
-        <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+        <Metric className="mt-1 text-3xl">${aumInBillions}B</Metric>
+        <Text className="text-sm text-gray-500 dark:text-gray-400 mt-1">
           {totalAumFormatted}
         </Text>
       </Card>
@@ -62,9 +62,9 @@ export function PipelineScorecard({
         className={onAdvisorsClick ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md' : ''}
         onClick={onAdvisorsClick}
       >
-        <Text>Open Pipeline Advisors</Text>
-        <Metric className="mt-1">{advisorCount.toLocaleString()}</Metric>
-        <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+        <Text className="text-base">Open Pipeline Advisors</Text>
+        <Metric className="mt-1 text-3xl">{advisorCount.toLocaleString()}</Metric>
+        <Text className="text-sm text-gray-500 dark:text-gray-400 mt-1">
           Unique opportunities in pipeline
         </Text>
       </Card>

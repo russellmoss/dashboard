@@ -168,25 +168,25 @@ export function PipelineFilters({
         className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
       >
         <div className="flex items-center gap-3">
-          <Filter className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <Filter className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+          <span className="text-base font-medium text-gray-700 dark:text-gray-300">
             Filters
           </span>
           <div className="flex items-center gap-2">
-            <span className="text-xs bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">
+            <span className="text-sm bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">
               {stagesSummary}
             </span>
-            <span className="text-xs bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full">
+            <span className="text-sm bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full">
               {sgmsSummary}
             </span>
           </div>
           {hasCustomFilters && (
-            <span className="text-xs text-orange-600 dark:text-orange-400">
+            <span className="text-sm text-orange-600 dark:text-orange-400">
               (Modified)
             </span>
           )}
           {hasPendingChanges && (
-            <span className="text-xs text-blue-600 dark:text-blue-400">
+            <span className="text-sm text-blue-600 dark:text-blue-400">
               (Pending)
             </span>
           )}
@@ -207,14 +207,14 @@ export function PipelineFilters({
             {/* Stage Filter */}
             <div>
               <div className="flex items-center justify-between mb-3">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label className="text-base font-medium text-gray-700 dark:text-gray-300">
                   Opportunity Stages
                 </label>
                 <div className="flex gap-2">
                   <button
                     onClick={handleSelectOpenPipelineStages}
                     disabled={disabled}
-                    className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 disabled:opacity-50"
+                    className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 disabled:opacity-50"
                   >
                     Open Pipeline
                   </button>
@@ -222,7 +222,7 @@ export function PipelineFilters({
                   <button
                     onClick={handleSelectAllStages}
                     disabled={disabled}
-                    className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 disabled:opacity-50"
+                    className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 disabled:opacity-50"
                   >
                     All Stages
                   </button>
@@ -230,7 +230,7 @@ export function PipelineFilters({
                   <button
                     onClick={handleDeselectAllStages}
                     disabled={disabled}
-                    className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 disabled:opacity-50"
+                    className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 disabled:opacity-50"
                   >
                     Deselect All
                   </button>
@@ -252,13 +252,13 @@ export function PipelineFilters({
                       `}
                     >
                       <div className={`
-                        w-4 h-4 rounded border-2 flex items-center justify-center transition-colors
+                        w-5 h-5 rounded border-2 flex items-center justify-center transition-colors
                         ${isSelected 
                           ? 'bg-blue-600 border-blue-600' 
                           : 'border-gray-300 dark:border-gray-600'
                         }
                       `}>
-                        {isSelected && <Check className="w-3 h-3 text-white" />}
+                        {isSelected && <Check className="w-4 h-4 text-white" />}
                       </div>
                       <input
                         type="checkbox"
@@ -267,11 +267,11 @@ export function PipelineFilters({
                         disabled={disabled}
                         className="sr-only"
                       />
-                      <span className={`text-sm ${isSelected ? 'text-blue-700 dark:text-blue-300 font-medium' : 'text-gray-700 dark:text-gray-300'}`}>
+                      <span className={`text-base ${isSelected ? 'text-blue-700 dark:text-blue-300 font-medium' : 'text-gray-700 dark:text-gray-300'}`}>
                         {stage.label}
                       </span>
                       {stage.isOpenPipeline && (
-                        <span className="text-xs text-gray-400 dark:text-gray-500">
+                        <span className="text-sm text-gray-400 dark:text-gray-500">
                           (Open Pipeline)
                         </span>
                       )}
@@ -284,14 +284,14 @@ export function PipelineFilters({
             {/* SGM Filter */}
             <div>
               <div className="flex items-center justify-between mb-3">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label className="text-base font-medium text-gray-700 dark:text-gray-300">
                   SGM Owners
                 </label>
                 <div className="flex gap-2">
                   <button
                     onClick={handleSelectActiveSgms}
                     disabled={disabled || sgmOptionsLoading}
-                    className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 disabled:opacity-50"
+                    className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 disabled:opacity-50"
                   >
                     Active Only
                   </button>
@@ -299,7 +299,7 @@ export function PipelineFilters({
                   <button
                     onClick={handleSelectAllSgms}
                     disabled={disabled || sgmOptionsLoading}
-                    className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 disabled:opacity-50"
+                    className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 disabled:opacity-50"
                   >
                     All SGMs
                   </button>
@@ -307,7 +307,7 @@ export function PipelineFilters({
                   <button
                     onClick={handleDeselectAllSgms}
                     disabled={disabled || sgmOptionsLoading}
-                    className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 disabled:opacity-50"
+                    className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 disabled:opacity-50"
                   >
                     Deselect All
                   </button>
@@ -321,7 +321,7 @@ export function PipelineFilters({
                 value={sgmSearch}
                 onChange={(e) => setSgmSearch(e.target.value)}
                 disabled={disabled || sgmOptionsLoading}
-                className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg mb-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 disabled:opacity-50"
+                className="w-full px-3 py-2 text-base border border-gray-300 dark:border-gray-600 rounded-lg mb-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 disabled:opacity-50"
               />
               
               <div className="space-y-1 max-h-48 overflow-y-auto">
@@ -364,11 +364,11 @@ export function PipelineFilters({
                           disabled={disabled}
                           className="sr-only"
                         />
-                        <span className={`text-sm ${isSelected ? 'text-green-700 dark:text-green-300 font-medium' : 'text-gray-700 dark:text-gray-300'}`}>
+                        <span className={`text-base ${isSelected ? 'text-green-700 dark:text-green-300 font-medium' : 'text-gray-700 dark:text-gray-300'}`}>
                           {sgm.label}
                         </span>
                         {!sgm.isActive && (
-                          <span className="text-xs text-gray-400 dark:text-gray-500">
+                          <span className="text-sm text-gray-400 dark:text-gray-500">
                             (Inactive)
                           </span>
                         )}
@@ -382,21 +382,21 @@ export function PipelineFilters({
           
           {/* Footer with Apply and Reset buttons */}
           <div className="border-t border-gray-200 dark:border-gray-700 px-4 py-3 bg-gray-50 dark:bg-gray-900 flex justify-between items-center">
-            <span className="text-sm text-gray-500 dark:text-gray-400">
+            <span className="text-base text-gray-500 dark:text-gray-400">
               {hasPendingChanges ? 'Changes pending' : 'Filters applied'}
             </span>
             <div className="flex gap-2">
               <button
                 onClick={handleResetFilters}
                 disabled={disabled}
-                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 text-base text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Reset
               </button>
               <button
                 onClick={handleApplyFilters}
                 disabled={disabled || !hasPendingChanges}
-                className="px-4 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-5 py-2 text-base text-white bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Apply Filters
               </button>

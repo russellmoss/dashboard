@@ -239,8 +239,8 @@ export default function PipelinePage() {
     <div className="w-full max-w-full overflow-x-hidden">
       {/* Header */}
       <div className="mb-6">
-        <Title>Open Pipeline</Title>
-        <Text>
+        <Title className="text-3xl">Open Pipeline</Title>
+        <Text className="text-base">
           Real-time view of active opportunities in the recruitment pipeline
         </Text>
       </div>
@@ -251,7 +251,7 @@ export default function PipelinePage() {
           <Text className="text-red-600 dark:text-red-400">{error}</Text>
           <button
             onClick={fetchData}
-            className="mt-2 text-sm text-blue-600 hover:text-blue-700"
+            className="mt-2 text-base text-blue-600 hover:text-blue-700"
           >
             Try Again
           </button>
@@ -289,8 +289,8 @@ export default function PipelinePage() {
       <Card className="mb-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <Text className="font-semibold">Pipeline by Stage</Text>
-            <Text className="text-sm text-gray-500 dark:text-gray-400">
+            <Text className="font-semibold text-lg">Pipeline by Stage</Text>
+            <Text className="text-base text-gray-500 dark:text-gray-400">
               Click any bar to see the advisors in that stage
             </Text>
           </div>
