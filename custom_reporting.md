@@ -446,3 +446,373 @@ This structure is flexible enough to accommodate:
 - Future filter additions
 - Partial filter states (some filters may be null/empty)
 - Backward compatibility as the filter structure evolves
+
+## Feature Selection Implementation Details
+
+### Component Mapping
+
+Based on thorough codebase analysis, here is the confirmed component mapping for feature selection:
+
+| Feature Name | Component | File Path | Notes |
+|-------------|-----------|-----------|-------|
+| **Full Funnel Scorecards** (group) | `FullFunnelScorecards` | `src/components/dashboard/FullFunnelScorecards.tsx` | Contains: Prospects, Contacted, MQLs - must show/hide together |
+| **Volume Scorecards** (group) | `Scorecards` | `src/components/dashboard/Scorecards.tsx` | Contains: SQLs, SQOs, Signed, Joined, Open Pipeline - must show/hide together |
+| **Conversion Rate Cards** (group) | `ConversionRateCards` | `src/components/dashboard/ConversionRateCards.tsx` | Contains: Contacted→MQL, MQL→SQL, SQL→SQO, SQO→Joined - must show/hide together |
+| **Conversion Trends Chart** | `ConversionTrendChart` | `src/components/dashboard/ConversionTrendChart.tsx` | Individual component |
+| **Volume Trends Chart** | `VolumeTrendChart` | `src/components/dashboard/VolumeTrendChart.tsx` | Individual component |
+| **Channel Performance Table** | `ChannelPerformanceTable` | `src/components/dashboard/ChannelPerformanceTable.tsx` | Individual component |
+| **Source Performance Table** | `SourcePerformanceTable` | `src/components/dashboard/SourcePerformanceTable.tsx` | Individual component |
+| **Detail Records Table** | `DetailRecordsTable` | `src/components/dashboard/DetailRecordsTable.tsx` | Individual component |
+
+### Recommended FeatureSelection Type Structure
+
+Based on actual component granularity, the recommended structure is:
+
+```typescript
+interface FeatureSelection {
+  scorecards: {
+    fullFunnel: boolean;  // Controls Prospects, Contacted, MQLs together (Full Funnel view only)
+    volume: boolean;      // Controls SQLs, SQOs, Signed, Joined, Open Pipeline together
+  };
+  conversionRates: boolean;  // Controls all 4 conversion rate cards together
+  charts: {
+    conversionTrends: boolean;
+    volumeTrends: boolean;
+  };
+  tables: {
+    channelPerformance: boolean;
+    sourcePerformance: boolean;
+    detailRecords: boolean;
+  };
+}
+```
+
+**Key Constraints:**
+1. **Full Funnel Scorecards**: Only available when `viewMode === 'fullFunnel'`. Feature selection should respect this constraint.
+2. **Component Groups**: Scorecards and conversion rate cards are rendered as groups - individual cards within a group cannot be hidden separately without code changes.
+3. **View Mode Dependency**: Full Funnel scorecards visibility should be: `featureSelection.scorecards.fullFunnel && viewMode === 'fullFunnel'`
+
+### Updated Database Schema
+
+The `FilterPreset` model should include `featureSelection`:
+
+```prisma
+model FilterPreset {
+  id              String   @id @default(cuid())
+  userId          String?
+  name            String   @db.VarChar(255)
+  filters         Json     // DashboardFilters object
+  featureSelection Json?   // FeatureSelection object (optional for backward compatibility)
+  viewMode        String?  // 'focused' | 'fullFunnel' (optional, can be inferred from featureSelection)
+  dashboard       String   @default("funnel_performance")
+  presetType      String   @default("user")
+  isDefault       Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdBy       String?
+  
+  user            User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([presetType])
+  @@index([isDefault])
+  @@index([isActive])
+  @@unique([userId, isDefault], where: { isDefault: true, isActive: true })
+}
+```
+
+### Default Feature Selection
+
+When creating a new preset without explicit feature selection:
+
+```typescript
+const DEFAULT_FEATURE_SELECTION: FeatureSelection = {
+  scorecards: {
+    fullFunnel: true,  // Show if viewMode === 'fullFunnel'
+    volume: true,
+  },
+  conversionRates: true,
+  charts: {
+    conversionTrends: true,
+    volumeTrends: true,
+  },
+  tables: {
+    channelPerformance: true,
+    sourcePerformance: true,
+    detailRecords: true,
+  },
+};
+```
+
+### Conditional Rendering Approach
+
+**In `src/app/dashboard/page.tsx`:**
+
+```typescript
+// Add feature selection state
+const [featureSelection, setFeatureSelection] = useState<FeatureSelection>(DEFAULT_FEATURE_SELECTION);
+
+// Conditional rendering pattern:
+{viewMode === 'fullFunnel' && featureSelection.scorecards.fullFunnel && metrics && (
+  <CardErrorBoundary>
+    <FullFunnelScorecards ... />
+  </CardErrorBoundary>
+)}
+
+{featureSelection.scorecards.volume && metrics && (
+  <CardErrorBoundary>
+    <Scorecards ... />
+  </CardErrorBoundary>
+)}
+
+{featureSelection.conversionRates && conversionRates && (
+  <CardErrorBoundary>
+    <ConversionRateCards ... />
+  </CardErrorBoundary>
+)}
+
+{featureSelection.charts.conversionTrends && (
+  <ChartErrorBoundary>
+    <ConversionTrendChart ... />
+  </ChartErrorBoundary>
+)}
+
+{featureSelection.charts.volumeTrends && (
+  <ChartErrorBoundary>
+    <VolumeTrendChart ... />
+  </ChartErrorBoundary>
+)}
+
+{featureSelection.tables.channelPerformance && (
+  <TableErrorBoundary>
+    <ChannelPerformanceTable ... />
+  </TableErrorBoundary>
+)}
+
+{featureSelection.tables.sourcePerformance && (
+  <TableErrorBoundary>
+    <SourcePerformanceTable ... />
+  </TableErrorBoundary>
+)}
+
+{featureSelection.tables.detailRecords && (
+  <TableErrorBoundary>
+    <DetailRecordsTable ... />
+  </TableErrorBoundary>
+)}
+```
+
+### Conditional Data Fetching Approach
+
+**Optimized `fetchDashboardData` function:**
+
+```typescript
+const fetchDashboardData = useCallback(async () => {
+  if (!filterOptions) return;
+  
+  setLoading(true);
+  
+  try {
+    const dateRange = buildDateRangeFromFilters(filters);
+    const currentFilters: DashboardFilters = {
+      ...filters,
+      startDate: dateRange.startDate,
+      endDate: dateRange.endDate,
+      metricFilter: 'prospect' as DashboardFilters['metricFilter'],
+    };
+    
+    const promises: Promise<any>[] = [];
+    
+    // Only fetch metrics if needed for scorecards or tables
+    const needsMetrics = 
+      (viewMode === 'fullFunnel' && featureSelection.scorecards.fullFunnel) ||
+      featureSelection.scorecards.volume ||
+      featureSelection.tables.channelPerformance ||
+      featureSelection.tables.sourcePerformance;
+    
+    if (needsMetrics) {
+      promises.push(
+        dashboardApi.getFunnelMetrics(currentFilters, viewMode)
+          .then(setMetrics)
+      );
+    }
+    
+    // Only fetch conversion rates if needed for cards or charts
+    const needsConversionRates = 
+      featureSelection.conversionRates ||
+      featureSelection.charts.conversionTrends ||
+      featureSelection.charts.volumeTrends;
+    
+    if (needsConversionRates) {
+      promises.push(
+        dashboardApi.getConversionRates(currentFilters, { 
+          includeTrends: true, 
+          granularity: trendGranularity, 
+          mode: trendMode 
+        })
+          .then(data => {
+            setConversionRates(data.rates);
+            setTrends(data.trends || []);
+          })
+      );
+    }
+    
+    // Only fetch channel performance if table is visible
+    if (featureSelection.tables.channelPerformance) {
+      promises.push(
+        dashboardApi.getChannelPerformance(currentFilters, viewMode)
+          .then(data => setChannels(data.channels))
+      );
+    }
+    
+    // Only fetch source performance if table is visible
+    if (featureSelection.tables.sourcePerformance) {
+      promises.push(
+        dashboardApi.getSourcePerformance(currentFilters, viewMode)
+          .then(data => setSources(data.sources))
+      );
+    }
+    
+    // Only fetch detail records if table is visible
+    if (featureSelection.tables.detailRecords) {
+      promises.push(
+        dashboardApi.getDetailRecords(currentFilters, 50000)
+          .then(data => setDetailRecords(data.records))
+      );
+    }
+    
+    await Promise.all(promises);
+  } catch (error) {
+    console.error('Failed to fetch dashboard data:', error);
+    const errorMessage = handleApiError(error);
+  } finally {
+    setLoading(false);
+  }
+}, [filters, trendGranularity, trendMode, filterOptions, viewMode, featureSelection]);
+```
+
+### Feature Selection UI Component
+
+**Recommended location**: Add feature selection UI to the Save Preset Modal
+
+```typescript
+// In SavePresetModal component
+interface SavePresetModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  currentFilters: DashboardFilters;
+  currentViewMode: ViewMode;
+  currentFeatureSelection: FeatureSelection;
+  onSave: (name: string, filters: DashboardFilters, featureSelection: FeatureSelection, viewMode: ViewMode, isDefault: boolean) => void;
+}
+
+// Feature selection checkboxes:
+<div className="space-y-4">
+  <div>
+    <h4 className="font-medium mb-2">Scorecards</h4>
+    <label>
+      <input type="checkbox" checked={featureSelection.scorecards.fullFunnel} />
+      Full Funnel (Prospects, Contacted, MQLs) {viewMode !== 'fullFunnel' && '(Full Funnel view only)'}
+    </label>
+    <label>
+      <input type="checkbox" checked={featureSelection.scorecards.volume} />
+      Volume (SQLs, SQOs, Signed, Joined, Open Pipeline)
+    </label>
+  </div>
+  
+  <div>
+    <h4 className="font-medium mb-2">Conversion Rates</h4>
+    <label>
+      <input type="checkbox" checked={featureSelection.conversionRates} />
+      All Conversion Rate Cards
+    </label>
+  </div>
+  
+  <div>
+    <h4 className="font-medium mb-2">Charts</h4>
+    <label>
+      <input type="checkbox" checked={featureSelection.charts.conversionTrends} />
+      Conversion Trends
+    </label>
+    <label>
+      <input type="checkbox" checked={featureSelection.charts.volumeTrends} />
+      Volume Trends
+    </label>
+  </div>
+  
+  <div>
+    <h4 className="font-medium mb-2">Tables</h4>
+    <label>
+      <input type="checkbox" checked={featureSelection.tables.channelPerformance} />
+      Channel Performance
+    </label>
+    <label>
+      <input type="checkbox" checked={featureSelection.tables.sourcePerformance} />
+      Source Performance
+    </label>
+    <label>
+      <input type="checkbox" checked={featureSelection.tables.detailRecords} />
+      Detail Records
+    </label>
+  </div>
+</div>
+```
+
+### Preset Loading Logic
+
+When loading a preset:
+
+```typescript
+const loadPreset = (preset: FilterPreset) => {
+  // Apply filters
+  setFilters(preset.filters as DashboardFilters);
+  
+  // Apply view mode (if saved, otherwise keep current)
+  if (preset.viewMode) {
+    setViewMode(preset.viewMode as ViewMode);
+  }
+  
+  // Apply feature selection (if saved, otherwise use defaults)
+  if (preset.featureSelection) {
+    setFeatureSelection(preset.featureSelection as FeatureSelection);
+  } else {
+    // Backward compatibility: if no feature selection saved, show all features
+    setFeatureSelection(DEFAULT_FEATURE_SELECTION);
+  }
+  
+  // Data will be fetched automatically via useEffect dependency on filters/viewMode/featureSelection
+};
+```
+
+### Error Boundary Pattern
+
+Each feature should remain wrapped in its ErrorBoundary:
+
+```typescript
+// This pattern should be maintained:
+{featureSelection.scorecards.volume && metrics && (
+  <CardErrorBoundary>
+    <Scorecards ... />
+  </CardErrorBoundary>
+)}
+```
+
+This ensures that errors in one feature don't affect others, and hidden features don't cause errors.
+
+### Summary
+
+**Key Findings:**
+1. **Component Granularity**: Features are grouped by component, not individual cards/charts
+2. **View Mode Constraint**: Full Funnel scorecards only available in fullFunnel view mode
+3. **Performance Optimization**: Can skip API calls for hidden features
+4. **Backward Compatibility**: Feature selection is optional - existing presets without it show all features
+5. **Error Handling**: Existing ErrorBoundary pattern should be maintained for each feature
+
+**Implementation Priority:**
+1. Add `featureSelection` field to FilterPreset schema (optional for backward compatibility)
+2. Add feature selection state to dashboard page
+3. Implement conditional rendering based on feature selection
+4. Optimize data fetching to skip hidden features
+5. Add feature selection UI to Save Preset Modal
+6. Update preset loading logic to apply feature selection

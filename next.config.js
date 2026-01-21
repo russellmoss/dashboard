@@ -4,6 +4,10 @@ const { withSentryConfig } = require("@sentry/nextjs");
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Enable instrumentation hook for Sentry
+  experimental: {
+    instrumentationHook: true,
+  },
   // Disable TypeScript checking during build to speed up compilation
   typescript: {
     ignoreBuildErrors: false,

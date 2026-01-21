@@ -91,5 +91,8 @@ export function cachedQuery<T extends (...args: any[]) => Promise<any>>(
     }
   ) as T;
 
+  // Note: Cache errors for data > 2MB occur asynchronously after the function completes
+  // These are handled at the process level in instrumentation.ts to prevent unhandled rejections
+  // The data is still returned successfully, caching just fails silently for large datasets
   return cachedFn;
 }

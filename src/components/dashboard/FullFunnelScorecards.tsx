@@ -16,6 +16,11 @@ interface FullFunnelScorecardsProps {
   selectedMetric?: string | null;
   onMetricClick?: (metric: string) => void;
   loading?: boolean;
+  visibleMetrics?: {
+    prospects: boolean;
+    contacted: boolean;
+    mqls: boolean;
+  };
 }
 
 /**
@@ -62,14 +67,21 @@ export function FullFunnelScorecards({
   selectedMetric,
   onMetricClick,
   loading = false,
+  visibleMetrics = { prospects: true, contacted: true, mqls: true },
 }: FullFunnelScorecardsProps) {
   if (!metrics) return null;
   
   const goals = metrics.goals;
   
+  // Don't render if no metrics are visible
+  if (!visibleMetrics.prospects && !visibleMetrics.contacted && !visibleMetrics.mqls) {
+    return null;
+  }
+  
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
       {/* Prospects Card */}
+      {visibleMetrics.prospects && (
       <Card 
         className={`p-4 dark:bg-gray-800 dark:border-gray-700 ${
           onMetricClick 
@@ -92,8 +104,10 @@ export function FullFunnelScorecards({
           <GoalDisplay actual={metrics.prospects} goal={goals.prospects} label="Prospects" />
         )}
       </Card>
+      )}
 
       {/* Contacted Card */}
+      {visibleMetrics.contacted && (
       <Card 
         className={`p-4 dark:bg-gray-800 dark:border-gray-700 ${
           onMetricClick 
@@ -114,8 +128,10 @@ export function FullFunnelScorecards({
         </Text>
         {/* No goals for contacted */}
       </Card>
+      )}
 
       {/* MQLs Card */}
+      {visibleMetrics.mqls && (
       <Card 
         className={`p-4 dark:bg-gray-800 dark:border-gray-700 ${
           onMetricClick 
@@ -138,6 +154,7 @@ export function FullFunnelScorecards({
           <GoalDisplay actual={metrics.mqls} goal={goals.mqls} label="MQL" />
         )}
       </Card>
+      )}
     </div>
   );
 }

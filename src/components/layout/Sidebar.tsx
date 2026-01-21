@@ -6,18 +6,12 @@ import { getSessionPermissions } from '@/types/auth';
 import Link from 'next/link';
 import Image from 'next/image';
 import { 
-  BarChart3, GitBranch, Users, Building2, 
-  FlaskConical, UserCircle, Settings, Menu, X, Target,
-  Bot
+  BarChart3, Settings, Menu, X, Target,
+  Bot, Users
 } from 'lucide-react';
 
 const PAGES = [
   { id: 1, name: 'Funnel Performance', href: '/dashboard', icon: BarChart3 },
-  { id: 2, name: 'Channel Drilldown', href: '/dashboard/channels', icon: GitBranch },
-  { id: 3, name: 'Open Pipeline', href: '/dashboard/pipeline', icon: Users },
-  { id: 4, name: 'Partner Performance', href: '/dashboard/partners', icon: Building2 },
-  { id: 5, name: 'Experimentation', href: '/dashboard/experiments', icon: FlaskConical },
-  { id: 6, name: 'SGA Performance', href: '/dashboard/sga', icon: UserCircle },
   { id: 10, name: 'Explore', href: '/dashboard/explore', icon: Bot },
   { id: 7, name: 'Settings', href: '/dashboard/settings', icon: Settings },
   { id: 8, name: 'SGA Hub', href: '/dashboard/sga-hub', icon: Target },

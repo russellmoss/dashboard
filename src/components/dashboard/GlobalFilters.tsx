@@ -3,14 +3,30 @@
 import { useState, useMemo } from 'react';
 import { Button } from '@tremor/react';
 import { FilterOptions, DashboardFilters } from '@/types/filters';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Save } from 'lucide-react';
 import { DataFreshnessIndicator } from '@/components/dashboard/DataFreshnessIndicator';
+import { SavedReportsDropdown } from './SavedReportsDropdown';
+import { SavedReport } from '@/types/saved-reports';
 
 interface GlobalFiltersProps {
   filters: DashboardFilters;
   filterOptions: FilterOptions;
   onFiltersChange: (filters: DashboardFilters) => void;
   onReset: () => void;
+  // Saved Reports props
+  savedReports: {
+    userReports: SavedReport[];
+    adminTemplates: SavedReport[];
+  };
+  activeReportId: string | null;
+  onSelectReport: (report: SavedReport) => void;
+  onEditReport: (report: SavedReport) => void;
+  onDuplicateReport: (report: SavedReport) => void;
+  onDeleteReport: (report: SavedReport) => void;
+  onSetDefault: (report: SavedReport) => void;
+  onSaveReport: () => void;
+  isLoadingReports?: boolean;
+  isAdmin?: boolean; // Whether current user is admin/manager
 }
 
 const DATE_PRESETS = [
@@ -68,7 +84,17 @@ export function GlobalFilters({
   filters, 
   filterOptions, 
   onFiltersChange, 
-  onReset 
+  onReset,
+  savedReports,
+  activeReportId,
+  onSelectReport,
+  onEditReport,
+  onDuplicateReport,
+  onDeleteReport,
+  onSetDefault,
+  onSaveReport,
+  isLoadingReports = false,
+  isAdmin = false,
 }: GlobalFiltersProps) {
   // Toggle state for showing only active SGAs/SGMs (default: true = active only)
   const [sgaActiveOnly, setSgaActiveOnly] = useState<boolean>(true);
@@ -167,15 +193,44 @@ export function GlobalFilters({
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Filters</h3>
-        <Button
-          icon={RefreshCw}
-          size="sm"
-          variant="light"
-          onClick={onReset}
-          className="text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white"
-        >
-          Reset
-        </Button>
+        
+        <div className="flex items-center gap-3">
+          {/* Saved Reports Dropdown */}
+          <SavedReportsDropdown
+            userReports={savedReports.userReports}
+            adminTemplates={savedReports.adminTemplates}
+            activeReportId={activeReportId}
+            onSelectReport={onSelectReport}
+            onEditReport={onEditReport}
+            onDuplicateReport={onDuplicateReport}
+            onDeleteReport={onDeleteReport}
+            onSetDefault={onSetDefault}
+            isLoading={isLoadingReports}
+            isAdmin={isAdmin}
+          />
+          
+          {/* Save Report Button */}
+          <Button
+            icon={Save}
+            size="sm"
+            variant="secondary"
+            onClick={onSaveReport}
+            className="text-gray-700 dark:text-gray-200"
+          >
+            Save
+          </Button>
+          
+          {/* Reset Button */}
+          <Button
+            icon={RefreshCw}
+            size="sm"
+            variant="light"
+            onClick={onReset}
+            className="text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white"
+          >
+            Reset
+          </Button>
+        </div>
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

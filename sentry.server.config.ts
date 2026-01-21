@@ -1,3 +1,7 @@
+// DEPRECATED: This file is no longer used. Sentry initialization has been moved to src/instrumentation.ts
+// This file can be safely deleted. Server-side Sentry is now configured in the instrumentation hook.
+// https://docs.sentry.io/platforms/javascript/guides/nextjs/manual-setup/
+
 // This file configures the initialization of Sentry on the server.
 // The config you add here will be used whenever the server handles a request.
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/

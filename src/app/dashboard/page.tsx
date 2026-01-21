@@ -37,6 +37,14 @@ import { buildDateRangeFromFilters, parsePeriodToDateRange } from '@/lib/utils/d
 import { getSessionPermissions } from '@/types/auth';
 import { VolumeDrillDownModal } from '@/components/dashboard/VolumeDrillDownModal';
 import { RECRUITING_RECORD_TYPE } from '@/config/constants';
+import { SaveReportModal } from '@/components/dashboard/SaveReportModal';
+import { DeleteConfirmModal } from '@/components/dashboard/DeleteConfirmModal';
+import {
+  SavedReport,
+  FeatureSelection,
+  DEFAULT_FEATURE_SELECTION,
+  getEffectiveFeatureSelection,
+} from '@/types/saved-reports';
 
 export const dynamic = 'force-dynamic';
 
@@ -109,6 +117,28 @@ export default function DashboardPage() {
   
   // Stage filter for DetailRecordsTable (defaults to SQO - middle funnel focus)
   const [stageFilter, setStageFilter] = useState<string>('sqo');
+  
+  // Saved Reports State
+  const [savedReports, setSavedReports] = useState<{
+    userReports: SavedReport[];
+    adminTemplates: SavedReport[];
+  }>({ userReports: [], adminTemplates: [] });
+  const [activeReportId, setActiveReportId] = useState<string | null>(null);
+  const [featureSelection, setFeatureSelection] = useState<FeatureSelection>(
+    DEFAULT_FEATURE_SELECTION
+  );
+  const [isLoadingReports, setIsLoadingReports] = useState(false);
+
+  // Modal State
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [editingReport, setEditingReport] = useState<SavedReport | null>(null);
+  const [deletingReport, setDeletingReport] = useState<SavedReport | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Get admin status
+  const isAdmin = permissions?.role === 'admin' || permissions?.role === 'manager';
   
   // Fetch filter options on mount
   useEffect(() => {
@@ -287,6 +317,176 @@ export default function DashboardPage() {
     }, []);
   }, [detailRecords, stageFilter, filters]);
   
+  // Fetch saved reports
+  const fetchSavedReports = useCallback(async () => {
+    try {
+      setIsLoadingReports(true);
+      const data = await dashboardApi.getSavedReports();
+      console.log('[DEBUG] Fetched saved reports:', {
+        userReportsCount: data.userReports.length,
+        adminTemplatesCount: data.adminTemplates.length,
+        userReports: data.userReports.map(r => ({ 
+          id: r.id, 
+          name: r.name, 
+          isDefault: r.isDefault, 
+          isActive: r.isActive,
+          dashboard: r.dashboard,
+          userId: r.userId,
+        })),
+      });
+      // Also log the full data to see everything
+      console.log('[DEBUG] Full saved reports data:', JSON.stringify(data, null, 2));
+      setSavedReports(data);
+    } catch (error) {
+      console.error('Failed to fetch saved reports:', error);
+    } finally {
+      setIsLoadingReports(false);
+    }
+  }, []);
+
+  // Apply a report (filters + feature selection + view mode)
+  // IMPORTANT: Saved report viewMode overrides current view mode
+  const applyReport = useCallback((report: SavedReport) => {
+    setActiveReportId(report.id);
+    setFilters(report.filters as DashboardFilters);
+    setFeatureSelection(getEffectiveFeatureSelection(report.featureSelection));
+    // Override view mode with saved report's view mode (if specified)
+    if (report.viewMode) {
+      setViewMode(report.viewMode as ViewMode);
+    }
+  }, []);
+
+  // Load default report on mount
+  const loadDefaultReport = useCallback(async () => {
+    try {
+      const defaultReport = await dashboardApi.getDefaultReport();
+      if (defaultReport) {
+        applyReport(defaultReport);
+      }
+    } catch (error) {
+      console.error('Failed to load default report:', error);
+    }
+  }, [applyReport]);
+
+  // Handle selecting a report
+  const handleSelectReport = useCallback((report: SavedReport) => {
+    applyReport(report);
+  }, [applyReport]);
+
+  // Handle saving a report
+  const handleSaveReport = useCallback(
+    async (
+      name: string,
+      description: string,
+      filters: DashboardFilters,
+      featureSelection: FeatureSelection,
+      viewMode: ViewMode,
+      isDefault: boolean,
+      isAdminTemplate: boolean
+    ) => {
+      setIsSaving(true);
+      try {
+        if (editingReport) {
+          await dashboardApi.updateSavedReport(editingReport.id, {
+            name,
+            description,
+            filters,
+            featureSelection,
+            viewMode,
+            isDefault,
+          });
+        } else {
+          await dashboardApi.createSavedReport({
+            name,
+            description,
+            filters,
+            featureSelection,
+            viewMode,
+            isDefault,
+            reportType: isAdminTemplate ? 'admin_template' : 'user',
+          });
+        }
+        await fetchSavedReports();
+        // If this was set as default, load it
+        if (isDefault && !isAdminTemplate) {
+          await loadDefaultReport();
+        }
+        setEditingReport(null);
+      } catch (error) {
+        console.error('Failed to save report:', error);
+        throw error; // Re-throw to let modal handle error display
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [editingReport, fetchSavedReports]
+  );
+
+  // Handle editing a report
+  const handleEditReport = useCallback((report: SavedReport) => {
+    setEditingReport(report);
+    setIsSaveModalOpen(true);
+  }, []);
+
+  // Handle duplicating a report
+  const handleDuplicateReport = useCallback(
+    async (report: SavedReport) => {
+      try {
+        await dashboardApi.duplicateSavedReport(report.id);
+        await fetchSavedReports();
+      } catch (error) {
+        console.error('Failed to duplicate report:', error);
+      }
+    },
+    [fetchSavedReports]
+  );
+
+  // Handle deleting a report
+  const handleDeleteReport = useCallback((report: SavedReport) => {
+    setDeletingReport(report);
+    setIsDeleteModalOpen(true);
+  }, []);
+
+  const confirmDeleteReport = useCallback(async () => {
+    if (!deletingReport) return;
+    
+    setIsDeleting(true);
+    try {
+      await dashboardApi.deleteSavedReport(deletingReport.id);
+      await fetchSavedReports();
+      if (activeReportId === deletingReport.id) {
+        setActiveReportId(null);
+        // Reset to default feature selection when deleting active report
+        setFeatureSelection(DEFAULT_FEATURE_SELECTION);
+      }
+      setIsDeleteModalOpen(false);
+      setDeletingReport(null);
+    } catch (error) {
+      console.error('Failed to delete report:', error);
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [deletingReport, activeReportId, fetchSavedReports]);
+
+  // Handle setting default
+  const handleSetDefault = useCallback(
+    async (report: SavedReport) => {
+      try {
+        await dashboardApi.setDefaultReport(report.id);
+        await fetchSavedReports();
+      } catch (error) {
+        console.error('Failed to set default report:', error);
+      }
+    },
+    [fetchSavedReports]
+  );
+
+  // Open save modal for new report
+  const handleOpenSaveModal = useCallback(() => {
+    setEditingReport(null);
+    setIsSaveModalOpen(true);
+  }, []);
+
   // Fetch dashboard data when filters change
   const fetchDashboardData = useCallback(async () => {
     if (!filterOptions) return; // Wait for filter options
@@ -306,22 +506,83 @@ export default function DashboardPage() {
         metricFilter: 'prospect' as DashboardFilters['metricFilter'],
       };
       
-      // Fetch all data in parallel
-      const [metricsData, conversionData, channelsData, sourcesData, recordsData] = await Promise.all([
-        dashboardApi.getFunnelMetrics(currentFilters, viewMode),
-        dashboardApi.getConversionRates(currentFilters, { includeTrends: true, granularity: trendGranularity, mode: trendMode }),
-        dashboardApi.getChannelPerformance(currentFilters, viewMode),
-        dashboardApi.getSourcePerformance(currentFilters, viewMode),
-        dashboardApi.getDetailRecords(currentFilters, 50000), // Fetch all records for client-side filtering
-      ]);
+      const promises: Promise<any>[] = [];
       
-      setMetrics(metricsData);
-      setConversionRates(conversionData.rates);
-      const trendsData = conversionData.trends || [];
-      setTrends(trendsData);
-      setChannels(channelsData.channels);
-      setSources(sourcesData.sources);
-      setDetailRecords(recordsData.records);
+      // Conditional fetch: Only fetch metrics if any scorecard is visible
+      // OR if tables need metrics data
+      const needsMetrics = 
+        // Full Funnel scorecards (only in fullFunnel view)
+        (viewMode === 'fullFunnel' && (
+          featureSelection.scorecards.prospects ||
+          featureSelection.scorecards.contacted ||
+          featureSelection.scorecards.mqls
+        )) ||
+        // Volume scorecards (available in both views)
+        featureSelection.scorecards.sqls ||
+        featureSelection.scorecards.sqos ||
+        featureSelection.scorecards.signed ||
+        featureSelection.scorecards.joined ||
+        featureSelection.scorecards.openPipeline ||
+        // Tables need metrics for calculations
+        featureSelection.tables.channelPerformance ||
+        featureSelection.tables.sourcePerformance;
+      
+      if (needsMetrics) {
+        promises.push(
+          dashboardApi.getFunnelMetrics(currentFilters, viewMode)
+            .then(setMetrics)
+        );
+      }
+      
+      // Conditional fetch: Only fetch conversion rates if any rate card is visible
+      // OR if charts need trends data
+      const needsConversionRates = 
+        featureSelection.conversionRates.contactedToMql ||
+        featureSelection.conversionRates.mqlToSql ||
+        featureSelection.conversionRates.sqlToSqo ||
+        featureSelection.conversionRates.sqoToJoined ||
+        featureSelection.charts.conversionTrends ||
+        featureSelection.charts.volumeTrends;
+      
+      if (needsConversionRates) {
+        promises.push(
+          dashboardApi.getConversionRates(currentFilters, { 
+            includeTrends: true, 
+            granularity: trendGranularity, 
+            mode: trendMode 
+          })
+            .then(data => {
+              setConversionRates(data.rates);
+              setTrends(data.trends || []);
+            })
+        );
+      }
+      
+      // Conditional fetch: Channel performance
+      if (featureSelection.tables.channelPerformance) {
+        promises.push(
+          dashboardApi.getChannelPerformance(currentFilters, viewMode)
+            .then(data => setChannels(data.channels))
+        );
+      }
+      
+      // Conditional fetch: Source performance
+      if (featureSelection.tables.sourcePerformance) {
+        promises.push(
+          dashboardApi.getSourcePerformance(currentFilters, viewMode)
+            .then(data => setSources(data.sources))
+        );
+      }
+      
+      // Conditional fetch: Detail records
+      if (featureSelection.tables.detailRecords) {
+        promises.push(
+          dashboardApi.getDetailRecords(currentFilters, 50000)
+            .then(data => setDetailRecords(data.records))
+        );
+      }
+      
+      await Promise.all(promises);
       
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
@@ -330,8 +591,19 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters, trendGranularity, trendMode, filterOptions, viewMode]);
+  }, [filters, trendGranularity, trendMode, filterOptions, viewMode, featureSelection]);
   
+  // Fetch saved reports and load default on mount
+  useEffect(() => {
+    async function initializeReports() {
+      // First fetch all reports
+      await fetchSavedReports();
+      // Then load the default report (if any)
+      await loadDefaultReport();
+    }
+    initializeReports();
+  }, [fetchSavedReports, loadDefaultReport]);
+
   useEffect(() => {
     if (filterOptions) {
       fetchDashboardData();
@@ -555,8 +827,25 @@ export default function DashboardPage() {
             <GlobalFilters
               filters={filters}
               filterOptions={filterOptions}
-              onFiltersChange={setFilters}
-              onReset={handleFilterReset}
+              onFiltersChange={(newFilters) => {
+                setFilters(newFilters);
+                setActiveReportId(null); // Clear active report when manually changing filters
+              }}
+              onReset={() => {
+                setFilters(DEFAULT_FILTERS);
+                setActiveReportId(null);
+                setFeatureSelection(DEFAULT_FEATURE_SELECTION);
+              }}
+              savedReports={savedReports}
+              activeReportId={activeReportId}
+              onSelectReport={handleSelectReport}
+              onEditReport={handleEditReport}
+              onDuplicateReport={handleDuplicateReport}
+              onDeleteReport={handleDeleteReport}
+              onSetDefault={handleSetDefault}
+              onSaveReport={handleOpenSaveModal}
+              isLoadingReports={isLoadingReports}
+              isAdmin={isAdmin}
             />
           </div>
           <AdvancedFiltersButton
@@ -580,100 +869,146 @@ export default function DashboardPage() {
         <LoadingSpinner />
       ) : (
         <>
-          {/* Full Funnel Scorecards (only shown in fullFunnel view) */}
+          {/* Full Funnel Scorecards - conditional on viewMode AND any full funnel scorecard visible */}
           {viewMode === 'fullFunnel' && metrics && (
-            <CardErrorBoundary>
-              <FullFunnelScorecards
-                metrics={metrics}
-                selectedMetric={selectedMetric}
-                onMetricClick={handleMetricClick}
-                loading={loading}
-              />
-            </CardErrorBoundary>
+            (featureSelection.scorecards.prospects ||
+             featureSelection.scorecards.contacted ||
+             featureSelection.scorecards.mqls) && (
+              <CardErrorBoundary>
+                <FullFunnelScorecards
+                  metrics={metrics}
+                  selectedMetric={selectedMetric}
+                  onMetricClick={handleMetricClick}
+                  loading={loading}
+                  visibleMetrics={{
+                    prospects: featureSelection.scorecards.prospects,
+                    contacted: featureSelection.scorecards.contacted,
+                    mqls: featureSelection.scorecards.mqls,
+                  }}
+                />
+              </CardErrorBoundary>
+            )
           )}
 
-          {/* Volume Scorecards */}
+          {/* Volume Scorecards - conditional on any volume scorecard visible */}
           {metrics && (
-            <CardErrorBoundary>
-              <Scorecards
-                metrics={metrics}
-                selectedMetric={selectedMetric}
-                onMetricClick={handleMetricClick}
-              />
-            </CardErrorBoundary>
+            (featureSelection.scorecards.sqls ||
+             featureSelection.scorecards.sqos ||
+             featureSelection.scorecards.signed ||
+             featureSelection.scorecards.joined ||
+             featureSelection.scorecards.openPipeline) && (
+              <CardErrorBoundary>
+                <Scorecards
+                  metrics={metrics}
+                  selectedMetric={selectedMetric}
+                  onMetricClick={handleMetricClick}
+                  visibleMetrics={{
+                    sqls: featureSelection.scorecards.sqls,
+                    sqos: featureSelection.scorecards.sqos,
+                    signed: featureSelection.scorecards.signed,
+                    joined: featureSelection.scorecards.joined,
+                    openPipeline: featureSelection.scorecards.openPipeline,
+                  }}
+                />
+              </CardErrorBoundary>
+            )
           )}
           
-          {/* Conversion Rate Cards */}
+          {/* Conversion Rate Cards - conditional on any rate card visible */}
           {conversionRates && (
-            <CardErrorBoundary>
-              <ConversionRateCards conversionRates={conversionRates} isLoading={loading} />
-            </CardErrorBoundary>
+            (featureSelection.conversionRates.contactedToMql ||
+             featureSelection.conversionRates.mqlToSql ||
+             featureSelection.conversionRates.sqlToSqo ||
+             featureSelection.conversionRates.sqoToJoined) && (
+              <CardErrorBoundary>
+                <ConversionRateCards
+                  conversionRates={conversionRates}
+                  isLoading={loading}
+                  visibleRates={{
+                    contactedToMql: featureSelection.conversionRates.contactedToMql,
+                    mqlToSql: featureSelection.conversionRates.mqlToSql,
+                    sqlToSqo: featureSelection.conversionRates.sqlToSqo,
+                    sqoToJoined: featureSelection.conversionRates.sqoToJoined,
+                  }}
+                />
+              </CardErrorBoundary>
+            )
           )}
           
-          {/* Conversion Trends Chart */}
-          <ChartErrorBoundary>
-            <ConversionTrendChart
-              trends={trends}
-              onGranularityChange={setTrendGranularity}
-              granularity={trendGranularity}
-              mode={trendMode}
-              onModeChange={(newMode) => {
-                setTrendMode(newMode);
-                // Trigger refetch when mode changes
-                fetchDashboardData();
-              }}
-              isLoading={loading}
-            />
-          </ChartErrorBoundary>
+          {/* Conversion Trends Chart - conditional on featureSelection */}
+          {featureSelection.charts.conversionTrends && (
+            <ChartErrorBoundary>
+              <ConversionTrendChart
+                trends={trends}
+                onGranularityChange={setTrendGranularity}
+                granularity={trendGranularity}
+                mode={trendMode}
+                onModeChange={(newMode) => {
+                  setTrendMode(newMode);
+                  // Trigger refetch when mode changes
+                  fetchDashboardData();
+                }}
+                isLoading={loading}
+              />
+            </ChartErrorBoundary>
+          )}
           
-          {/* Volume Trends Chart - Always uses period mode */}
-          <ChartErrorBoundary>
-            <VolumeTrendChart
-              trends={trends}
-              onGranularityChange={setTrendGranularity}
-              granularity={trendGranularity}
-              isLoading={loading}
-              onBarClick={handleVolumeBarClick}
-            />
-          </ChartErrorBoundary>
+          {/* Volume Trends Chart - conditional on featureSelection */}
+          {featureSelection.charts.volumeTrends && (
+            <ChartErrorBoundary>
+              <VolumeTrendChart
+                trends={trends}
+                onGranularityChange={setTrendGranularity}
+                granularity={trendGranularity}
+                isLoading={loading}
+                onBarClick={handleVolumeBarClick}
+              />
+            </ChartErrorBoundary>
+          )}
           
-          {/* Channel Performance */}
-          <TableErrorBoundary>
-            <ChannelPerformanceTable
-              channels={channels}
-              selectedChannel={selectedChannel}
-              onChannelClick={handleChannelClick}
-              viewMode={viewMode}
-            />
-          </TableErrorBoundary>
+          {/* Channel Performance - conditional on featureSelection */}
+          {featureSelection.tables.channelPerformance && (
+            <TableErrorBoundary>
+              <ChannelPerformanceTable
+                channels={channels}
+                selectedChannel={selectedChannel}
+                onChannelClick={handleChannelClick}
+                viewMode={viewMode}
+              />
+            </TableErrorBoundary>
+          )}
           
-          {/* Source Performance (filtered by channel if selected) */}
-          <TableErrorBoundary>
-            <SourcePerformanceTable
-              sources={sources}
-              selectedSource={selectedSource}
-              onSourceClick={handleSourceClick}
-              channelFilter={selectedChannel}
-              viewMode={viewMode}
-            />
-          </TableErrorBoundary>
+          {/* Source Performance - conditional on featureSelection */}
+          {featureSelection.tables.sourcePerformance && (
+            <TableErrorBoundary>
+              <SourcePerformanceTable
+                sources={sources}
+                selectedSource={selectedSource}
+                onSourceClick={handleSourceClick}
+                channelFilter={selectedChannel}
+                viewMode={viewMode}
+              />
+            </TableErrorBoundary>
+          )}
           
-          {/* Detail Records */}
-          <TableErrorBoundary>
-            <DetailRecordsTable
-              records={filteredDetailRecords}
-              title="Record Details"
-              filterDescription={getDetailDescription()}
-              canExport={permissions?.canExport ?? false}
-              viewMode={viewMode}
-              advancedFilters={filters.advancedFilters}
-              metricFilter="prospect"
-              onRecordClick={handleRecordClick}
-              stageFilter={stageFilter}
-              onStageFilterChange={setStageFilter}
-              availableOpportunityStages={availableOpportunityStages}
-            />
-          </TableErrorBoundary>
+          {/* Detail Records - conditional on featureSelection */}
+          {featureSelection.tables.detailRecords && (
+            <TableErrorBoundary>
+              <DetailRecordsTable
+                records={filteredDetailRecords}
+                title="Record Details"
+                filterDescription={getDetailDescription()}
+                canExport={permissions?.canExport ?? false}
+                viewMode={viewMode}
+                advancedFilters={filters.advancedFilters}
+                metricFilter="prospect"
+                onRecordClick={handleRecordClick}
+                stageFilter={stageFilter}
+                onStageFilterChange={setStageFilter}
+                availableOpportunityStages={availableOpportunityStages}
+              />
+            </TableErrorBoundary>
+          )}
         </>
       )}
       
@@ -717,6 +1052,34 @@ export default function DashboardPage() {
           setVolumeDrillDownOpen(true);
         }}
         backButtonLabel="← Back to records"
+      />
+
+      {/* Save Report Modal */}
+      <SaveReportModal
+        isOpen={isSaveModalOpen}
+        onClose={() => {
+          setIsSaveModalOpen(false);
+          setEditingReport(null);
+        }}
+        onSave={handleSaveReport}
+        currentFilters={filters}
+        currentViewMode={viewMode}
+        currentFeatureSelection={featureSelection}
+        editingReport={editingReport}
+        isAdmin={isAdmin}
+        isSaving={isSaving}
+      />
+
+      {/* Delete Confirm Modal */}
+      <DeleteConfirmModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => {
+          setIsDeleteModalOpen(false);
+          setDeletingReport(null);
+        }}
+        onConfirm={confirmDeleteReport}
+        reportName={deletingReport?.name || ''}
+        isDeleting={isDeleting}
       />
     </div>
   );

@@ -50,6 +50,12 @@ interface ConversionRateCardsProps {
   conversionRates: ConversionRatesResponse;
   previousRates?: ConversionRatesResponse;
   isLoading?: boolean;
+  visibleRates?: {
+    contactedToMql: boolean;
+    mqlToSql: boolean;
+    sqlToSqo: boolean;
+    sqoToJoined: boolean;
+  };
 }
 
 interface RateCardProps {
@@ -105,9 +111,16 @@ function RateCard({ title, rate, label, previousRate, isResolved }: RateCardProp
 export function ConversionRateCards({ 
   conversionRates, 
   previousRates,
-  isLoading 
+  isLoading,
+  visibleRates = { contactedToMql: true, mqlToSql: true, sqlToSqo: true, sqoToJoined: true },
 }: ConversionRateCardsProps) {
   const isResolved = conversionRates.mode === 'cohort';
+
+  // Don't render if no rates are visible
+  if (!visibleRates.contactedToMql && !visibleRates.mqlToSql && 
+      !visibleRates.sqlToSqo && !visibleRates.sqoToJoined) {
+    return null;
+  }
 
   if (isLoading) {
     return (
@@ -156,34 +169,42 @@ export function ConversionRateCards({
 
       {/* Rate Cards */}
       <Grid numItemsSm={2} numItemsLg={4} className="gap-4">
-        <RateCard
-          title="Contacted → MQL"
-          rate={conversionRates.contactedToMql.rate}
-          label={conversionRates.contactedToMql.label}
-          previousRate={previousRates?.contactedToMql.rate}
-          isResolved={isResolved}
-        />
-        <RateCard
-          title="MQL → SQL"
-          rate={conversionRates.mqlToSql.rate}
-          label={conversionRates.mqlToSql.label}
-          previousRate={previousRates?.mqlToSql.rate}
-          isResolved={isResolved}
-        />
-        <RateCard
-          title="SQL → SQO"
-          rate={conversionRates.sqlToSqo.rate}
-          label={conversionRates.sqlToSqo.label}
-          previousRate={previousRates?.sqlToSqo.rate}
-          isResolved={isResolved}
-        />
-        <RateCard
-          title="SQO → Joined"
-          rate={conversionRates.sqoToJoined.rate}
-          label={conversionRates.sqoToJoined.label}
-          previousRate={previousRates?.sqoToJoined.rate}
-          isResolved={isResolved}
-        />
+        {visibleRates.contactedToMql && (
+          <RateCard
+            title="Contacted → MQL"
+            rate={conversionRates.contactedToMql.rate}
+            label={conversionRates.contactedToMql.label}
+            previousRate={previousRates?.contactedToMql.rate}
+            isResolved={isResolved}
+          />
+        )}
+        {visibleRates.mqlToSql && (
+          <RateCard
+            title="MQL → SQL"
+            rate={conversionRates.mqlToSql.rate}
+            label={conversionRates.mqlToSql.label}
+            previousRate={previousRates?.mqlToSql.rate}
+            isResolved={isResolved}
+          />
+        )}
+        {visibleRates.sqlToSqo && (
+          <RateCard
+            title="SQL → SQO"
+            rate={conversionRates.sqlToSqo.rate}
+            label={conversionRates.sqlToSqo.label}
+            previousRate={previousRates?.sqlToSqo.rate}
+            isResolved={isResolved}
+          />
+        )}
+        {visibleRates.sqoToJoined && (
+          <RateCard
+            title="SQO → Joined"
+            rate={conversionRates.sqoToJoined.rate}
+            label={conversionRates.sqoToJoined.label}
+            previousRate={previousRates?.sqoToJoined.rate}
+            isResolved={isResolved}
+          />
+        )}
       </Grid>
     </div>
   );

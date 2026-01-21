@@ -32,6 +32,10 @@ import {
   SQODrillDownRecord 
 } from '@/types/drill-down';
 import type { AgentRequest, AgentResponse, StreamChunk } from '@/types/agent';
+import {
+  SavedReport,
+  SavedReportInput,
+} from '@/types/saved-reports';
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public endpoint: string) {
@@ -298,6 +302,46 @@ export const dashboardApi = {
       '/api/admin/refresh-cache',
       { method: 'POST' }
     ),
+
+  // Saved Reports API functions
+  getSavedReports: () =>
+    apiFetch<{ userReports: SavedReport[]; adminTemplates: SavedReport[] }>('/api/saved-reports'),
+
+  getSavedReport: (id: string) =>
+    apiFetch<{ report: SavedReport }>(`/api/saved-reports/${encodeURIComponent(id)}`)
+      .then(data => data.report),
+
+  createSavedReport: (input: SavedReportInput) =>
+    apiFetch<{ report: SavedReport }>('/api/saved-reports', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }).then(data => data.report),
+
+  updateSavedReport: (id: string, input: Partial<SavedReportInput>) =>
+    apiFetch<{ report: SavedReport }>(`/api/saved-reports/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }).then(data => data.report),
+
+  deleteSavedReport: (id: string) =>
+    apiFetch<{ success: boolean }>(`/api/saved-reports/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  setDefaultReport: (id: string) =>
+    apiFetch<{ report: SavedReport }>(`/api/saved-reports/${encodeURIComponent(id)}/set-default`, {
+      method: 'POST',
+    }).then(data => data.report),
+
+  duplicateSavedReport: (id: string, newName?: string) =>
+    apiFetch<{ report: SavedReport }>(`/api/saved-reports/${encodeURIComponent(id)}/duplicate`, {
+      method: 'POST',
+      body: JSON.stringify({ name: newName }),
+    }).then(data => data.report),
+
+  getDefaultReport: () =>
+    apiFetch<{ report: SavedReport | null }>('/api/saved-reports/default')
+      .then(data => data.report),
 };
 
 /**

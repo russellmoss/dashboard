@@ -19,6 +19,9 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   createdBy    String?
+
+  // Relations
+  savedReports SavedReport[]
 }
 
 model WeeklyGoal {
@@ -54,24 +57,52 @@ model QuarterlyGoal {
 }
 
 model ExploreFeedback {
-  id            String   @id @default(cuid())
-  userId        String?  // User email (from session.user.email)
-  question      String   // The user's question
-  questionId    String   // Unique ID for the question (timestamp or UUID)
-  templateId    String   // Template that was selected
-  feedback      String   // 'positive' or 'negative'
-  comment       String?  // Required comment for negative feedback, optional for positive
-  createdAt     DateTime @default(now())
-  
+  id         String   @id @default(cuid())
+  userId     String? // User email (from session.user.email)
+  question   String // The user's question
+  questionId String // Unique ID for the question (timestamp or UUID)
+  templateId String // Template that was selected
+  feedback   String // 'positive' or 'negative'
+  comment    String? // Required comment for negative feedback, optional for positive
+  createdAt  DateTime @default(now())
+
   // Store the full query context for debugging
-  compiledQuery Json?    // Store the compiled SQL and params as JSON
-  executableSql String?  // Store the executable SQL (with parameters substituted) for BigQuery
-  resultSummary Json?    // Store row count, execution time, visualization type, etc. as JSON
-  error         String?  // Store error message if query failed (parsing error, execution error, etc.)
-  
+  compiledQuery Json? // Store the compiled SQL and params as JSON
+  executableSql String? // Store the executable SQL (with parameters substituted) for BigQuery
+  resultSummary Json? // Store row count, execution time, visualization type, etc. as JSON
+  error         String? // Store error message if query failed (parsing error, execution error, etc.)
+
   @@index([userId])
   @@index([templateId])
   @@index([feedback])
   @@index([createdAt])
   @@index([error])
+}
+
+model SavedReport {
+  id               String   @id @default(cuid())
+  userId           String? // NULL for admin templates
+  name             String   @db.VarChar(255)
+  description      String?  @db.VarChar(500)
+  filters          Json // Complete DashboardFilters object
+  featureSelection Json? // Optional FeatureSelection object (null = show all)
+  viewMode         String?  @default("focused") // 'focused' | 'fullFunnel'
+  dashboard        String   @default("funnel_performance")
+  reportType       String   @default("user") // 'user' | 'admin_template'
+  isDefault        Boolean  @default(false)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  createdBy        String? // Email of creator
+
+  // Relations
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Note: Unique constraint for one default per user must be enforced in application logic
+  // Prisma doesn't support WHERE clauses in @@unique constraints
+
+  @@index([userId])
+  @@index([reportType])
+  @@index([isDefault])
+  @@index([isActive])
+  @@index([dashboard])
 }
