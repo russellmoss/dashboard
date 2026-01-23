@@ -1794,10 +1794,13 @@ const _getSGAActivityFilterOptions = async (): Promise<{
   for (const row of rows) {
     const sgaName = String(row.sga_name || '').trim();
     if (sgaName) {
+      // Hardcode Jacqueline Tully as inactive (she does inbound work, different from others)
+      const isActive = sgaName === 'Jacqueline Tully' ? false : Boolean(row.is_active);
+      
       uniqueSgas.set(sgaName, {
         value: sgaName,
         label: sgaName,
-        isActive: Boolean(row.is_active),
+        isActive: isActive,
       });
     }
   }

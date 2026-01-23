@@ -302,7 +302,7 @@ export default function SGAActivityContent() {
     }
   };
 
-  const handleActivityDistributionCellClick = async (channel: ActivityChannel, dayOfWeek: number) => {
+  const handleActivityDistributionCellClick = async (channel: ActivityChannel | undefined, dayOfWeek: number) => {
     // Use Period A filters for Activity Distribution drilldown
     const periodAFilters: SGAActivityFilters = {
       ...filters,

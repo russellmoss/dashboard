@@ -6,7 +6,7 @@ import { ActivityDistribution, ActivityChannel, SGAActivityFilters } from '@/typ
 
 interface ActivityDistributionTableProps {
   distributions: ActivityDistribution[];
-  onCellClick: (channel: ActivityChannel, dayOfWeek: number) => void;
+  onCellClick: (channel: ActivityChannel | undefined, dayOfWeek: number) => void;
   filters: SGAActivityFilters;
   onFiltersChange: (filters: SGAActivityFilters) => void;
 }
@@ -61,6 +61,33 @@ export default function ActivityDistributionTable({
       }
     }
   };
+
+  // Calculate rollup: Sum all channels for each day of week
+  const rollupPeriodA = new Map<number, number>();
+  const rollupPeriodBAvg = new Map<number, number>();
+
+  distributions.forEach((dist) => {
+    // Sum Period A counts
+    dist.currentPeriod.forEach((day) => {
+      const current = rollupPeriodA.get(day.dayOfWeek) || 0;
+      rollupPeriodA.set(day.dayOfWeek, current + day.count);
+    });
+
+    // Sum Period B averages
+    dist.comparisonPeriod.forEach((day) => {
+      const current = rollupPeriodBAvg.get(day.dayOfWeek) || 0;
+      rollupPeriodBAvg.set(day.dayOfWeek, current + (day.avgCount || 0));
+    });
+  });
+
+  // Calculate variance from summed values
+  const rollupVariance = new Map<number, number>();
+  DAY_ORDER.forEach((dayNum) => {
+    const periodA = rollupPeriodA.get(dayNum) || 0;
+    const periodBAvg = rollupPeriodBAvg.get(dayNum) || 0;
+    const variance = periodA - periodBAvg;
+    rollupVariance.set(dayNum, variance);
+  });
 
   return (
     <Card className="dark:bg-gray-800 dark:border-gray-700">
@@ -152,6 +179,95 @@ export default function ActivityDistributionTable({
               </div>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Rollup Table - All Activity Combined */}
+      <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-200 dark:border-blue-700 rounded-lg">
+        <div className="flex items-center gap-2 mb-3">
+          <Text className="font-semibold text-blue-900 dark:text-blue-100">All Activity Rollup</Text>
+          <span className="px-2 py-1 text-xs font-medium bg-blue-200 dark:bg-blue-800 text-blue-800 dark:text-blue-200 rounded">
+            Sum of All Channels
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <Table className="w-full" style={{ tableLayout: 'fixed' }}>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell className="text-left" style={{ width: '120px', minWidth: '120px' }}>Metric</TableHeaderCell>
+                {DAY_ORDER.map((dayNum) => (
+                  <TableHeaderCell key={dayNum} className="text-center" style={{ width: '80px', minWidth: '80px' }}>
+                    {DAY_ORDER_TO_NAME[dayNum]}
+                  </TableHeaderCell>
+                ))}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {/* Period A Row */}
+              <TableRow>
+                <TableCell className="text-left font-medium text-blue-900 dark:text-blue-100" style={{ width: '120px', minWidth: '120px' }}>Period A</TableCell>
+                {DAY_ORDER.map((dayNum) => {
+                  const count = rollupPeriodA.get(dayNum) || 0;
+                  return (
+                    <TableCell 
+                      key={dayNum} 
+                      className="text-center cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-800 font-medium text-blue-900 dark:text-blue-100"
+                      style={{ width: '80px', minWidth: '80px' }}
+                      onClick={() => count > 0 && onCellClick(undefined, dayNum)}
+                    >
+                      {count > 0 ? count : '-'}
+                    </TableCell>
+                  );
+                })}
+              </TableRow>
+              
+              {/* Period B Average Row */}
+              <TableRow>
+                <TableCell className="text-left text-blue-700 dark:text-blue-300" style={{ width: '120px', minWidth: '120px' }}>Period B Avg</TableCell>
+                {DAY_ORDER.map((dayNum) => {
+                  const avgValue = rollupPeriodBAvg.get(dayNum);
+                  return (
+                    <TableCell key={dayNum} className="text-center text-blue-700 dark:text-blue-300" style={{ width: '80px', minWidth: '80px' }}>
+                      {avgValue !== undefined && avgValue !== null && avgValue > 0 ? avgValue.toFixed(1) : '-'}
+                    </TableCell>
+                  );
+                })}
+              </TableRow>
+              
+              {/* Variance Row */}
+              <TableRow>
+                <TableCell className="text-left text-blue-700 dark:text-blue-300" style={{ width: '120px', minWidth: '120px' }}>Variance</TableCell>
+                {DAY_ORDER.map((dayNum) => {
+                  const periodBAvg = rollupPeriodBAvg.get(dayNum) || 0;
+                  const variance = rollupVariance.get(dayNum);
+                  
+                  if (variance === undefined || periodBAvg === 0) {
+                    return <TableCell key={dayNum} className="text-center text-blue-700 dark:text-blue-300" style={{ width: '80px', minWidth: '80px' }}>-</TableCell>;
+                  }
+                  
+                  const isPositive = variance > 0;
+                  const isNegative = variance < 0;
+                  const textColorClass = isPositive 
+                    ? 'text-green-600 dark:text-green-400' 
+                    : isNegative
+                    ? 'text-red-600 dark:text-red-400' 
+                    : 'text-blue-700 dark:text-blue-300';
+                  
+                  return (
+                    <TableCell 
+                      key={dayNum} 
+                      className="text-center" 
+                      style={{ width: '80px', minWidth: '80px' }}
+                    >
+                      <span className={textColorClass}>
+                        {isPositive ? '+' : ''}{variance.toFixed(1)}
+                      </span>
+                    </TableCell>
+                  );
+                })}
+              </TableRow>
+            </TableBody>
+          </Table>
         </div>
       </div>
       
