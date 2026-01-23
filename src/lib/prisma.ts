@@ -88,24 +88,27 @@ function getPrismaClient(): PrismaClient {
   try {
     // Create PrismaClient - Prisma 7 with binary engine reads DATABASE_URL from process.env
     // Configure connection pool and timeout settings for Neon
-    globalForPrisma.prisma = new PrismaClient({
+    const prismaConfig: any = {
       log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
       datasources: {
         db: {
           url: dbUrl,
         },
       },
-      // Connection pool configuration for Neon
-      // These help prevent connection timeout issues in local development
-      ...(process.env.NODE_ENV === 'development' && {
-        // Extended connection timeout for local dev (Neon can take time to wake up)
-        __internal: {
-          engine: {
-            connectTimeout: 30000, // 30 seconds
-          },
+    };
+
+    // Connection pool configuration for Neon
+    // These help prevent connection timeout issues in local development
+    if (process.env.NODE_ENV === 'development') {
+      // Extended connection timeout for local dev (Neon can take time to wake up)
+      prismaConfig.__internal = {
+        engine: {
+          connectTimeout: 30000, // 30 seconds
         },
-      }),
-    });
+      };
+    }
+
+    globalForPrisma.prisma = new PrismaClient(prismaConfig);
 
     logger.info('[Prisma] PrismaClient created successfully');
     return globalForPrisma.prisma;
