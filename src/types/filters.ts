@@ -122,3 +122,6 @@ export interface FilterOptions {
   years: number[];
   experimentationTags: string[];
 }
+
+// Add export for activity dashboard
+export type { SGAActivityFilters } from './sga-activity';

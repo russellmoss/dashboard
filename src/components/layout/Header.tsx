@@ -4,6 +4,7 @@ import { useSession, signOut } from 'next-auth/react';
 import { LogOut, User } from 'lucide-react';
 import Image from 'next/image';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { CacheClearButton } from '@/components/ui/CacheClearButton';
 import { DataFreshnessIndicator } from '@/components/dashboard/DataFreshnessIndicator';
 
 export function Header() {
@@ -22,6 +23,7 @@ export function Header() {
 
       <div className="flex items-center gap-4">
         <ThemeToggle />
+        <CacheClearButton />
         <DataFreshnessIndicator variant="compact" className="hidden sm:flex" />
         
         {session?.user && (

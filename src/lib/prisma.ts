@@ -10,7 +10,7 @@ const globalForPrisma = globalThis as unknown as {
 // Vercel Postgres: POSTGRES_PRISMA_URL
 function getDatabaseUrl(): string {
   // Check all possible environment variable names
-  const url = 
+  let url = 
     process.env.DATABASE_URL ||
     process.env.POSTGRES_PRISMA_URL ||
     process.env.POSTGRES_URL ||
@@ -23,6 +23,38 @@ function getDatabaseUrl(): string {
       `POSTGRES_PRISMA_URL=${!!process.env.POSTGRES_PRISMA_URL}, ` +
       `POSTGRES_URL=${!!process.env.POSTGRES_URL}`
     );
+  }
+  
+  // For Neon databases, ensure connection parameters are set for local development
+  // Add connection timeout and pool settings to prevent connection failures
+  if (url.includes('neon.tech') || url.includes('neon')) {
+    try {
+      const urlObj = new URL(url);
+      
+      // Set connection timeout (30 seconds for local dev, 15 for production)
+      const connectTimeout = process.env.NODE_ENV === 'development' ? '30' : '15';
+      urlObj.searchParams.set('connect_timeout', connectTimeout);
+      
+      // Set statement timeout (60 seconds)
+      urlObj.searchParams.set('statement_timeout', '60000');
+      
+      // Ensure SSL is required
+      if (!urlObj.searchParams.has('sslmode')) {
+        urlObj.searchParams.set('sslmode', 'require');
+      }
+      
+      // For local development, prefer direct connection if DIRECT_URL is available
+      // This avoids pooler issues during development
+      if (process.env.NODE_ENV === 'development' && process.env.DIRECT_URL) {
+        logger.debug('[Prisma] Using DIRECT_URL for local development');
+        url = process.env.DIRECT_URL;
+      } else {
+        url = urlObj.toString();
+      }
+    } catch (e) {
+      // If URL parsing fails, use original URL
+      logger.warn('[Prisma] Failed to parse DATABASE_URL, using as-is', { error: e });
+    }
   }
   
   // Ensure DATABASE_URL is set (Prisma 7 requires this exact name)
@@ -55,8 +87,24 @@ function getPrismaClient(): PrismaClient {
 
   try {
     // Create PrismaClient - Prisma 7 with binary engine reads DATABASE_URL from process.env
+    // Configure connection pool and timeout settings for Neon
     globalForPrisma.prisma = new PrismaClient({
       log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+      datasources: {
+        db: {
+          url: dbUrl,
+        },
+      },
+      // Connection pool configuration for Neon
+      // These help prevent connection timeout issues in local development
+      ...(process.env.NODE_ENV === 'development' && {
+        // Extended connection timeout for local dev (Neon can take time to wake up)
+        __internal: {
+          engine: {
+            connectTimeout: 30000, // 30 seconds
+          },
+        },
+      }),
     });
 
     logger.info('[Prisma] PrismaClient created successfully');

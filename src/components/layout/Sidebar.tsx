@@ -7,7 +7,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { 
   BarChart3, Settings, Menu, X, Target,
-  Bot, Users, Layers
+  Bot, Users, Layers, PhoneCall
 } from 'lucide-react';
 
 const PAGES = [
@@ -17,6 +17,7 @@ const PAGES = [
   { id: 7, name: 'Settings', href: '/dashboard/settings', icon: Settings },
   { id: 8, name: 'SGA Hub', href: '/dashboard/sga-hub', icon: Target },
   { id: 9, name: 'SGA Management', href: '/dashboard/sga-management', icon: Users },
+  { id: 11, name: 'SGA Activity', href: '/dashboard/sga-activity', icon: PhoneCall },
 ];
 
 interface SidebarProps {

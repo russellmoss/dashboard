@@ -13,6 +13,44 @@ export interface User {
   createdBy?: string | null;
 }
 
+// Retry helper for database operations (handles Neon connection timeouts)
+async function retryDatabaseOperation<T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3,
+  delayMs: number = 1000
+): Promise<T> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      lastError = error;
+      
+      // Check if it's a connection error that might be retryable
+      const isConnectionError = 
+        error?.message?.includes('Can\'t reach database server') ||
+        error?.message?.includes('connection') ||
+        error?.code === 'P1001' || // Prisma connection error code
+        error?.name === 'PrismaClientInitializationError';
+      
+      if (isConnectionError && attempt < maxRetries) {
+        logger.warn(`[retryDatabaseOperation] Connection error (attempt ${attempt}/${maxRetries}), retrying...`, {
+          error: error.message,
+          attempt,
+        });
+        await new Promise(resolve => setTimeout(resolve, delayMs * attempt)); // Exponential backoff
+        continue;
+      }
+      
+      // If not a connection error or last attempt, throw immediately
+      throw error;
+    }
+  }
+  
+  throw lastError || new Error('Database operation failed after retries');
+}
+
 export async function validateUser(
   email: string,
   password: string
@@ -21,8 +59,10 @@ export async function validateUser(
   logger.debug('[validateUser] Looking up user', { email: normalizedEmail });
 
   try {
-    const user = await prisma.user.findUnique({
-      where: { email: normalizedEmail },
+    const user = await retryDatabaseOperation(async () => {
+      return await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+      });
     });
 
     if (!user) {
