@@ -65,9 +65,6 @@ export function AdvancedFilters({
     setLocalFilters(filters);
   }, [filters]);
 
-  // Determine if Initial Call filter should be visible
-  const showInitialCallFilter = viewMode === 'fullFunnel';
-
   // Filter sources/SGAs/SGMs by search
   // Note: filterOptions.sources is string[], filterOptions.sgas/sgms are FilterOption[]
   const filteredSources = useMemo(() => {
@@ -99,16 +96,6 @@ export function AdvancedFilters({
   }, [filterOptions, experimentationTagSearch]);
 
   // Handlers
-  const handleDateFilterChange = (
-    filterKey: 'initialCallScheduled' | 'qualificationCallDate',
-    updates: Partial<DateRangeFilter>
-  ) => {
-    setLocalFilters(prev => ({
-      ...prev,
-      [filterKey]: { ...prev[filterKey], ...updates },
-    }));
-  };
-
   const handleMultiSelectChange = (
     filterKey: 'channels' | 'sources' | 'sgas' | 'sgms' | 'experimentationTags',
     value: string,
@@ -193,29 +180,6 @@ export function AdvancedFilters({
             </div>
           ) : (
             <>
-              {/* Date Filters Section */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
-                  📅 Date Filters
-                </h3>
-                
-                {/* Initial Call Scheduled (Full Funnel only) */}
-                {showInitialCallFilter && (
-                  <DateRangeFilterControl
-                    label="Initial Call Scheduled"
-                    filter={localFilters.initialCallScheduled}
-                    onChange={(updates) => handleDateFilterChange('initialCallScheduled', updates)}
-                  />
-                )}
-                
-                {/* Qualification Call Date */}
-                <DateRangeFilterControl
-                  label="Qualification Call Date"
-                  filter={localFilters.qualificationCallDate}
-                  onChange={(updates) => handleDateFilterChange('qualificationCallDate', updates)}
-                />
-              </div>
-              
               {/* Attribution Filters Section */}
               <div>
                 <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">

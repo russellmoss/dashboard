@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Card, Title, Text, Badge, Button } from '@tremor/react';
+import { Card, Title, Text, Button } from '@tremor/react';
 import { Plus, Pencil, Trash2, Key, UserCheck, UserX } from 'lucide-react';
 import { SafeUser } from '@/types/user';
 import { UserModal } from './UserModal';
@@ -12,12 +12,12 @@ interface UserManagementProps {
   currentUserEmail: string;
 }
 
-const ROLE_COLORS: Record<string, string> = {
-  admin: 'red',
-  manager: 'blue',
-  sgm: 'green',
-  sga: 'yellow',
-  viewer: 'gray',
+const ROLE_COLOR_CLASSES: Record<string, string> = {
+  admin: 'text-red-600 dark:text-red-400',
+  manager: 'text-blue-600 dark:text-blue-400',
+  sgm: 'text-green-600 dark:text-green-400',
+  sga: 'text-yellow-600 dark:text-yellow-400',
+  viewer: 'text-gray-600 dark:text-gray-400',
 };
 
 export function UserManagement({ currentUserEmail }: UserManagementProps) {
@@ -124,42 +124,42 @@ export function UserManagement({ currentUserEmail }: UserManagementProps) {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-3 px-4 font-medium text-gray-600">Name</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-600">Email</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-600">Role</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-600">Status</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-600">Created</th>
-                <th className="text-right py-3 px-4 font-medium text-gray-600">Actions</th>
+              <tr className="border-b border-gray-200 dark:border-gray-700">
+                <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-300">Name</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-300">Email</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-300">Role</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-300">Status</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-300">Created</th>
+                <th className="text-right py-3 px-4 font-medium text-gray-600 dark:text-gray-300">Actions</th>
               </tr>
             </thead>
             <tbody>
               {users.map((user) => (
-                <tr key={user.id} className="border-b border-gray-100 hover:bg-gray-50">
+                <tr key={user.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
                   <td className="py-3 px-4">
-                    <span className="font-medium text-gray-900">{user.name}</span>
+                    <span className="font-medium text-gray-900 dark:text-gray-100">{user.name}</span>
                     {user.email === currentUserEmail && (
-                      <span className="ml-2 text-blue-600">You</span>
+                      <span className="ml-2 text-blue-600 dark:text-blue-400">You</span>
                     )}
                   </td>
-                  <td className="py-3 px-4 text-gray-600">{user.email}</td>
+                  <td className="py-3 px-4 text-gray-600 dark:text-gray-300">{user.email}</td>
                   <td className="py-3 px-4">
-                    <Badge color={ROLE_COLORS[user.role] as any} size="sm">
+                    <span className={`font-semibold ${ROLE_COLOR_CLASSES[user.role] || 'text-gray-600 dark:text-gray-400'}`}>
                       {user.role.toUpperCase()}
-                    </Badge>
+                    </span>
                   </td>
                   <td className="py-3 px-4">
                     {user.isActive ? (
-                      <span className="flex items-center gap-1 text-green-600">
+                      <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
                         <UserCheck className="w-4 h-4" /> Active
                       </span>
                     ) : (
-                      <span className="flex items-center gap-1 text-gray-400">
+                      <span className="flex items-center gap-1 text-gray-400 dark:text-gray-500">
                         <UserX className="w-4 h-4" /> Inactive
                       </span>
                     )}
                   </td>
-                  <td className="py-3 px-4 text-gray-500 text-sm">
+                  <td className="py-3 px-4 text-gray-500 dark:text-gray-400 text-sm">
                     {new Date(user.createdAt).toLocaleDateString()}
                   </td>
                   <td className="py-3 px-4">
