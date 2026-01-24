@@ -16,6 +16,7 @@ export interface GameObject {
   stage?: 'Qualifying' | 'Discovery' | 'Sales Process' | 'Negotiating';
   reason?: string;
   powerUpType?: PowerUpType;
+  nearMissTriggered?: boolean;
 }
 
 export interface ActivePowerUp {

@@ -1,11 +1,11 @@
 export const GAME_CONFIG = {
-  GAME_DURATION: 120, // 2 minutes
+  GAME_DURATION: 90, // 1 minute 30 seconds
   STARTING_LIVES: 3,
-  EOQ_MODE_START: 10, // Last 10 seconds: "EOQ" mode, 2x speed
+  EOQ_MODE_START: 80, // Last 10 seconds: "EOQ" mode (80-90 seconds)
   SPAWN_INTERVAL_NORMAL: 1400,
   SPAWN_INTERVAL_EOQ: 800,
   BASE_FALL_SPEED: 2.0,
-  EOQ_FALL_SPEED_MULTIPLIER: 2.0,
+  EOQ_FALL_SPEED_MULTIPLIER: 2.5, // Final speed for last 10 seconds
   JOINED_SPEED_MULTIPLIER: 2.5,
   GHOST_PENALTY: 5000000, // $5M
   POWERUP_SPAWN_CHANCE: 0.05,
@@ -16,6 +16,13 @@ export const GAME_CONFIG = {
   CANVAS_HEIGHT: 500,
   PLAYER_WIDTH: 100,
   PLAYER_HEIGHT: 60,
+  // Progressive speed stages
+  SPEED_STAGE_1_TIME: 30, // 1.25X speed by 30 seconds
+  SPEED_STAGE_2_TIME: 60, // 1.5X speed by 60 seconds
+  SPEED_STAGE_3_TIME: 79, // 2X speed by 79 seconds
+  SPEED_STAGE_1_MULTIPLIER: 1.25,
+  SPEED_STAGE_2_MULTIPLIER: 1.5,
+  SPEED_STAGE_3_MULTIPLIER: 2.0,
 };
 
 export const STAGE_SPEED_MODIFIERS: Record<string, number> = {

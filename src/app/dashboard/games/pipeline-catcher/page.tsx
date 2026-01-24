@@ -4,6 +4,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { PipelineCatcher } from '@/components/games/pipeline-catcher';
+import { AudioProvider } from '@/components/games/pipeline-catcher/AudioContext';
 
 export default function PipelineCatcherPage() {
   const { data: session, status } = useSession();
@@ -28,5 +29,9 @@ export default function PipelineCatcherPage() {
     return null;
   }
   
-  return <PipelineCatcher />;
+  return (
+    <AudioProvider>
+      <PipelineCatcher />
+    </AudioProvider>
+  );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { pipelineCatcherApi } from '@/lib/api-client';
 import { LeaderboardEntry } from '@/types/game';
 import { formatGameAum, formatQuarterDisplay } from '@/config/game-constants';
@@ -69,7 +70,30 @@ export function GameOver({ quarter, result, scoreId, userRank, isTopThree, onPla
       }}
     >
       <div className="bg-slate-900/90 rounded-lg p-8 max-w-2xl w-full border border-slate-700">
-        <h2 className="text-3xl font-bold text-center mb-6 text-white">Game Over!</h2>
+        <div className="flex items-center justify-center gap-4 mb-6">
+          <Image 
+            src="/games/pipeline-catcher/images/david-dance.gif"
+            alt="Dancing David"
+            width={96}
+            height={96}
+            unoptimized
+            style={{ 
+              imageRendering: 'pixelated',
+              transform: 'scaleX(-1)' 
+            }}
+          />
+          <h2 className="text-3xl font-bold text-white">Game Over!</h2>
+          <Image 
+            src="/games/pipeline-catcher/images/david-dance.gif"
+            alt="Dancing David"
+            width={96}
+            height={96}
+            unoptimized
+            style={{ 
+              imageRendering: 'pixelated'
+            }}
+          />
+        </div>
         
         {/* Final Score */}
         <div className="text-center mb-6">

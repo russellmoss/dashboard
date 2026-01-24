@@ -1,9 +1,12 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { QuarterLevel, LeaderboardEntry } from '@/types/game';
 import { formatGameAum, formatQuarterDisplay } from '@/config/game-constants';
 import { pipelineCatcherApi } from '@/lib/api-client';
+import DancingMascot from './DancingMascot';
+import { Playlist } from './Playlist';
+import { useAudioContext } from './AudioContext';
 
 interface LevelSelectProps {
   levels: QuarterLevel[];
@@ -16,6 +19,30 @@ export function LevelSelect({ levels, onSelectLevel, isLoading }: LevelSelectPro
   const [leaderboardEntries, setLeaderboardEntries] = useState<LeaderboardEntry[]>([]);
   const [isLoadingLeaderboard, setIsLoadingLeaderboard] = useState(false);
   const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
+  const audio = useAudioContext();
+  const [currentSongId, setCurrentSongId] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  
+  // Update current song and playing state
+  useEffect(() => {
+    const updateState = () => {
+      const songId = audio.getCurrentMenuSongId();
+      const playing = audio.getIsPlaying();
+      // Always update to ensure we show the correct song
+      setCurrentSongId(songId);
+      setIsPlaying(playing);
+    };
+    
+    // Update immediately, then wait a bit for initialization, then periodically
+    updateState();
+    const initTimeout = setTimeout(updateState, 500);
+    const interval = setInterval(updateState, 100);
+    
+    return () => {
+      clearTimeout(initTimeout);
+      clearInterval(interval);
+    };
+  }, [audio]);
 
   const openLeaderboard = useCallback(async (quarter: string) => {
     setLeaderboardQuarter(quarter);
@@ -65,7 +92,11 @@ export function LevelSelect({ levels, onSelectLevel, isLoading }: LevelSelectPro
     >
       <div className="max-w-4xl w-full">
         <div className="text-center mb-8">
-          <h1 className="text-5xl font-bold text-white mb-4">Pipeline Catcher</h1>
+          <div className="flex items-center justify-center gap-4 mb-4">
+            <DancingMascot size={96} flipHorizontal />
+            <h1 className="text-5xl font-bold text-white">Pipeline Catcher</h1>
+            <DancingMascot size={96} />
+          </div>
           <p className="text-slate-300 text-lg">Catch SQOs, avoid ghosts, and climb the leaderboard!</p>
         </div>
 
@@ -161,6 +192,15 @@ export function LevelSelect({ levels, onSelectLevel, isLoading }: LevelSelectPro
           </div>
         )}
       </div>
+      
+      <Playlist
+        currentSongId={currentSongId}
+        onSelectSong={(songId) => {
+          audio.selectMenuSong(songId);
+        }}
+        isPlaying={isPlaying}
+        onTogglePlay={audio.togglePlayPause}
+      />
 
       {/* Leaderboard modal */}
       {leaderboardQuarter && (

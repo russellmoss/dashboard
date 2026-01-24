@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { QuarterGameData, GameObject, ActivePowerUp } from '@/types/game';
 import { GAME_CONFIG, STAGE_SPEED_MODIFIERS, formatGameAum } from '@/config/game-constants';
+import CatchPopup from './CatchPopup';
 
 const OBJECT_SIZES = {
   sqo: { width: 85, height: 90, emojiSize: 48 },
@@ -23,6 +24,15 @@ const COLORS = {
     shield: { glow: '#3b82f6', bg: '#2563eb' },
   },
 } as const;
+
+interface FloatingText {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  startTime: number;
+  color: string;
+}
 
 function truncate(s: string, max: number) {
   return s.length <= max ? s : s.slice(0, max - 1) + '…';
@@ -243,6 +253,7 @@ interface GameCanvasProps {
   onTimeUpdate: (timeRemaining: number) => void;
   isEoqMode: boolean;
   setIsEoqMode: (value: boolean) => void;
+  isMuted: boolean;
 }
 
 export function GameCanvas({
@@ -252,6 +263,7 @@ export function GameCanvas({
   onTimeUpdate,
   isEoqMode,
   setIsEoqMode,
+  isMuted,
 }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -263,6 +275,12 @@ export function GameCanvas({
   const joinedCaughtRef = useRef(0);
   const ghostsHitRef = useRef(0);
   const isEoqModeRef = useRef(false);
+  const floatingTextsRef = useRef<FloatingText[]>([]);
+  
+  const catchSoundRef = useRef<HTMLAudioElement | null>(null);
+  const joinedSoundRef = useRef<HTMLAudioElement | null>(null);
+  const ghostSoundRef = useRef<HTMLAudioElement | null>(null);
+  const doNotCallSoundRef = useRef<HTMLAudioElement | null>(null);
   
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(GAME_CONFIG.STARTING_LIVES);
@@ -271,6 +289,7 @@ export function GameCanvas({
   const [joinedCaught, setJoinedCaught] = useState(0);
   const [ghostsHit, setGhostsHit] = useState(0);
   const [lastCaught, setLastCaught] = useState<{ name: string; aum: number; type: 'sqo' | 'joined' } | null>(null);
+  const [catchPopup, setCatchPopup] = useState<'sqo' | 'joined' | null>(null);
   
   const playerXRef = useRef<number>(GAME_CONFIG.CANVAS_WIDTH / 2 - GAME_CONFIG.PLAYER_WIDTH / 2);
   const objectsRef = useRef<GameObject[]>([]);
@@ -294,8 +313,21 @@ export function GameCanvas({
     advisorsCaughtRef.current = 0;
     joinedCaughtRef.current = 0;
     ghostsHitRef.current = 0;
+    floatingTextsRef.current = [];
     isEoqModeRef.current = false;
   }, [gameData]);
+
+  // Initialize audio
+  useEffect(() => {
+    catchSoundRef.current = new Audio('/games/pipeline-catcher/audio/catch.mp3');
+    joinedSoundRef.current = new Audio('/games/pipeline-catcher/audio/catch-joined.mp3');
+    ghostSoundRef.current = new Audio('/games/pipeline-catcher/audio/ghost.mp3');
+    doNotCallSoundRef.current = new Audio('/games/pipeline-catcher/audio/do-not-call.mp3');
+    catchSoundRef.current.volume = 1.0;
+    joinedSoundRef.current.volume = 0.75;
+    ghostSoundRef.current.volume = 0.5;
+    doNotCallSoundRef.current.volume = 1.0;
+  }, []);
   
   // Keyboard handlers
   useEffect(() => {
@@ -329,11 +361,27 @@ export function GameCanvas({
   const maxObjW = 95;
   const spawnObject = useCallback((type: GameObject['type'], now: number) => {
     const x = Math.random() * (GAME_CONFIG.CANVAS_WIDTH - maxObjW - 20) + 10;
-    let speed = GAME_CONFIG.BASE_FALL_SPEED;
+    
+    // Progressive speed stages based on elapsed time
+    const elapsed = Math.max(0, (now - gameStartTimeRef.current) / 1000);
+    let speedMultiplier = 1.0;
     
     if (isEoqModeRef.current) {
-      speed *= GAME_CONFIG.EOQ_FALL_SPEED_MULTIPLIER;
+      // Last 10 seconds (80-90): 2.5X speed
+      speedMultiplier = GAME_CONFIG.EOQ_FALL_SPEED_MULTIPLIER;
+    } else if (elapsed >= GAME_CONFIG.SPEED_STAGE_3_TIME) {
+      // 79-80 seconds: 2X speed
+      speedMultiplier = GAME_CONFIG.SPEED_STAGE_3_MULTIPLIER;
+    } else if (elapsed >= GAME_CONFIG.SPEED_STAGE_2_TIME) {
+      // 60-79 seconds: 1.5X speed
+      speedMultiplier = GAME_CONFIG.SPEED_STAGE_2_MULTIPLIER;
+    } else if (elapsed >= GAME_CONFIG.SPEED_STAGE_1_TIME) {
+      // 30-60 seconds: 1.25X speed
+      speedMultiplier = GAME_CONFIG.SPEED_STAGE_1_MULTIPLIER;
     }
+    // 0-30 seconds: 1X speed (base)
+    
+    let speed = GAME_CONFIG.BASE_FALL_SPEED * speedMultiplier;
     
     let object: GameObject;
     const sizes = OBJECT_SIZES;
@@ -442,12 +490,25 @@ export function GameCanvas({
     const timeLeft = Math.max(0, GAME_CONFIG.GAME_DURATION - elapsed);
     setTimeRemaining(Math.floor(timeLeft));
     
-    // EOQ mode: last 10 seconds, 2x fall speed
-    if (timeLeft <= GAME_CONFIG.EOQ_MODE_START && !isEoqModeRef.current) {
+    // EOQ mode: last 10 seconds (80-90 seconds), 2.5X fall speed
+    // timeLeft <= 10 means we're in the last 10 seconds
+    if (timeLeft <= (GAME_CONFIG.GAME_DURATION - GAME_CONFIG.EOQ_MODE_START) && !isEoqModeRef.current) {
       isEoqModeRef.current = true;
       setIsEoqMode(true);
+      // Calculate current speed multiplier at 80 seconds (just before EOQ)
+      const elapsedAtEOQStart = GAME_CONFIG.EOQ_MODE_START;
+      let currentMultiplier = 1.0;
+      if (elapsedAtEOQStart >= GAME_CONFIG.SPEED_STAGE_3_TIME) {
+        currentMultiplier = GAME_CONFIG.SPEED_STAGE_3_MULTIPLIER;
+      } else if (elapsedAtEOQStart >= GAME_CONFIG.SPEED_STAGE_2_TIME) {
+        currentMultiplier = GAME_CONFIG.SPEED_STAGE_2_MULTIPLIER;
+      } else if (elapsedAtEOQStart >= GAME_CONFIG.SPEED_STAGE_1_TIME) {
+        currentMultiplier = GAME_CONFIG.SPEED_STAGE_1_MULTIPLIER;
+      }
+      // Apply EOQ multiplier relative to current speed (2.5X / 2.0X = 1.25X additional)
+      const eoqMultiplier = GAME_CONFIG.EOQ_FALL_SPEED_MULTIPLIER / currentMultiplier;
       objectsRef.current.forEach((obj) => {
-        obj.speed *= GAME_CONFIG.EOQ_FALL_SPEED_MULTIPLIER;
+        obj.speed *= eoqMultiplier;
       });
     }
     
@@ -479,9 +540,27 @@ export function GameCanvas({
     }
     
     const now = timestamp;
-    const spawnInterval = isEoqModeRef.current
-      ? GAME_CONFIG.SPAWN_INTERVAL_EOQ
-      : GAME_CONFIG.SPAWN_INTERVAL_NORMAL;
+    
+    // Calculate spawn interval based on current speed to maintain density
+    // As speed increases, spawn interval decreases to keep same total objects but more dense
+    // (elapsed is already defined above)
+    let spawnInterval = GAME_CONFIG.SPAWN_INTERVAL_NORMAL;
+    
+    if (isEoqModeRef.current) {
+      // Last 10 seconds: fastest spawn rate (2.5X speed)
+      spawnInterval = GAME_CONFIG.SPAWN_INTERVAL_EOQ;
+    } else if (elapsed >= GAME_CONFIG.SPEED_STAGE_3_TIME) {
+      // 79-80 seconds: 2X speed, spawn more frequently
+      spawnInterval = GAME_CONFIG.SPAWN_INTERVAL_NORMAL / 2.0;
+    } else if (elapsed >= GAME_CONFIG.SPEED_STAGE_2_TIME) {
+      // 60-79 seconds: 1.5X speed, spawn more frequently
+      spawnInterval = GAME_CONFIG.SPAWN_INTERVAL_NORMAL / 1.5;
+    } else if (elapsed >= GAME_CONFIG.SPEED_STAGE_1_TIME) {
+      // 30-60 seconds: 1.25X speed, spawn slightly more frequently
+      spawnInterval = GAME_CONFIG.SPAWN_INTERVAL_NORMAL / 1.25;
+    }
+    // 0-30 seconds: normal spawn interval
+    
     if (now - lastSpawnTimeRef.current >= spawnInterval) {
       lastSpawnTimeRef.current = now;
       const rand = Math.random();
@@ -504,15 +583,60 @@ export function GameCanvas({
       obj.y += obj.speed;
       
       if (obj.y + obj.height > GAME_CONFIG.CANVAS_HEIGHT) {
+        if (obj.type === 'sqo') {
+           floatingTextsRef.current.push({
+               id: Math.random().toString(),
+               text: 'Missed opportunity!',
+               x: obj.x,
+               y: GAME_CONFIG.CANVAS_HEIGHT - 40,
+               startTime: now,
+               color: '#ef4444' // red-500
+           });
+        }
         objectsToRemove.push(obj);
         return;
       }
       
       // Check collision
+      const playerY = GAME_CONFIG.CANVAS_HEIGHT - GAME_CONFIG.PLAYER_HEIGHT - 10;
+      
+      // Near-miss detection
+      if (!obj.nearMissTriggered && !checkCollision(obj)) {
+        if (obj.y + obj.height > playerY && obj.y < playerY + GAME_CONFIG.PLAYER_HEIGHT) {
+           const playerCenter = playerXRef.current + GAME_CONFIG.PLAYER_WIDTH / 2;
+           const objCenter = obj.x + obj.width / 2;
+           const dist = Math.abs(objCenter - playerCenter);
+           const minDist = (obj.width + GAME_CONFIG.PLAYER_WIDTH) / 2 + 20;
+           
+           if (dist < minDist) {
+               obj.nearMissTriggered = true;
+               floatingTextsRef.current.push({
+                   id: Math.random().toString(),
+                   text: 'Close!',
+                   x: obj.x + 20,
+                   y: obj.y,
+                   startTime: now,
+                   color: '#ffffff'
+               });
+           }
+        }
+      }
+
       if (checkCollision(obj)) {
         objectsToRemove.push(obj);
         
         if (obj.type === 'sqo' || obj.type === 'joined') {
+          // Play sound
+          if (!isMuted) {
+            if (obj.type === 'sqo' && catchSoundRef.current) {
+              catchSoundRef.current.currentTime = 0;
+              catchSoundRef.current.play().catch(() => {});
+            } else if (obj.type === 'joined' && joinedSoundRef.current) {
+              joinedSoundRef.current.currentTime = 0;
+              joinedSoundRef.current.play().catch(() => {});
+            }
+          }
+
           const aumValue = obj.aum;
           const multiplier = obj.type === 'joined' ? 1.5 : 1.0;
           const hasDoubleAum = activePowerUpsRef.current.some(p => p.type === 'doubleAum' && p.expiresAt > now);
@@ -524,11 +648,24 @@ export function GameCanvas({
           if (obj.type === 'sqo') {
             advisorsCaughtRef.current += 1;
             setAdvisorsCaught(advisorsCaughtRef.current);
+            setCatchPopup('sqo');
           } else {
             joinedCaughtRef.current += 1;
             setJoinedCaught(joinedCaughtRef.current);
+            setCatchPopup('joined');
           }
         } else if (obj.type === 'ghost' || obj.type === 'stopSign') {
+          // Play sound
+          if (!isMuted) {
+            if (obj.type === 'ghost' && ghostSoundRef.current) {
+              ghostSoundRef.current.currentTime = 0;
+              ghostSoundRef.current.play().catch(() => {});
+            } else if (obj.type === 'stopSign' && doNotCallSoundRef.current) {
+              doNotCallSoundRef.current.currentTime = 0;
+              doNotCallSoundRef.current.play().catch(() => {});
+            }
+          }
+
           scoreRef.current = Math.max(0, scoreRef.current - GAME_CONFIG.GHOST_PENALTY);
           livesRef.current -= 1;
           ghostsHitRef.current += 1;
@@ -557,6 +694,20 @@ export function GameCanvas({
     const animationTime = now / 1000;
     objectsRef.current.forEach((obj) => {
       drawGameObject(ctx, obj, animationTime);
+    });
+
+    // Draw floating texts
+    floatingTextsRef.current = floatingTextsRef.current.filter(ft => now - ft.startTime < 1000);
+    floatingTextsRef.current.forEach(ft => {
+        const age = (now - ft.startTime) / 1000;
+        ctx.save();
+        ctx.fillStyle = ft.color;
+        ctx.globalAlpha = 1 - age;
+        ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 4;
+        ctx.fillText(ft.text, ft.x, ft.y - 20 * age);
+        ctx.restore();
     });
     
     // Draw player
@@ -617,7 +768,7 @@ export function GameCanvas({
             </div>
             <div>
               <div className="text-xs text-slate-400">TIME</div>
-              <div className={`text-2xl font-bold ${timeRemaining <= GAME_CONFIG.EOQ_MODE_START ? 'text-red-500 animate-pulse' : 'text-white'}`}>
+              <div className={`text-2xl font-bold ${timeRemaining <= (GAME_CONFIG.GAME_DURATION - GAME_CONFIG.EOQ_MODE_START) ? 'text-red-500 animate-pulse' : 'text-white'}`}>
                 {formatTime(timeRemaining)}
               </div>
             </div>
@@ -655,6 +806,8 @@ export function GameCanvas({
       <div className="mt-4 text-center text-slate-300 text-sm">
         <p>Use ← → or A/D keys to move</p>
       </div>
+
+      <CatchPopup type={catchPopup} onComplete={() => setCatchPopup(null)} />
     </div>
   );
 }

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { LevelSelect } from './LevelSelect';
 import { GameCanvas } from './GameCanvas';
 import { GameOver } from './GameOver';
-import { useGameAudio } from './hooks/useGameAudio';
+import { useAudioContext } from './AudioContext';
 import { pipelineCatcherApi } from '@/lib/api-client';
 import { QuarterLevel, QuarterGameData } from '@/types/game';
 import { GAME_CONFIG } from '@/config/game-constants';
@@ -33,7 +33,7 @@ export function PipelineCatcher() {
   const [isEoqMode, setIsEoqMode] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   
-  const audio = useGameAudio();
+  const audio = useAudioContext();
   
   // Fetch available levels on mount
   useEffect(() => {
@@ -53,16 +53,26 @@ export function PipelineCatcher() {
     fetchLevels();
   }, []);
   
-  // Play menu music when on level select
+  // Play menu music when on level select (try autoplay, fallback to user interaction)
   useEffect(() => {
     if (screen === 'levelSelect' && !isMuted) {
-      const timer = setTimeout(() => audio.play('menu'), 100);
+      // Try to play immediately (will work if browser allows autoplay)
+      const timer = setTimeout(() => {
+        console.log('[PipelineCatcher] Attempting to play menu music');
+        audio.play('menu');
+      }, 800);
       return () => {
         clearTimeout(timer);
-        audio.stop();
       };
     }
   }, [screen, audio, isMuted]);
+  
+  // Stop menu music when leaving level select
+  useEffect(() => {
+    if (screen !== 'levelSelect') {
+      audio.stop();
+    }
+  }, [screen, audio]);
 
   // Play gameplay music when in a level (effect runs after menu cleanup on transition)
   useEffect(() => {
@@ -150,7 +160,8 @@ export function PipelineCatcher() {
   
   // Handle time updates (EOQ mode: last 10 seconds)
   const handleTimeUpdate = useCallback((timeRemaining: number) => {
-    if (timeRemaining <= GAME_CONFIG.EOQ_MODE_START && !isEoqMode) {
+    // EOQ mode starts when 10 seconds remain (at 80 seconds elapsed)
+    if (timeRemaining <= (GAME_CONFIG.GAME_DURATION - GAME_CONFIG.EOQ_MODE_START) && !isEoqMode) {
       setIsEoqMode(true);
     }
   }, [isEoqMode]);
@@ -214,6 +225,7 @@ export function PipelineCatcher() {
           onTimeUpdate={handleTimeUpdate}
           isEoqMode={isEoqMode}
           setIsEoqMode={setIsEoqMode}
+          isMuted={isMuted}
         />
       )}
       
