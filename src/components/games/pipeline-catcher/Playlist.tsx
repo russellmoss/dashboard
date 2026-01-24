@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
 
 interface Song {
@@ -61,14 +61,40 @@ interface PlaylistProps {
   onSelectSong: (songId: string) => void;
   isPlaying: boolean;
   onTogglePlay: () => void;
+  onNextSong: () => void;
+  onPreviousSong: () => void;
+  currentTime: number;
+  duration: number;
+  onSeek: (time: number) => void;
 }
 
-export function Playlist({ currentSongId, onSelectSong, isPlaying, onTogglePlay }: PlaylistProps) {
+export function Playlist({ currentSongId, onSelectSong, isPlaying, onTogglePlay, onNextSong, onPreviousSong, currentTime, duration, onSeek }: PlaylistProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragTime, setDragTime] = useState(0);
+  
   // Find the current song, or default to first if not found
   const currentSong = currentSongId 
     ? PLAYLIST.find(song => song.id === currentSongId) || PLAYLIST[0]
     : PLAYLIST[0];
+
+  // Format time as MM:SS
+  const formatTime = (seconds: number): string => {
+    if (!isFinite(seconds) || isNaN(seconds) || seconds < 0) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const displayTime = isDragging ? dragTime : currentTime;
+  const progress = duration > 0 ? (displayTime / duration) * 100 : 0;
+
+  // Update dragTime when currentTime changes (but not while dragging)
+  useEffect(() => {
+    if (!isDragging) {
+      setDragTime(currentTime);
+    }
+  }, [currentTime, isDragging]);
 
   return (
     <div className="fixed right-4 top-1/2 -translate-y-1/2 z-40 w-80">
@@ -91,25 +117,89 @@ export function Playlist({ currentSongId, onSelectSong, isPlaying, onTogglePlay 
           <div className="flex-1 min-w-0">
             <div className="text-white font-semibold text-sm truncate">{currentSong.title}</div>
             <div className="text-slate-400 text-xs truncate">{currentSong.artist}</div>
+            {/* Progress slider */}
+            <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+              <input
+                type="range"
+                min="0"
+                max={duration || 100}
+                step="0.1"
+                value={displayTime}
+                onChange={(e) => {
+                  const newTime = parseFloat(e.target.value);
+                  setDragTime(newTime);
+                  // Seek immediately on change - this allows real-time seeking while dragging
+                  onSeek(newTime);
+                }}
+                onMouseDown={() => {
+                  setIsDragging(true);
+                  setDragTime(currentTime);
+                }}
+                onMouseUp={() => {
+                  setIsDragging(false);
+                }}
+                onTouchStart={() => {
+                  setIsDragging(true);
+                  setDragTime(currentTime);
+                }}
+                onTouchEnd={() => {
+                  setIsDragging(false);
+                }}
+                className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer range-slider"
+                style={{
+                  background: `linear-gradient(to right, #10b981 0%, #10b981 ${progress}%, #475569 ${progress}%, #475569 100%)`
+                }}
+              />
+              <div className="flex justify-between text-xs text-slate-400 mt-1">
+                <span>{formatTime(displayTime)}</span>
+                <span>{formatTime(duration)}</span>
+              </div>
+            </div>
           </div>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onTogglePlay();
-            }}
-            className="p-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white transition-colors flex-shrink-0"
-            title={isPlaying ? 'Pause' : 'Play'}
-          >
-            {isPlaying ? (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onPreviousSong();
+              }}
+              className="p-2 rounded-full bg-slate-700 hover:bg-slate-600 text-white transition-colors flex-shrink-0"
+              title="Previous song"
+            >
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                <path d="M8.445 14.832A1 1 0 0010 14v-2.798l5.445 3.63A1 1 0 0017 14V6a1 1 0 00-1.555-.832L10 8.798V6a1 1 0 00-1.555-.832l-6 4a1 1 0 000 1.664l6 4z" />
               </svg>
-            ) : (
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onTogglePlay();
+              }}
+              className="p-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white transition-colors flex-shrink-0"
+              title={isPlaying ? 'Pause' : 'Play'}
+            >
+              {isPlaying ? (
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                </svg>
+              )}
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onNextSong();
+              }}
+              className="p-2 rounded-full bg-slate-700 hover:bg-slate-600 text-white transition-colors flex-shrink-0"
+              title="Next song"
+            >
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                <path fillRule="evenodd" d="M4.293 15.707a1 1 0 010-1.414L8.586 10 4.293 5.707a1 1 0 011.414-1.414l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0zm6 0a1 1 0 010-1.414L14.586 10l-4.293-4.293a1 1 0 011.414-1.414l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0z" clipRule="evenodd" />
               </svg>
-            )}
-          </button>
+            </button>
+          </div>
           <button
             onClick={(e) => {
               e.stopPropagation();

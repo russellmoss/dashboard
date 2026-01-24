@@ -22,6 +22,11 @@ export interface AudioHookReturn {
   getCurrentMenuSongId: () => string | null;
   getIsPlaying: () => boolean;
   getIsMuted: () => boolean;
+  playNextSong: () => void;
+  playPreviousSong: () => void;
+  getCurrentTime: () => number;
+  getDuration: () => number;
+  seekTo: (time: number) => void;
 }
 
 export function useGameAudio(): AudioHookReturn {
@@ -45,6 +50,11 @@ export function useGameAudio(): AudioHookReturn {
   
   // Track initialization
   const isInitialized = useRef(false);
+  
+  // Time tracking for progress bar
+  const currentTimeRef = useRef(0);
+  const durationRef = useRef(0);
+  const isSeekingRef = useRef(false);
 
   // Initialize audio elements
   useEffect(() => {
@@ -69,6 +79,24 @@ export function useGameAudio(): AudioHookReturn {
     menuAudio.addEventListener('pause', () => {
       console.log(`[Audio] Pause event fired for: ${currentMenuSongId.current}`);
       isPlayingRef.current = false;
+    });
+    
+    menuAudio.addEventListener('timeupdate', () => {
+      if (menuAudioRef.current && !isSeekingRef.current) {
+        currentTimeRef.current = menuAudioRef.current.currentTime;
+      }
+    });
+    
+    menuAudio.addEventListener('loadedmetadata', () => {
+      if (menuAudioRef.current) {
+        durationRef.current = menuAudioRef.current.duration || 0;
+      }
+    });
+    
+    menuAudio.addEventListener('durationchange', () => {
+      if (menuAudioRef.current) {
+        durationRef.current = menuAudioRef.current.duration || 0;
+      }
     });
     
     menuAudio.addEventListener('error', (e) => {
@@ -370,10 +398,63 @@ export function useGameAudio(): AudioHookReturn {
     return isMuted.current;
   }, []);
 
+  // Play next song in playlist
+  const playNextSong = useCallback(() => {
+    const songIds = Object.keys(MENU_MUSIC_MAP);
+    if (songIds.length === 0) return;
+    
+    const currentIndex = currentMenuSongId.current 
+      ? songIds.indexOf(currentMenuSongId.current)
+      : -1;
+    
+    // If current song not found or is last, wrap to first
+    const nextIndex = currentIndex >= 0 && currentIndex < songIds.length - 1
+      ? currentIndex + 1
+      : 0;
+    
+    const nextSongId = songIds[nextIndex];
+    selectMenuSong(nextSongId);
+  }, [selectMenuSong]);
+
+  // Play previous song in playlist
+  const playPreviousSong = useCallback(() => {
+    const songIds = Object.keys(MENU_MUSIC_MAP);
+    if (songIds.length === 0) return;
+    
+    const currentIndex = currentMenuSongId.current 
+      ? songIds.indexOf(currentMenuSongId.current)
+      : -1;
+    
+    // If current song not found or is first, wrap to last
+    const prevIndex = currentIndex > 0
+      ? currentIndex - 1
+      : songIds.length - 1;
+    
+    const prevSongId = songIds[prevIndex];
+    selectMenuSong(prevSongId);
+  }, [selectMenuSong]);
+
+  // Seek to specific time in current track
+  const seekTo = useCallback((time: number) => {
+    const audio = menuAudioRef.current;
+    if (audio && !isNaN(time) && isFinite(time)) {
+      isSeekingRef.current = true;
+      const clampedTime = Math.max(0, Math.min(time, durationRef.current || 0));
+      audio.currentTime = clampedTime;
+      currentTimeRef.current = clampedTime;
+      // Allow timeupdate to resume after a brief moment
+      setTimeout(() => {
+        isSeekingRef.current = false;
+      }, 100);
+    }
+  }, []);
+
   // Getters for external state access
   const getCurrentMenuSongId = useCallback(() => currentMenuSongId.current, []);
   const getIsPlaying = useCallback(() => isPlayingRef.current, []);
   const getIsMuted = useCallback(() => isMuted.current, []);
+  const getCurrentTime = useCallback(() => currentTimeRef.current, []);
+  const getDuration = useCallback(() => durationRef.current, []);
 
   return {
     play,
@@ -384,5 +465,10 @@ export function useGameAudio(): AudioHookReturn {
     getCurrentMenuSongId,
     getIsPlaying,
     getIsMuted,
+    playNextSong,
+    playPreviousSong,
+    getCurrentTime,
+    getDuration,
+    seekTo,
   };
 }

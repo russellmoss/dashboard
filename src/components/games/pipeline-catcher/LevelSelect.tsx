@@ -22,15 +22,21 @@ export function LevelSelect({ levels, onSelectLevel, isLoading }: LevelSelectPro
   const audio = useAudioContext();
   const [currentSongId, setCurrentSongId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   
-  // Update current song and playing state
+  // Update current song, playing state, and time
   useEffect(() => {
     const updateState = () => {
       const songId = audio.getCurrentMenuSongId();
       const playing = audio.getIsPlaying();
+      const time = audio.getCurrentTime();
+      const dur = audio.getDuration();
       // Always update to ensure we show the correct song
       setCurrentSongId(songId);
       setIsPlaying(playing);
+      setCurrentTime(time);
+      setDuration(dur);
     };
     
     // Update immediately, then wait a bit for initialization, then periodically
@@ -200,6 +206,11 @@ export function LevelSelect({ levels, onSelectLevel, isLoading }: LevelSelectPro
         }}
         isPlaying={isPlaying}
         onTogglePlay={audio.togglePlayPause}
+        onNextSong={audio.playNextSong}
+        onPreviousSong={audio.playPreviousSong}
+        currentTime={currentTime}
+        duration={duration}
+        onSeek={audio.seekTo}
       />
 
       {/* Leaderboard modal */}
