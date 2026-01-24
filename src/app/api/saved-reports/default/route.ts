@@ -8,6 +8,8 @@ import { logger } from '@/lib/logger';
  * GET /api/saved-reports/default
  * Get the user's default saved report (if any)
  */
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
