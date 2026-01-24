@@ -464,6 +464,18 @@ This project uses Next.js `unstable_cache()` with tag-based invalidation for Big
 
 ## Rules and Commands
 
+### Git: Add, Commit, Push
+
+Use these simple commands only. Do **not** chain with `&&` / `;` or use shell-specific syntax.
+
+```
+git add .
+git commit -m "Your descriptive commit message"
+git push
+```
+
+Run each command separately. The user runs them in their own terminal.
+
 ### Code Generation Rules
 
 1. **Always use parameterized queries**: Never use string interpolation in SQL queries. Always use `@paramName` syntax with BigQuery parameters.

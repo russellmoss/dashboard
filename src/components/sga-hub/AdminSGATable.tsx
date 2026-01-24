@@ -2,13 +2,74 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Badge, Button, Text } from '@tremor/react';
 import { AdminSGAOverview } from '@/types/sga-hub';
 import { ChevronDown, ChevronUp, Pencil, ExternalLink } from 'lucide-react';
 import { formatDate } from '@/lib/utils/format-helpers';
 import { ClickableMetricValue } from './ClickableMetricValue';
 import { MetricType } from '@/types/drill-down';
+
+type SortColumn = 'name' | 'email' | 'weekStatus' | 'quarterStatus' | 'alerts';
+type SortDirection = 'asc' | 'desc';
+
+/** Week status order: behind first (asc), then close, on track, no goal, no data */
+function getWeekStatusSortKey(o: AdminSGAOverview): number {
+  if (!o.currentWeekGoal) return 4; // no goal
+  if (!o.currentWeekActual) return 5; // no data
+  const goal = o.currentWeekGoal.sqoGoal;
+  const actual = o.currentWeekActual.sqos;
+  if (actual >= goal) return 3; // on track
+  if (actual >= goal * 0.8) return 2; // close
+  return 1; // behind
+}
+
+/** Quarter status order: behind first (asc), then on track, ahead, no goal, no data */
+function getQuarterStatusSortKey(o: AdminSGAOverview): number {
+  if (!o.currentQuarterProgress) return 5; // no data
+  const s = o.currentQuarterProgress.pacingStatus;
+  if (s === 'behind') return 1;
+  if (s === 'on-track') return 2;
+  if (s === 'ahead') return 3;
+  return 4; // no goal
+}
+
+/** Alerts: higher = more alerts. behindPacing > missing quarterly > missing weekly > all good */
+function getAlertsSortKey(o: AdminSGAOverview): number {
+  let n = 0;
+  if (o.behindPacing) n += 4;
+  if (o.missingQuarterlyGoal) n += 2;
+  if (o.missingWeeklyGoal) n += 1;
+  return n;
+}
+
+function sortOverviews(
+  rows: AdminSGAOverview[],
+  sortColumn: SortColumn,
+  sortDirection: SortDirection
+): AdminSGAOverview[] {
+  return [...rows].sort((a, b) => {
+    let comparison = 0;
+    switch (sortColumn) {
+      case 'name':
+        comparison = (a.userName || '').toLowerCase().localeCompare((b.userName || '').toLowerCase());
+        break;
+      case 'email':
+        comparison = (a.userEmail || '').toLowerCase().localeCompare((b.userEmail || '').toLowerCase());
+        break;
+      case 'weekStatus':
+        comparison = getWeekStatusSortKey(a) - getWeekStatusSortKey(b);
+        break;
+      case 'quarterStatus':
+        comparison = getQuarterStatusSortKey(a) - getQuarterStatusSortKey(b);
+        break;
+      case 'alerts':
+        comparison = getAlertsSortKey(a) - getAlertsSortKey(b);
+        break;
+    }
+    return sortDirection === 'asc' ? comparison : -comparison;
+  });
+}
 
 interface AdminSGATableProps {
   sgaOverviews: AdminSGAOverview[];
@@ -39,6 +100,55 @@ export function AdminSGATable({
   onMetricClick,
 }: AdminSGATableProps) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [sortColumn, setSortColumn] = useState<SortColumn>('name');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
+  const sortedOverviews = useMemo(
+    () => sortOverviews(sgaOverviews, sortColumn, sortDirection),
+    [sgaOverviews, sortColumn, sortDirection]
+  );
+
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortColumn(column);
+      // weekStatus/quarterStatus: asc = behind first (lower key = worse). alerts: desc = most alerts first.
+      if (column === 'alerts') setSortDirection('desc');
+      else if (column === 'weekStatus' || column === 'quarterStatus') setSortDirection('asc');
+      else setSortDirection('asc');
+    }
+  };
+
+  const SortableHeader = ({
+    column,
+    children,
+  }: {
+    column: SortColumn;
+    children: React.ReactNode;
+  }) => {
+    const isActive = sortColumn === column;
+    const showAsc = isActive && sortDirection === 'asc';
+    const showDesc = isActive && sortDirection === 'desc';
+    return (
+      <TableHeaderCell
+        className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 select-none text-gray-600 dark:text-gray-400"
+        onClick={() => handleSort(column)}
+      >
+        <div className="flex items-center gap-1">
+          {children}
+          <div className="flex flex-col">
+            <ChevronUp
+              className={`w-3 h-3 ${showAsc ? 'text-blue-600 dark:text-blue-400' : 'text-gray-300 dark:text-gray-600'}`}
+            />
+            <ChevronDown
+              className={`w-3 h-3 -mt-1 ${showDesc ? 'text-blue-600 dark:text-blue-400' : 'text-gray-300 dark:text-gray-600'}`}
+            />
+          </div>
+        </div>
+      </TableHeaderCell>
+    );
+  };
 
   const toggleRow = (email: string) => {
     const newExpanded = new Set(expandedRows);
@@ -127,23 +237,23 @@ export function AdminSGATable({
         <TableHead>
           <TableRow>
             <TableHeaderCell className="w-12"></TableHeaderCell>
-            <TableHeaderCell>Name</TableHeaderCell>
-            <TableHeaderCell>Email</TableHeaderCell>
-            <TableHeaderCell>Week Status</TableHeaderCell>
-            <TableHeaderCell>Quarter Status</TableHeaderCell>
-            <TableHeaderCell>Alerts</TableHeaderCell>
+            <SortableHeader column="name">Name</SortableHeader>
+            <SortableHeader column="email">Email</SortableHeader>
+            <SortableHeader column="weekStatus">Week Status</SortableHeader>
+            <SortableHeader column="quarterStatus">Quarter Status</SortableHeader>
+            <SortableHeader column="alerts">Alerts</SortableHeader>
             <TableHeaderCell>Actions</TableHeaderCell>
           </TableRow>
         </TableHead>
         <TableBody>
-          {sgaOverviews.length === 0 ? (
+          {sortedOverviews.length === 0 ? (
             <TableRow>
               <TableCell colSpan={7} className="text-center text-gray-500 dark:text-gray-400 py-8">
                 No SGAs found
               </TableCell>
             </TableRow>
           ) : (
-            sgaOverviews.map((overview) => {
+            sortedOverviews.map((overview) => {
               const isExpanded = expandedRows.has(overview.userEmail);
               const isSelected = selectedSGAEmail === overview.userEmail;
 
