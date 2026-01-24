@@ -176,6 +176,7 @@ export async function getScheduledInitialCalls(
         AND Initial_Call_Scheduled_Date__c >= @thisWeekStart
         AND Initial_Call_Scheduled_Date__c <= @nextWeekEnd
         AND SGA_Owner_Name__c != 'Anett Diaz'  -- Exclude Anett Diaz (not truly active SGA)
+        AND SGA_Owner_Name__c != 'Jacqueline Tully'  -- Exclude Jacqueline Tully (not an SGA)
         ${sgaFilter}
     )
     SELECT
@@ -250,6 +251,7 @@ export async function getScheduledQualificationCalls(
         AND Qualification_Call_Date__c >= @thisWeekStart
         AND Qualification_Call_Date__c <= @nextWeekEnd
         AND SGA_Owner_Name__c != 'Anett Diaz'  -- Exclude Anett Diaz (not truly active SGA)
+        AND SGA_Owner_Name__c != 'Jacqueline Tully'  -- Exclude Jacqueline Tully (not an SGA)
         ${sgaFilter}
     )
     SELECT
@@ -363,6 +365,7 @@ async function aggregateBySGA(
       WHERE u.IsSGA__c = TRUE
         AND u.IsActive = TRUE
         AND u.Name != 'Anett Diaz'
+        AND u.Name != 'Jacqueline Tully'
         AND u.Name != 'Savvy Operations'
         AND u.Name != 'Savvy Marketing'
         AND u.Name != 'Russell Moss'
@@ -384,17 +387,18 @@ async function aggregateBySGA(
     }
   }
   
+  const excludedSgas = ['Anett Diaz', 'Jacqueline Tully'];
+
   // Add this week data
   for (const row of thisWeekRows) {
     const sgaName = row.sga_name;
-    if (!sgaName || sgaName === 'Anett Diaz') continue;  // Exclude Anett Diaz
+    if (!sgaName || excludedSgas.includes(sgaName)) continue;
     const existing = sgaMap.get(sgaName);
     if (existing) {
       existing.thisWeek += parseInt(row.call_count);
       existing.total += parseInt(row.call_count);
     } else {
-      // SGA not in active list, but has calls - add them (but still exclude Anett Diaz)
-      if (sgaName !== 'Anett Diaz') {
+      if (!excludedSgas.includes(sgaName)) {
         sgaMap.set(sgaName, {
           sgaName,
           thisWeek: parseInt(row.call_count),
@@ -404,23 +408,22 @@ async function aggregateBySGA(
       }
     }
   }
-  
+
   // Add next week data
   for (const row of nextWeekRows) {
     const sgaName = row.sga_name;
-    if (!sgaName || sgaName === 'Anett Diaz') continue;  // Exclude Anett Diaz
+    if (!sgaName || excludedSgas.includes(sgaName)) continue;
     const existing = sgaMap.get(sgaName);
     if (existing) {
       existing.nextWeek += parseInt(row.call_count);
       existing.total += parseInt(row.call_count);
     } else {
-      // SGA not in active list, but has calls - add them (but still exclude Anett Diaz)
       const current = sgaMap.get(sgaName);
       if (current) {
         current.nextWeek += parseInt(row.call_count);
         current.total += parseInt(row.call_count);
       } else {
-        if (sgaName !== 'Anett Diaz') {
+        if (!excludedSgas.includes(sgaName)) {
           sgaMap.set(sgaName, {
             sgaName,
             thisWeek: 0,
@@ -480,6 +483,7 @@ export async function getScheduledCallRecords(
       AND ${dateField} >= @startDate
       AND ${dateField} <= @endDate
       AND SGA_Owner_Name__c != 'Anett Diaz'  -- Exclude Anett Diaz (not truly active SGA)
+      AND SGA_Owner_Name__c != 'Jacqueline Tully'  -- Exclude Jacqueline Tully (not an SGA)
       ${dayFilter}
       ${sgaFilter}
     ORDER BY ${dateField}, sgaName
@@ -493,6 +497,7 @@ export async function getScheduledCallRecords(
       AND ${dateField} >= @startDate
       AND ${dateField} <= @endDate
       AND SGA_Owner_Name__c != 'Anett Diaz'  -- Exclude Anett Diaz (not truly active SGA)
+      AND SGA_Owner_Name__c != 'Jacqueline Tully'  -- Exclude Jacqueline Tully (not an SGA)
       ${dayFilter}
       ${sgaFilter}
   `;
@@ -1764,6 +1769,7 @@ const _getSGAActivityFilterOptions = async (): Promise<{
         AND f.SGA_Owner_Name__c != 'Savvy Operations'
         AND f.SGA_Owner_Name__c != 'Savvy Marketing'
         AND f.SGA_Owner_Name__c != 'Anett Diaz'  -- Exclude Anett Diaz
+        AND f.SGA_Owner_Name__c != 'Jacqueline Tully'  -- Exclude Jacqueline Tully (not an SGA)
         AND (
           (f.Initial_Call_Scheduled_Date__c IS NOT NULL 
             AND f.Initial_Call_Scheduled_Date__c >= DATE_SUB(CURRENT_DATE('America/New_York'), INTERVAL 2 YEAR))
@@ -1791,16 +1797,16 @@ const _getSGAActivityFilterOptions = async (): Promise<{
   // Force deduplication using Map
   const uniqueSgas = new Map<string, { value: string; label: string; isActive: boolean }>();
   
+  const excludedFromSgaList = ['Jacqueline Tully'];
+
   for (const row of rows) {
     const sgaName = String(row.sga_name || '').trim();
-    if (sgaName) {
-      // Hardcode Jacqueline Tully as inactive (she does inbound work, different from others)
-      const isActive = sgaName === 'Jacqueline Tully' ? false : Boolean(row.is_active);
-      
+    if (sgaName && !excludedFromSgaList.includes(sgaName)) {
+      const isActive = Boolean(row.is_active);
       uniqueSgas.set(sgaName, {
         value: sgaName,
         label: sgaName,
-        isActive: isActive,
+        isActive,
       });
     }
   }

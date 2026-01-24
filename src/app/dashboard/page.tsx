@@ -78,6 +78,18 @@ const DEFAULT_FILTERS: DashboardFilters = {
   advancedFilters: DEFAULT_ADVANCED_FILTERS,
 };
 
+/** Compare dashboard filters for equality (used for "Apply" vs pending state). */
+function filtersAreEqual(a: DashboardFilters, b: DashboardFilters): boolean {
+  if (a.datePreset !== b.datePreset || a.year !== b.year) return false;
+  if (a.startDate !== b.startDate || a.endDate !== b.endDate) return false;
+  if (a.channel !== b.channel || a.source !== b.source) return false;
+  if (a.sga !== b.sga || a.sgm !== b.sgm || a.stage !== b.stage) return false;
+  if (a.experimentationTag !== b.experimentationTag || a.metricFilter !== b.metricFilter) return false;
+  const advA = a.advancedFilters ?? DEFAULT_ADVANCED_FILTERS;
+  const advB = b.advancedFilters ?? DEFAULT_ADVANCED_FILTERS;
+  return JSON.stringify(advA) === JSON.stringify(advB);
+}
+
 export default function DashboardPage() {
   const { data: session } = useSession();
   const permissions = getSessionPermissions(session);
@@ -85,6 +97,8 @@ export default function DashboardPage() {
   // State
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<DashboardFilters>(DEFAULT_FILTERS);
+  /** Applied filters used for fetching/export; updates only on Apply / Reset / Load report. */
+  const [appliedFilters, setAppliedFilters] = useState<DashboardFilters>(DEFAULT_FILTERS);
   const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null);
   
   // Data state - update these three types
@@ -196,8 +210,8 @@ export default function DashboardPage() {
   const filteredDetailRecords = useMemo(() => {
     if (!detailRecords || detailRecords.length === 0) return [];
     
-    // Get date range from filters
-    const dateRange = buildDateRangeFromFilters(filters);
+    // Get date range from applied filters (matches fetch)
+    const dateRange = buildDateRangeFromFilters(appliedFilters);
     const startDate = new Date(dateRange.startDate);
     const endDate = new Date(dateRange.endDate + ' 23:59:59'); // Include full end date
     
@@ -315,7 +329,7 @@ export default function DashboardPage() {
       
       return acc;
     }, []);
-  }, [detailRecords, stageFilter, filters]);
+  }, [detailRecords, stageFilter, appliedFilters]);
   
   // Fetch saved reports
   const fetchSavedReports = useCallback(async () => {
@@ -345,10 +359,12 @@ export default function DashboardPage() {
   }, []);
 
   // Apply a report (filters + feature selection + view mode)
-  // IMPORTANT: Saved report viewMode overrides current view mode
+  // IMPORTANT: Saved report viewMode overrides current view mode. Applies filters immediately (no Apply click).
   const applyReport = useCallback((report: SavedReport) => {
+    const reportFilters = report.filters as DashboardFilters;
     setActiveReportId(report.id);
-    setFilters(report.filters as DashboardFilters);
+    setFilters(reportFilters);
+    setAppliedFilters(reportFilters);
     setFeatureSelection(getEffectiveFeatureSelection(report.featureSelection));
     // Override view mode with saved report's view mode (if specified)
     if (report.viewMode) {
@@ -487,19 +503,24 @@ export default function DashboardPage() {
     setIsSaveModalOpen(true);
   }, []);
 
-  // Fetch dashboard data when filters change
+  // Apply pending filter changes → triggers single fetch, avoids race conditions
+  const handleApplyFilters = useCallback(() => {
+    setAppliedFilters({ ...filters });
+  }, [filters]);
+
+  // Fetch dashboard data when applied filters change (not on every dropdown change)
   const fetchDashboardData = useCallback(async () => {
     if (!filterOptions) return; // Wait for filter options
     
     setLoading(true);
     
     try {
-      // Build date range from filters
-      const dateRange = buildDateRangeFromFilters(filters);
+      // Build date range from applied filters
+      const dateRange = buildDateRangeFromFilters(appliedFilters);
       
-      // Use filters directly - table clicks (selectedChannel/selectedSource) update filters.channel/filters.source
+      // Use applied filters - data fetches only run after Apply / Reset / Load report
       const currentFilters: DashboardFilters = {
-        ...filters,
+        ...appliedFilters,
         startDate: dateRange.startDate,
         endDate: dateRange.endDate,
         // Always fetch all records (prospects) for client-side filtering via stage dropdown
@@ -591,7 +612,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters, trendGranularity, trendMode, filterOptions, viewMode, featureSelection]);
+  }, [appliedFilters, trendGranularity, trendMode, filterOptions, viewMode, featureSelection]);
   
   // Fetch saved reports and load default on mount
   useEffect(() => {
@@ -652,17 +673,17 @@ export default function DashboardPage() {
       openPipeline: 'Open Pipeline',
     };
     
-    const dateRange = buildDateRangeFromFilters(filters);
-    const dateRangeText = filters.datePreset === 'custom' 
+    const dateRange = buildDateRangeFromFilters(appliedFilters);
+    const dateRangeText = appliedFilters.datePreset === 'custom' 
       ? `${dateRange.startDate} to ${dateRange.endDate}`
-      : filters.datePreset?.toUpperCase() || 'Selected Period';
+      : appliedFilters.datePreset?.toUpperCase() || 'Selected Period';
     
     setVolumeDrillDownTitle(`${metricLabels[metricFilter]} - ${dateRangeText}`);
     
     try {
-      // Build filters for the drill-down query
+      // Build filters for the drill-down query (use applied filters)
       const drillDownFilters: DashboardFilters = {
-        ...filters,
+        ...appliedFilters,
         metricFilter: metricFilter,
       };
       
@@ -744,9 +765,9 @@ export default function DashboardPage() {
     setVolumeDrillDownTitle(`${metricLabels[metric]} - ${period}`);
     
     try {
-      // Build filters for the drill-down
+      // Build filters for the drill-down (use applied filters as base)
       const drillDownFilters: DashboardFilters = {
-        ...filters,
+        ...appliedFilters,
         startDate,
         endDate,
         metricFilter: metric, // 'sql', 'sqo', or 'joined'
@@ -762,7 +783,7 @@ export default function DashboardPage() {
     } finally {
       setVolumeDrillDownLoading(false);
     }
-  }, [filters]);
+  }, [appliedFilters]);
 
   // Handle record click from volume drill-down
   const handleVolumeDrillDownRecordClick = useCallback((primaryKey: string) => {
@@ -827,12 +848,15 @@ export default function DashboardPage() {
             <GlobalFilters
               filters={filters}
               filterOptions={filterOptions}
+              hasPendingChanges={!filtersAreEqual(filters, appliedFilters)}
               onFiltersChange={(newFilters) => {
                 setFilters(newFilters);
                 setActiveReportId(null); // Clear active report when manually changing filters
               }}
+              onApply={handleApplyFilters}
               onReset={() => {
                 setFilters(DEFAULT_FILTERS);
+                setAppliedFilters(DEFAULT_FILTERS);
                 setActiveReportId(null);
                 setFeatureSelection(DEFAULT_FEATURE_SELECTION);
               }}
@@ -858,7 +882,7 @@ export default function DashboardPage() {
       {/* Export Button */}
       <div className="mb-6 flex justify-end">
         <ExportToSheetsButton 
-          filters={filters}
+          filters={appliedFilters}
           mode={trendMode}
           disabled={loading}
           canExport={permissions?.canExport ?? false}
@@ -1062,7 +1086,7 @@ export default function DashboardPage() {
           setEditingReport(null);
         }}
         onSave={handleSaveReport}
-        currentFilters={filters}
+        currentFilters={appliedFilters}
         currentViewMode={viewMode}
         currentFeatureSelection={featureSelection}
         editingReport={editingReport}

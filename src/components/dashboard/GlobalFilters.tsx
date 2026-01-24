@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import { Button } from '@tremor/react';
 import { FilterOptions, DashboardFilters } from '@/types/filters';
-import { RefreshCw, Save } from 'lucide-react';
+import { Save } from 'lucide-react';
 import { DataFreshnessIndicator } from '@/components/dashboard/DataFreshnessIndicator';
 import { SavedReportsDropdown } from './SavedReportsDropdown';
 import { SavedReport } from '@/types/saved-reports';
@@ -11,7 +11,9 @@ import { SavedReport } from '@/types/saved-reports';
 interface GlobalFiltersProps {
   filters: DashboardFilters;
   filterOptions: FilterOptions;
+  hasPendingChanges: boolean;
   onFiltersChange: (filters: DashboardFilters) => void;
+  onApply: () => void;
   onReset: () => void;
   // Saved Reports props
   savedReports: {
@@ -83,7 +85,9 @@ const ActiveToggle = ({
 export function GlobalFilters({ 
   filters, 
   filterOptions, 
+  hasPendingChanges,
   onFiltersChange, 
+  onApply,
   onReset,
   savedReports,
   activeReportId,
@@ -218,17 +222,6 @@ export function GlobalFilters({
             className="text-gray-700 dark:text-gray-200"
           >
             Save
-          </Button>
-          
-          {/* Reset Button */}
-          <Button
-            icon={RefreshCw}
-            size="sm"
-            variant="light"
-            onClick={onReset}
-            className="text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white"
-          >
-            Reset
           </Button>
         </div>
       </div>
@@ -416,9 +409,29 @@ export function GlobalFilters({
         )}
       </div>
       
-      {/* Data Freshness Indicator */}
-      <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
-        <DataFreshnessIndicator variant="detailed" />
+      {/* Bottom row: last sync (left), Apply filters + Reset (centered), spacer (right) */}
+      <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700 flex items-center gap-4">
+        <div className="flex-1 flex items-center min-w-0">
+          <DataFreshnessIndicator variant="detailed" />
+        </div>
+        <div className="flex items-center justify-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={onApply}
+            disabled={!hasPendingChanges}
+            className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600 rounded transition-colors"
+          >
+            Apply filters
+          </button>
+          <button
+            type="button"
+            onClick={onReset}
+            className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+          >
+            Reset filters
+          </button>
+        </div>
+        <div className="flex-1 min-w-0" aria-hidden="true" />
       </div>
     </div>
   );
