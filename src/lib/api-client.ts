@@ -38,6 +38,13 @@ import {
   SavedReport,
   SavedReportInput,
 } from '@/types/saved-reports';
+import {
+  LevelsApiResponse,
+  GameDataApiResponse,
+  LeaderboardApiResponse,
+  SubmitScoreRequest,
+  SubmitScoreResponse,
+} from '@/types/game';
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public endpoint: string) {
@@ -99,6 +106,7 @@ async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T> 
   
   const response = await fetch(fullUrl, {
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include', // Include cookies for NextAuth session
     ...options,
   });
 
@@ -555,6 +563,31 @@ export const agentApi = {
       }
     }
   },
+};
+
+/**
+ * Pipeline Catcher Game API client
+ */
+export const pipelineCatcherApi = {
+  getLevels: () => apiFetch<LevelsApiResponse>('/api/games/pipeline-catcher/levels'),
+  
+  getGameData: (quarter: string) => 
+    apiFetch<GameDataApiResponse>(`/api/games/pipeline-catcher/play/${encodeURIComponent(quarter)}`),
+  
+  getLeaderboard: (quarter: string) => 
+    apiFetch<LeaderboardApiResponse>(`/api/games/pipeline-catcher/leaderboard?quarter=${encodeURIComponent(quarter)}`),
+  
+  submitScore: (data: SubmitScoreRequest) => 
+    apiFetch<SubmitScoreResponse>('/api/games/pipeline-catcher/leaderboard', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateScoreMessage: (scoreId: string, message: string) =>
+    apiFetch<{ success: boolean }>('/api/games/pipeline-catcher/leaderboard', {
+      method: 'PATCH',
+      body: JSON.stringify({ scoreId, message }),
+    }),
 };
 
 export function handleApiError(error: unknown): string {

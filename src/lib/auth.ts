@@ -1,8 +1,14 @@
 import { NextAuthOptions } from 'next-auth';
+import type { Session } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { validateUser } from './users';
 import { getUserPermissions } from './permissions';
 import { ExtendedSession } from '@/types/auth';
+
+/** Get user id from session (set by auth callbacks). Use in API routes. */
+export function getSessionUserId(session: Session | null): string | null {
+  return (session?.user as { id?: string } | undefined)?.id ?? null;
+}
 
 // Helper to get NEXTAUTH_URL safely (never empty during build)
 function getNextAuthUrl(): string {
@@ -72,15 +78,19 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async session({ session, token }) {
-      if (session.user?.email) {
-        const permissions = await getUserPermissions(session.user.email);
-        (session as ExtendedSession).permissions = permissions;
+      if (session.user) {
+        (session.user as { id?: string }).id = (token.sub ?? token.id) as string;
+        if (session.user.email) {
+          const permissions = await getUserPermissions(session.user.email);
+          (session as ExtendedSession).permissions = permissions;
+        }
       }
       return session;
     },
     async jwt({ token, user }) {
       if (user) {
         token.email = user.email;
+        (token as { id?: string }).id = user.id;
       }
       return token;
     },

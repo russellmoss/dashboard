@@ -1,11 +1,48 @@
 'use client';
 
 import { useSession, signOut } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+import { useRef, useCallback, ReactNode } from 'react';
 import { LogOut, User } from 'lucide-react';
 import Image from 'next/image';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { CacheClearButton } from '@/components/ui/CacheClearButton';
 import { DataFreshnessIndicator } from '@/components/dashboard/DataFreshnessIndicator';
+
+// Easter egg component - triple-click to access Pipeline Catcher game
+function EasterEggTrigger({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const clickCountRef = useRef(0);
+  const clickTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  const handleClick = useCallback(() => {
+    clickCountRef.current++;
+    
+    // Reset click count after 500ms of no clicks
+    if (clickTimerRef.current) {
+      clearTimeout(clickTimerRef.current);
+    }
+    
+    clickTimerRef.current = setTimeout(() => {
+      clickCountRef.current = 0;
+    }, 500);
+    
+    // Triple-click detected!
+    if (clickCountRef.current >= 3) {
+      clickCountRef.current = 0;
+      if (clickTimerRef.current) {
+        clearTimeout(clickTimerRef.current);
+      }
+      router.push('/dashboard/games/pipeline-catcher');
+    }
+  }, [router]);
+  
+  return (
+    <div onClick={handleClick} role="button" tabIndex={-1} className="cursor-pointer">
+      {children}
+    </div>
+  );
+}
 
 export function Header() {
   const { data: session } = useSession();
@@ -15,7 +52,9 @@ export function Header() {
       <div className="flex items-center gap-4">
         {/* Savvy Logo */}
         <div className="flex items-center gap-2">
-          <span className="text-xl font-bold text-gray-900 dark:text-white">Savvy</span>
+          <EasterEggTrigger>
+            <span className="text-xl font-bold text-gray-900 dark:text-white cursor-pointer select-none">Savvy</span>
+          </EasterEggTrigger>
         </div>
         <div className="h-6 w-px bg-gray-300 dark:bg-gray-600" /> {/* Divider */}
         <span className="text-sm text-gray-500 dark:text-gray-400">Funnel Dashboard</span>

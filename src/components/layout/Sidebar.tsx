@@ -1,14 +1,50 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { getSessionPermissions } from '@/types/auth';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useRef, useCallback, ReactNode } from 'react';
 import { 
   BarChart3, Settings, Menu, X, Target,
   Bot, Users, Layers, PhoneCall
 } from 'lucide-react';
+
+// Easter egg component - triple-click to access Pipeline Catcher game
+function EasterEggTrigger({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const clickCountRef = useRef(0);
+  const clickTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  const handleClick = useCallback(() => {
+    clickCountRef.current++;
+    
+    // Reset click count after 500ms of no clicks
+    if (clickTimerRef.current) {
+      clearTimeout(clickTimerRef.current);
+    }
+    
+    clickTimerRef.current = setTimeout(() => {
+      clickCountRef.current = 0;
+    }, 500);
+    
+    // Triple-click detected!
+    if (clickCountRef.current >= 3) {
+      clickCountRef.current = 0;
+      if (clickTimerRef.current) {
+        clearTimeout(clickTimerRef.current);
+      }
+      router.push('/dashboard/games/pipeline-catcher');
+    }
+  }, [router]);
+  
+  return (
+    <div onClick={handleClick} role="button" tabIndex={-1}>
+      {children}
+    </div>
+  );
+}
 
 const PAGES = [
   { id: 1, name: 'Funnel Performance', href: '/dashboard', icon: BarChart3 },
@@ -55,7 +91,11 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         
         {!isCollapsed && (
           <div className="ml-3 flex items-center">
-            <span className="text-lg font-semibold text-gray-900">Savvy Wealth</span>
+            <EasterEggTrigger>
+              <span className="text-lg font-semibold text-gray-900 dark:text-white cursor-default select-none">
+                Savvy Wealth
+              </span>
+            </EasterEggTrigger>
           </div>
         )}
       </div>

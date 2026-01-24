@@ -1,12 +1,33 @@
 # Vercel Deployment Readiness Checklist
-## SGA Activity Dashboard
+## Savvy Funnel Analytics Dashboard (Full App)
 
 **Date**: January 23, 2026  
 **Status**: ✅ **READY FOR DEPLOYMENT**
 
+Includes: **SGA Activity Dashboard**, **Pipeline Catcher** game, and all existing dashboard features.
+
 ---
 
-## ✅ Pre-Deployment Verification
+## 🔧 Vercel Environment Variables (Required)
+
+Set these in **Vercel → Project → Settings → Environment Variables**:
+
+| Variable | Required | Notes |
+|----------|----------|--------|
+| `NEXTAUTH_URL` | ✅ | **Production URL** (e.g. `https://your-app.vercel.app`). Must match deployed domain. |
+| `NEXTAUTH_SECRET` | ✅ | `openssl rand -base64 32` |
+| `DATABASE_URL` | ✅ | Neon **pooled** connection string (`-pooler` in host) |
+| `GCP_PROJECT_ID` | ✅ | e.g. `savvy-gtm-analytics` |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON` | ✅ | **Single-line** JSON service account (Vercel). Do **not** set `GOOGLE_APPLICATION_CREDENTIALS` on Vercel. |
+| `CRON_SECRET` | ✅ | For `/api/cron/refresh-cache` |
+| `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` | Optional | Error monitoring |
+| `ANTHROPIC_API_KEY` | If using Explore | For AI explore feature |
+
+**Pipeline Catcher**: Uses same DB (Neon `GameScore`), BigQuery, and NextAuth. **No extra env vars.**
+
+---
+
+## ✅ Pre-Deployment Verification (SGA Activity)
 
 ### 1. File Structure - COMPLETE
 - [x] `src/types/sga-activity.ts` - Type definitions
@@ -129,14 +150,27 @@ After deployment, verify:
 
 ---
 
+## ✅ Pipeline Catcher (Game) – Vercel Ready
+
+- [x] **Page**: `/dashboard/games/pipeline-catcher` (auth via dashboard)
+- [x] **APIs**: `/api/games/pipeline-catcher/levels`, `play/[quarter]`, `leaderboard` — use `getServerSession`, BQ, Prisma
+- [x] **Middleware**: Game APIs **excluded** from middleware; auth in routes only (avoids 401 issues)
+- [x] **Static assets**: `public/games/pipeline-catcher/audio/*`, `images/lobby-bg.png` — deployed with app
+- [x] **DB**: `GameScore` in Neon; ensure migration applied
+- [x] **No new env vars**; uses `DATABASE_URL`, `GOOGLE_APPLICATION_CREDENTIALS_JSON`, NextAuth
+
+**Post-deploy**: Visit `/dashboard/games/pipeline-catcher` (or triple‑click “Savvy” in header/sidebar). Levels, play, and leaderboard should work when logged in.
+
+---
+
 ## 📝 Post-Deployment Checklist
 
 After deployment, complete:
 - [ ] Production smoke tests (see Phase 8.4)
-- [ ] Verify all roles can/cannot access page
+- [ ] Verify all roles can/cannot access SGA Activity page
 - [ ] Test data accuracy (scorecards match drilldowns)
-- [ ] Verify Anett Diaz exclusion
-- [ ] Verify Katie Bassford inclusion
+- [ ] Verify Anett Diaz exclusion / Katie Bassford inclusion
+- [ ] **Pipeline Catcher**: Load levels, play a quarter, submit score, view leaderboard
 - [ ] Check Vercel logs for any errors
 
 ---

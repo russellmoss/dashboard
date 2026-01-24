@@ -49,7 +49,7 @@ export function DeleteConfirmModal({
         <div className="p-4">
           <p className="text-gray-700 dark:text-gray-300">
             Are you sure you want to delete{' '}
-            <span className="font-medium">"{reportName}"</span>?
+            <span className="font-medium">&quot;{reportName}&quot;</span>?
           </p>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
             This action cannot be undone.

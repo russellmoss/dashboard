@@ -11,6 +11,8 @@
     "test": "node test-connection.js",
     "test:query": "node scripts/test-query.js",
     "test:dashboard": "node scripts/test-dashboard-queries.js",
+    "verify:game": "node scripts/verify-pipeline-catcher.js",
+    "verify:game:api": "node scripts/verify-pipeline-catcher.js --api",
     "postinstall": "prisma generate"
   },
   "dependencies": {

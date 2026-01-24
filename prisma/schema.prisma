@@ -22,6 +22,7 @@ model User {
 
   // Relations
   savedReports SavedReport[]
+  gameScores   GameScore[]
 }
 
 model WeeklyGoal {
@@ -77,6 +78,36 @@ model ExploreFeedback {
   @@index([feedback])
   @@index([createdAt])
   @@index([error])
+}
+
+// Pipeline Catcher Game Leaderboard
+model GameScore {
+  id             String   @id @default(cuid())
+  
+  // User relation
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Score data
+  score          BigInt   // Total AUM caught (stored in dollars)
+  advisorsCaught Int      // Number of SQOs caught
+  joinedCaught   Int      // Number of Joined advisors caught (bonus)
+  ghostsHit      Int      // Number of ghosts/stop signs hit
+  
+  // Game context
+  quarter        String   // e.g., "2025-Q1", "2025-Q2"
+  gameDuration   Int      // Seconds played (max 180)
+  
+  // Leaderboard message
+  message        String?  @db.VarChar(100)
+  
+  // Timestamps
+  playedAt       DateTime @default(now())
+  
+  // Indexes for fast leaderboard queries
+  @@index([quarter, score(sort: Desc)])
+  @@index([userId])
+  @@index([playedAt])
 }
 
 model SavedReport {

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Image, Loader2 } from 'lucide-react';
+import { Image as ImageIcon, Loader2 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { toPng } from 'html-to-image';
 
@@ -73,7 +73,7 @@ export function PipelineExportPng({
       {isExporting ? (
         <Loader2 className="w-5 h-5 animate-spin" />
       ) : (
-        <Image className="w-5 h-5" />
+        <ImageIcon className="w-5 h-5" aria-hidden />
       )}
       <span>Export PNG</span>
     </button>

@@ -39,6 +39,8 @@ export async function middleware(request: NextRequest) {
   }
 
   // If no token and trying to access protected API route, return 401
+  // /api/games/* is NOT checked here - those routes use getServerSession directly
+  // (avoids getToken vs session mismatch that caused 401s for game levels)
   if (!token && pathname.startsWith('/api/dashboard')) {
     return NextResponse.json(
       { error: 'Unauthorized' },

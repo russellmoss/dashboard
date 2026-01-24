@@ -29,6 +29,7 @@ WITH Lead_Base AS (
     ConvertedDate AS converted_date_raw,
     IsConverted,
     Disposition__c,
+    DoNotCall,
     stage_entered_new__c,
     Experimentation_Tag__c AS Lead_Experimentation_Tag__c,
     Lead_Score_Tier__c,
@@ -156,6 +157,7 @@ Combined AS (
     o.StageName,
     o.SQO_raw,
     l.Disposition__c,
+    l.DoNotCall,
     o.Closed_Lost_Reason__c,
     o.Closed_Lost_Details__c,
     
