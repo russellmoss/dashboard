@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { QuarterGameData, GameObject, ActivePowerUp } from '@/types/game';
 import { GAME_CONFIG, STAGE_SPEED_MODIFIERS, formatGameAum } from '@/config/game-constants';
 import CatchPopup from './CatchPopup';
+import JedPopup from './JedPopup';
 
 const OBJECT_SIZES = {
   sqo: { width: 85, height: 90, emojiSize: 48 },
@@ -11,6 +12,7 @@ const OBJECT_SIZES = {
   ghost: { width: 80, height: 85, emojiSize: 52 },
   stopSign: { width: 80, height: 85, emojiSize: 52 },
   powerup: { width: 55, height: 55, emojiSize: 40 },
+  jed: { width: 85, height: 90, emojiSize: 48 },
 } as const;
 
 const COLORS = {
@@ -235,6 +237,9 @@ function drawGameObject(
     ctx.fillStyle = '#fff';
     ctx.fillText(emoji, baseX + w / 2, baseY + 32);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+  } else if (obj.type === 'jed') {
+    // Jed is drawn via DOM <img> overlay (jed-walk.gif) so the 4-frame GIF animates
+    // as it falls; skip canvas draw here.
   }
 
   ctx.restore();
@@ -288,8 +293,12 @@ export function GameCanvas({
   const [advisorsCaught, setAdvisorsCaught] = useState(0);
   const [joinedCaught, setJoinedCaught] = useState(0);
   const [ghostsHit, setGhostsHit] = useState(0);
-  const [lastCaught, setLastCaught] = useState<{ name: string; aum: number; type: 'sqo' | 'joined' } | null>(null);
-  const [catchPopup, setCatchPopup] = useState<'sqo' | 'joined' | null>(null);
+  const [lastCaught, setLastCaught] = useState<{ name: string; aum: number; type: 'sqo' | 'joined' | 'jed' } | null>(null);
+  const [catchPopup, setCatchPopup] = useState<'sqo' | 'joined' | 'jed' | null>(null);
+  
+  const jedImgRef = useRef<HTMLImageElement | null>(null);
+  const jedSpawnTimeRef = useRef<number>(0);
+  const jedSpawnedRef = useRef(false);
   
   const playerXRef = useRef<number>(GAME_CONFIG.CANVAS_WIDTH / 2 - GAME_CONFIG.PLAYER_WIDTH / 2);
   const objectsRef = useRef<GameObject[]>([]);
@@ -315,6 +324,8 @@ export function GameCanvas({
     ghostsHitRef.current = 0;
     floatingTextsRef.current = [];
     isEoqModeRef.current = false;
+    jedSpawnedRef.current = false;
+    jedSpawnTimeRef.current = 15 + Math.random() * 60; // 15–75 seconds
   }, [gameData]);
 
   // Initialize audio
@@ -328,7 +339,7 @@ export function GameCanvas({
     ghostSoundRef.current.volume = 0.5;
     doNotCallSoundRef.current.volume = 1.0;
   }, []);
-  
+
   // Keyboard handlers
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -453,6 +464,20 @@ export function GameCanvas({
         };
         break;
       }
+      case 'jed': {
+        object = {
+          id: `jed-${now}`,
+          type: 'jed',
+          name: 'Jed',
+          aum: 1_000_000_000,
+          x,
+          y: -sizes.jed.height,
+          width: sizes.jed.width,
+          height: sizes.jed.height,
+          speed,
+        };
+        break;
+      }
       default:
         return;
     }
@@ -561,6 +586,12 @@ export function GameCanvas({
     }
     // 0-30 seconds: normal spawn interval
     
+    // Jed spawn: once per game at random time between 15–75 seconds
+    if (!jedSpawnedRef.current && elapsed >= jedSpawnTimeRef.current) {
+      jedSpawnedRef.current = true;
+      spawnObject('jed', now);
+    }
+
     if (now - lastSpawnTimeRef.current >= spawnInterval) {
       lastSpawnTimeRef.current = now;
       const rand = Math.random();
@@ -593,6 +624,7 @@ export function GameCanvas({
                color: '#ef4444' // red-500
            });
         }
+        // Jed missed: no message, just remove
         objectsToRemove.push(obj);
         return;
       }
@@ -625,7 +657,17 @@ export function GameCanvas({
       if (checkCollision(obj)) {
         objectsToRemove.push(obj);
         
-        if (obj.type === 'sqo' || obj.type === 'joined') {
+        if (obj.type === 'jed') {
+          const jedAum = 1_000_000_000;
+          if (!isMuted && catchSoundRef.current) {
+            catchSoundRef.current.currentTime = 0;
+            catchSoundRef.current.play().catch(() => {});
+          }
+          scoreRef.current += jedAum;
+          setScore(scoreRef.current);
+          setLastCaught({ name: 'Jed', aum: jedAum, type: 'jed' });
+          setCatchPopup('jed');
+        } else if (obj.type === 'sqo' || obj.type === 'joined') {
           // Play sound
           if (!isMuted) {
             if (obj.type === 'sqo' && catchSoundRef.current) {
@@ -692,6 +734,17 @@ export function GameCanvas({
     }
     
     const animationTime = now / 1000;
+    // Update Jed DOM overlay (animated GIF) position when Jed exists
+    const jed = objectsRef.current.find((o) => o.type === 'jed');
+    if (jedImgRef.current) {
+      if (jed) {
+        jedImgRef.current.style.display = 'block';
+        jedImgRef.current.style.left = `${jed.x}px`;
+        jedImgRef.current.style.top = `${jed.y}px`;
+      } else {
+        jedImgRef.current.style.display = 'none';
+      }
+    }
     objectsRef.current.forEach((obj) => {
       drawGameObject(ctx, obj, animationTime);
     });
@@ -794,20 +847,42 @@ export function GameCanvas({
         )}
       </div>
       
-      {/* Canvas */}
-      <canvas
-        ref={canvasRef}
-        width={GAME_CONFIG.CANVAS_WIDTH}
-        height={GAME_CONFIG.CANVAS_HEIGHT}
-        className="border-2 border-slate-700 rounded-lg bg-slate-900/50"
-      />
+      {/* Canvas + Jed overlay (animated GIF) */}
+      <div
+        className="relative"
+        style={{ width: GAME_CONFIG.CANVAS_WIDTH, height: GAME_CONFIG.CANVAS_HEIGHT }}
+      >
+        <canvas
+          ref={canvasRef}
+          width={GAME_CONFIG.CANVAS_WIDTH}
+          height={GAME_CONFIG.CANVAS_HEIGHT}
+          className="border-2 border-slate-700 rounded-lg bg-slate-900/50"
+        />
+        <img
+          ref={jedImgRef}
+          src="/games/pipeline-catcher/images/jed-walk.gif"
+          alt="Jed"
+          className="absolute pointer-events-none z-10 hidden"
+          style={{
+            width: OBJECT_SIZES.jed.width,
+            height: OBJECT_SIZES.jed.height,
+            imageRendering: 'pixelated',
+          }}
+        />
+        {catchPopup === 'jed' && (
+          <JedPopup onComplete={() => setCatchPopup(null)} />
+        )}
+      </div>
       
       {/* Instructions */}
       <div className="mt-4 text-center text-slate-300 text-sm">
         <p>Use ← → or A/D keys to move</p>
       </div>
 
-      <CatchPopup type={catchPopup} onComplete={() => setCatchPopup(null)} />
+      <CatchPopup
+        type={catchPopup === 'jed' ? null : catchPopup}
+        onComplete={() => setCatchPopup(null)}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 // Pipeline Catcher Game Types
 
-export type GameObjectType = 'sqo' | 'joined' | 'ghost' | 'stopSign' | 'powerup';
+export type GameObjectType = 'sqo' | 'joined' | 'ghost' | 'stopSign' | 'powerup' | 'jed';
 export type PowerUpType = 'doubleAum' | 'slowMo' | 'shield';
 
 export interface GameObject {
