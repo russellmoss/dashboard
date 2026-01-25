@@ -13,6 +13,7 @@ import {
   ActivityChannel,
   DayCount,
   SGACallCount,
+  SGADayCount,
 } from '@/types/sga-activity';
 
 const ACTIVITY_VIEW = 'savvy-gtm-analytics.Tableau_Views.vw_sga_activity_performance';
@@ -300,11 +301,16 @@ async function processScheduledCallsResults(
   // Aggregate by SGA - filter by SGA if provided
   const thisWeekBySGA = await aggregateBySGA(thisWeekData, nextWeekData, callType, sgaFilter);
   
+  // Aggregate by SGA and day
+  const thisWeekBySGADay = aggregateBySGADay(thisWeekData);
+  const nextWeekBySGADay = aggregateBySGADay(nextWeekData);
+  
   return {
     thisWeek: {
       total: thisWeekData.reduce((sum, r) => sum + parseInt(r.call_count), 0),
       byDay: thisWeekByDay,
       bySGA: thisWeekBySGA,
+      bySGADay: thisWeekBySGADay,
     },
     nextWeek: {
       total: nextWeekData.reduce((sum, r) => sum + parseInt(r.call_count), 0),
@@ -315,6 +321,7 @@ async function processScheduledCallsResults(
         nextWeek: s.nextWeek,
         total: s.total 
       })),
+      bySGADay: nextWeekBySGADay,
     },
   };
 }
@@ -337,6 +344,35 @@ function aggregateByDay(rows: any[]): DayCount[] {
   }
   
   return Array.from(dayMap.values()).sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+}
+
+function aggregateBySGADay(rows: any[]): SGADayCount[] {
+  const sgaDayMap = new Map<string, SGADayCount>();
+  
+  for (const row of rows) {
+    const sgaName = row.sga_name;
+    const dayOfWeek = parseInt(row.day_of_week);
+    const key = `${sgaName}_${dayOfWeek}`;
+    
+    const existing = sgaDayMap.get(key);
+    if (existing) {
+      existing.count += parseInt(row.call_count);
+    } else {
+      sgaDayMap.set(key, {
+        sgaName,
+        dayOfWeek,
+        dayName: row.day_name,
+        count: parseInt(row.call_count),
+      });
+    }
+  }
+  
+  return Array.from(sgaDayMap.values()).sort((a, b) => {
+    // Sort by SGA name first, then by day of week
+    const sgaCompare = a.sgaName.localeCompare(b.sgaName);
+    if (sgaCompare !== 0) return sgaCompare;
+    return a.dayOfWeek - b.dayOfWeek;
+  });
 }
 
 async function aggregateBySGA(

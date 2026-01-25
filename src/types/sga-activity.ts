@@ -60,12 +60,21 @@ export interface ScheduledCallsSummary {
     total: number;
     byDay: DayCount[];
     bySGA: SGACallCount[];
+    bySGADay: SGADayCount[];  // SGA breakdown by day of week
   };
   nextWeek: {
     total: number;
     byDay: DayCount[];
     bySGA: SGACallCount[];
+    bySGADay: SGADayCount[];  // SGA breakdown by day of week
   };
+}
+
+export interface SGADayCount {
+  sgaName: string;
+  dayOfWeek: number;
+  dayName: string;
+  count: number;
 }
 
 export interface DayCount {

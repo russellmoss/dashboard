@@ -149,6 +149,10 @@ export default function SGAActivityContent() {
     setDrillDownPage(1);
     setDrillDownFilters({});
 
+    // Convert UI day number to BigQuery DAYOFWEEK value if provided
+    // Note: dayOfWeek is already in UI format (0=Sun, 1=Mon, etc.)
+    const bigQueryDayOfWeek = dayOfWeek !== undefined ? convertUIToBigQueryDayOfWeek(dayOfWeek) : undefined;
+
     const title = `${callType === 'initial' ? 'Initial' : 'Qualification'} Calls Scheduled - ${weekType === 'this_week' ? 'This Week' : 'Next Week'}${
       dayOfWeek !== undefined ? ` - ${getDayName(dayOfWeek)}` : ''
     }${sgaName ? ` - ${sgaName}` : ''}`;
@@ -162,7 +166,7 @@ export default function SGAActivityContent() {
           filters,
           callType,
           weekType,
-          dayOfWeek,
+          dayOfWeek: bigQueryDayOfWeek,
           sgaName,
         }),
       });
@@ -509,7 +513,7 @@ export default function SGAActivityContent() {
           title="Initial Calls Scheduled"
           data={data.initialCalls}
           onCardClick={(weekType) => handleScheduledCallClick('initial', weekType)}
-          onDayClick={(weekType, dayOfWeek) => handleScheduledCallClick('initial', weekType, dayOfWeek)}
+          onDayClick={(weekType, dayOfWeek, sgaName) => handleScheduledCallClick('initial', weekType, dayOfWeek, sgaName)}
           onSGAClick={(weekType, sgaName) => handleScheduledCallClick('initial', weekType, undefined, sgaName)}
           onWeekTotalClick={(weekType) => handleScheduledCallClick('initial', weekType)}
           onSGATotalClick={(sgaName) => handleSGATotalClick('initial', sgaName)}
@@ -519,7 +523,7 @@ export default function SGAActivityContent() {
           title="Qualification Calls Scheduled"
           data={data.qualificationCalls}
           onCardClick={(weekType) => handleScheduledCallClick('qualification', weekType)}
-          onDayClick={(weekType, dayOfWeek) => handleScheduledCallClick('qualification', weekType, dayOfWeek)}
+          onDayClick={(weekType, dayOfWeek, sgaName) => handleScheduledCallClick('qualification', weekType, dayOfWeek, sgaName)}
           onSGAClick={(weekType, sgaName) => handleScheduledCallClick('qualification', weekType, undefined, sgaName)}
           onWeekTotalClick={(weekType) => handleScheduledCallClick('qualification', weekType)}
           onSGATotalClick={(sgaName) => handleSGATotalClick('qualification', sgaName)}
