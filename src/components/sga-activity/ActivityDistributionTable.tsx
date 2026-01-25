@@ -62,11 +62,16 @@ export default function ActivityDistributionTable({
     }
   };
 
-  // Calculate rollup: Sum all channels for each day of week
+  // Calculate rollup: Sum all channels for each day of week (excluding "Other")
   const rollupPeriodA = new Map<number, number>();
   const rollupPeriodBAvg = new Map<number, number>();
 
   distributions.forEach((dist) => {
+    // Skip "Other" channel from rollup calculations
+    if (dist.channel === 'Other') {
+      return;
+    }
+    
     // Sum Period A counts
     dist.currentPeriod.forEach((day) => {
       const current = rollupPeriodA.get(day.dayOfWeek) || 0;
@@ -215,7 +220,7 @@ export default function ActivityDistributionTable({
                       style={{ width: '80px', minWidth: '80px' }}
                       onClick={() => count > 0 && onCellClick(undefined, dayNum)}
                     >
-                      {count > 0 ? count : '-'}
+                      {count > 0 ? Math.round(count) : '-'}
                     </TableCell>
                   );
                 })}
@@ -228,7 +233,7 @@ export default function ActivityDistributionTable({
                   const avgValue = rollupPeriodBAvg.get(dayNum);
                   return (
                     <TableCell key={dayNum} className="text-center text-blue-700 dark:text-blue-300" style={{ width: '80px', minWidth: '80px' }}>
-                      {avgValue !== undefined && avgValue !== null && avgValue > 0 ? avgValue.toFixed(1) : '-'}
+                      {avgValue !== undefined && avgValue !== null && avgValue > 0 ? Math.round(avgValue) : '-'}
                     </TableCell>
                   );
                 })}
@@ -260,7 +265,7 @@ export default function ActivityDistributionTable({
                       style={{ width: '80px', minWidth: '80px' }}
                     >
                       <span className={textColorClass}>
-                        {isPositive ? '+' : ''}{variance.toFixed(1)}
+                        {isPositive ? '+' : ''}{Math.round(variance)}
                       </span>
                     </TableCell>
                   );
@@ -311,7 +316,7 @@ export default function ActivityDistributionTable({
                         style={{ width: '80px', minWidth: '80px' }}
                         onClick={() => dayData && dayData.count > 0 && onCellClick(dist.channel, dayNum)}
                       >
-                        {dayData?.count || '-'}
+                        {dayData?.count ? Math.round(dayData.count) : '-'}
                       </TableCell>
                     );
                   })}
@@ -325,7 +330,7 @@ export default function ActivityDistributionTable({
                     const avgValue = dayData?.avgCount;
                     return (
                       <TableCell key={dayNum} className="text-center text-gray-500 dark:text-gray-400" style={{ width: '80px', minWidth: '80px' }}>
-                        {avgValue !== undefined && avgValue !== null ? avgValue.toFixed(1) : '-'}
+                        {avgValue !== undefined && avgValue !== null ? Math.round(avgValue) : '-'}
                       </TableCell>
                     );
                   })}
@@ -355,7 +360,7 @@ export default function ActivityDistributionTable({
                         style={{ width: '80px', minWidth: '80px' }}
                       >
                         <span className={textColorClass}>
-                          {isPositive ? '+' : ''}{varData.variance.toFixed(1)}
+                          {isPositive ? '+' : ''}{Math.round(varData.variance)}
                         </span>
                       </TableCell>
                     );

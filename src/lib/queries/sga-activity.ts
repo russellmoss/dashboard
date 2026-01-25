@@ -658,17 +658,34 @@ export async function getActivityDistribution(
       LEFT JOIN task_descriptions td ON v.task_id = td.task_id
       WHERE v.activity_channel_group != 'Marketing'  -- Exclude Marketing
     ),
+    date_range_days_current AS (
+      SELECT
+        date,
+        EXTRACT(DAYOFWEEK FROM date) as day_of_week
+      FROM UNNEST(GENERATE_DATE_ARRAY(@currentStart, LEAST(@currentEnd, CURRENT_DATE('America/New_York')))) as date
+    ),
+    day_occurrences_current AS (
+      SELECT
+        day_of_week,
+        COUNT(*) as num_occurrences
+      FROM date_range_days_current
+      GROUP BY day_of_week
+    ),
     current_period AS (
       SELECT
-        corrected_channel_group as channel,
-        activity_day_of_week as day_name,
-        EXTRACT(DAYOFWEEK FROM task_created_date_est) as day_of_week,
-        COUNT(DISTINCT task_id) as activity_count
-      FROM classified_activities
-      WHERE task_created_date_est >= @currentStart
-        AND task_created_date_est <= @currentEnd
-        AND task_created_date_est <= CURRENT_DATE('America/New_York')  -- Ensure we don't include future dates (use EST timezone to match task_created_date_est)
-      GROUP BY channel, day_name, day_of_week
+        ca.corrected_channel_group as channel,
+        ca.activity_day_of_week as day_name,
+        EXTRACT(DAYOFWEEK FROM ca.task_created_date_est) as day_of_week,
+        COUNT(DISTINCT ca.task_id) as total_count,
+        COALESCE(do.num_occurrences, 1) as num_occurrences,
+        -- Average = total activities / number of times this day appears in the period
+        SAFE_DIVIDE(COUNT(DISTINCT ca.task_id), GREATEST(COALESCE(do.num_occurrences, 1), 1)) as avg_count
+      FROM classified_activities ca
+      LEFT JOIN day_occurrences_current do ON EXTRACT(DAYOFWEEK FROM ca.task_created_date_est) = do.day_of_week
+      WHERE ca.task_created_date_est >= @currentStart
+        AND ca.task_created_date_est <= @currentEnd
+        AND ca.task_created_date_est <= CURRENT_DATE('America/New_York')  -- Ensure we don't include future dates (use EST timezone to match task_created_date_est)
+      GROUP BY channel, day_name, day_of_week, do.num_occurrences
     ),
     date_range_days AS (
       SELECT
@@ -702,13 +719,14 @@ export async function getActivityDistribution(
       COALESCE(c.channel, p.channel) as channel,
       COALESCE(c.day_of_week, p.day_of_week) as day_of_week,
       COALESCE(c.day_name, p.day_name) as day_name,
-      COALESCE(c.activity_count, 0) as current_count,
+      COALESCE(c.avg_count, 0) as current_count,
       COALESCE(p.avg_count, 0) as comparison_avg,
-      COALESCE(c.activity_count, 0) - COALESCE(p.avg_count, 0) as variance
+      COALESCE(c.avg_count, 0) - COALESCE(p.avg_count, 0) as variance
     FROM current_period c
     FULL OUTER JOIN comparison_period p
       ON c.channel = p.channel AND c.day_of_week = p.day_of_week
     WHERE COALESCE(c.channel, p.channel) != 'Marketing'  -- Exclude Marketing
+      AND COALESCE(c.channel, p.channel) != 'Other'  -- Exclude Other
     ORDER BY channel, day_of_week
   `;
   
@@ -751,9 +769,9 @@ function processActivityDistributionResults(rows: any[]): ActivityDistribution[]
   for (const row of rows) {
     const channel = String(row.channel || '') as ActivityChannel;
     
-    // Skip Marketing channel (type-safe check)
+    // Skip Marketing and Other channels (type-safe check)
     const channelStr = String(channel || '');
-    if (channelStr === 'Marketing') {
+    if (channelStr === 'Marketing' || channelStr === 'Other') {
       continue;
     }
     
