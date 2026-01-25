@@ -725,8 +725,7 @@ export async function getActivityDistribution(
     FROM current_period c
     FULL OUTER JOIN comparison_period p
       ON c.channel = p.channel AND c.day_of_week = p.day_of_week
-    WHERE COALESCE(c.channel, p.channel) != 'Marketing'  -- Exclude Marketing
-      AND COALESCE(c.channel, p.channel) != 'Other'  -- Exclude Other
+    WHERE COALESCE(c.channel, p.channel) != 'Marketing'  -- Exclude Marketing (Other is included for debugging/monitoring)
     ORDER BY channel, day_of_week
   `;
   
@@ -769,9 +768,9 @@ function processActivityDistributionResults(rows: any[]): ActivityDistribution[]
   for (const row of rows) {
     const channel = String(row.channel || '') as ActivityChannel;
     
-    // Skip Marketing and Other channels (type-safe check)
+    // Skip Marketing channel only (Other is included for debugging/monitoring)
     const channelStr = String(channel || '');
-    if (channelStr === 'Marketing' || channelStr === 'Other') {
+    if (channelStr === 'Marketing') {
       continue;
     }
     

@@ -276,21 +276,24 @@ export default function ActivityDistributionTable({
         </div>
       </div>
       
-      {/* Sort distributions: SMS first, then others */}
-      {[...distributions].sort((a, b) => {
-        // Define custom order: SMS first, then Call, Email, LinkedIn
-        const order: Record<string, number> = {
-          'SMS': 1,
-          'Call': 2,
-          'Email': 3,
-          'LinkedIn': 4,
-        };
-        const orderA = order[a.channel] || 999;
-        const orderB = order[b.channel] || 999;
-        return orderA - orderB;
-      }).map((dist) => (
-        <div key={dist.channel} className="mb-6 last:mb-0">
-          <Text className="font-medium mb-2 text-gray-900 dark:text-gray-100">{dist.channel}</Text>
+      {/* Sort distributions: SMS first, then others (excluding Other) */}
+      {[...distributions]
+        .filter(dist => dist.channel !== 'Other')  // Filter out Other for main tables
+        .sort((a, b) => {
+          // Define custom order: SMS first, then Call, Email, LinkedIn
+          const order: Record<string, number> = {
+            'SMS': 1,
+            'Call': 2,
+            'Email': 3,
+            'LinkedIn': 4,
+          };
+          const orderA = order[a.channel] || 999;
+          const orderB = order[b.channel] || 999;
+          return orderA - orderB;
+        })
+        .map((dist) => (
+          <div key={dist.channel} className="mb-6 last:mb-0">
+            <Text className="font-medium mb-2 text-gray-900 dark:text-gray-100">{dist.channel}</Text>
           <div className="overflow-x-auto">
             <Table className="w-full" style={{ tableLayout: 'fixed' }}>
               <TableHead>
@@ -371,6 +374,110 @@ export default function ActivityDistributionTable({
           </div>
         </div>
       ))}
+      
+      {/* Other Channel - Debugging/Monitoring Table */}
+      {distributions.find(dist => dist.channel === 'Other') && (
+        <div className="mt-8 pt-6 border-t-2 border-dashed border-gray-300 dark:border-gray-600">
+          <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
+            <div className="flex items-center gap-2 mb-1">
+              <Text className="font-semibold text-amber-900 dark:text-amber-100">Other Channel</Text>
+              <span className="px-2 py-1 text-xs font-medium bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200 rounded">
+                Debugging & Monitoring
+              </span>
+            </div>
+            <Text className="text-sm text-amber-700 dark:text-amber-300">
+              Fallback for tasks that cannot be classified into standard channels. Not included in rollup calculations.
+            </Text>
+          </div>
+          <div className="overflow-x-auto">
+            <Table className="w-full" style={{ tableLayout: 'fixed' }}>
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell className="text-left" style={{ width: '120px', minWidth: '120px' }}>Metric</TableHeaderCell>
+                  {DAY_ORDER.map((dayNum) => (
+                    <TableHeaderCell key={dayNum} className="text-center" style={{ width: '80px', minWidth: '80px' }}>
+                      {DAY_ORDER_TO_NAME[dayNum]}
+                    </TableHeaderCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(() => {
+                  const otherDist = distributions.find(dist => dist.channel === 'Other');
+                  if (!otherDist) return null;
+                  
+                  return (
+                    <>
+                      {/* Period A Row */}
+                      <TableRow>
+                        <TableCell className="text-left font-medium text-amber-900 dark:text-amber-100" style={{ width: '120px', minWidth: '120px' }}>Period A</TableCell>
+                        {DAY_ORDER.map((dayNum) => {
+                          const dayData = otherDist.currentPeriod.find(d => d.dayOfWeek === dayNum);
+                          return (
+                            <TableCell 
+                              key={dayNum} 
+                              className="text-center cursor-pointer hover:bg-amber-50 dark:hover:bg-amber-900 font-medium text-amber-900 dark:text-amber-100"
+                              style={{ width: '80px', minWidth: '80px' }}
+                              onClick={() => dayData && dayData.count > 0 && onCellClick(otherDist.channel, dayNum)}
+                            >
+                              {dayData?.count ? Math.round(dayData.count) : '-'}
+                            </TableCell>
+                          );
+                        })}
+                      </TableRow>
+                      
+                      {/* Period B Average Row */}
+                      <TableRow>
+                        <TableCell className="text-left text-amber-700 dark:text-amber-300" style={{ width: '120px', minWidth: '120px' }}>Period B Avg</TableCell>
+                        {DAY_ORDER.map((dayNum) => {
+                          const dayData = otherDist.comparisonPeriod.find(d => d.dayOfWeek === dayNum);
+                          const avgValue = dayData?.avgCount;
+                          return (
+                            <TableCell key={dayNum} className="text-center text-amber-700 dark:text-amber-300" style={{ width: '80px', minWidth: '80px' }}>
+                              {avgValue !== undefined && avgValue !== null ? Math.round(avgValue) : '-'}
+                            </TableCell>
+                          );
+                        })}
+                      </TableRow>
+                      
+                      {/* Variance Row */}
+                      <TableRow>
+                        <TableCell className="text-left text-amber-700 dark:text-amber-300" style={{ width: '120px', minWidth: '120px' }}>Variance</TableCell>
+                        {DAY_ORDER.map((dayNum) => {
+                          const varData = otherDist.variance.find(d => d.dayOfWeek === dayNum);
+                          if (!varData || varData.comparisonCount === 0) {
+                            return <TableCell key={dayNum} className="text-center text-amber-700 dark:text-amber-300" style={{ width: '80px', minWidth: '80px' }}>-</TableCell>;
+                          }
+                          
+                          const isPositive = varData.variance > 0;
+                          const isNegative = varData.variance < 0;
+                          const textColorClass = isPositive 
+                            ? 'text-green-600 dark:text-green-400' 
+                            : isNegative
+                            ? 'text-red-600 dark:text-red-400' 
+                            : 'text-amber-700 dark:text-amber-300';
+                          
+                          return (
+                            <TableCell 
+                              key={dayNum} 
+                              className="text-center" 
+                              style={{ width: '80px', minWidth: '80px' }}
+                            >
+                              <span className={textColorClass}>
+                                {isPositive ? '+' : ''}{Math.round(varData.variance)}
+                              </span>
+                            </TableCell>
+                          );
+                        })}
+                      </TableRow>
+                    </>
+                  );
+                })()}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
     </Card>
   );
 }
