@@ -17,6 +17,7 @@ This dashboard connects directly to BigQuery to visualize data from the `vw_funn
 - **Drill-Down Capabilities**: Click on any metric value to see underlying records, then click records to view full details
 - **Data Export**: Export tables to CSV and Google Sheets
 - **User Management**: Role-based access control with admin, manager, SGM, SGA, and viewer roles
+- **Password Features**: Self-service password change (Settings), forgot password (email reset link), rate-limited auth flows
 
 ## 📊 Data Source
 
@@ -44,8 +45,9 @@ The dashboard queries the `vw_funnel_master` BigQuery view (`savvy-gtm-analytics
 - **Framework**: Next.js 14 (App Router)
 - **UI Components**: Tremor React (charts and tables), Recharts (trend charts)
 - **Styling**: Tailwind CSS
-- **Authentication**: NextAuth.js (Email/Password)
-- **Database**: Google BigQuery
+- **Authentication**: NextAuth.js (Email/Password), bcryptjs for hashing
+- **Password Reset**: SendGrid (email), Upstash Redis (rate limiting)
+- **Database**: Neon (PostgreSQL, users + password reset tokens), Google BigQuery (analytics)
 - **Deployment**: Vercel (ready)
 
 ### Project Structure
@@ -58,21 +60,25 @@ src/
 │   │   ├── sga-hub/       # SGA Hub endpoints (weekly-goals, quarterly-progress, drill-down, etc.)
 │   │   ├── admin/         # Admin endpoints (sga-overview, refresh-cache)
 │   │   ├── cron/          # Cron endpoints (refresh-cache for scheduled invalidation)
-│   │   ├── auth/          # Authentication endpoints
-│   │   └── users/         # User management endpoints
+│   │   ├── auth/          # nextauth, forgot-password, reset-password
+│   │   └── users/         # User management, users/me/change-password
 │   ├── dashboard/         # Dashboard pages
 │   │   ├── page.tsx       # Main Funnel Performance dashboard
 │   │   ├── sga-hub/       # SGA Hub page (for SGA role)
 │   │   ├── sga-management/# SGA Management page (for admin/manager)
-│   │   └── settings/      # Settings page
-│   └── login/             # Authentication page
+│   │   └── settings/      # Settings page (My Account + Change Password, User Management)
+│   ├── login/             # Login page (with Forgot password modal)
+│   └── reset-password/    # Token-based password reset page
 ├── components/
 │   ├── dashboard/         # Dashboard-specific components (Scorecards, Charts, Tables, RecordDetailModal)
 │   ├── sga-hub/           # SGA Hub components (WeeklyGoalsTable, QuarterlyProgressCard, MetricDrillDownModal, etc.)
 │   ├── layout/            # Header, Sidebar, Navigation
-│   ├── settings/          # User management components
+│   ├── settings/          # UserManagement, ChangePasswordModal
 │   └── ui/                # Reusable UI components
 ├── lib/
+│   ├── email.ts           # SendGrid (sendPasswordResetEmail)
+│   ├── rate-limit.ts      # Upstash Redis rate limiters (forgot, reset, login)
+│   ├── password-utils.ts  # Validation, hashing (bcryptjs), reset tokens
 │   ├── queries/           # BigQuery query functions (all wrapped with caching)
 │   │   ├── conversion-rates.ts
 │   │   ├── funnel-metrics.ts
@@ -95,6 +101,55 @@ src/
 │   └── filters.ts
 └── config/                # Constants (table names, record types)
 ```
+
+## 🔐 Password Features
+
+The dashboard supports **forgot password** (email reset link), **reset password** (token-based), and **change password** (authenticated, in Settings). Rate limiting protects auth endpoints.
+
+### What Exists
+
+| Feature | Where | Description |
+|--------|--------|-------------|
+| **Forgot password** | Login page → “Forgot password?” | Modal: enter email → reset link sent via SendGrid |
+| **Reset password** | `/reset-password?token=...` | Token from email; set new password, then redirect to login |
+| **Change password** | Dashboard → Settings → “Change My Password” | Requires current password; all authenticated users |
+
+### Environment Variables
+
+Required for password flows (see `.env.example`):
+
+- **`SENDGRID_API_KEY`**, **`EMAIL_FROM`** — SendGrid; `EMAIL_FROM` should be a verified sender (e.g. personal Gmail; `@savvywealth.com` may need DMARC/DNS setup).
+- **`NEXT_PUBLIC_APP_URL`** — Base URL for reset links (default `http://localhost:3000`).
+- **`UPSTASH_REDIS_REST_URL`**, **`UPSTASH_REDIS_REST_TOKEN`** — Upstash Redis for rate limiting. If missing, rate limiting is skipped (warning logged, requests allowed).
+
+### Rate Limiting (Upstash)
+
+| Flow | Limit | Window |
+|------|--------|--------|
+| Forgot password | 3 requests | per email per hour |
+| Reset password | 5 attempts | per token per hour |
+| Login | 5 attempts | per email per 15 min |
+
+Login rate limiting returns the same “Invalid email or password” as a wrong password (no 429) to avoid revealing that a limit was hit.
+
+### Security Notes
+
+- Reset tokens expire in **1 hour** and are **single-use** (`PasswordResetToken` in Neon).
+- Forgot-password responses **do not reveal** whether an email exists (same message either way).
+- Passwords: **bcryptjs**, minimum **8 characters** (see `src/lib/password-utils.ts`).
+- All new auth API routes use **`export const dynamic = 'force-dynamic'`**.
+
+### Verifying Upstash
+
+1. Ensure `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are set.
+2. **Forgot password**: Request a reset **4 times** for the same email → 4th request returns **429**.
+3. **Reset password**: Submit invalid password **6 times** for the same token → 6th returns **429**.
+4. If Upstash is not configured, server logs: `Rate limiting not configured - UPSTASH env vars missing`.
+
+### Documentation
+
+- **`docs/password-investigation.md`** — Current auth, gaps, and design notes.
+- **`password-implementation-plan.md`** — Step-by-step implementation and verification.
 
 ## 🚀 Caching Strategy
 
@@ -203,6 +258,7 @@ export const getMyData = cachedQuery(
 - ✅ **Phase 10**: SGA Management feature (admin/manager interface for SGA oversight)
 - ✅ **Phase 11**: Drill-down feature (clickable metrics with record detail integration)
 - ✅ **Phase 12**: Google Sheets export functionality
+- ✅ **Password features**: Forgot password (email reset), reset password page, change password (Settings), rate limiting (Upstash)
 
 ### Known Issues
 
@@ -292,12 +348,21 @@ The SGA Management page (Admin/Manager only) provides oversight of all SGAs:
    ```
 
 3. **Set up environment variables**:
-   Create a `.env.local` file:
+   Copy `.env.example` to `.env.local` and fill in values. Minimum:
    ```env
    NEXTAUTH_SECRET=your-secret-here
    NEXTAUTH_URL=http://localhost:3000
+   DATABASE_URL=postgresql://...   # Neon (users, PasswordResetToken)
    GCP_PROJECT_ID=savvy-gtm-analytics
    GOOGLE_APPLICATION_CREDENTIALS=path/to/service-account-key.json
+   ```
+   For **password features** (forgot/reset, rate limiting):
+   ```env
+   SENDGRID_API_KEY=SG.xxxx
+   EMAIL_FROM=your-verified-sender@example.com
+   NEXT_PUBLIC_APP_URL=http://localhost:3000
+   UPSTASH_REDIS_REST_URL=https://xxxx.upstash.io
+   UPSTASH_REDIS_REST_TOKEN=your-token
    ```
 
 4. **Run the development server**:
@@ -340,6 +405,8 @@ The SGA Management page (Admin/Manager only) provides oversight of all SGAs:
 npm run build
 ```
 
+The build script sets `NODE_OPTIONS=--max-old-space-size=8192` (and runs Next via `node --max-old-space-size=8192`) to avoid JavaScript heap OOM on large builds. If you still hit OOM, ensure sufficient RAM or increase the value in `package.json`.
+
 ### Testing
 
 The dashboard has been tested against Q4 2025 data with the following expected values:
@@ -350,7 +417,8 @@ The dashboard has been tested against Q4 2025 data with the following expected v
 
 ## 🔒 Security
 
-- **Authentication**: Email/password authentication with bcrypt password hashing
+- **Authentication**: Email/password via NextAuth; bcryptjs hashing; rate-limited login (Upstash Redis)
+- **Password flows**: Forgot/reset rate limited; reset tokens single-use, 1h expiry; no email enumeration
 - **Authorization**: Role-based access control (admin, manager, SGM, SGA, viewer)
 - **Data Filtering**: Automatic SGA/SGM filtering based on user permissions
 - **SQL Injection Protection**: All queries use BigQuery parameterized queries
@@ -400,6 +468,8 @@ A test page is available at `/sentry-example-page` to verify error tracking is w
 - **[Ground Truth](./docs/GROUND-TRUTH.md)**: Verified values for calculation validation
 - **[Glossary](./docs/GLOSSARY.md)**: Business definitions and terminology
 - **[Calculations](./docs/CALCULATIONS.md)**: Detailed calculation formulas
+- **[Password Investigation](./docs/password-investigation.md)**: Auth overview and password feature design
+- **`password-implementation-plan.md`**: Implementation plan for forgot/reset/change password and rate limiting
 
 ## 🐛 Known Issues
 
@@ -430,4 +500,4 @@ Proprietary - Savvy Wealth Internal Use Only
 ---
 
 **Last Updated**: January 2026  
-**Status**: All core phases complete (1-12), Full Funnel View implemented, SGA Hub & SGA Management implemented, Drill-Down feature complete, Caching implementation complete
+**Status**: All core phases complete (1-12), Full Funnel View implemented, SGA Hub & SGA Management implemented, Drill-Down feature complete, Caching implementation complete, Password features (forgot/reset/change) and rate limiting (Upstash) implemented

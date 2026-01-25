@@ -4,6 +4,7 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 import { validateUser } from './users';
 import { getUserPermissions } from './permissions';
 import { ExtendedSession } from '@/types/auth';
+import { getLoginLimiter, checkRateLimit } from '@/lib/rate-limit';
 
 /** Get user id from session (set by auth callbacks). Use in API routes. */
 export function getSessionUserId(session: Session | null): string | null {
@@ -50,7 +51,15 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
+        const normalizedEmail = credentials.email.toLowerCase().trim();
+
         try {
+          const rateLimit = await checkRateLimit(getLoginLimiter(), normalizedEmail);
+          if (!rateLimit.success) {
+            console.log(`[Auth] Rate limit exceeded for login: ${normalizedEmail}`);
+            return null;
+          }
+
           console.log('[Auth] Attempting to validate user:', credentials.email);
           const user = await validateUser(credentials.email, credentials.password);
           

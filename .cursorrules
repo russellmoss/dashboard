@@ -5,7 +5,7 @@
 You are working on the **Savvy Funnel Analytics Dashboard**, a Next.js 14 application that replaces Tableau for funnel analytics. The dashboard connects to BigQuery and visualizes data from the `vw_funnel_master` view.
 
 **Repository**: https://github.com/russellmoss/dashboard  
-**Current Status**: All core phases complete (1-8), Full Funnel View implemented, SGA/SGM Active Filter implemented, Column sorting added
+**Current Status**: All core phases complete (1-12), Full Funnel View, SGA Hub & SGA Management, Drill-Down, Saved Reports, Password features (forgot/reset/change), rate limiting (Upstash)
 
 ---
 
@@ -248,7 +248,8 @@ This project uses Next.js `unstable_cache()` with tag-based invalidation for Big
 - API: `POST /api/admin/refresh-cache` (admin only)
 
 ### API Routes
-- Do NOT use `export const dynamic = 'force-dynamic'` — caching is handled at query level
+- Do NOT use `export const dynamic = 'force-dynamic'` for **cached** dashboard/sga-hub routes — caching is handled at query level
+- **Exception**: Auth routes (`/api/auth/forgot-password`, `/api/auth/reset-password`, `/api/users/me/change-password`) use `force-dynamic`; they are not cached
 - Do NOT set manual `Cache-Control` headers — handled by `unstable_cache()`
 
 ## Key Files Reference
@@ -275,6 +276,70 @@ This project uses Next.js `unstable_cache()` with tag-based invalidation for Big
 - `docs/FILTER-MATRIX.md` - Filter application by metric type
 - `conversion_rate_explanation.md` - Cohort mode explanation
 - `vw_funnel_master.sql` - BigQuery view definition with all flags
+- `docs/password-investigation.md` - Auth overview, password feature design
+- `password-implementation-plan.md` - Forgot/reset/change password implementation plan
+
+## Password Features (Auth / Forgot / Reset / Change)
+
+### Overview
+
+- **Forgot password**: Login page → “Forgot password?” → modal → enter email → reset link sent via SendGrid.
+- **Reset password**: `/reset-password?token=...` (link from email) → set new password → redirect to login.
+- **Change password**: Dashboard → Settings → “My Account” → “Change My Password” (all authenticated users). User Management (admin-only) remains below.
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/lib/email.ts` | SendGrid: `sendPasswordResetEmail` |
+| `src/lib/rate-limit.ts` | Upstash limiters (forgot, reset, login), `checkRateLimit`, lazy init |
+| `src/lib/password-utils.ts` | `validatePassword`, `hashPassword`, `verifyPassword`, reset token create/validate/mark-used |
+| `src/app/api/auth/forgot-password/route.ts` | POST; rate-limited; no email enumeration |
+| `src/app/api/auth/reset-password/route.ts` | GET validate token, POST reset; rate-limited |
+| `src/app/api/users/me/change-password/route.ts` | POST; requires session; current + new password |
+| `src/app/reset-password/page.tsx` | Token-based reset UI (dark theme) |
+| `src/app/login/page.tsx` | Forgot password modal (dark theme) |
+| `src/components/settings/ChangePasswordModal.tsx` | Change password modal |
+| `src/app/dashboard/settings/page.tsx` | My Account + Change Password; User Management only if `canManageUsers` |
+| `src/lib/auth.ts` | NextAuth config; **login rate limiting** in `authorize` |
+| `prisma/schema.prisma` | `PasswordResetToken` model, `User.passwordResetTokens` |
+
+### Conventions (Use in New Auth Code)
+
+- **bcryptjs** only (not `bcrypt`). Hash/compare via `password-utils`.
+- **Prisma**: `import { prisma } from '@/lib/prisma'`.
+- **New auth API routes**: `export const dynamic = 'force-dynamic'` (these are **not** cached; caching rules apply to dashboard/sga-hub etc.).
+- **Login page / reset page / forgot modal**: Dark theme; match existing styles.
+
+### Rate Limiting (Upstash Redis)
+
+- **Library**: `@upstash/ratelimit`, `@upstash/redis`. Limiters in `src/lib/rate-limit.ts`.
+- **Lazy init**: Redis and limiters created only when `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are set. No init at import.
+- **Getters**: Use `getForgotPasswordLimiter()`, `getResetPasswordLimiter()`, `getLoginLimiter()` (not raw exports). Pass to `checkRateLimit(limiter, identifier)`.
+- **Graceful degradation**: If Upstash env vars missing, `checkRateLimit` logs a warning and returns `{ success: true }` (no blocking).
+- **Limits**: Forgot 3/h per email; Reset 5/h per token; Login 5 per 15 min per email. Login returns `null` (same as wrong password) when limited—no 429.
+
+### Verifying Upstash
+
+- Env vars set → no “Rate limiting not configured” log when hitting forgot/reset/login.
+- Forgot: 4th request same email in 1 h → **429**.
+- Reset: 6th attempt same token in 1 h → **429**.
+- Login: 6+ wrong passwords same email → same “Invalid email or password”; server log “Rate limit exceeded for login”.
+
+### Password Rules
+
+- Min **8 characters** (`validatePassword` in `password-utils`).
+- Reset tokens: **1 h** expiry, **single-use**; stored in `PasswordResetToken`.
+
+### Email
+
+- **SendGrid**: `SENDGRID_API_KEY`, `EMAIL_FROM`. `EMAIL_FROM` must be a verified sender.
+- **Reset link base**: `NEXT_PUBLIC_APP_URL` (default `http://localhost:3000`).
+- UI and email copy warn users to check **spam** when using personal Gmail as `EMAIL_FROM`.
+
+### Middleware
+
+- `/reset-password` and `/api/auth/forgot-password`, `/api/auth/reset-password` are **not** protected by dashboard middleware; they stay public.
 
 ## Development Guidelines
 
