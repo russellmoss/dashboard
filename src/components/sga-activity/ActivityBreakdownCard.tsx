@@ -16,6 +16,7 @@ const CHANNEL_COLORS: Record<ActivityChannel, string> = {
   'Call': '#3b82f6',     // blue-500
   'Email': '#8b5cf6',     // violet-500
   'LinkedIn': '#06b6d4',  // cyan-500
+  'Other': '#f59e0b',     // amber-500 (for debugging/monitoring)
 };
 
 export default function ActivityBreakdownCard({
