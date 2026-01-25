@@ -25,6 +25,8 @@ export interface SGAActivityFilters {
   periodBType?: 'this_week' | 'next_week' | 'last_30' | 'last_60' | 'last_90' | 'qtd' | 'all_time' | 'custom';
   periodBStartDate?: string | null;
   periodBEndDate?: string | null;
+  // View mode for Activity Distribution (average or sum)
+  distributionViewMode?: 'average' | 'sum';
   
   // Activity Filters
   activityTypes: ActivityType[];  // Which activity types to show
@@ -69,7 +71,8 @@ export interface ScheduledCallsSummary {
 export interface DayCount {
   dayOfWeek: number;  // 1=Monday, 2=Tuesday, etc.
   dayName: string;     // "Monday", "Tuesday", etc.
-  count: number;
+  count: number;  // Average count (for average mode)
+  totalCount?: number;  // Total count (for sum mode)
 }
 
 export interface SGACallCount {
@@ -107,6 +110,7 @@ export interface ComparisonDayCount {
   dayName: string;
   count: number;  // Total count (for reference)
   avgCount: number;  // Average per occurrence of that day
+  totalCount: number;  // Total count for sum mode
 }
 
 export interface VarianceDayCount {
@@ -116,6 +120,9 @@ export interface VarianceDayCount {
   comparisonCount: number;
   variance: number;
   variancePercent: number;
+  currentTotal: number;  // Total count for sum mode
+  comparisonTotal: number;  // Total count for sum mode
+  varianceTotal: number;  // Variance for sum mode
 }
 
 // ============================================

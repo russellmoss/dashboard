@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Card, Text, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Button } from '@tremor/react';
-import { X, ExternalLink } from 'lucide-react';
+import { X, ExternalLink, Download } from 'lucide-react';
 import { ActivityRecord, ScheduledCallRecord } from '@/types/sga-activity';
 import { ExportButton } from '@/components/ui/ExportButton';
+import { exportToCSV } from '@/lib/utils/export-csv';
 
 interface ActivityDrillDownModalProps {
   isOpen: boolean;
@@ -19,6 +20,11 @@ interface ActivityDrillDownModalProps {
   pageSize?: number;
   onPageChange?: (page: number) => void;
   canExport?: boolean;
+  // Props for exporting all records
+  exportFilters?: any; // Filters needed to fetch all records
+  exportChannel?: string;
+  exportDayOfWeek?: number;
+  exportActivityType?: string;
 }
 
 export default function ActivityDrillDownModal({
@@ -34,8 +40,24 @@ export default function ActivityDrillDownModal({
   pageSize = 100,
   onPageChange,
   canExport = true,
+  exportFilters,
+  exportChannel,
+  exportDayOfWeek,
+  exportActivityType,
 }: ActivityDrillDownModalProps) {
-  // Prepare data for CSV export
+  const [exportingAll, setExportingAll] = useState(false);
+
+  // Generate filename from title
+  const filename = useMemo(() => {
+    const sanitizedTitle = title
+      .replace(/[^a-z0-9]/gi, '-')
+      .toLowerCase()
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+    return `sga-activity-${sanitizedTitle}`;
+  }, [title]);
+
+  // Prepare data for CSV export (current page only)
   const exportData = useMemo(() => {
     if (recordType === 'scheduled_call') {
       return (records as ScheduledCallRecord[]).map(record => ({
@@ -64,15 +86,58 @@ export default function ActivityDrillDownModal({
     }
   }, [records, recordType]);
 
-  // Generate filename from title
-  const filename = useMemo(() => {
-    const sanitizedTitle = title
-      .replace(/[^a-z0-9]/gi, '-')
-      .toLowerCase()
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
-    return `sga-activity-${sanitizedTitle}`;
-  }, [title]);
+  // Function to fetch and export all records
+  const handleExportAll = async () => {
+    if (!exportFilters || recordType !== 'activity') {
+      // For scheduled calls or if filters not provided, just export current page
+      exportToCSV(exportData, filename);
+      return;
+    }
+
+    setExportingAll(true);
+    try {
+      // Fetch all records with a very large pageSize
+      const response = await fetch('/api/sga-activity/activity-records', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filters: exportFilters,
+          channel: exportChannel,
+          dayOfWeek: exportDayOfWeek,
+          activityType: exportActivityType,
+          page: 1,
+          pageSize: 10000, // Large enough to get all records
+        }),
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch all records');
+      const result = await response.json();
+      
+      // Prepare export data from all records
+      const allExportData = (result.records || []).map((record: ActivityRecord) => ({
+        Date: record.createdDateEST,
+        Type: `${record.activityChannel}${record.isColdCall ? ' (Cold)' : ''}${record.isAutomated ? ' (Auto)' : ''}`,
+        Prospect: record.prospectName,
+        SGA: record.sgaName,
+        Subject: record.subject,
+        'Activity Channel': record.activityChannel,
+        'Activity Sub Type': record.activitySubType,
+        Direction: record.direction,
+        'Is Cold Call': record.isColdCall ? 'Yes' : 'No',
+        'Is Automated': record.isAutomated ? 'Yes' : 'No',
+        'Call Duration (seconds)': record.callDuration || '',
+        'Salesforce URL': record.salesforceUrl,
+      }));
+
+      exportToCSV(allExportData, `${filename}-all`);
+    } catch (error: any) {
+      console.error('Export all error:', error);
+      alert(`Failed to export all records: ${error.message}`);
+    } finally {
+      setExportingAll(false);
+    }
+  };
+
   // Handle ESC key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -101,7 +166,20 @@ export default function ActivityDrillDownModal({
           <Text className="text-lg font-semibold">{title}</Text>
           <div className="flex items-center gap-2">
             {canExport && !loading && records.length > 0 && (
-              <ExportButton data={exportData} filename={filename} />
+              <>
+                <ExportButton data={exportData} filename={filename} />
+                {total > records.length && exportFilters && recordType === 'activity' && (
+                  <Button
+                    icon={Download}
+                    size="sm"
+                    variant="secondary"
+                    onClick={handleExportAll}
+                    disabled={exportingAll}
+                  >
+                    {exportingAll ? 'Exporting...' : `Export All (${total.toLocaleString()})`}
+                  </Button>
+                )}
+              </>
             )}
             <Button
               variant="light"

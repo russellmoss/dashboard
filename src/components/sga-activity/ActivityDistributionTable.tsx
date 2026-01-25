@@ -62,9 +62,13 @@ export default function ActivityDistributionTable({
     }
   };
 
+  // Determine view mode (default to average)
+  const viewMode = filters.distributionViewMode || 'average';
+  const isSumMode = viewMode === 'sum';
+
   // Calculate rollup: Sum all channels for each day of week (excluding "Other")
   const rollupPeriodA = new Map<number, number>();
-  const rollupPeriodBAvg = new Map<number, number>();
+  const rollupPeriodB = new Map<number, number>();
 
   distributions.forEach((dist) => {
     // Skip "Other" channel from rollup calculations
@@ -72,16 +76,18 @@ export default function ActivityDistributionTable({
       return;
     }
     
-    // Sum Period A counts
+    // Sum Period A counts (use total or avg based on view mode)
     dist.currentPeriod.forEach((day) => {
       const current = rollupPeriodA.get(day.dayOfWeek) || 0;
-      rollupPeriodA.set(day.dayOfWeek, current + day.count);
+      const value = isSumMode ? (day.totalCount || day.count) : day.count;
+      rollupPeriodA.set(day.dayOfWeek, current + value);
     });
 
-    // Sum Period B averages
+    // Sum Period B (use total or avg based on view mode)
     dist.comparisonPeriod.forEach((day) => {
-      const current = rollupPeriodBAvg.get(day.dayOfWeek) || 0;
-      rollupPeriodBAvg.set(day.dayOfWeek, current + (day.avgCount || 0));
+      const current = rollupPeriodB.get(day.dayOfWeek) || 0;
+      const value = isSumMode ? (day.totalCount || 0) : (day.avgCount || 0);
+      rollupPeriodB.set(day.dayOfWeek, current + value);
     });
   });
 
@@ -89,8 +95,8 @@ export default function ActivityDistributionTable({
   const rollupVariance = new Map<number, number>();
   DAY_ORDER.forEach((dayNum) => {
     const periodA = rollupPeriodA.get(dayNum) || 0;
-    const periodBAvg = rollupPeriodBAvg.get(dayNum) || 0;
-    const variance = periodA - periodBAvg;
+    const periodB = rollupPeriodB.get(dayNum) || 0;
+    const variance = periodA - periodB;
     rollupVariance.set(dayNum, variance);
   });
 
@@ -184,6 +190,21 @@ export default function ActivityDistributionTable({
               </div>
             </div>
           )}
+
+          {/* View Mode Toggle */}
+          <div className="min-w-[150px]">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+              View Mode
+            </label>
+            <select
+              value={filters.distributionViewMode || 'average'}
+              onChange={(e) => onFiltersChange({ ...filters, distributionViewMode: e.target.value as 'average' | 'sum' })}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
+            >
+              <option value="average">Average</option>
+              <option value="sum">Sum</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -226,14 +247,16 @@ export default function ActivityDistributionTable({
                 })}
               </TableRow>
               
-              {/* Period B Average Row */}
+              {/* Period B Row */}
               <TableRow>
-                <TableCell className="text-left text-blue-700 dark:text-blue-300" style={{ width: '120px', minWidth: '120px' }}>Period B Avg</TableCell>
+                <TableCell className="text-left text-blue-700 dark:text-blue-300" style={{ width: '120px', minWidth: '120px' }}>
+                  Period B {isSumMode ? '' : 'Avg'}
+                </TableCell>
                 {DAY_ORDER.map((dayNum) => {
-                  const avgValue = rollupPeriodBAvg.get(dayNum);
+                  const value = rollupPeriodB.get(dayNum);
                   return (
                     <TableCell key={dayNum} className="text-center text-blue-700 dark:text-blue-300" style={{ width: '80px', minWidth: '80px' }}>
-                      {avgValue !== undefined && avgValue !== null && avgValue > 0 ? Math.round(avgValue) : '-'}
+                      {value !== undefined && value !== null && value > 0 ? Math.round(value) : '-'}
                     </TableCell>
                   );
                 })}
@@ -243,10 +266,10 @@ export default function ActivityDistributionTable({
               <TableRow>
                 <TableCell className="text-left text-blue-700 dark:text-blue-300" style={{ width: '120px', minWidth: '120px' }}>Variance</TableCell>
                 {DAY_ORDER.map((dayNum) => {
-                  const periodBAvg = rollupPeriodBAvg.get(dayNum) || 0;
+                  const periodB = rollupPeriodB.get(dayNum) || 0;
                   const variance = rollupVariance.get(dayNum);
                   
-                  if (variance === undefined || periodBAvg === 0) {
+                  if (variance === undefined || periodB === 0) {
                     return <TableCell key={dayNum} className="text-center text-blue-700 dark:text-blue-300" style={{ width: '80px', minWidth: '80px' }}>-</TableCell>;
                   }
                   
@@ -312,28 +335,35 @@ export default function ActivityDistributionTable({
                   <TableCell className="text-left font-medium text-gray-900 dark:text-gray-100" style={{ width: '120px', minWidth: '120px' }}>Period A</TableCell>
                   {DAY_ORDER.map((dayNum) => {
                     const dayData = dist.currentPeriod.find(d => d.dayOfWeek === dayNum);
+                    const displayValue = isSumMode 
+                      ? (dayData?.totalCount ?? dayData?.count ?? 0)
+                      : (dayData?.count ?? 0);
                     return (
                       <TableCell 
                         key={dayNum} 
                         className="text-center cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900 font-medium text-gray-900 dark:text-gray-100"
                         style={{ width: '80px', minWidth: '80px' }}
-                        onClick={() => dayData && dayData.count > 0 && onCellClick(dist.channel, dayNum)}
+                        onClick={() => displayValue > 0 && onCellClick(dist.channel, dayNum)}
                       >
-                        {dayData?.count ? Math.round(dayData.count) : '-'}
+                        {displayValue > 0 ? Math.round(displayValue) : '-'}
                       </TableCell>
                     );
                   })}
                 </TableRow>
                 
-                {/* Period B Average Row */}
+                {/* Period B Row */}
                 <TableRow>
-                  <TableCell className="text-left text-gray-500 dark:text-gray-400" style={{ width: '120px', minWidth: '120px' }}>Period B Avg</TableCell>
+                  <TableCell className="text-left text-gray-500 dark:text-gray-400" style={{ width: '120px', minWidth: '120px' }}>
+                    Period B {isSumMode ? '' : 'Avg'}
+                  </TableCell>
                   {DAY_ORDER.map((dayNum) => {
                     const dayData = dist.comparisonPeriod.find(d => d.dayOfWeek === dayNum);
-                    const avgValue = dayData?.avgCount;
+                    const displayValue = isSumMode 
+                      ? (dayData?.totalCount ?? 0)
+                      : (dayData?.avgCount ?? 0);
                     return (
                       <TableCell key={dayNum} className="text-center text-gray-500 dark:text-gray-400" style={{ width: '80px', minWidth: '80px' }}>
-                        {avgValue !== undefined && avgValue !== null ? Math.round(avgValue) : '-'}
+                        {displayValue > 0 ? Math.round(displayValue) : '-'}
                       </TableCell>
                     );
                   })}
@@ -344,12 +374,19 @@ export default function ActivityDistributionTable({
                   <TableCell className="text-left text-gray-500 dark:text-gray-400" style={{ width: '120px', minWidth: '120px' }}>Variance</TableCell>
                   {DAY_ORDER.map((dayNum) => {
                     const varData = dist.variance.find(d => d.dayOfWeek === dayNum);
-                    if (!varData || varData.comparisonCount === 0) {
+                    if (!varData) {
                       return <TableCell key={dayNum} className="text-center text-gray-500 dark:text-gray-400" style={{ width: '80px', minWidth: '80px' }}>-</TableCell>;
                     }
                     
-                    const isPositive = varData.variance > 0;
-                    const isNegative = varData.variance < 0;
+                    const comparisonValue = isSumMode ? varData.comparisonTotal : varData.comparisonCount;
+                    const varianceValue = isSumMode ? varData.varianceTotal : varData.variance;
+                    
+                    if (comparisonValue === 0) {
+                      return <TableCell key={dayNum} className="text-center text-gray-500 dark:text-gray-400" style={{ width: '80px', minWidth: '80px' }}>-</TableCell>;
+                    }
+                    
+                    const isPositive = varianceValue > 0;
+                    const isNegative = varianceValue < 0;
                     const textColorClass = isPositive 
                       ? 'text-green-600 dark:text-green-400' 
                       : isNegative
@@ -363,7 +400,7 @@ export default function ActivityDistributionTable({
                         style={{ width: '80px', minWidth: '80px' }}
                       >
                         <span className={textColorClass}>
-                          {isPositive ? '+' : ''}{Math.round(varData.variance)}
+                          {isPositive ? '+' : ''}{Math.round(varianceValue)}
                         </span>
                       </TableCell>
                     );
@@ -413,28 +450,35 @@ export default function ActivityDistributionTable({
                         <TableCell className="text-left font-medium text-amber-900 dark:text-amber-100" style={{ width: '120px', minWidth: '120px' }}>Period A</TableCell>
                         {DAY_ORDER.map((dayNum) => {
                           const dayData = otherDist.currentPeriod.find(d => d.dayOfWeek === dayNum);
+                          const displayValue = isSumMode 
+                            ? (dayData?.totalCount ?? dayData?.count ?? 0)
+                            : (dayData?.count ?? 0);
                           return (
                             <TableCell 
                               key={dayNum} 
                               className="text-center cursor-pointer hover:bg-amber-50 dark:hover:bg-amber-900 font-medium text-amber-900 dark:text-amber-100"
                               style={{ width: '80px', minWidth: '80px' }}
-                              onClick={() => dayData && dayData.count > 0 && onCellClick(otherDist.channel, dayNum)}
+                              onClick={() => displayValue > 0 && onCellClick(otherDist.channel, dayNum)}
                             >
-                              {dayData?.count ? Math.round(dayData.count) : '-'}
+                              {displayValue > 0 ? Math.round(displayValue) : '-'}
                             </TableCell>
                           );
                         })}
                       </TableRow>
                       
-                      {/* Period B Average Row */}
+                      {/* Period B Row */}
                       <TableRow>
-                        <TableCell className="text-left text-amber-700 dark:text-amber-300" style={{ width: '120px', minWidth: '120px' }}>Period B Avg</TableCell>
+                        <TableCell className="text-left text-amber-700 dark:text-amber-300" style={{ width: '120px', minWidth: '120px' }}>
+                          Period B {isSumMode ? '' : 'Avg'}
+                        </TableCell>
                         {DAY_ORDER.map((dayNum) => {
                           const dayData = otherDist.comparisonPeriod.find(d => d.dayOfWeek === dayNum);
-                          const avgValue = dayData?.avgCount;
+                          const displayValue = isSumMode 
+                            ? (dayData?.totalCount ?? 0)
+                            : (dayData?.avgCount ?? 0);
                           return (
                             <TableCell key={dayNum} className="text-center text-amber-700 dark:text-amber-300" style={{ width: '80px', minWidth: '80px' }}>
-                              {avgValue !== undefined && avgValue !== null ? Math.round(avgValue) : '-'}
+                              {displayValue > 0 ? Math.round(displayValue) : '-'}
                             </TableCell>
                           );
                         })}
@@ -445,12 +489,19 @@ export default function ActivityDistributionTable({
                         <TableCell className="text-left text-amber-700 dark:text-amber-300" style={{ width: '120px', minWidth: '120px' }}>Variance</TableCell>
                         {DAY_ORDER.map((dayNum) => {
                           const varData = otherDist.variance.find(d => d.dayOfWeek === dayNum);
-                          if (!varData || varData.comparisonCount === 0) {
+                          if (!varData) {
                             return <TableCell key={dayNum} className="text-center text-amber-700 dark:text-amber-300" style={{ width: '80px', minWidth: '80px' }}>-</TableCell>;
                           }
                           
-                          const isPositive = varData.variance > 0;
-                          const isNegative = varData.variance < 0;
+                          const comparisonValue = isSumMode ? varData.comparisonTotal : varData.comparisonCount;
+                          const varianceValue = isSumMode ? varData.varianceTotal : varData.variance;
+                          
+                          if (comparisonValue === 0) {
+                            return <TableCell key={dayNum} className="text-center text-amber-700 dark:text-amber-300" style={{ width: '80px', minWidth: '80px' }}>-</TableCell>;
+                          }
+                          
+                          const isPositive = varianceValue > 0;
+                          const isNegative = varianceValue < 0;
                           const textColorClass = isPositive 
                             ? 'text-green-600 dark:text-green-400' 
                             : isNegative
@@ -464,7 +515,7 @@ export default function ActivityDistributionTable({
                               style={{ width: '80px', minWidth: '80px' }}
                             >
                               <span className={textColorClass}>
-                                {isPositive ? '+' : ''}{Math.round(varData.variance)}
+                                {isPositive ? '+' : ''}{Math.round(varianceValue)}
                               </span>
                             </TableCell>
                           );

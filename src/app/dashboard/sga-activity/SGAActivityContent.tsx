@@ -34,6 +34,7 @@ const DEFAULT_FILTERS: SGAActivityFilters = {
   periodBType: 'last_30',
   periodBStartDate: null,
   periodBEndDate: null,
+  distributionViewMode: 'average', // Default to average view
   activityTypes: [],
   includeAutomated: true, // Always include automated activities (emails, LinkedIn, SMS)
   callTypeFilter: 'all_outbound',
@@ -84,6 +85,7 @@ export default function SGAActivityContent() {
     channel?: ActivityChannel;
     dayOfWeek?: number;
   }>({});
+  const [drillDownExportFilters, setDrillDownExportFilters] = useState<SGAActivityFilters | null>(null);
 
   // Record detail modal state
   const [recordDetailOpen, setRecordDetailOpen] = useState(false);
@@ -251,6 +253,7 @@ export default function SGAActivityContent() {
     setDrillDownRecordType('activity');
     setDrillDownPage(1);
     setDrillDownFilters({ activityType, channel, dayOfWeek });
+    setDrillDownExportFilters(filters); // Store filters for export
 
     const labels: Record<string, string> = {
       cold_calls: 'Cold Calls',
@@ -319,6 +322,7 @@ export default function SGAActivityContent() {
     setDrillDownRecordType('activity');
     setDrillDownPage(1);
     setDrillDownFilters({ channel, dayOfWeek: bigQueryDayOfWeek });
+    setDrillDownExportFilters(periodAFilters); // Store filters for export
 
     const labels: Record<string, string> = {
       cold_calls: 'Cold Calls',
@@ -527,19 +531,24 @@ export default function SGAActivityContent() {
       <ActivityDrillDownModal
         isOpen={drillDownOpen && !recordDetailOpen}
         onClose={() => {
-          setDrillDownOpen(false);
-          setDrillDownFilters({});
-        }}
-        title={drillDownTitle}
-        records={drillDownRecords}
-        loading={drillDownLoading}
-        onRecordClick={handleRecordClick}
-        recordType={drillDownRecordType}
-        total={drillDownTotal}
-        page={drillDownPage}
-        pageSize={100}
-        onPageChange={handleDrillDownPageChange}
-      />
+        setDrillDownOpen(false);
+        setDrillDownFilters({});
+        setDrillDownExportFilters(null);
+      }}
+      title={drillDownTitle}
+      records={drillDownRecords}
+      loading={drillDownLoading}
+      onRecordClick={handleRecordClick}
+      recordType={drillDownRecordType}
+      total={drillDownTotal}
+      page={drillDownPage}
+      pageSize={100}
+      onPageChange={handleDrillDownPageChange}
+      exportFilters={drillDownExportFilters}
+      exportChannel={drillDownFilters.channel}
+      exportDayOfWeek={drillDownFilters.dayOfWeek}
+      exportActivityType={drillDownFilters.activityType}
+    />
 
       {/* Record Detail Modal */}
       <RecordDetailModal

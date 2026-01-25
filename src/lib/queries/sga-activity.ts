@@ -719,9 +719,12 @@ export async function getActivityDistribution(
       COALESCE(c.channel, p.channel) as channel,
       COALESCE(c.day_of_week, p.day_of_week) as day_of_week,
       COALESCE(c.day_name, p.day_name) as day_name,
-      COALESCE(c.avg_count, 0) as current_count,
+      COALESCE(c.avg_count, 0) as current_avg,
+      COALESCE(c.total_count, 0) as current_total,
       COALESCE(p.avg_count, 0) as comparison_avg,
-      COALESCE(c.avg_count, 0) - COALESCE(p.avg_count, 0) as variance
+      COALESCE(p.total_count, 0) as comparison_total,
+      COALESCE(c.avg_count, 0) - COALESCE(p.avg_count, 0) as variance_avg,
+      COALESCE(c.total_count, 0) - COALESCE(p.total_count, 0) as variance_total
     FROM current_period c
     FULL OUTER JOIN comparison_period p
       ON c.channel = p.channel AND c.day_of_week = p.day_of_week
@@ -792,7 +795,8 @@ function processActivityDistributionResults(rows: any[]): ActivityDistribution[]
     dist.currentPeriod.push({
       dayOfWeek: uiDayOfWeek,
       dayName: row.day_name,
-      count: parseFloat(row.current_count) || 0,
+      count: parseFloat(row.current_avg) || 0,  // Average count
+      totalCount: parseFloat(row.current_total) || 0,  // Total count for sum mode
     });
     
     dist.comparisonPeriod.push({
@@ -800,17 +804,21 @@ function processActivityDistributionResults(rows: any[]): ActivityDistribution[]
       dayName: row.day_name,
       count: 0,
       avgCount: parseFloat(row.comparison_avg) || 0,
+      totalCount: parseFloat(row.comparison_total) || 0,
     });
     
     dist.variance.push({
       dayOfWeek: uiDayOfWeek,
       dayName: row.day_name,
-      currentCount: parseFloat(row.current_count) || 0,
+      currentCount: parseFloat(row.current_avg) || 0,
       comparisonCount: parseFloat(row.comparison_avg) || 0,
-      variance: parseFloat(row.variance) || 0,
+      variance: parseFloat(row.variance_avg) || 0,
       variancePercent: row.comparison_avg > 0 
-        ? ((row.current_count - row.comparison_avg) / row.comparison_avg) * 100 
+        ? ((row.current_avg - row.comparison_avg) / row.comparison_avg) * 100 
         : 0,
+      currentTotal: parseFloat(row.current_total) || 0,
+      comparisonTotal: parseFloat(row.comparison_total) || 0,
+      varianceTotal: parseFloat(row.variance_total) || 0,
     });
   }
   
