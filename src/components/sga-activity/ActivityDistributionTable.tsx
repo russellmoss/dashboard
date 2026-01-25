@@ -6,7 +6,7 @@ import { ActivityDistribution, ActivityChannel, SGAActivityFilters } from '@/typ
 
 interface ActivityDistributionTableProps {
   distributions: ActivityDistribution[];
-  onCellClick: (channel: ActivityChannel | undefined, dayOfWeek: number) => void;
+  onCellClick: (channel: ActivityChannel | undefined, dayOfWeek: number, period: 'A' | 'B') => void;
   filters: SGAActivityFilters;
   onFiltersChange: (filters: SGAActivityFilters) => void;
 }
@@ -239,7 +239,7 @@ export default function ActivityDistributionTable({
                       key={dayNum} 
                       className="text-center cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-800 font-medium text-blue-900 dark:text-blue-100"
                       style={{ width: '80px', minWidth: '80px' }}
-                      onClick={() => count > 0 && onCellClick(undefined, dayNum)}
+                      onClick={() => count > 0 && onCellClick(undefined, dayNum, 'A')}
                     >
                       {count > 0 ? Math.round(count) : '-'}
                     </TableCell>
@@ -250,12 +250,17 @@ export default function ActivityDistributionTable({
               {/* Period B Row */}
               <TableRow>
                 <TableCell className="text-left text-blue-700 dark:text-blue-300" style={{ width: '120px', minWidth: '120px' }}>
-                  Period B {isSumMode ? '' : 'Avg'}
+                  Period B
                 </TableCell>
                 {DAY_ORDER.map((dayNum) => {
                   const value = rollupPeriodB.get(dayNum);
                   return (
-                    <TableCell key={dayNum} className="text-center text-blue-700 dark:text-blue-300" style={{ width: '80px', minWidth: '80px' }}>
+                    <TableCell 
+                      key={dayNum} 
+                      className="text-center cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-800 font-medium text-blue-700 dark:text-blue-300"
+                      style={{ width: '80px', minWidth: '80px' }}
+                      onClick={() => value !== undefined && value !== null && value > 0 && onCellClick(undefined, dayNum, 'B')}
+                    >
                       {value !== undefined && value !== null && value > 0 ? Math.round(value) : '-'}
                     </TableCell>
                   );
@@ -343,7 +348,7 @@ export default function ActivityDistributionTable({
                         key={dayNum} 
                         className="text-center cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900 font-medium text-gray-900 dark:text-gray-100"
                         style={{ width: '80px', minWidth: '80px' }}
-                        onClick={() => displayValue > 0 && onCellClick(dist.channel, dayNum)}
+                        onClick={() => displayValue > 0 && onCellClick(dist.channel, dayNum, 'A')}
                       >
                         {displayValue > 0 ? Math.round(displayValue) : '-'}
                       </TableCell>
@@ -354,7 +359,7 @@ export default function ActivityDistributionTable({
                 {/* Period B Row */}
                 <TableRow>
                   <TableCell className="text-left text-gray-500 dark:text-gray-400" style={{ width: '120px', minWidth: '120px' }}>
-                    Period B {isSumMode ? '' : 'Avg'}
+                    Period B
                   </TableCell>
                   {DAY_ORDER.map((dayNum) => {
                     const dayData = dist.comparisonPeriod.find(d => d.dayOfWeek === dayNum);
@@ -362,7 +367,12 @@ export default function ActivityDistributionTable({
                       ? (dayData?.totalCount ?? 0)
                       : (dayData?.avgCount ?? 0);
                     return (
-                      <TableCell key={dayNum} className="text-center text-gray-500 dark:text-gray-400" style={{ width: '80px', minWidth: '80px' }}>
+                      <TableCell 
+                        key={dayNum} 
+                        className="text-center cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900 font-medium text-gray-500 dark:text-gray-400"
+                        style={{ width: '80px', minWidth: '80px' }}
+                        onClick={() => displayValue > 0 && onCellClick(dist.channel, dayNum, 'B')}
+                      >
                         {displayValue > 0 ? Math.round(displayValue) : '-'}
                       </TableCell>
                     );
@@ -458,7 +468,7 @@ export default function ActivityDistributionTable({
                               key={dayNum} 
                               className="text-center cursor-pointer hover:bg-amber-50 dark:hover:bg-amber-900 font-medium text-amber-900 dark:text-amber-100"
                               style={{ width: '80px', minWidth: '80px' }}
-                              onClick={() => displayValue > 0 && onCellClick(otherDist.channel, dayNum)}
+                              onClick={() => displayValue > 0 && onCellClick(otherDist.channel, dayNum, 'A')}
                             >
                               {displayValue > 0 ? Math.round(displayValue) : '-'}
                             </TableCell>
@@ -469,7 +479,7 @@ export default function ActivityDistributionTable({
                       {/* Period B Row */}
                       <TableRow>
                         <TableCell className="text-left text-amber-700 dark:text-amber-300" style={{ width: '120px', minWidth: '120px' }}>
-                          Period B {isSumMode ? '' : 'Avg'}
+                          Period B
                         </TableCell>
                         {DAY_ORDER.map((dayNum) => {
                           const dayData = otherDist.comparisonPeriod.find(d => d.dayOfWeek === dayNum);
@@ -477,7 +487,12 @@ export default function ActivityDistributionTable({
                             ? (dayData?.totalCount ?? 0)
                             : (dayData?.avgCount ?? 0);
                           return (
-                            <TableCell key={dayNum} className="text-center text-amber-700 dark:text-amber-300" style={{ width: '80px', minWidth: '80px' }}>
+                            <TableCell 
+                              key={dayNum} 
+                              className="text-center cursor-pointer hover:bg-amber-50 dark:hover:bg-amber-900 font-medium text-amber-700 dark:text-amber-300"
+                              style={{ width: '80px', minWidth: '80px' }}
+                              onClick={() => displayValue > 0 && onCellClick(otherDist.channel, dayNum, 'B')}
+                            >
                               {displayValue > 0 ? Math.round(displayValue) : '-'}
                             </TableCell>
                           );

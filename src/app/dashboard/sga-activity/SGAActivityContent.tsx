@@ -305,14 +305,21 @@ export default function SGAActivityContent() {
     }
   };
 
-  const handleActivityDistributionCellClick = async (channel: ActivityChannel | undefined, dayOfWeek: number) => {
-    // Use Period A filters for Activity Distribution drilldown
-    const periodAFilters: SGAActivityFilters = {
-      ...filters,
-      dateRangeType: filters.periodAType || filters.dateRangeType,
-      startDate: filters.periodAStartDate || filters.startDate,
-      endDate: filters.periodAEndDate || filters.endDate,
-    };
+  const handleActivityDistributionCellClick = async (channel: ActivityChannel | undefined, dayOfWeek: number, period: 'A' | 'B' = 'A') => {
+    // Use Period A or Period B filters based on the period parameter
+    const periodFilters: SGAActivityFilters = period === 'A' 
+      ? {
+          ...filters,
+          dateRangeType: filters.periodAType || filters.dateRangeType,
+          startDate: filters.periodAStartDate || filters.startDate,
+          endDate: filters.periodAEndDate || filters.endDate,
+        }
+      : {
+          ...filters,
+          dateRangeType: filters.periodBType || filters.comparisonDateRangeType,
+          startDate: filters.periodBStartDate || filters.comparisonStartDate,
+          endDate: filters.periodBEndDate || filters.comparisonEndDate,
+        };
     
     // Convert UI day number to BigQuery DAYOFWEEK value
     // UI DAY_ORDER [1,2,3,4,5,6,0] → BigQuery [2,3,4,5,6,7,1]
@@ -322,7 +329,7 @@ export default function SGAActivityContent() {
     setDrillDownRecordType('activity');
     setDrillDownPage(1);
     setDrillDownFilters({ channel, dayOfWeek: bigQueryDayOfWeek });
-    setDrillDownExportFilters(periodAFilters); // Store filters for export
+    setDrillDownExportFilters(periodFilters); // Store filters for export
 
     const labels: Record<string, string> = {
       cold_calls: 'Cold Calls',
@@ -338,21 +345,22 @@ export default function SGAActivityContent() {
     const dayLabel = dayOfWeek !== undefined ? ` - ${getDayName(dayOfWeek)}` : '';
     
     // Build a more descriptive title that includes the period info
-    const periodLabel = periodAFilters.periodAType === 'this_week' 
+    const periodType = period === 'A' ? periodFilters.periodAType : periodFilters.periodBType;
+    const periodLabel = periodType === 'this_week' 
       ? 'This Week' 
-      : periodAFilters.periodAType === 'last_30'
+      : periodType === 'last_30'
       ? 'Last 30 Days'
-      : periodAFilters.periodAType === 'last_60'
+      : periodType === 'last_60'
       ? 'Last 60 Days'
-      : periodAFilters.periodAType === 'last_90'
+      : periodType === 'last_90'
       ? 'Last 90 Days'
-      : periodAFilters.periodAType === 'qtd'
+      : periodType === 'qtd'
       ? 'Quarter to Date'
-      : periodAFilters.periodAType === 'all_time'
+      : periodType === 'all_time'
       ? 'All Time'
-      : periodAFilters.periodAType === 'custom' && periodAFilters.periodAStartDate && periodAFilters.periodAEndDate
-      ? `${periodAFilters.periodAStartDate} to ${periodAFilters.periodAEndDate}`
-      : 'Period A';
+      : periodType === 'custom' && periodFilters.startDate && periodFilters.endDate
+      ? `${periodFilters.startDate} to ${periodFilters.endDate}`
+      : period === 'A' ? 'Period A' : 'Period B';
     
     setDrillDownTitle(`${channelLabel}${dayLabel} (${periodLabel})`);
 
@@ -361,7 +369,7 @@ export default function SGAActivityContent() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          filters: periodAFilters,
+          filters: periodFilters,
           channel,
           dayOfWeek: bigQueryDayOfWeek,
           page: 1,
