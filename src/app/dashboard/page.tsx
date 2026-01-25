@@ -1043,6 +1043,7 @@ export default function DashboardPage() {
           onFiltersChange={(newAdvancedFilters) => {
             setFilters(prev => ({ ...prev, advancedFilters: newAdvancedFilters }));
           }}
+          onApply={handleApplyFilters}
           viewMode={viewMode}
           onClose={() => setShowAdvancedFilters(false)}
           isOpen={showAdvancedFilters}
