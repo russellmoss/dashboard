@@ -90,7 +90,7 @@ export default function ActivityDrillDownModal({
   const handleExportAll = async () => {
     if (!exportFilters || recordType !== 'activity') {
       // For scheduled calls or if filters not provided, just export current page
-      exportToCSV(exportData, filename);
+      exportToCSV(exportData as any[], filename);
       return;
     }
 
