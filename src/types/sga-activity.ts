@@ -47,7 +47,7 @@ export type ActivityType =
   | 'email_manual'
   | 'email_automated';
 
-export type ActivityChannel = 'Call' | 'SMS' | 'LinkedIn' | 'Email';
+export type ActivityChannel = 'Call' | 'SMS' | 'LinkedIn' | 'Email' | 'Other';
 
 // ============================================
 // SCHEDULED CALLS TYPES
