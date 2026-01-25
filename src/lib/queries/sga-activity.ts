@@ -326,17 +326,26 @@ async function processScheduledCallsResults(
   };
 }
 
+// Convert BigQuery DAYOFWEEK (1=Sun, 2=Mon, ..., 7=Sat) to UI format (0=Sun, 1=Mon, ..., 6=Sat)
+function convertBigQueryDayToUI(bqDay: number): number {
+  // BigQuery: 1=Sun, 2=Mon, 3=Tue, 4=Wed, 5=Thu, 6=Fri, 7=Sat
+  // UI: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+  if (bqDay === 1) return 0; // Sunday
+  return bqDay - 1; // Monday-Saturday: 2->1, 3->2, 4->3, 5->4, 6->5, 7->6
+}
+
 function aggregateByDay(rows: any[]): DayCount[] {
   const dayMap = new Map<number, DayCount>();
   
   for (const row of rows) {
-    const dayOfWeek = parseInt(row.day_of_week);
-    const existing = dayMap.get(dayOfWeek);
+    const bqDayOfWeek = parseInt(row.day_of_week);
+    const uiDayOfWeek = convertBigQueryDayToUI(bqDayOfWeek);
+    const existing = dayMap.get(uiDayOfWeek);
     if (existing) {
       existing.count += parseInt(row.call_count);
     } else {
-      dayMap.set(dayOfWeek, {
-        dayOfWeek,
+      dayMap.set(uiDayOfWeek, {
+        dayOfWeek: uiDayOfWeek, // Store in UI format
         dayName: row.day_name,
         count: parseInt(row.call_count),
       });
@@ -351,8 +360,9 @@ function aggregateBySGADay(rows: any[]): SGADayCount[] {
   
   for (const row of rows) {
     const sgaName = row.sga_name;
-    const dayOfWeek = parseInt(row.day_of_week);
-    const key = `${sgaName}_${dayOfWeek}`;
+    const bqDayOfWeek = parseInt(row.day_of_week);
+    const uiDayOfWeek = convertBigQueryDayToUI(bqDayOfWeek);
+    const key = `${sgaName}_${uiDayOfWeek}`;
     
     const existing = sgaDayMap.get(key);
     if (existing) {
@@ -360,7 +370,7 @@ function aggregateBySGADay(rows: any[]): SGADayCount[] {
     } else {
       sgaDayMap.set(key, {
         sgaName,
-        dayOfWeek,
+        dayOfWeek: uiDayOfWeek, // Store in UI format
         dayName: row.day_name,
         count: parseInt(row.call_count),
       });
