@@ -416,8 +416,9 @@ export default function SGAActivityContent() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             filters: filtersToUse,
-            channel: drillDownFilters.channel,
-            dayOfWeek: drillDownFilters.dayOfWeek,
+            ...(drillDownFilters.activityType ? { activityType: drillDownFilters.activityType } : {}),
+            ...(drillDownFilters.channel ? { channel: drillDownFilters.channel } : {}),
+            ...(drillDownFilters.dayOfWeek !== undefined ? { dayOfWeek: drillDownFilters.dayOfWeek } : {}),
             page,
             pageSize: 100,
           }),
