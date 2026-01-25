@@ -581,24 +581,78 @@ export async function getActivityDistribution(
         AND t.Id IN (SELECT task_id FROM view_data)
     ),
     classified_activities AS (
-      SELECT
+      SELECT DISTINCT
         v.task_id,
         v.task_created_date_est,
         v.activity_day_of_week,
-        -- Override activity_channel_group based on task_subject AND task_description
+        -- Use the SAME priority-based classification logic as getActivityRecords
+        -- This ensures distribution counts match drilldown counts exactly
         CASE
+          -- ============================================
+          -- PRIORITY 1: EXPLICIT SUBJECT-BASED CLASSIFICATION (HIGHEST PRIORITY)
+          -- ============================================
+          WHEN v.task_subject = 'LinkedIn Message' THEN 'LinkedIn'
+          WHEN v.task_subject = 'LinkedIn Connect' THEN 'LinkedIn'
+          WHEN v.task_subject = 'Outgoing SMS' THEN 'SMS'
+          WHEN v.task_subject = 'Incoming SMS' THEN 'SMS'
+          
+          -- ============================================
+          -- PRIORITY 2: SUBJECT PATTERN MATCHING
+          -- ============================================
           WHEN LOWER(COALESCE(v.task_subject, '')) LIKE '%linkedin%' 
             OR LOWER(COALESCE(v.task_subject, '')) LIKE '%linked in%'
-            OR v.task_subject = 'LinkedIn Message'
-            OR v.task_subject = 'LinkedIn Connect'
-            OR LOWER(COALESCE(td.task_description, '')) LIKE '%linkedin%'
-            OR LOWER(COALESCE(td.task_description, '')) LIKE '%linked in%'
           THEN 'LinkedIn'
+          WHEN LOWER(COALESCE(v.task_subject, '')) LIKE '%sms%' 
+            OR LOWER(COALESCE(v.task_subject, '')) LIKE '%text%'
+          THEN 'SMS'
+          
+          -- ============================================
+          -- PRIORITY 3: RAW CHANNEL GROUP (if subject is ambiguous)
+          -- ============================================
+          WHEN v.activity_channel_group = 'SMS' THEN 'SMS'
+          WHEN v.activity_channel_group = 'LinkedIn' THEN 'LinkedIn'
+          WHEN v.activity_channel_group = 'Email' THEN 'Email'
+          
+          -- ============================================
+          -- PRIORITY 4: DESCRIPTION-BASED (last resort)
+          -- ============================================
+          WHEN LOWER(COALESCE(td.task_description, '')) LIKE '%linkedin%'
+            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%sms%'
+            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%email%'
+            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%text%'
+          THEN 'LinkedIn'
+          WHEN LOWER(COALESCE(td.task_description, '')) LIKE '%sms%'
+            OR LOWER(COALESCE(td.task_description, '')) LIKE '%text message%'
+            OR LOWER(COALESCE(td.task_description, '')) LIKE '%text%'
+          THEN 'SMS'
+          
+          -- ============================================
+          -- PRIORITY 5: EMAIL CLASSIFICATION (only if Call and has email indicators)
+          -- ============================================
           WHEN (LOWER(COALESCE(v.task_subject, '')) LIKE '%email%'
             OR LOWER(COALESCE(td.task_description, '')) LIKE '%email%')
             AND v.activity_channel_group = 'Call'
+            AND v.activity_channel_group != 'SMS'
+            AND v.activity_channel_group != 'LinkedIn'
+            AND LOWER(COALESCE(v.task_subject, '')) NOT LIKE '%sms%'
+            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%sms%'
+            AND LOWER(COALESCE(v.task_subject, '')) NOT LIKE '%text%'
+            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%text%'
+            AND v.task_subject != 'LinkedIn Message'
+            AND v.task_subject != 'Outgoing SMS'
+            AND v.task_subject != 'Incoming SMS'
           THEN 'Email'
-          ELSE v.activity_channel_group
+          
+          -- ============================================
+          -- ELSE: Preserve raw channel with safeguards
+          -- ============================================
+          ELSE CASE
+            WHEN v.activity_channel_group = 'SMS' THEN 'SMS'
+            WHEN v.activity_channel_group = 'LinkedIn' THEN 'LinkedIn'
+            WHEN v.task_subject = 'LinkedIn Message' THEN 'LinkedIn'
+            WHEN v.task_subject = 'Outgoing SMS' OR v.task_subject = 'Incoming SMS' THEN 'SMS'
+            ELSE v.activity_channel_group
+          END
         END as corrected_channel_group
       FROM view_data v
       LEFT JOIN task_descriptions td ON v.task_id = td.task_id
@@ -609,7 +663,7 @@ export async function getActivityDistribution(
         corrected_channel_group as channel,
         activity_day_of_week as day_name,
         EXTRACT(DAYOFWEEK FROM task_created_date_est) as day_of_week,
-        COUNT(*) as activity_count
+        COUNT(DISTINCT task_id) as activity_count
       FROM classified_activities
       WHERE task_created_date_est >= @currentStart
         AND task_created_date_est <= @currentEnd
@@ -634,10 +688,10 @@ export async function getActivityDistribution(
         ca.corrected_channel_group as channel,
         ca.activity_day_of_week as day_name,
         EXTRACT(DAYOFWEEK FROM ca.task_created_date_est) as day_of_week,
-        COUNT(*) as total_count,
+        COUNT(DISTINCT ca.task_id) as total_count,
         COALESCE(do.num_occurrences, 1) as num_occurrences,
         -- Average = total activities / number of times this day appears in the period
-        SAFE_DIVIDE(COUNT(*), GREATEST(COALESCE(do.num_occurrences, 1), 1)) as avg_count
+        SAFE_DIVIDE(COUNT(DISTINCT ca.task_id), GREATEST(COALESCE(do.num_occurrences, 1), 1)) as avg_count
       FROM classified_activities ca
       LEFT JOIN day_occurrences do ON EXTRACT(DAYOFWEEK FROM ca.task_created_date_est) = do.day_of_week
       WHERE ca.task_created_date_est >= @comparisonStart
