@@ -795,8 +795,17 @@ function compileSingleMetric(
     dateWrapper = dateField.includes('TIMESTAMP') ? 'TIMESTAMP' : 'DATE';
   }
   
-  const filterResult = buildDimensionFilterSql(filters || [], false);
+  // Determine if this is an opportunity-level metric (SQOs, Joined, AUM)
+  // These metrics require checking both SGA_Owner_Name__c and Opp_SGA_Name__c
+  const isOppLevelMetric = metric && (
+    ['sqos', 'joined'].includes(metric) || 
+    metric in AUM_METRICS ||
+    metric === 'signed'
+  );
+  
+  const filterResult = buildDimensionFilterSql(filters || [], isOppLevelMetric || false);
   const filterSql = filterResult.sql;
+  const needsUserJoin = filterResult.needsUserJoin;
 
   // Handle date range (optional for "all time" queries)
   let dateFilterSql = '';
@@ -879,11 +888,16 @@ function compileSingleMetric(
   AND v.is_sqo_unique = 1`;
   }
 
+  const userJoin = needsUserJoin 
+    ? `LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user ON v.Opp_SGA_Name__c = sga_user.Id`
+    : '';
+
   const sql = `
 SELECT
   ${metricSql} as value
 FROM \`${CONSTANTS.FULL_TABLE}\` v
 LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
+${userJoin}
 WHERE 1=1
   ${filterSql}${dateFilterSql}${additionalWhereClause}
   `.trim();
@@ -1675,10 +1689,11 @@ function compileFunnelSummary(params: TemplateSelection['parameters']): Compiled
     throw new Error('Date range is required for funnel_summary template');
   }
 
-  // Funnel summary includes both lead-level and opportunity-level metrics
-  // Check if any filters need opportunity-level SGA handling
+  // Funnel summary includes both lead-level and opportunity-level metrics (SQOs, Joined)
+  // When there's an SGA filter, we MUST use opportunity-level filtering because the query includes SQOs/Joined
+  // This ensures SQOs are included when Opp_SGA_Name__c contains a User ID
   const hasSgaFilter = filters?.some(f => f.dimension === 'sga');
-  const filterResult = buildDimensionFilterSql(filters || [], hasSgaFilter);
+  const filterResult = buildDimensionFilterSql(filters || [], hasSgaFilter); // Pass true when SGA filter exists (query includes opp-level metrics)
   const filterSql = filterResult.sql;
   const needsUserJoin = filterResult.needsUserJoin;
   
@@ -2243,8 +2258,10 @@ function compileMultiStageConversion(params: TemplateSelection['parameters']): C
 
 function compileSqoDetailList(params: TemplateSelection['parameters']): CompiledQuery {
   const { dateRange, filters } = params;
-  const filterResult = buildDimensionFilterSql(filters || [], false);
+  // SQOs are opportunity-level metrics - must check both SGA_Owner_Name__c and Opp_SGA_Name__c
+  const filterResult = buildDimensionFilterSql(filters || [], true); // SQOs are opportunity-level
   const filterSql = filterResult.sql;
+  const needsUserJoin = filterResult.needsUserJoin;
 
   // Build date filter SQL - optional for "all time" queries
   let dateFilterSql = '';
@@ -2272,6 +2289,9 @@ function compileSqoDetailList(params: TemplateSelection['parameters']): Compiled
     }
   }
   
+  const userJoin = needsUserJoin 
+    ? `LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user ON v.Opp_SGA_Name__c = sga_user.Id`
+    : '';
 
   const sql = `
     SELECT 
@@ -2290,6 +2310,7 @@ function compileSqoDetailList(params: TemplateSelection['parameters']): Compiled
       v.opportunity_url
     FROM \`${CONSTANTS.FULL_TABLE}\` v
     LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
+    ${userJoin}
     WHERE v.Date_Became_SQO__c IS NOT NULL
       AND v.recordtypeid = @recruitingRecordType
       AND v.is_sqo_unique = 1${dateFilterSql}
