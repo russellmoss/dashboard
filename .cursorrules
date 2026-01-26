@@ -107,6 +107,12 @@ SELECT COUNT(Id) FROM Lead WHERE IsConverted = true AND ConvertedDate >= [START]
    | SQO→Joined | `Date_Became_SQO__c` | `sqo_to_joined_progression` | `eligible_for_sqo_conversions` |
 5. **Deduplication**: Use `is_sqo_unique` and `is_joined_unique` for opportunity-level metrics
 6. **Record Type**: SQO calculations must filter by `recordtypeid = '012Dn000000mrO3IAI'` (Recruiting)
+7. **SGA Attribution for Opportunity Metrics**: 
+   - **Lead-level metrics** (Prospects, Contacted, MQLs, SQLs): Use `SGA_Owner_Name__c` only
+   - **Opportunity-level metrics** (SQOs, Joined, AUM): Check BOTH `SGA_Owner_Name__c` AND `Opp_SGA_Name__c`
+   - **Critical**: `Opp_SGA_Name__c` may contain a Salesforce User ID (e.g., `005VS000000QHlBYAW`) instead of a name
+   - **Solution**: Join with User table to resolve IDs: `LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user ON v.Opp_SGA_Name__c = sga_user.Id`
+   - **Filter Pattern**: `(v.SGA_Owner_Name__c = @sga OR v.Opp_SGA_Name__c = @sga OR COALESCE(sga_user.Name, v.Opp_SGA_Name__c) = @sga)`
 
 ## Architecture Patterns
 
@@ -457,6 +463,55 @@ This project uses Next.js `unstable_cache()` with tag-based invalidation for Big
 3. **User Experience**: Improve error messages and loading states
 4. **Documentation**: Keep `docs/GLOSSARY.md`, `docs/CALCULATIONS.md`, and `docs/FILTER-MATRIX.md` updated
 
+## SGA Attribution - CRITICAL PATTERN
+
+### Opportunity-Level SGA Attribution (SQOs, Joined, AUM)
+
+**⚠️ CRITICAL**: When filtering opportunity-level metrics (SQOs, Joined, AUM) by SGA, you MUST check both lead-level and opportunity-level SGA fields, and resolve User IDs to names.
+
+**The Problem:**
+- `Opp_SGA_Name__c` in `vw_funnel_master` may contain either:
+  - A name string (e.g., "Perry Kalmeta") 
+  - A Salesforce User ID (e.g., `005VS000000QHlBYAW`)
+- When it contains an ID, filtering by name fails because `'005VS000000QHlBYAW' != 'Perry Kalmeta'`
+- This causes SQOs to be excluded from results even though they should be included
+
+**The Solution:**
+1. **Join with User table** to resolve IDs to names:
+   ```sql
+   LEFT JOIN `savvy-gtm-analytics.SavvyGTMData.User` sga_user
+     ON v.Opp_SGA_Name__c = sga_user.Id
+   ```
+
+2. **Check all three conditions** in your WHERE clause:
+   ```sql
+   WHERE (v.SGA_Owner_Name__c = @sgaName                    -- Lead-level SGA
+       OR v.Opp_SGA_Name__c = @sgaName                      -- Opp SGA (if it's already a name)
+       OR COALESCE(sga_user.Name, v.Opp_SGA_Name__c) = @sgaName)  -- Opp SGA (if it's an ID, resolve it)
+   ```
+
+**When to Apply:**
+- ✅ **Opportunity-level metrics**: SQOs, Joined, AUM, Signed
+- ❌ **Lead-level metrics**: Prospects, Contacted, MQLs, SQLs (use `SGA_Owner_Name__c` only)
+
+**Files That Must Follow This Pattern:**
+- `src/lib/queries/funnel-metrics.ts` - ✅ Fixed
+- `src/lib/queries/quarterly-progress.ts` - ✅ Fixed
+- `src/lib/queries/drill-down.ts` - ✅ Fixed
+- `src/lib/queries/weekly-actuals.ts` - ✅ Fixed
+- `src/lib/semantic-layer/query-compiler.ts` - ✅ Fixed
+- Any new queries that filter opportunity-level metrics by SGA
+
+**Example: Missing SQO Issue**
+- **Scenario**: Perry Kalmeta has 5 SQOs in Q4 2025, but dashboard shows only 4
+- **Root Cause**: Shang Chou opportunity has `Opp_SGA_Name__c = '005VS000000QHlBYAW'` (User ID) instead of "Perry Kalmeta"
+- **Fix**: Added User table join and `COALESCE(sga_user.Name, v.Opp_SGA_Name__c)` check
+- **Result**: All 5 SQOs now appear correctly
+
+**Verification:**
+- Test with SGAs who have opportunities where `Opp_SGA_Name__c` contains a User ID
+- Query BigQuery directly: `SELECT SGA__c FROM Opportunity WHERE Id = '...'` - if it's an ID (starts with `005`), it needs resolution
+
 ## Questions to Ask Before Making Changes
 
 - Does this match the `vw_funnel_master` view logic?
@@ -492,10 +547,22 @@ This project uses Next.js `unstable_cache()` with tag-based invalidation for Big
 - **RIGHT**: `SQL__c = 'Yes'` actually means SQO status (legacy naming)
 - **WHY**: This is a Salesforce legacy naming issue. Always check the value, not the field name.
 
-### ❌ Using Wrong SGA Field
-- **WRONG**: Using `SGA_Owner_Name__c` for opportunity metrics
-- **RIGHT**: Use `SGA_Owner_Name__c` for lead metrics, `Opp_SGA_Name__c` for opportunity metrics
-- **WHY**: SGA attribution changes from Lead to Opportunity after conversion.
+### ❌ Using Wrong SGA Field for Opportunity Metrics
+- **WRONG**: Using only `SGA_Owner_Name__c` for opportunity metrics (SQOs, Joined, AUM)
+- **WRONG**: Using `Opp_SGA_Name__c = @sgaName` without User table join when `Opp_SGA_Name__c` contains a User ID
+- **RIGHT**: For opportunity-level metrics, check BOTH `SGA_Owner_Name__c` AND `Opp_SGA_Name__c` (with User table join to resolve IDs)
+- **WHY**: 
+  - SQOs can be attributed via lead-level SGA (`SGA_Owner_Name__c`) OR opportunity-level SGA (`Opp_SGA_Name__c`)
+  - `Opp_SGA_Name__c` may contain either a name (string) OR a Salesforce User ID (e.g., `005VS000000QHlBYAW`)
+  - When `Opp_SGA_Name__c` contains an ID, you MUST join with the User table to resolve it to a name for filtering
+- **Pattern**:
+  ```sql
+  LEFT JOIN `savvy-gtm-analytics.SavvyGTMData.User` sga_user
+    ON v.Opp_SGA_Name__c = sga_user.Id
+  WHERE (v.SGA_Owner_Name__c = @sgaName 
+     OR v.Opp_SGA_Name__c = @sgaName 
+     OR COALESCE(sga_user.Name, v.Opp_SGA_Name__c) = @sgaName)
+  ```
 
 ### ❌ Filtering by FilterDate for Volume Metrics
 - **WRONG**: `WHERE FilterDate IN date_range` for volume counts
@@ -555,6 +622,14 @@ Run each command separately. The user runs them in their own terminal.
 
 6. **Record type filtering**: When querying SQOs, always include `recordtypeid = @recruitingRecordType` filter with `RECRUITING_RECORD_TYPE` constant.
 
+7. **SGA Attribution for Opportunity Metrics**: 
+   - **Lead-level metrics** (Prospects, Contacted, MQLs, SQLs): Filter by `SGA_Owner_Name__c = @sga` only
+   - **Opportunity-level metrics** (SQOs, Joined, AUM): Must check BOTH `SGA_Owner_Name__c` AND `Opp_SGA_Name__c`
+   - **Critical Issue**: `Opp_SGA_Name__c` may contain a Salesforce User ID (e.g., `005VS000000QHlBYAW`) instead of a name
+   - **Required Fix**: Join with User table to resolve IDs to names: `LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user ON v.Opp_SGA_Name__c = sga_user.Id`
+   - **Filter Pattern**: `(v.SGA_Owner_Name__c = @sga OR v.Opp_SGA_Name__c = @sga OR COALESCE(sga_user.Name, v.Opp_SGA_Name__c) = @sga)`
+   - **Why**: An SQO can be attributed via lead-level SGA (who worked the lead) OR opportunity-level SGA (who owns the opportunity). Missing the User table join causes SQOs to be excluded when `Opp_SGA_Name__c` contains an ID instead of a name.
+
 ### Testing Commands
 
 Before committing changes that affect calculations:
@@ -581,6 +656,7 @@ When reviewing or modifying code:
 - [ ] Uses pre-calculated flags (`*_progression`, `eligible_for_*`)
 - [ ] Properly deduplicates opportunity-level metrics
 - [ ] Filters by correct record type for SQO calculations
+- [ ] **For opportunity-level metrics**: Checks both `SGA_Owner_Name__c` and `Opp_SGA_Name__c` with User table join
 - [ ] **Verified against Q1/Q2 2025 ground truth**
 
 ### Debugging Workflow

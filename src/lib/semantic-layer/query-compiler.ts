@@ -392,10 +392,14 @@ export function getMetricDateField(metricName: string): string {
 /**
  * Build dimension filter SQL
  */
-export function buildDimensionFilterSql(filters: DimensionFilter[]): string {
-  if (!filters || filters.length === 0) return '';
+export function buildDimensionFilterSql(
+  filters: DimensionFilter[], 
+  isOppLevel: boolean = false
+): { sql: string; needsUserJoin: boolean } {
+  if (!filters || filters.length === 0) return { sql: '', needsUserJoin: false };
 
   const clauses: string[] = [];
+  let needsUserJoin = false;
 
   for (const filter of filters) {
     const dimension = DIMENSIONS[filter.dimension as keyof typeof DIMENSIONS];
@@ -444,9 +448,44 @@ export function buildDimensionFilterSql(filters: DimensionFilter[]): string {
       continue;
     }
 
-    // Handle SGA and SGM with fuzzy matching for partial names
-    // This allows users to search for "Corey" and find "Corey Marcello", etc.
-    if (filter.dimension === 'sga' || filter.dimension === 'sgm') {
+    // Handle SGA with special logic for opportunity-level metrics
+    // For opportunity-level metrics, check both SGA_Owner_Name__c and Opp_SGA_Name__c
+    // Opp_SGA_Name__c may contain a User ID, so we need User table join to resolve it
+    if (filter.dimension === 'sga') {
+      if (filter.operator === 'equals' || filter.operator === 'in') {
+        const values = Array.isArray(filter.value) ? filter.value : [filter.value];
+        const conditions = values.map((v) => {
+          const escapedValue = String(v).replace(/'/g, "''").replace(/%/g, "\\%").replace(/_/g, "\\_");
+          if (isOppLevel) {
+            // For opportunity-level: check both fields and resolved User name
+            needsUserJoin = true;
+            return `(UPPER(v.SGA_Owner_Name__c) LIKE UPPER('%${escapedValue}%') OR UPPER(v.Opp_SGA_Name__c) LIKE UPPER('%${escapedValue}%') OR UPPER(COALESCE(sga_user.Name, v.Opp_SGA_Name__c)) LIKE UPPER('%${escapedValue}%'))`;
+          } else {
+            // For lead-level: only check SGA_Owner_Name__c
+            return `UPPER(v.SGA_Owner_Name__c) LIKE UPPER('%${escapedValue}%')`;
+          }
+        });
+        clauses.push(`(${conditions.join(' OR ')})`);
+      } else if (filter.operator === 'not_equals' || filter.operator === 'not_in') {
+        const values = Array.isArray(filter.value) ? filter.value : [filter.value];
+        const conditions = values.map((v) => {
+          const escapedValue = String(v).replace(/'/g, "''").replace(/%/g, "\\%").replace(/_/g, "\\_");
+          if (isOppLevel) {
+            // For opportunity-level: check both fields and resolved User name
+            needsUserJoin = true;
+            return `(UPPER(v.SGA_Owner_Name__c) NOT LIKE UPPER('%${escapedValue}%') AND UPPER(v.Opp_SGA_Name__c) NOT LIKE UPPER('%${escapedValue}%') AND UPPER(COALESCE(sga_user.Name, v.Opp_SGA_Name__c)) NOT LIKE UPPER('%${escapedValue}%'))`;
+          } else {
+            // For lead-level: only check SGA_Owner_Name__c
+            return `UPPER(v.SGA_Owner_Name__c) NOT LIKE UPPER('%${escapedValue}%')`;
+          }
+        });
+        clauses.push(`(${conditions.join(' AND ')})`);
+      }
+      continue;
+    }
+
+    // Handle SGM with fuzzy matching for partial names
+    if (filter.dimension === 'sgm') {
       const columnSql = dimension.field;
       if (filter.operator === 'equals' || filter.operator === 'in') {
         const values = Array.isArray(filter.value) ? filter.value : [filter.value];
@@ -486,7 +525,10 @@ export function buildDimensionFilterSql(filters: DimensionFilter[]): string {
     }
   }
 
-  return clauses.length > 0 ? `AND ${clauses.join(' AND ')}` : '';
+  return {
+    sql: clauses.length > 0 ? `AND ${clauses.join(' AND ')}` : '',
+    needsUserJoin,
+  };
 }
 
 // =============================================================================
@@ -753,7 +795,8 @@ function compileSingleMetric(
     dateWrapper = dateField.includes('TIMESTAMP') ? 'TIMESTAMP' : 'DATE';
   }
   
-  const filterSql = buildDimensionFilterSql(filters || []);
+  const filterResult = buildDimensionFilterSql(filters || [], false);
+  const filterSql = filterResult.sql;
 
   // Handle date range (optional for "all time" queries)
   let dateFilterSql = '';
@@ -910,7 +953,8 @@ function compileMetricByDimension(
   let metricSql = getMetricSql(metric);
   const dimensionSql = getDimensionSql(dimension);
   const dateRangeSql = getDateRangeSql(dateRange);
-  const filterSql = buildDimensionFilterSql(filters || []);
+  const filterResult = buildDimensionFilterSql(filters || [], false);
+  const filterSql = filterResult.sql;
   const limitSql = limit ? `LIMIT ${limit}` : '';
 
   // Replace @startDate and @endDate placeholders in metric SQL
@@ -975,7 +1019,8 @@ function compileConversionByDimension(
 
   const dimensionSql = getDimensionSql(dimension);
   const dateRangeSql = getDateRangeSql(dateRange);
-  const filterSql = buildDimensionFilterSql(filters || []);
+  const filterResult = buildDimensionFilterSql(filters || [], false);
+  const filterSql = filterResult.sql;
 
   // Determine if we need DATE() or TIMESTAMP() wrapper based on cohortDateField type
   // Check DATE_FIELDS to determine the type
@@ -1043,7 +1088,8 @@ function compileMetricTrend(
   let metricSql = getMetricSql(metric);
   const timeDimensionSql = getTimeDimensionSql(timePeriod, `v.${metricDateField}`);
   const dateRangeSql = getDateRangeSql(dateRange);
-  const filterSql = buildDimensionFilterSql(filters || []);
+  const filterResult = buildDimensionFilterSql(filters || [], false);
+  const filterSql = filterResult.sql;
 
   // Replace @startDate and @endDate placeholders in metric SQL
   const isPreset = dateRange.preset && dateRange.preset !== 'custom';
@@ -1210,7 +1256,8 @@ function compileConversionTrend(params: TemplateSelection['parameters']): Compil
   // Get time dimension SQL for grouping
   const timeDimensionSql = getTimeDimensionSql(timePeriod, `v.${cohortDateField}`);
   const dateRangeSql = getDateRangeSql(dateRange);
-  const filterSql = buildDimensionFilterSql(filters || []);
+  const filterResult = buildDimensionFilterSql(filters || [], false);
+  const filterSql = filterResult.sql;
 
   // No RBAC filters - all users see all data
   const isPreset = dateRange.preset && dateRange.preset !== 'custom';
@@ -1365,7 +1412,8 @@ function compilePeriodComparison(params: TemplateSelection['parameters']): Compi
   const previousStartDate = previousRange.startDate;
   const previousEndDate = previousRange.endDate;
 
-  const filterSql = buildDimensionFilterSql(filters || []);
+  const filterResult = buildDimensionFilterSql(filters || [], false);
+  const filterSql = filterResult.sql;
 
   // Determine if we're using presets (SQL expressions) or custom ranges (parameters)
   const currentIsPreset = typeof currentPeriod === 'string' || (typeof currentPeriod === 'object' && currentPeriod.preset && currentPeriod.preset !== 'custom');
@@ -1627,7 +1675,13 @@ function compileFunnelSummary(params: TemplateSelection['parameters']): Compiled
     throw new Error('Date range is required for funnel_summary template');
   }
 
-  const filterSql = buildDimensionFilterSql(filters || []);
+  // Funnel summary includes both lead-level and opportunity-level metrics
+  // Check if any filters need opportunity-level SGA handling
+  const hasSgaFilter = filters?.some(f => f.dimension === 'sga');
+  const filterResult = buildDimensionFilterSql(filters || [], hasSgaFilter);
+  const filterSql = filterResult.sql;
+  const needsUserJoin = filterResult.needsUserJoin;
+  
   const dateRangeSql = getDateRangeSql(dateRange);
   const isPreset = dateRange.preset && dateRange.preset !== 'custom';
 
@@ -1650,6 +1704,10 @@ function compileFunnelSummary(params: TemplateSelection['parameters']): Compiled
     return sql; // Keep placeholders for custom ranges
   };
 
+  const userJoin = needsUserJoin 
+    ? `LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user ON v.Opp_SGA_Name__c = sga_user.Id`
+    : '';
+
   const sql = `
     SELECT
       ${replaceDatePlaceholders(prospectsSql)} as prospects,
@@ -1661,6 +1719,7 @@ function compileFunnelSummary(params: TemplateSelection['parameters']): Compiled
       ${replaceDatePlaceholders(joinedAumSql)} as joined_aum
     FROM \`${CONSTANTS.FULL_TABLE}\` v
     LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
+    ${userJoin}
     WHERE 1=1
       ${filterSql}
   `.trim();
@@ -1690,10 +1749,16 @@ function compileFunnelSummary(params: TemplateSelection['parameters']): Compiled
 
 function compilePipelineByStage(params: TemplateSelection['parameters']): CompiledQuery {
   const { filters } = params;
-  const filterSql = buildDimensionFilterSql(filters || []);
+  const filterResult = buildDimensionFilterSql(filters || [], true); // Pipeline is opportunity-level
+  const filterSql = filterResult.sql;
+  const needsUserJoin = filterResult.needsUserJoin;
 
   // Pipeline by stage shows count and AUM for each stage
   // Only includes open pipeline stages (excludes Closed Lost, Joined, etc.)
+  const userJoin = needsUserJoin 
+    ? `LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user ON v.Opp_SGA_Name__c = sga_user.Id`
+    : '';
+
   const sql = `
     SELECT 
       v.StageName as stage,
@@ -1702,6 +1767,7 @@ function compilePipelineByStage(params: TemplateSelection['parameters']): Compil
       AVG(COALESCE(v.Underwritten_AUM__c, v.Amount)) as avg_aum
     FROM \`${CONSTANTS.FULL_TABLE}\` v
     LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
+    ${userJoin}
     WHERE v.recordtypeid = @recruitingRecordType
       AND v.StageName IN UNNEST(@openPipelineStages)
       AND v.is_sqo_unique = 1
@@ -1745,7 +1811,8 @@ function compileSgaSummary(params: TemplateSelection['parameters']): CompiledQue
     throw new Error('Date range is required for sga_summary template');
   }
 
-  const filterSql = buildDimensionFilterSql(filters || []);
+  const filterResult = buildDimensionFilterSql(filters || [], false);
+  const filterSql = filterResult.sql;
   const dateRangeSql = getDateRangeSql(dateRange);
   const isPreset = dateRange.preset && dateRange.preset !== 'custom';
 
@@ -1845,7 +1912,8 @@ function compileSgaLeaderboard(params: TemplateSelection['parameters']): Compile
   // Get metric SQL WITHOUT SGA filter (we'll group by SGA instead)
   let metricSql = getMetricSql(metric);
   const dateRangeSql = getDateRangeSql(dateRange);
-  const filterSql = buildDimensionFilterSql(filters || []);
+  const filterResult = buildDimensionFilterSql(filters || [], false);
+  const filterSql = filterResult.sql;
   const limitValue = limit && typeof limit === 'number' ? limit : 20;
   const limitSql = `LIMIT ${limitValue}`;
 
@@ -1912,7 +1980,8 @@ function compileForecastVsActual(params: TemplateSelection['parameters']): Compi
 
 function compileAverageAum(params: TemplateSelection['parameters']): CompiledQuery {
   const { dateRange, filters } = params;
-  const filterSql = buildDimensionFilterSql(filters || []);
+  const filterResult = buildDimensionFilterSql(filters || [], false);
+  const filterSql = filterResult.sql;
 
   // Average AUM requires a population filter (e.g., joined advisors, SQOs)
   // For now, we'll calculate average AUM for all records with AUM > 0
@@ -2011,7 +2080,8 @@ function compileTimeToConvert(params: TemplateSelection['parameters']): Compiled
 
   const dateRangeSql = getDateRangeSql(dateRange);
   const isPreset = dateRange.preset && dateRange.preset !== 'custom';
-  const filterSql = buildDimensionFilterSql(filters || []);
+  const filterResult = buildDimensionFilterSql(filters || [], false);
+  const filterSql = filterResult.sql;
 
   // Build date filter - use DATE() conversion for consistency
   const startDateExpr = isPreset ? dateRangeSql.startSql : '@startDate';
@@ -2121,7 +2191,8 @@ function compileMultiStageConversion(params: TemplateSelection['parameters']): C
   // We'll use the endStage progression flag and startStage date field
   const dateRangeSql = getDateRangeSql(dateRange);
   const isPreset = dateRange.preset && dateRange.preset !== 'custom';
-  const filterSql = buildDimensionFilterSql(filters || []);
+  const filterResult = buildDimensionFilterSql(filters || [], false);
+  const filterSql = filterResult.sql;
 
   // Determine DATE vs TIMESTAMP wrapper
   const dateFieldInfo = SEMANTIC_LAYER.dateFields[startFlags.dateField as keyof typeof SEMANTIC_LAYER.dateFields];
@@ -2172,7 +2243,8 @@ function compileMultiStageConversion(params: TemplateSelection['parameters']): C
 
 function compileSqoDetailList(params: TemplateSelection['parameters']): CompiledQuery {
   const { dateRange, filters } = params;
-  const filterSql = buildDimensionFilterSql(filters || []);
+  const filterResult = buildDimensionFilterSql(filters || [], false);
+  const filterSql = filterResult.sql;
 
   // Build date filter SQL - optional for "all time" queries
   let dateFilterSql = '';
@@ -2251,7 +2323,8 @@ function compileScheduledCallsList(params: TemplateSelection['parameters']): Com
   
   const dateRangeSql = getDateRangeSql(dateRange);
   const isPreset = dateRange.preset && dateRange.preset !== 'custom';
-  const filterSql = buildDimensionFilterSql(filters || []);
+  const filterResult = buildDimensionFilterSql(filters || [], false);
+  const filterSql = filterResult.sql;
   
   // No RBAC filters - all users see all data
   
@@ -2309,7 +2382,13 @@ function compileScheduledCallsList(params: TemplateSelection['parameters']): Com
 
 function compileOpenPipelineList(params: TemplateSelection['parameters']): CompiledQuery {
   const { filters } = params;
-  const filterSql = buildDimensionFilterSql(filters || []);
+  const filterResult = buildDimensionFilterSql(filters || [], true); // Open pipeline is opportunity-level
+  const filterSql = filterResult.sql;
+  const needsUserJoin = filterResult.needsUserJoin;
+
+  const userJoin = needsUserJoin 
+    ? `LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user ON v.Opp_SGA_Name__c = sga_user.Id`
+    : '';
 
   const sql = `
     SELECT 
@@ -2328,6 +2407,7 @@ function compileOpenPipelineList(params: TemplateSelection['parameters']): Compi
       v.opportunity_url
     FROM \`${CONSTANTS.FULL_TABLE}\` v
     LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
+    ${userJoin}
     WHERE v.recordtypeid = @recruitingRecordType
       AND v.StageName IN UNNEST(@openPipelineStages)
       AND v.is_sqo_unique = 1
@@ -2370,16 +2450,24 @@ function compileGenericDetailList(params: TemplateSelection['parameters']): Comp
     throw new Error('Metric is required for generic_detail_list template');
   }
 
-  const filterSql = buildDimensionFilterSql(filters || []);
-  let dateFilterSql = '';
-  const queryParams: Record<string, unknown> = {};
-
   // Get the date field for this metric
   let dateField: string;
   let dateFieldType: 'DATE' | 'TIMESTAMP';
   let metricFilter: string;
   let dateColumnAlias: string;
   let isOppLevel = false;
+  
+  // Determine if this is an opportunity-level metric first
+  // (needed to pass correct flag to buildDimensionFilterSql)
+  if (metric === 'sqos' || metric === 'joined' || metric === 'signed') {
+    isOppLevel = true;
+  }
+  
+  const filterResult = buildDimensionFilterSql(filters || [], isOppLevel);
+  const filterSql = filterResult.sql;
+  const needsUserJoin = filterResult.needsUserJoin;
+  let dateFilterSql = '';
+  const queryParams: Record<string, unknown> = {};
 
   // Determine metric-specific fields
   if (metric === 'mqls') {
@@ -2387,45 +2475,38 @@ function compileGenericDetailList(params: TemplateSelection['parameters']): Comp
     dateFieldType = 'TIMESTAMP';
     metricFilter = 'v.mql_stage_entered_ts IS NOT NULL AND v.is_mql = 1';
     dateColumnAlias = 'mql_date';
-    isOppLevel = false;
   } else if (metric === 'sqls') {
     dateField = 'converted_date_raw';
     dateFieldType = 'DATE';
     metricFilter = 'v.converted_date_raw IS NOT NULL AND v.is_sql = 1';
     dateColumnAlias = 'sql_date';
-    isOppLevel = false;
   } else if (metric === 'sqos') {
     dateField = 'Date_Became_SQO__c';
     dateFieldType = 'TIMESTAMP';
     metricFilter = 'v.Date_Became_SQO__c IS NOT NULL AND v.recordtypeid = @recruitingRecordType AND v.is_sqo_unique = 1';
     dateColumnAlias = 'sqo_date';
-    isOppLevel = true;
     queryParams.recruitingRecordType = CONSTANTS.RECRUITING_RECORD_TYPE;
   } else if (metric === 'joined') {
     dateField = 'advisor_join_date__c';
     dateFieldType = 'DATE';
     metricFilter = 'v.advisor_join_date__c IS NOT NULL AND v.recordtypeid = @recruitingRecordType AND v.is_joined_unique = 1';
     dateColumnAlias = 'joined_date';
-    isOppLevel = true;
     queryParams.recruitingRecordType = CONSTANTS.RECRUITING_RECORD_TYPE;
   } else if (metric === 'contacted') {
     dateField = 'stage_entered_contacting__c';
     dateFieldType = 'TIMESTAMP';
     metricFilter = 'v.stage_entered_contacting__c IS NOT NULL AND v.is_contacted = 1';
     dateColumnAlias = 'contacted_date';
-    isOppLevel = false;
   } else if (metric === 'prospects') {
     dateField = 'FilterDate';
     dateFieldType = 'TIMESTAMP';
     metricFilter = 'v.FilterDate IS NOT NULL';
     dateColumnAlias = 'prospect_date';
-    isOppLevel = false;
   } else if (metric === 'signed') {
     dateField = 'Stage_Entered_Signed__c';
     dateFieldType = 'TIMESTAMP';
     metricFilter = 'v.Stage_Entered_Signed__c IS NOT NULL AND v.is_sqo_unique = 1';
     dateColumnAlias = 'signed_date';
-    isOppLevel = true;
     queryParams.recruitingRecordType = CONSTANTS.RECRUITING_RECORD_TYPE;
   } else {
     // Default fallback - try to use a generic approach
@@ -2462,6 +2543,10 @@ function compileGenericDetailList(params: TemplateSelection['parameters']): Comp
       v.aum_tier,`
     : '';
 
+  const userJoin = needsUserJoin 
+    ? `LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user ON v.Opp_SGA_Name__c = sga_user.Id`
+    : '';
+
   const sql = `
     SELECT 
       v.primary_key,
@@ -2478,6 +2563,7 @@ function compileGenericDetailList(params: TemplateSelection['parameters']): Comp
       v.opportunity_url
     FROM \`${CONSTANTS.FULL_TABLE}\` v
     LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
+    ${userJoin}
     WHERE ${metricFilter}${dateFilterSql}
       ${filterSql}
     ORDER BY v.${dateField} DESC${isOppLevel ? ', COALESCE(v.Underwritten_AUM__c, v.Amount) DESC' : ''}
