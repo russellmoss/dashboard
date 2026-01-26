@@ -38,12 +38,15 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
   // - Lead-level metrics (Prospects, Contacted, MQL, SQL): Use SGA_Owner_Name__c
   // - Opportunity-level metrics (SQO, Joined): Check BOTH SGA_Owner_Name__c AND Opp_SGA_Name__c
   //   because an SQO can be associated via either field (lead-level or opportunity-level ownership)
+  // NOTE: Opp_SGA_Name__c may contain either a name or a Salesforce User ID (005...)
+  // We join with User table to resolve IDs to names for proper filtering
   // Only apply if explicitly provided in filters (not automatically applied for main dashboard)
   const sgaFilterForLead = filters.sga ? ' AND v.SGA_Owner_Name__c = @sga' : '';
-  const sgaFilterForOpp = filters.sga ? ' AND (v.SGA_Owner_Name__c = @sga OR v.Opp_SGA_Name__c = @sga)' : '';
+  const sgaFilterForOpp = filters.sga ? ' AND (v.SGA_Owner_Name__c = @sga OR v.Opp_SGA_Name__c = @sga OR COALESCE(sga_user.Name, v.Opp_SGA_Name__c) = @sga)' : '';
   if (filters.sga) {
     // Use OR in WHERE to include records that match either field, then filter correctly in each CASE
-    conditions.push('(v.SGA_Owner_Name__c = @sga OR v.Opp_SGA_Name__c = @sga)');
+    // Also check resolved SGA name from User table (Opp_SGA_Name__c may be an ID)
+    conditions.push('(v.SGA_Owner_Name__c = @sga OR v.Opp_SGA_Name__c = @sga OR COALESCE(sga_user.Name, v.Opp_SGA_Name__c) = @sga)');
     params.sga = filters.sga;
   }
   if (filters.sgm) {
@@ -169,6 +172,8 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
     FROM \`${FULL_TABLE}\` v
     LEFT JOIN \`${MAPPING_TABLE}\` nm
       ON v.Original_source = nm.original_source
+    LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user
+      ON v.Opp_SGA_Name__c = sga_user.Id
     ${whereClause}
   `;
   

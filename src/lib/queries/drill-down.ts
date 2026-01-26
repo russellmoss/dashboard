@@ -222,7 +222,9 @@ const _getSQODrillDown = async (
     FROM \`${FULL_TABLE}\` v
     LEFT JOIN \`${MAPPING_TABLE}\` nm 
       ON v.Original_source = nm.original_source
-    WHERE v.SGA_Owner_Name__c = @sgaName
+    LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user
+      ON v.Opp_SGA_Name__c = sga_user.Id
+    WHERE (v.SGA_Owner_Name__c = @sgaName OR v.Opp_SGA_Name__c = @sgaName OR COALESCE(sga_user.Name, v.Opp_SGA_Name__c) = @sgaName)
       AND v.is_sqo_unique = 1
       AND v.Date_Became_SQO__c IS NOT NULL
       AND v.recordtypeid = @recruitingRecordType

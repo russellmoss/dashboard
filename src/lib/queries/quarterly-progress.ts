@@ -57,7 +57,9 @@ const _getQuarterlySQOCount = async (
       COUNT(*) as sqo_count,
       SUM(v.Opportunity_AUM) as total_aum
     FROM \`${FULL_TABLE}\` v
-    WHERE v.SGA_Owner_Name__c = @sgaName
+    LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user
+      ON v.Opp_SGA_Name__c = sga_user.Id
+    WHERE (v.SGA_Owner_Name__c = @sgaName OR v.Opp_SGA_Name__c = @sgaName OR COALESCE(sga_user.Name, v.Opp_SGA_Name__c) = @sgaName)
       AND v.is_sqo_unique = 1
       AND v.recordtypeid = @recruitingRecordType
       AND v.Date_Became_SQO__c IS NOT NULL
@@ -126,7 +128,9 @@ const _getQuarterlySQODetails = async (
       v.salesforce_url
     FROM \`${FULL_TABLE}\` v
     LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
-    WHERE v.SGA_Owner_Name__c = @sgaName
+    LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user
+      ON v.Opp_SGA_Name__c = sga_user.Id
+    WHERE (v.SGA_Owner_Name__c = @sgaName OR v.Opp_SGA_Name__c = @sgaName OR COALESCE(sga_user.Name, v.Opp_SGA_Name__c) = @sgaName)
       AND v.is_sqo_unique = 1
       AND v.recordtypeid = @recruitingRecordType
       AND v.Date_Became_SQO__c IS NOT NULL
@@ -189,7 +193,9 @@ const _getQuarterlyProgressForSGA = async (
       COUNT(*) as sqo_count,
       SUM(v.Opportunity_AUM) as total_aum
     FROM \`${FULL_TABLE}\` v
-    WHERE v.SGA_Owner_Name__c = @sgaName
+    LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user
+      ON v.Opp_SGA_Name__c = sga_user.Id
+    WHERE (v.SGA_Owner_Name__c = @sgaName OR v.Opp_SGA_Name__c = @sgaName OR COALESCE(sga_user.Name, v.Opp_SGA_Name__c) = @sgaName)
       AND v.is_sqo_unique = 1
       AND v.recordtypeid = @recruitingRecordType
       AND v.Date_Became_SQO__c IS NOT NULL
