@@ -15,7 +15,7 @@ export function ThemeToggle() {
   // If theme is 'system', convert it to the resolved theme
   useEffect(() => {
     if (mounted && theme === 'system') {
-      setTheme(resolvedTheme || 'light');
+      setTheme(resolvedTheme || 'dark');
     }
   }, [mounted, theme, resolvedTheme, setTheme]);
 
@@ -28,7 +28,7 @@ export function ThemeToggle() {
   }
 
   // Get the current effective theme (convert 'system' to resolved theme)
-  const currentTheme = theme === 'system' ? (resolvedTheme || 'light') : theme;
+  const currentTheme = theme === 'system' ? (resolvedTheme || 'dark') : theme;
 
   const toggleTheme = () => {
     // Only toggle between light and dark
