@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Title, Text } from '@tremor/react';
 import { GlobalFilters } from '@/components/dashboard/GlobalFilters';
@@ -185,9 +186,17 @@ function filtersAreEqual(a: DashboardFilters, b: DashboardFilters): boolean {
 }
 
 export default function DashboardPage() {
-  const { data: session } = useSession();
+  const router = useRouter();
+  const { data: session, status } = useSession();
   const permissions = getSessionPermissions(session);
-  
+
+  // Redirect SGA users to SGA Hub as their default homepage
+  useEffect(() => {
+    if (status === 'authenticated' && permissions?.role === 'sga') {
+      router.replace('/dashboard/sga-hub');
+    }
+  }, [status, permissions?.role, router]);
+
   // State
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<DashboardFilters>(DEFAULT_FILTERS);
