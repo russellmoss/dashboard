@@ -27,6 +27,9 @@ const _getDetailRecords = async (
     limit,
   };
   
+  // Determine if this is an opportunity-level metric (needs Opp_SGA_Name__c check)
+  const isOpportunityLevelMetric = ['sqo', 'signed', 'joined', 'openPipeline'].includes(filters.metricFilter || '');
+  
   // Add channel/source/sga/sgm filters (no date filter here - we'll add date filter based on metric)
   if (filters.channel) {
     // Channel_Grouping_Name now comes directly from Finance_View__c in the view
@@ -38,7 +41,16 @@ const _getDetailRecords = async (
     params.source = filters.source;
   }
   if (filters.sga) {
-    conditions.push('v.SGA_Owner_Name__c = @sga');
+    // For opportunity-level metrics (SQOs, Signed, Joined), check BOTH SGA_Owner_Name__c AND Opp_SGA_Name__c
+    // For lead-level metrics (Prospects, Contacted, MQLs, SQLs), only check SGA_Owner_Name__c
+    if (isOpportunityLevelMetric) {
+      // Opportunity-level: Check both fields and resolve User IDs
+      // Note: User table join will be added to the query below
+      conditions.push('(v.SGA_Owner_Name__c = @sga OR v.Opp_SGA_Name__c = @sga OR COALESCE(sga_user.Name, v.Opp_SGA_Name__c) = @sga)');
+    } else {
+      // Lead-level: Only check SGA_Owner_Name__c
+      conditions.push('v.SGA_Owner_Name__c = @sga');
+    }
     params.sga = filters.sga;
   }
   if (filters.sgm) {
@@ -193,6 +205,12 @@ const _getDetailRecords = async (
   
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   
+  // Add User table join for opportunity-level metrics when SGA filter is present
+  // This allows us to resolve Opp_SGA_Name__c User IDs to names
+  const userJoin = (isOpportunityLevelMetric && filters.sga) 
+    ? `LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user ON v.Opp_SGA_Name__c = sga_user.Id`
+    : '';
+  
   const query = `
     SELECT
       v.primary_key as id,
@@ -227,6 +245,7 @@ const _getDetailRecords = async (
       v.is_primary_opp_record,
       v.Full_Opportunity_ID__c as opportunity_id
     FROM \`${FULL_TABLE}\` v
+    ${userJoin}
     ${whereClause}
     ORDER BY v.Opportunity_AUM DESC NULLS LAST
     LIMIT @limit

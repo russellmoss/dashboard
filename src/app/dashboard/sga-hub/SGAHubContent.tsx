@@ -11,8 +11,11 @@ import { QuarterlyProgressCard } from '@/components/sga-hub/QuarterlyProgressCar
 import { SQODetailTable } from '@/components/sga-hub/SQODetailTable';
 import { QuarterlyProgressChart } from '@/components/sga-hub/QuarterlyProgressChart';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { LeaderboardTable } from '@/components/sga-hub/LeaderboardTable';
+import { LeaderboardFilters } from '@/components/sga-hub/LeaderboardFilters';
 import { dashboardApi, handleApiError } from '@/lib/api-client';
-import { WeeklyGoal, WeeklyActual, WeeklyGoalWithActuals, ClosedLostRecord, ReEngagementOpportunity, QuarterlyProgress, SQODetail } from '@/types/sga-hub';
+import { FilterOptions } from '@/types/filters';
+import { WeeklyGoal, WeeklyActual, WeeklyGoalWithActuals, ClosedLostRecord, ReEngagementOpportunity, QuarterlyProgress, SQODetail, LeaderboardEntry } from '@/types/sga-hub';
 import { getDefaultWeekRange, getWeekMondayDate, getWeekInfo, formatDateISO, getCurrentQuarter, getQuarterFromDate, getQuarterInfo, getWeekSundayDate } from '@/lib/utils/sga-hub-helpers';
 import { getSessionPermissions } from '@/types/auth';
 import { exportWeeklyGoalsCSV, exportQuarterlyProgressCSV, exportClosedLostCSV } from '@/lib/utils/sga-hub-csv-export';
@@ -32,7 +35,7 @@ export function SGAHubContent() {
   const isAdmin = permissions?.role === 'admin' || permissions?.role === 'manager';
   const sgaName = session?.user?.name || 'Unknown';
   
-  const [activeTab, setActiveTab] = useState<SGAHubTab>('weekly-goals');
+  const [activeTab, setActiveTab] = useState<SGAHubTab>('leaderboard');
   const [dateRange, setDateRange] = useState(getDefaultWeekRange());
   
   // Weekly Goals state
@@ -76,6 +79,22 @@ export function SGAHubContent() {
   // Record detail modal state
   const [recordDetailOpen, setRecordDetailOpen] = useState(false);
   const [recordDetailId, setRecordDetailId] = useState<string | null>(null);
+
+  // Leaderboard state
+  const [leaderboardEntries, setLeaderboardEntries] = useState<LeaderboardEntry[]>([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
+
+  // Leaderboard filters (applied filters)
+  const [leaderboardQuarter, setLeaderboardQuarter] = useState<string>(getCurrentQuarter());
+  const [leaderboardChannels, setLeaderboardChannels] = useState<string[]>(['Outbound', 'Outbound + Marketing', 'Re-Engagement']);
+  const [leaderboardSources, setLeaderboardSources] = useState<string[]>([]); // Empty array = all sources (default)
+  const [leaderboardSGAs, setLeaderboardSGAs] = useState<string[]>([]); // Empty array = all active SGAs (default)
+
+  // Filter options (for channel/source/SGA dropdowns)
+  const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null);
+  const [sgaOptions, setSgaOptions] = useState<Array<{ value: string; label: string; isActive: boolean }>>([]);
+  const [sgaOptionsLoading, setSgaOptionsLoading] = useState(false);
   
   // Fetch weekly goals and actuals
   const fetchWeeklyData = async () => {
@@ -173,6 +192,70 @@ export function SGAHubContent() {
     }
   };
   
+  // Fetch filter options on mount
+  useEffect(() => {
+    const fetchFilterOptions = async () => {
+      try {
+        const options = await dashboardApi.getFilterOptions();
+        setFilterOptions(options);
+        // Set default sources to all sources
+        if (options && options.sources) {
+          setLeaderboardSources([...options.sources]);
+        }
+      } catch (err) {
+        console.error('Error fetching filter options:', err);
+      }
+    };
+    
+    fetchFilterOptions();
+  }, []);
+
+  // Fetch SGA options for leaderboard filter
+  useEffect(() => {
+    const fetchSGAOptions = async () => {
+      try {
+        setSgaOptionsLoading(true);
+        const response = await dashboardApi.getLeaderboardSGAOptions();
+        setSgaOptions(response.sgaOptions);
+        // Set default SGAs to all active SGAs
+        const activeSGAs = response.sgaOptions.filter(s => s.isActive).map(s => s.value);
+        setLeaderboardSGAs(activeSGAs);
+      } catch (err) {
+        console.error('Error fetching SGA options:', err);
+      } finally {
+        setSgaOptionsLoading(false);
+      }
+    };
+    
+    fetchSGAOptions();
+  }, []);
+
+  // Fetch leaderboard data
+  const fetchLeaderboard = async () => {
+    try {
+      setLeaderboardLoading(true);
+      setLeaderboardError(null);
+      
+      // Convert quarter to date range
+      const quarterInfo = getQuarterInfo(leaderboardQuarter);
+      
+      // Call API
+      const response = await dashboardApi.getSGALeaderboard({
+        startDate: quarterInfo.startDate,
+        endDate: quarterInfo.endDate,
+        channels: leaderboardChannels,
+        sources: leaderboardSources.length > 0 ? leaderboardSources : undefined,
+        sgaNames: leaderboardSGAs.length > 0 ? leaderboardSGAs : undefined,
+      });
+      
+      setLeaderboardEntries(response.entries);
+    } catch (err) {
+      setLeaderboardError(handleApiError(err));
+    } finally {
+      setLeaderboardLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'weekly-goals') {
       fetchWeeklyData();
@@ -181,9 +264,12 @@ export function SGAHubContent() {
       fetchReEngagementOpportunities();
     } else if (activeTab === 'quarterly-progress') {
       fetchQuarterlyProgress();
+    } else if (activeTab === 'leaderboard') {
+      fetchLeaderboard();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateRange.startDate, dateRange.endDate, activeTab, selectedQuarter]);
+  }, [dateRange.startDate, dateRange.endDate, activeTab, selectedQuarter, 
+      leaderboardQuarter, leaderboardChannels, leaderboardSources, leaderboardSGAs]);
   
   // Combine goals and actuals
   useEffect(() => {
@@ -367,6 +453,51 @@ export function SGAHubContent() {
     }
   };
 
+  // Handle SQO click from Leaderboard Table
+  const handleLeaderboardSQOClick = async (sgaName: string) => {
+    setDrillDownLoading(true);
+    setDrillDownError(null);
+    setDrillDownMetricType('sqos');
+    setDrillDownOpen(true);
+    
+    const quarterInfo = getQuarterInfo(leaderboardQuarter);
+    const title = `${sgaName} - SQOs - ${leaderboardQuarter}`;
+    setDrillDownTitle(title);
+    
+    setDrillDownContext({
+      metricType: 'sqos',
+      title,
+      sgaName: sgaName,
+      quarter: leaderboardQuarter,
+    });
+    
+    try {
+      // Call drill-down API with channels/sources filters
+      // Note: If leaderboardSources is empty array, it means "all sources" - don't pass filter
+      // If leaderboardSources has values, pass them to filter
+      const response = await dashboardApi.getSQODrillDown(
+        sgaName, 
+        { quarter: leaderboardQuarter },
+        undefined, // userEmail
+        leaderboardChannels.length > 0 ? leaderboardChannels : undefined,
+        leaderboardSources.length > 0 ? leaderboardSources : undefined
+      );
+      console.log('Drill-down response:', {
+        sgaName,
+        quarter: leaderboardQuarter,
+        channels: leaderboardChannels,
+        sources: leaderboardSources,
+        recordCount: response.records.length,
+      });
+      setDrillDownRecords(response.records);
+    } catch (error) {
+      console.error('Error fetching SQO drill-down:', error);
+      setDrillDownError('Failed to load SQO records. Please try again.');
+    } finally {
+      setDrillDownLoading(false);
+    }
+  };
+
   // Handle row click in drill-down modal
   const handleRecordClick = (primaryKey: string) => {
     setDrillDownOpen(false);
@@ -430,6 +561,47 @@ export function SGAHubContent() {
       </div>
       
       <SGAHubTabs activeTab={activeTab} onTabChange={setActiveTab} />
+      
+      {activeTab === 'leaderboard' && (
+        <>
+          {/* Leaderboard Filters Component */}
+          {filterOptions && (
+            <LeaderboardFilters
+              selectedQuarter={leaderboardQuarter}
+              selectedChannels={leaderboardChannels}
+              selectedSources={leaderboardSources}
+              selectedSGAs={leaderboardSGAs}
+              channelOptions={filterOptions.channels}
+              sourceOptions={filterOptions.sources}
+              sgaOptions={sgaOptions}
+              sgaOptionsLoading={sgaOptionsLoading}
+              onApply={(filters) => {
+                setLeaderboardQuarter(filters.quarter);
+                setLeaderboardChannels(filters.channels);
+                setLeaderboardSources(filters.sources);
+                setLeaderboardSGAs(filters.sgas);
+                // fetchLeaderboard will be called automatically via useEffect dependency
+              }}
+              disabled={leaderboardLoading}
+            />
+          )}
+          
+          {/* Error Display */}
+          {leaderboardError && (
+            <Card className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+              <Text className="text-red-600 dark:text-red-400">{leaderboardError}</Text>
+            </Card>
+          )}
+          
+          {/* Leaderboard Table */}
+          <LeaderboardTable
+            entries={leaderboardEntries}
+            isLoading={leaderboardLoading}
+            onSQOClick={handleLeaderboardSQOClick}
+            currentUserSgaName={sgaName}
+          />
+        </>
+      )}
       
       {activeTab === 'weekly-goals' && (
         <>

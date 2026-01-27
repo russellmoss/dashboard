@@ -26,9 +26,12 @@ export async function GET(request: NextRequest) {
     // Parse query parameters
     const { searchParams } = new URL(request.url);
     const targetUserEmail = searchParams.get('userEmail');
+    const sgaNameParam = searchParams.get('sgaName'); // For leaderboard drill-down
     const weekStartDate = searchParams.get('weekStartDate');
     const weekEndDate = searchParams.get('weekEndDate');
     const quarter = searchParams.get('quarter');
+    const channels = searchParams.getAll('channels'); // Returns array
+    const sources = searchParams.getAll('sources');   // Returns array
 
     // Validate date range parameters
     if (!quarter && (!weekStartDate || !weekEndDate)) {
@@ -38,23 +41,35 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Determine which user's records to fetch
-    let userEmail = session.user.email;
-    if (targetUserEmail) {
-      if (!['admin', 'manager'].includes(permissions.role)) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    // Determine SGA name to use for BigQuery filter
+    let sgaName: string;
+    
+    if (sgaNameParam) {
+      // If sgaName is provided (from leaderboard), use it directly
+      // No permission check - everyone can view any SGA's SQOs
+      sgaName = sgaNameParam;
+    } else {
+      // Legacy behavior: use logged-in user's name or target user's name
+      let userEmail = session.user.email;
+      if (targetUserEmail) {
+        // For targetUserEmail, still require admin/manager (legacy behavior)
+        if (!['admin', 'manager'].includes(permissions.role)) {
+          return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+        userEmail = targetUserEmail;
       }
-      userEmail = targetUserEmail;
-    }
 
-    // Get user to retrieve name for BigQuery filter
-    const user = await prisma.user.findUnique({
-      where: { email: userEmail },
-      select: { name: true },
-    });
+      // Get user to retrieve name for BigQuery filter
+      const user = await prisma.user.findUnique({
+        where: { email: userEmail },
+        select: { name: true },
+      });
 
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      if (!user) {
+        return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      }
+      
+      sgaName = user.name;
     }
 
     // Determine date range
@@ -72,8 +87,16 @@ export async function GET(request: NextRequest) {
       endDate = weekEndDate!;
     }
 
-    // Fetch drill-down records
-    const records = await getSQODrillDown(user.name, startDate, endDate);
+    // Fetch drill-down records with optional filters
+    const records = await getSQODrillDown(
+      sgaName, 
+      startDate, 
+      endDate,
+      {
+        channels: channels.length > 0 ? channels : undefined,
+        sources: sources.length > 0 ? sources : undefined,
+      }
+    );
 
     return NextResponse.json({ records });
   } catch (error) {

@@ -26,7 +26,8 @@ import {
   ClosedLostTimeBucket,
   ReEngagementOpportunity,
   QuarterlyProgress,
-  SQODetail
+  SQODetail,
+  LeaderboardEntry
 } from '@/types/sga-hub';
 import { 
   InitialCallRecord, 
@@ -385,6 +386,23 @@ export const dashboardApi = {
       `/api/sga-hub/sqo-details?${new URLSearchParams({ quarter }).toString()}`
     ),
 
+  getSGALeaderboard: (filters: {
+    startDate: string;
+    endDate: string;
+    channels: string[];
+    sources?: string[];
+    sgaNames?: string[];
+  }) =>
+    apiFetch<{ entries: LeaderboardEntry[] }>('/api/sga-hub/leaderboard', {
+      method: 'POST',
+      body: JSON.stringify(filters),
+    }),
+
+  getLeaderboardSGAOptions: () =>
+    apiFetch<{ sgaOptions: Array<{ value: string; label: string; isActive: boolean }> }>(
+      '/api/sga-hub/leaderboard-sga-options'
+    ),
+
   // Drill-down functions
   getInitialCallsDrillDown: (
     sgaName: string,
@@ -417,16 +435,30 @@ export const dashboardApi = {
   getSQODrillDown: (
     sgaName: string,
     options: { weekStartDate?: string; weekEndDate?: string; quarter?: string },
-    userEmail?: string
-  ) =>
-    apiFetch<{ records: SQODrillDownRecord[] }>(
-      `/api/sga-hub/drill-down/sqos?${new URLSearchParams({
-        ...(options.weekStartDate && { weekStartDate: options.weekStartDate }),
-        ...(options.weekEndDate && { weekEndDate: options.weekEndDate }),
-        ...(options.quarter && { quarter: options.quarter }),
-        ...(userEmail && { userEmail }),
-      }).toString()}`
-    ),
+    userEmail?: string,
+    channels?: string[],
+    sources?: string[]
+  ) => {
+    const params = new URLSearchParams({
+      sgaName, // Always pass sgaName for leaderboard drill-down
+      ...(options.weekStartDate && { weekStartDate: options.weekStartDate }),
+      ...(options.weekEndDate && { weekEndDate: options.weekEndDate }),
+      ...(options.quarter && { quarter: options.quarter }),
+      ...(userEmail && { userEmail }),
+    });
+    
+    // Add array parameters (channels and sources)
+    if (channels && channels.length > 0) {
+      channels.forEach(channel => params.append('channels', channel));
+    }
+    if (sources && sources.length > 0) {
+      sources.forEach(source => params.append('sources', source));
+    }
+    
+    return apiFetch<{ records: SQODrillDownRecord[] }>(
+      `/api/sga-hub/drill-down/sqos?${params.toString()}`
+    );
+  },
 
   refreshCache: () =>
     apiFetch<{ success: boolean; message: string; tags: string[] }>(

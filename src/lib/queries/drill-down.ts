@@ -199,19 +199,42 @@ export const getQualificationCallsDrillDown = cachedQuery(
 /**
  * Get SQO drill-down records for a specific SGA and date range
  * Can be used for both weekly and quarterly views
+ * Supports optional channel and source filters for leaderboard drill-down
  */
 const _getSQODrillDown = async (
   sgaName: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  options?: {
+    channels?: string[];
+    sources?: string[];
+  }
 ): Promise<SQODrillDownRecord[]> => {
+  const { channels, sources } = options || {};
+  
+  // Build channel filter clause (optional)
+  // For leaderboard drill-down, use Channel_Grouping_Name directly (no MAPPING_TABLE)
+  // For other drill-downs, use MAPPING_TABLE join
+  const useMappingTable = !channels || channels.length === 0;
+  const channelFilter = channels && channels.length > 0
+    ? 'AND v.Channel_Grouping_Name IN UNNEST(@channels)'
+    : '';
+  
+  // Build source filter clause (optional)
+  const sourceFilter = sources && sources.length > 0
+    ? 'AND v.Original_source IN UNNEST(@sources)'
+    : '';
+
   const query = `
     SELECT 
       v.primary_key,
       v.advisor_name,
       v.Date_Became_SQO__c,
       v.Original_source,
-      COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+      ${useMappingTable 
+        ? 'COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, \'Other\') as channel'
+        : 'v.Channel_Grouping_Name as channel'
+      },
       v.Opportunity_AUM,
       v.Underwritten_AUM__c,
       v.aum_tier,
@@ -220,25 +243,33 @@ const _getSQODrillDown = async (
       v.lead_url,
       v.opportunity_url
     FROM \`${FULL_TABLE}\` v
-    LEFT JOIN \`${MAPPING_TABLE}\` nm 
-      ON v.Original_source = nm.original_source
+    ${useMappingTable ? `LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source` : ''}
     LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user
       ON v.Opp_SGA_Name__c = sga_user.Id
-    WHERE (v.SGA_Owner_Name__c = @sgaName OR v.Opp_SGA_Name__c = @sgaName OR COALESCE(sga_user.Name, v.Opp_SGA_Name__c) = @sgaName)
+    WHERE COALESCE(COALESCE(sga_user.Name, v.Opp_SGA_Name__c), v.SGA_Owner_Name__c) = @sgaName
       AND v.is_sqo_unique = 1
       AND v.Date_Became_SQO__c IS NOT NULL
       AND v.recordtypeid = @recruitingRecordType
       AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
       AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(CONCAT(@endDate, ' 23:59:59'))
+      ${channelFilter}
+      ${sourceFilter}
     ORDER BY v.Date_Became_SQO__c DESC
   `;
 
-  const params = {
+  const params: Record<string, any> = {
     sgaName,
     startDate,
     endDate,
     recruitingRecordType: RECRUITING_RECORD_TYPE,
   };
+
+  if (channels && channels.length > 0) {
+    params.channels = channels;
+  }
+  if (sources && sources.length > 0) {
+    params.sources = sources;
+  }
 
   const results = await runQuery<RawSQODrillDownRecord>(query, params);
   return results.map(transformSQODrillDownRecord);

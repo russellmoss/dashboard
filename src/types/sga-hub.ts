@@ -279,3 +279,23 @@ export interface WeekInfo {
   isFutureWeek: boolean;
   isPastWeek: boolean;
 }
+
+// ============================================================================
+// LEADERBOARD
+// ============================================================================
+
+/** Leaderboard entry for a single SGA */
+export interface LeaderboardEntry {
+  sgaName: string;
+  sqoCount: number;
+  rank: number;
+}
+
+/** Filters for leaderboard query */
+export interface LeaderboardFilters {
+  startDate: string;      // YYYY-MM-DD format
+  endDate: string;        // YYYY-MM-DD format
+  channels: string[];     // Array of channel names (required)
+  sources?: string[];     // Optional array of source names (defaults to all if undefined/empty)
+  sgaNames?: string[];    // Optional array of SGA names to filter (defaults to all active if undefined/empty)
+}
