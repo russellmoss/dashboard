@@ -60,7 +60,11 @@ function getDayName(dayOfWeek: number): string {
   return '';
 }
 
-export default function SGAActivityContent() {
+interface SGAActivityContentProps {
+  embedded?: boolean; // When true, removes outer padding and adjusts title for embedding in SGA Hub
+}
+
+export default function SGAActivityContent({ embedded = false }: SGAActivityContentProps) {
   const { data: session } = useSession();
   const permissions = getSessionPermissions(session);
   const showSGAFilter = permissions ? ['admin', 'manager'].includes(permissions.role) : false;
@@ -483,9 +487,11 @@ export default function SGAActivityContent() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className={embedded ? "space-y-6" : "p-6 space-y-6"}>
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">SGA Activity Dashboard</h1>
+        {!embedded && (
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">SGA Activity Dashboard</h1>
+        )}
         <DataFreshnessIndicator />
       </div>
 

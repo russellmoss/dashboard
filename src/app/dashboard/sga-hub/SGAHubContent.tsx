@@ -22,10 +22,11 @@ import { exportWeeklyGoalsCSV, exportQuarterlyProgressCSV, exportClosedLostCSV }
 import { Download } from 'lucide-react';
 import { MetricDrillDownModal } from '@/components/sga-hub/MetricDrillDownModal';
 import { RecordDetailModal } from '@/components/dashboard/RecordDetailModal';
-import { 
-  MetricType, 
-  DrillDownRecord, 
-  DrillDownContext 
+import SGAActivityContent from '@/app/dashboard/sga-activity/SGAActivityContent';
+import {
+  MetricType,
+  DrillDownRecord,
+  DrillDownContext
 } from '@/types/drill-down';
 import { formatDate } from '@/lib/utils/format-helpers';
 
@@ -785,7 +786,11 @@ export function SGAHubContent() {
           />
         </>
       )}
-      
+
+      {activeTab === 'activity' && (
+        <SGAActivityContent embedded />
+      )}
+
       <WeeklyGoalEditor
         isOpen={showGoalEditor}
         onClose={() => {
