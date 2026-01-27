@@ -514,9 +514,9 @@ export const DIMENSIONS = {
   channel: {
     name: 'Channel',
     description: 'Marketing channel grouping',
-    field: "COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other')",
+    field: "IFNULL(v.Channel_Grouping_Name, 'Other')",
     rawField: 'Channel_Grouping_Name',
-    requiresJoin: true, // Requires JOIN to new_mapping table
+    requiresJoin: false, // Channel_Grouping_Name now comes directly from Finance_View__c in the view
     filterable: true,
     groupable: true,
     aliases: ['marketing channel', 'channel grouping'],

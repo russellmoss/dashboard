@@ -4,7 +4,7 @@ import { DashboardFilters, DEFAULT_ADVANCED_FILTERS } from '@/types/filters';
 import { buildAdvancedFilterClauses } from '../utils/filter-helpers';
 import { buildDateRangeFromFilters, formatCurrency } from '../utils/date-helpers';
 import { RawDetailRecordResult, toNumber, toString } from '@/types/bigquery-raw';
-import { FULL_TABLE, OPEN_PIPELINE_STAGES, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
+import { FULL_TABLE, OPEN_PIPELINE_STAGES, RECRUITING_RECORD_TYPE } from '@/config/constants';
 
 const _getDetailRecords = async (
   filters: DashboardFilters,
@@ -29,8 +29,8 @@ const _getDetailRecords = async (
   
   // Add channel/source/sga/sgm filters (no date filter here - we'll add date filter based on metric)
   if (filters.channel) {
-    // Use mapped channel from new_mapping table
-    conditions.push('COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, \'Other\') = @channel');
+    // Channel_Grouping_Name now comes directly from Finance_View__c in the view
+    conditions.push('v.Channel_Grouping_Name = @channel');
     params.channel = filters.channel;
   }
   if (filters.source) {
@@ -198,7 +198,7 @@ const _getDetailRecords = async (
       v.primary_key as id,
       v.advisor_name,
       v.Original_source as source,
-      COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+      v.Channel_Grouping_Name as channel,
       v.StageName as stage,
       v.SGA_Owner_Name__c as sga,
       v.SGM_Owner_Name__c as sgm,
@@ -227,8 +227,6 @@ const _getDetailRecords = async (
       v.is_primary_opp_record,
       v.Full_Opportunity_ID__c as opportunity_id
     FROM \`${FULL_TABLE}\` v
-    LEFT JOIN \`${MAPPING_TABLE}\` nm
-      ON v.Original_source = nm.original_source
     ${whereClause}
     ORDER BY v.Opportunity_AUM DESC NULLS LAST
     LIMIT @limit

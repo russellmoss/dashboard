@@ -4,7 +4,7 @@ import { DashboardFilters, DEFAULT_ADVANCED_FILTERS } from '@/types/filters';
 import { buildAdvancedFilterClauses } from '../utils/filter-helpers';
 import { buildDateRangeFromFilters } from '../utils/date-helpers';
 import { RawSourcePerformanceResult, toNumber, toString } from '@/types/bigquery-raw';
-import { FULL_TABLE, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
+import { FULL_TABLE, RECRUITING_RECORD_TYPE } from '@/config/constants';
 import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
 const _getChannelPerformance = async (filters: DashboardFilters): Promise<ChannelPerformance[]> => {
@@ -51,13 +51,13 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
   conditions.push(...advFilterClauses);
   Object.assign(params, advFilterParams);
   
-  // Use mapped channel from new_mapping table
-  conditions.push('COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, \'Other\') IS NOT NULL');
+  // Channel_Grouping_Name now comes directly from Finance_View__c in the view
+  conditions.push('v.Channel_Grouping_Name IS NOT NULL');
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   
   const query = `
     SELECT
-      COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+      v.Channel_Grouping_Name as channel,
       -- FIX: prospects filtered by FilterDate (the cohort date that handles recycled leads)
       SUM(
         CASE 
@@ -192,10 +192,8 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
         END
       ) as aum
     FROM \`${FULL_TABLE}\` v
-    LEFT JOIN \`${MAPPING_TABLE}\` nm
-      ON v.Original_source = nm.original_source
     ${whereClause}
-    GROUP BY COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other')
+    GROUP BY v.Channel_Grouping_Name
     ORDER BY sqls DESC
   `;
   
@@ -241,8 +239,8 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
   };
   
   if (filters.channel) {
-    // Use mapped channel from new_mapping table
-    conditions.push('COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, \'Other\') = @channel');
+    // Channel_Grouping_Name now comes directly from Finance_View__c in the view
+    conditions.push('v.Channel_Grouping_Name = @channel');
     params.channel = filters.channel;
   }
   if (filters.sga) {
@@ -272,7 +270,7 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
   const query = `
     SELECT
       v.Original_source as source,
-      COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+      v.Channel_Grouping_Name as channel,
       -- FIX: prospects filtered by FilterDate (the cohort date that handles recycled leads)
       SUM(
         CASE 
@@ -407,10 +405,8 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
         END
       ) as aum
     FROM \`${FULL_TABLE}\` v
-    LEFT JOIN \`${MAPPING_TABLE}\` nm
-      ON v.Original_source = nm.original_source
     ${whereClause}
-    GROUP BY v.Original_source, COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other')
+    GROUP BY v.Original_source, v.Channel_Grouping_Name
     ORDER BY sqls DESC
   `;
   

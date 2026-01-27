@@ -4,7 +4,7 @@ import { DashboardFilters, DEFAULT_ADVANCED_FILTERS } from '@/types/filters';
 import { buildDateRangeFromFilters } from '../utils/date-helpers';
 import { buildAdvancedFilterClauses } from '../utils/filter-helpers';
 import { RawFunnelMetricsResult, RawOpenPipelineResult, toNumber } from '@/types/bigquery-raw';
-import { FULL_TABLE, OPEN_PIPELINE_STAGES, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
+import { FULL_TABLE, OPEN_PIPELINE_STAGES, RECRUITING_RECORD_TYPE } from '@/config/constants';
 import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
 const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetrics> => {
@@ -23,8 +23,8 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
   const params: Record<string, any> = {};
   
   if (filters.channel) {
-    // Use mapped channel from new_mapping table
-    conditions.push('COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, \'Other\') = @channel');
+    // Channel_Grouping_Name now comes directly from Finance_View__c in the view
+    conditions.push('v.Channel_Grouping_Name = @channel');
     params.channel = filters.channel;
   }
   if (filters.source) {
@@ -170,8 +170,6 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
         END
       ) as joined_aum
     FROM \`${FULL_TABLE}\` v
-    LEFT JOIN \`${MAPPING_TABLE}\` nm
-      ON v.Original_source = nm.original_source
     LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user
       ON v.Opp_SGA_Name__c = sga_user.Id
     ${whereClause}
@@ -202,8 +200,6 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
     SELECT
       SUM(CASE WHEN v.is_primary_opp_record = 1 THEN v.Opportunity_AUM ELSE 0 END) as open_pipeline_aum
     FROM \`${FULL_TABLE}\` v
-    LEFT JOIN \`${MAPPING_TABLE}\` nm
-      ON v.Original_source = nm.original_source
     WHERE ${openPipelineConditions.join(' AND ')}
   `;
   

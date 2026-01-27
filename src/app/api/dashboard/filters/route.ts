@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { runQuery } from '@/lib/bigquery';
-import { FULL_TABLE, MAPPING_TABLE } from '@/config/constants';
+import { FULL_TABLE } from '@/config/constants';
 import { FilterOptions } from '@/types/filters';
 
 export const dynamic = 'force-dynamic';
@@ -15,17 +15,15 @@ export async function GET() {
     }
     
     // Get distinct filter options from BigQuery with counts
-    // Use new_mapping table for latest channel mappings
+    // Channel_Grouping_Name now comes directly from Finance_View__c in the view
     const channelsQuery = `
       SELECT 
-        COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+        v.Channel_Grouping_Name as channel,
         COUNT(*) AS record_count
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm
-        ON v.Original_source = nm.original_source
-      WHERE COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') IS NOT NULL
-        AND stage_entered_contacting__c >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
-      GROUP BY COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other')
+      WHERE v.Channel_Grouping_Name IS NOT NULL
+        AND v.FilterDate >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
+      GROUP BY v.Channel_Grouping_Name
       ORDER BY record_count DESC
     `;
     
@@ -35,7 +33,7 @@ export async function GET() {
         COUNT(*) AS record_count
       FROM \`${FULL_TABLE}\`
       WHERE Original_source IS NOT NULL
-        AND stage_entered_contacting__c >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
+        AND FilterDate >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
       GROUP BY Original_source
       ORDER BY record_count DESC
     `;
@@ -53,7 +51,7 @@ export async function GET() {
         AND u.IsSGA__c = TRUE  -- Only include users marked as SGAs
       WHERE v.SGA_Owner_Name__c IS NOT NULL
         AND v.SGA_Owner_Name__c != 'Savvy Operations'
-        AND v.stage_entered_contacting__c >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
+        AND v.FilterDate >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
       GROUP BY v.SGA_Owner_Name__c
       ORDER BY record_count DESC
     `;
@@ -97,7 +95,7 @@ export async function GET() {
       UNNEST(v.Experimentation_Tag_List) as tag
       WHERE tag IS NOT NULL
         AND TRIM(tag) != ''
-        AND v.stage_entered_contacting__c >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
+        AND v.FilterDate >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
       ORDER BY experimentation_tag
     `;
     

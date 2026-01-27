@@ -15,7 +15,7 @@
 
 import { CONSTANTS } from './definitions';
 
-const { FULL_TABLE, MAPPING_TABLE, RECRUITING_RECORD_TYPE, OPEN_PIPELINE_STAGES } = CONSTANTS;
+const { FULL_TABLE, RECRUITING_RECORD_TYPE, OPEN_PIPELINE_STAGES } = CONSTANTS;
 
 // =============================================================================
 // BASE QUERY STRUCTURE
@@ -23,7 +23,7 @@ const { FULL_TABLE, MAPPING_TABLE, RECRUITING_RECORD_TYPE, OPEN_PIPELINE_STAGES 
 // =============================================================================
 export const BASE_QUERY = {
   from: `FROM \`${FULL_TABLE}\` v`,
-  channelJoin: `LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source`,
+  // Channel_Grouping_Name now comes directly from Finance_View__c in the view - no join needed
   // Always-applied filters (recruiting record type for opp-level metrics)
   recruitingRecordTypeParam: RECRUITING_RECORD_TYPE,
   openPipelineStages: OPEN_PIPELINE_STAGES,
@@ -45,7 +45,6 @@ export const QUERY_TEMPLATES = {
       SELECT
         {metric} as value
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE 1=1
         {dimensionFilters}
     `,
@@ -78,7 +77,6 @@ export const QUERY_TEMPLATES = {
         {dimension} as dimension_value,
         {metric} as metric_value
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE 1=1
         {dimensionFilters}
       GROUP BY dimension_value
@@ -120,7 +118,6 @@ export const QUERY_TEMPLATES = {
         {numeratorSum} as numerator,
         {denominatorSum} as denominator
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE 1=1
         {dimensionFilters}
       GROUP BY dimension_value
@@ -159,7 +156,6 @@ export const QUERY_TEMPLATES = {
           {timePeriod} as period,
           {metric} as metric_value
         FROM \`${FULL_TABLE}\` v
-        LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
         WHERE {dateField} IS NOT NULL
           AND {dateField} >= {trendStartDate}
           AND {dateField} <= {trendEndDate}
@@ -216,7 +212,6 @@ export const QUERY_TEMPLATES = {
         {numeratorSum} as numerator,
         {denominatorSum} as denominator
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE {cohortDateField} IS NOT NULL
         AND {cohortDateField} >= {trendStartDate}
         AND {cohortDateField} <= {trendEndDate}
@@ -253,7 +248,6 @@ export const QUERY_TEMPLATES = {
       WITH current_period AS (
         SELECT {metric} as value
         FROM \`${FULL_TABLE}\` v
-        LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
         WHERE 1=1
           {currentPeriodFilter}
           {dimensionFilters}
@@ -261,7 +255,6 @@ export const QUERY_TEMPLATES = {
       previous_period AS (
         SELECT {metric} as value
         FROM \`${FULL_TABLE}\` v
-        LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
         WHERE 1=1
           {previousPeriodFilter}
           {dimensionFilters}
@@ -304,7 +297,6 @@ export const QUERY_TEMPLATES = {
         {dimension} as item,
         {metric} as value
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE 1=1
         {dimensionFilters}
       GROUP BY item
@@ -350,7 +342,6 @@ export const QUERY_TEMPLATES = {
         {joined_metric} as joined,
         {joined_aum_metric} as joined_aum
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE 1=1
         {dimensionFilters}
     `,
@@ -384,13 +375,12 @@ export const QUERY_TEMPLATES = {
         v.Initial_Call_Scheduled_Date__c as call_date,
         v.SGA_Owner_Name__c as sga,
         v.Original_source as source,
-        COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+        IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
         v.Lead_Score_Tier__c as lead_score_tier,
         v.TOF_Stage as tof_stage,
         v.lead_url,
         v.opportunity_url
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.Initial_Call_Scheduled_Date__c IS NOT NULL
         AND v.Initial_Call_Scheduled_Date__c >= DATE(@startDate)
         AND v.Initial_Call_Scheduled_Date__c <= DATE(@endDate)
@@ -428,13 +418,12 @@ export const QUERY_TEMPLATES = {
         v.SGA_Owner_Name__c as sga,
         v.SGM_Owner_Name__c as sgm,
         v.Original_source as source,
-        COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+        IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
         COALESCE(v.Underwritten_AUM__c, v.Amount) as aum,
         v.aum_tier,
         v.lead_url,
         v.opportunity_url
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.Qualification_Call_Date__c IS NOT NULL
         AND v.Qualification_Call_Date__c >= DATE(@startDate)
         AND v.Qualification_Call_Date__c <= DATE(@endDate)
@@ -473,14 +462,13 @@ export const QUERY_TEMPLATES = {
         v.SGA_Owner_Name__c as sga,
         v.SGM_Owner_Name__c as sgm,
         v.Original_source as source,
-        COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+        IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
         COALESCE(v.Underwritten_AUM__c, v.Amount) as aum,
         v.aum_tier,
         v.StageName as stage,
         v.lead_url,
         v.opportunity_url
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.Date_Became_SQO__c IS NOT NULL
         AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
         AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
@@ -522,14 +510,13 @@ export const QUERY_TEMPLATES = {
         v.SGA_Owner_Name__c as sga,
         v.SGM_Owner_Name__c as sgm,
         v.Original_source as source,
-        COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+        IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
         {aumColumns}
         v.StageName as stage,
         ARRAY_TO_STRING(v.Experimentation_Tag_List, ', ') as experimentation_tag,
         v.lead_url,
         v.opportunity_url
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE {metricFilter}
         {dateFilters}
         {dimensionFilters}
@@ -569,7 +556,7 @@ export const QUERY_TEMPLATES = {
         v.SGA_Owner_Name__c as sga,
         v.SGM_Owner_Name__c as sgm,
         v.Original_source as source,
-        COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+        IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
         COALESCE(v.Underwritten_AUM__c, v.Amount) as aum,
         v.aum_tier,
         v.StageName as stage,
@@ -577,7 +564,6 @@ export const QUERY_TEMPLATES = {
         v.lead_url,
         v.opportunity_url
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.recordtypeid = @recruitingRecordType
         AND v.StageName IN UNNEST(@openPipelineStages)
         AND v.is_sqo_unique = 1
@@ -614,7 +600,6 @@ export const QUERY_TEMPLATES = {
         {metric} as value,
         RANK() OVER (ORDER BY {metric_for_rank} DESC) as rank
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.SGA_Owner_Name__c IS NOT NULL
         {dimensionFilters}
       GROUP BY sga
@@ -653,7 +638,6 @@ export const QUERY_TEMPLATES = {
         MIN(COALESCE(v.Underwritten_AUM__c, v.Amount)) as min_aum,
         MAX(COALESCE(v.Underwritten_AUM__c, v.Amount)) as max_aum
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE COALESCE(v.Underwritten_AUM__c, v.Amount) IS NOT NULL
         AND COALESCE(v.Underwritten_AUM__c, v.Amount) > 0
         {populationFilter}
@@ -692,7 +676,6 @@ export const QUERY_TEMPLATES = {
           {sqos_metric} as sqos_actual,
           {joined_metric} as joined_actual
         FROM \`${FULL_TABLE}\` v
-        LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
         WHERE 1=1
           {dimensionFilters}
       ),
@@ -783,7 +766,6 @@ export const QUERY_TEMPLATES = {
           )
         ) as conversion_rate
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE 1=1
         {dimensionFilters}
     `,
@@ -826,7 +808,6 @@ export const QUERY_TEMPLATES = {
         APPROX_QUANTILES(DATE_DIFF(DATE({endStageDateField}), DATE({startStageDateField}), DAY), 100)[OFFSET(90)] as p90_days,
         COUNT(*) as record_count
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE {startStageDateField} IS NOT NULL
         AND {endStageDateField} IS NOT NULL
         AND TIMESTAMP({startStageDateField}) >= TIMESTAMP(@startDate)
@@ -871,7 +852,6 @@ export const QUERY_TEMPLATES = {
         SUM(COALESCE(v.Underwritten_AUM__c, v.Amount, 0)) as total_aum,
         AVG(COALESCE(v.Underwritten_AUM__c, v.Amount, 0)) as avg_aum
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.recordtypeid = @recruitingRecordType
         AND v.StageName IN UNNEST(@openPipelineStages)
         AND v.is_sqo_unique = 1
@@ -930,7 +910,6 @@ export const QUERY_TEMPLATES = {
         {sql_to_sqo_rate} as sql_to_sqo_rate,
         {sqo_to_joined_rate} as sqo_to_joined_rate
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE 1=1
         {sgaFilter}  -- Applied correctly per metric type (lead vs opportunity)
     `,
@@ -968,7 +947,6 @@ export const QUERY_TEMPLATES = {
           {dimensionGroupBy}
           {metric} as metric_value
         FROM \`${FULL_TABLE}\` v
-        LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
         WHERE {dateField} IS NOT NULL
           AND DATE({dateField}) >= DATE_SUB(@endDate, INTERVAL @windowDays DAY)
           AND DATE({dateField}) <= @endDate
@@ -1057,7 +1035,7 @@ export const QUERY_TEMPLATES = {
           v.StageName,
           v.Opportunity_AUM,
           v.aum_tier,
-          COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+          IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
           v.Original_source as source,
           v.SGA_Owner_Name__c,
           v.Opp_SGA_Name__c,
@@ -1066,7 +1044,6 @@ export const QUERY_TEMPLATES = {
           {ageCalculation}
           {dimensionGroupBy}
         FROM \`${FULL_TABLE}\` v
-        LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
         WHERE v.recordtypeid = @recruitingRecordType
           AND v.is_sqo_unique = 1
           {stageFilter}

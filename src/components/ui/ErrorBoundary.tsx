@@ -27,8 +27,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     // Only log in development mode
+    // Safely log error without circular references (errorInfo can contain React Fiber nodes)
     if (process.env.NODE_ENV === 'development') {
-      console.error('[ErrorBoundary] Caught error:', error);
+      console.error('[ErrorBoundary] Caught error:', error.message, error.stack);
       console.error('[ErrorBoundary] Component stack:', errorInfo.componentStack);
     }
   }

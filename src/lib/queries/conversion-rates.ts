@@ -13,7 +13,7 @@ import {
   formatMonthString
 } from '../utils/date-helpers';
 import { RawConversionRatesResult, RawConversionTrendResult, toNumber } from '@/types/bigquery-raw';
-import { FULL_TABLE, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
+import { FULL_TABLE, RECRUITING_RECORD_TYPE } from '@/config/constants';
 import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
 /**
@@ -63,7 +63,8 @@ const _getConversionRates = async (
   // Build filter conditions
   const conditions: string[] = [];
   if (filters.channel) {
-    conditions.push('COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, \'Other\') = @channel');
+    // Channel_Grouping_Name now comes directly from Finance_View__c in the view
+    conditions.push('v.Channel_Grouping_Name = @channel');
     params.channel = filters.channel;
   }
   if (filters.source) {
@@ -249,8 +250,6 @@ const _getConversionRates = async (
         ) as sqo_numer
 
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm
-        ON v.Original_source = nm.original_source
       WHERE 1=1 ${filterWhereClause}
     `;
   } else {
@@ -314,8 +313,6 @@ const _getConversionRates = async (
         END) as sqo_denom
         
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm
-        ON v.Original_source = nm.original_source
       WHERE 1=1 ${filterWhereClause}
     `;
   }
@@ -506,7 +503,8 @@ export async function getConversionTrends(
   };
   
   if (filters.channel) {
-    conditions.push('COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, \'Other\') = @channel');
+    // Channel_Grouping_Name now comes directly from Finance_View__c in the view
+    conditions.push('v.Channel_Grouping_Name = @channel');
     params.channel = filters.channel;
   }
   if (filters.source) {
@@ -659,7 +657,6 @@ function buildPeriodModeQuery(
           AND v.is_mql = 1
         ) as contacted_numer
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.stage_entered_contacting__c IS NOT NULL
         AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@trendStartDate)
         AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@trendEndDate)
@@ -677,7 +674,6 @@ function buildPeriodModeQuery(
         COUNT(*) as mql_to_sql_numer,
         COUNT(*) as sqls
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.converted_date_raw IS NOT NULL
         AND v.is_sql = 1
         AND DATE(v.converted_date_raw) >= DATE(@trendStartDate)
@@ -700,7 +696,6 @@ function buildPeriodModeQuery(
           )
         ) as mql_to_sql_denom
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.mql_stage_entered_ts IS NOT NULL
         AND v.is_mql = 1
         AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@trendStartDate)
@@ -725,7 +720,6 @@ function buildPeriodModeQuery(
         ) as sql_to_sqo_numer
         -- ✅ REMOVED: sqos field - now using separate sqo_volume CTE
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.converted_date_raw IS NOT NULL
         AND v.is_sql = 1
         AND DATE(v.converted_date_raw) >= DATE(@trendStartDate)
@@ -755,7 +749,6 @@ function buildPeriodModeQuery(
           )
         ) as sql_to_sqo_denom
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.converted_date_raw IS NOT NULL
         AND v.is_sql = 1
         AND DATE(v.converted_date_raw) >= DATE(@trendStartDate)
@@ -779,7 +772,6 @@ function buildPeriodModeQuery(
         ) as sqo_to_joined_numer
         -- ✅ REMOVED: joined field - now using separate joined_volume CTE
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.Date_Became_SQO__c IS NOT NULL
         AND LOWER(v.SQO_raw) = 'yes'
         AND v.is_sqo_unique = 1
@@ -811,7 +803,6 @@ function buildPeriodModeQuery(
           )
         ) as sqo_to_joined_denom
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.Date_Became_SQO__c IS NOT NULL
         AND LOWER(v.SQO_raw) = 'yes'
         AND v.is_sqo_unique = 1
@@ -831,7 +822,6 @@ function buildPeriodModeQuery(
         ${periodFn('v.Date_Became_SQO__c')} as period,  -- ✅ Use SQO date for period grouping
         COUNT(*) as sqos
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.Date_Became_SQO__c IS NOT NULL  -- ✅ Filter by SQO date
         AND LOWER(v.SQO_raw) = 'yes'
         AND v.is_sqo_unique = 1
@@ -851,7 +841,6 @@ function buildPeriodModeQuery(
         } as period,  -- ✅ Use Joined date for period grouping (explicit format to match expectedPeriods)
         COUNT(*) as joined
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.advisor_join_date__c IS NOT NULL  -- ✅ Filter by Joined date
         AND v.is_joined_unique = 1
         AND DATE(v.advisor_join_date__c) >= DATE(@trendStartDate)  -- ✅ Use Joined date
@@ -920,7 +909,6 @@ function buildCohortModeQuery(
         SUM(v.eligible_for_contacted_conversions) as eligible_contacts,
         SUM(v.contacted_to_mql_progression) as progressed_to_mql
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.stage_entered_contacting__c IS NOT NULL
         AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@trendStartDate)
         AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@trendEndDate)
@@ -936,7 +924,6 @@ function buildCohortModeQuery(
         SUM(v.eligible_for_mql_conversions) as eligible_mqls,
         SUM(v.mql_to_sql_progression) as progressed_to_sql
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.mql_stage_entered_ts IS NOT NULL
         AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@trendStartDate)
         AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@trendEndDate)
@@ -953,7 +940,6 @@ function buildCohortModeQuery(
         SUM(v.sql_to_sqo_progression) as progressed_to_sqo,
         COUNTIF(v.is_sql = 1) as sqls  -- Volume: all SQLs (for display)
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.converted_date_raw IS NOT NULL
         AND DATE(v.converted_date_raw) >= DATE(@trendStartDate)
         AND DATE(v.converted_date_raw) <= DATE(@trendEndDate)
@@ -971,7 +957,6 @@ function buildCohortModeQuery(
         COUNTIF(v.recordtypeid = @recruitingRecordType AND v.is_sqo_unique = 1) as sqos,
         COUNTIF(v.is_joined_unique = 1) as joined  -- Volume: joined (for display)
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.Date_Became_SQO__c IS NOT NULL
         AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@trendStartDate)
         AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@trendEndDate)
@@ -988,7 +973,6 @@ function buildCohortModeQuery(
         ${periodFn('v.Date_Became_SQO__c')} as period,  -- ✅ Use SQO date for period grouping
         COUNT(*) as sqos
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.Date_Became_SQO__c IS NOT NULL  -- ✅ Filter by SQO date
         AND LOWER(v.SQO_raw) = 'yes'
         AND v.is_sqo_unique = 1
@@ -1008,7 +992,6 @@ function buildCohortModeQuery(
         } as period,  -- ✅ Use Joined date for period grouping (explicit format to match expectedPeriods)
         COUNT(*) as joined
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE v.advisor_join_date__c IS NOT NULL  -- ✅ Filter by Joined date
         AND v.is_joined_unique = 1
         AND DATE(v.advisor_join_date__c) >= DATE(@trendStartDate)  -- ✅ Use Joined date

@@ -250,8 +250,8 @@ export function getMetricSql(metricName: string): string {
 /**
  * Get the SQL fragment for a dimension
  * 
- * Note: Some dimensions require JOINs (e.g., channel requires new_mapping JOIN)
- * The dimension.field property already includes the JOIN logic if needed.
+ * Note: Channel_Grouping_Name now comes directly from Finance_View__c in the view, so no JOINs are needed.
+ * The dimension.field property contains the field reference.
  */
 export function getDimensionSql(dimensionName: string): string {
   if (dimensionName in DIMENSIONS) {
@@ -896,7 +896,6 @@ function compileSingleMetric(
 SELECT
   ${metricSql} as value
 FROM \`${CONSTANTS.FULL_TABLE}\` v
-LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
 ${userJoin}
 WHERE 1=1
   ${filterSql}${dateFilterSql}${additionalWhereClause}
@@ -983,7 +982,6 @@ SELECT
   ${dimensionSql} as dimension_value,
   ${metricSql} as metric_value
 FROM \`${CONSTANTS.FULL_TABLE}\` v
-LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
 WHERE 1=1
   ${filterSql}
 GROUP BY dimension_value
@@ -1054,7 +1052,6 @@ SELECT
   SUM(CASE WHEN v.${conversion.numeratorField} = 1 THEN 1 ELSE 0 END) as numerator,
   SUM(CASE WHEN v.${conversion.denominatorField} = 1 THEN 1 ELSE 0 END) as denominator
 FROM \`${CONSTANTS.FULL_TABLE}\` v
-LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
 WHERE v.${conversion.cohortDateField} IS NOT NULL
   AND ${dateWrapper}(v.${conversion.cohortDateField}) >= ${dateWrapper}(${dateRangeSql.startSql})
   AND ${dateWrapper}(v.${conversion.cohortDateField}) <= ${dateWrapper}(${dateRangeSql.endSql})
@@ -1128,7 +1125,6 @@ WITH period_metrics AS (
     ${timeDimensionSql} as period,
     ${metricSql} as metric_value
   FROM \`${CONSTANTS.FULL_TABLE}\` v
-  LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
   WHERE v.${metricDateField} IS NOT NULL
     AND ${dateWrapper}(v.${metricDateField}) >= ${dateWrapper}(${dateRangeSql.startSql})
     AND ${dateWrapper}(v.${metricDateField}) <= ${dateWrapper}(${dateRangeSql.endSql})
@@ -1296,7 +1292,6 @@ WITH conversion_data AS (
     SUM(CASE WHEN v.${conversion.numeratorField} = 1 THEN 1 ELSE 0 END) as numerator,
     SUM(CASE WHEN v.${conversion.denominatorField} = 1 THEN 1 ELSE 0 END) as denominator
   FROM \`${CONSTANTS.FULL_TABLE}\` v
-  LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
   WHERE v.${cohortDateField} IS NOT NULL
     AND ${dateWrapper}(v.${cohortDateField}) >= ${dateWrapper}(${startDateExpr})
     AND ${dateWrapper}(v.${cohortDateField}) <= ${dateWrapper}(${endDateExpr})
@@ -1608,7 +1603,6 @@ function compilePeriodComparison(params: TemplateSelection['parameters']): Compi
     WITH current_period AS (
       SELECT ${currentMetricSql} as value
       FROM \`${CONSTANTS.FULL_TABLE}\` v
-      LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE 1=1
         ${currentPeriodFilter}
         ${filterSql}
@@ -1616,7 +1610,6 @@ function compilePeriodComparison(params: TemplateSelection['parameters']): Compi
     previous_period AS (
       SELECT ${previousMetricSql} as value
       FROM \`${CONSTANTS.FULL_TABLE}\` v
-      LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE 1=1
         ${previousPeriodFilter}
         ${filterSql}
@@ -1733,7 +1726,6 @@ function compileFunnelSummary(params: TemplateSelection['parameters']): Compiled
       ${replaceDatePlaceholders(joinedSql)} as joined,
       ${replaceDatePlaceholders(joinedAumSql)} as joined_aum
     FROM \`${CONSTANTS.FULL_TABLE}\` v
-    LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
     ${userJoin}
     WHERE 1=1
       ${filterSql}
@@ -1781,7 +1773,6 @@ function compilePipelineByStage(params: TemplateSelection['parameters']): Compil
       SUM(COALESCE(v.Underwritten_AUM__c, v.Amount)) as total_aum,
       AVG(COALESCE(v.Underwritten_AUM__c, v.Amount)) as avg_aum
     FROM \`${CONSTANTS.FULL_TABLE}\` v
-    LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
     ${userJoin}
     WHERE v.recordtypeid = @recruitingRecordType
       AND v.StageName IN UNNEST(@openPipelineStages)
@@ -1885,7 +1876,6 @@ function compileSgaSummary(params: TemplateSelection['parameters']): CompiledQue
       ${buildConversionSql(sqlToSqoRate)} as sql_to_sqo_rate,
       ${buildConversionSql(sqoToJoinedRate)} as sqo_to_joined_rate
     FROM \`${CONSTANTS.FULL_TABLE}\` v
-    LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
     WHERE 1=1
       AND (v.SGA_Owner_Name__c = @sgaName OR v.Opp_SGA_Name__c = @sgaName)
       ${filterSql}
@@ -1955,7 +1945,6 @@ SELECT
   ${metricSql} as value,
   RANK() OVER (ORDER BY ${metricSql} DESC) as rank
 FROM \`${CONSTANTS.FULL_TABLE}\` v
-LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
 WHERE ${sgaGroupByField} IS NOT NULL
   ${filterSql}
 GROUP BY sga
@@ -2037,7 +2026,6 @@ function compileAverageAum(params: TemplateSelection['parameters']): CompiledQue
       MAX(COALESCE(v.Underwritten_AUM__c, v.Amount)) as max_aum,
       SUM(COALESCE(v.Underwritten_AUM__c, v.Amount)) as total_aum
     FROM \`${CONSTANTS.FULL_TABLE}\` v
-    LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
     WHERE COALESCE(v.Underwritten_AUM__c, v.Amount) IS NOT NULL
       AND COALESCE(v.Underwritten_AUM__c, v.Amount) > 0
       AND v.recordtypeid = @recruitingRecordType
@@ -2129,7 +2117,6 @@ function compileTimeToConvert(params: TemplateSelection['parameters']): Compiled
       APPROX_QUANTILES(DATE_DIFF(DATE(v.${endDateField}), DATE(v.${startDateField}), DAY), 100)[OFFSET(90)] as p90_days,
       COUNT(DISTINCT v.primary_key) as record_count
     FROM \`${CONSTANTS.FULL_TABLE}\` v
-    LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
     WHERE v.${startDateField} IS NOT NULL
       AND v.${endDateField} IS NOT NULL
       AND DATE(v.${startDateField}) >= DATE(${startDateExpr})
@@ -2226,7 +2213,6 @@ function compileMultiStageConversion(params: TemplateSelection['parameters']): C
       SUM(CASE WHEN v.${endFlags.progression} = 1 THEN 1 ELSE 0 END) as numerator,
       SUM(CASE WHEN v.${startFlags.eligible} = 1 THEN 1 ELSE 0 END) as denominator
     FROM \`${CONSTANTS.FULL_TABLE}\` v
-    LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
     WHERE v.${startFlags.dateField} IS NOT NULL
       AND ${dateWrapper}(v.${startFlags.dateField}) >= ${dateWrapper}(${startDateExpr})
       AND ${dateWrapper}(v.${startFlags.dateField}) <= ${dateWrapper}(${endDateExpr})
@@ -2301,7 +2287,7 @@ function compileSqoDetailList(params: TemplateSelection['parameters']): Compiled
       v.SGA_Owner_Name__c as sga,
       v.SGM_Owner_Name__c as sgm,
       v.Original_source as source,
-      COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+      IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
       COALESCE(v.Underwritten_AUM__c, v.Amount) as aum,
       v.aum_tier,
       v.StageName as stage,
@@ -2309,7 +2295,6 @@ function compileSqoDetailList(params: TemplateSelection['parameters']): Compiled
       v.lead_url,
       v.opportunity_url
     FROM \`${CONSTANTS.FULL_TABLE}\` v
-    LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
     ${userJoin}
     WHERE v.Date_Became_SQO__c IS NOT NULL
       AND v.recordtypeid = @recruitingRecordType
@@ -2363,14 +2348,13 @@ function compileScheduledCallsList(params: TemplateSelection['parameters']): Com
       FORMAT_DATE('%Y-%m-%d', v.Initial_Call_Scheduled_Date__c) as call_date,
       v.SGA_Owner_Name__c as sga,
       v.Original_source as source,
-      COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+      IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
       v.Lead_Score_Tier__c as lead_score_tier,
       v.TOF_Stage as tof_stage,
       ARRAY_TO_STRING(v.Experimentation_Tag_List, ', ') as experimentation_tag,
       v.lead_url,
       v.opportunity_url
     FROM \`${CONSTANTS.FULL_TABLE}\` v
-    LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
     WHERE v.Initial_Call_Scheduled_Date__c IS NOT NULL
       AND v.Initial_Call_Scheduled_Date__c >= ${startDateExpr}
       AND v.Initial_Call_Scheduled_Date__c <= ${endDateExpr}
@@ -2418,7 +2402,7 @@ function compileOpenPipelineList(params: TemplateSelection['parameters']): Compi
       v.SGA_Owner_Name__c as sga,
       v.SGM_Owner_Name__c as sgm,
       v.Original_source as source,
-      COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+      IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
       COALESCE(v.Underwritten_AUM__c, v.Amount) as aum,
       v.aum_tier,
       v.StageName as stage,
@@ -2427,7 +2411,6 @@ function compileOpenPipelineList(params: TemplateSelection['parameters']): Compi
       v.lead_url,
       v.opportunity_url
     FROM \`${CONSTANTS.FULL_TABLE}\` v
-    LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
     ${userJoin}
     WHERE v.recordtypeid = @recruitingRecordType
       AND v.StageName IN UNNEST(@openPipelineStages)
@@ -2576,14 +2559,13 @@ function compileGenericDetailList(params: TemplateSelection['parameters']): Comp
       v.SGA_Owner_Name__c as sga,
       v.SGM_Owner_Name__c as sgm,
       v.Original_source as source,
-      COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+      IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
       ${aumColumns}
       v.StageName as stage,
       ARRAY_TO_STRING(v.Experimentation_Tag_List, ', ') as experimentation_tag,
       v.lead_url,
       v.opportunity_url
     FROM \`${CONSTANTS.FULL_TABLE}\` v
-    LEFT JOIN \`${CONSTANTS.MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
     ${userJoin}
     WHERE ${metricFilter}${dateFilterSql}
       ${filterSql}

@@ -1,20 +1,3 @@
--- ═══════════════════════════════════════════════════════════════════════════
--- VW_FUNNEL_MASTER (Cleaned)
--- Purpose: Single source of truth for all Tableau funnel dashboards
--- Created: January 2026
--- Dataset: savvy-gtm-analytics.Tableau_Views
--- 
--- SGA/SGM Attribution (Simplified):
---   • Lead SGA: SGA_Owner_Name__c from Lead object (who worked the lead)
---   • Opportunity SGA: SGA__c from Opportunity object (SGA associated with opp)
---   • Opportunity SGM: Opportunity_Owner_Name__c from Opportunity object (who owns the opp)
---
--- Note: is_SGA, is_SGM, IsActive flags are NOT in this view. 
--- Create a separate vw_user_lookup for Tableau dropdown filters if needed.
--- ═══════════════════════════════════════════════════════════════════════════
-
-CREATE OR REPLACE VIEW `savvy-gtm-analytics.Tableau_Views.vw_funnel_master` AS
-
 WITH Lead_Base AS (
   SELECT
     Id AS Full_prospect_id__c,
@@ -22,8 +5,9 @@ WITH Lead_Base AS (
     ConvertedOpportunityId AS converted_oppty_id,
     CreatedDate,
     OwnerId AS Lead_OwnerId,
-    LeadSource AS Lead_Original_Source,
+    Final_Source__c AS Lead_Original_Source,  -- Using Final_Source__c instead of LeadSource
     Final_Source__c AS Final_Source,
+    Finance_View__c AS Lead_Finance_View__c,  -- NEW: Add Finance_View__c for channel mapping
     stage_entered_contacting__c,
     Stage_Entered_Call_Scheduled__c AS mql_stage_entered_ts,
     ConvertedDate AS converted_date_raw,
@@ -54,7 +38,8 @@ Opp_Base AS (
     Id AS Full_Opportunity_ID__c,
     Name AS Opp_Name,
     OwnerId AS Opp_OwnerId,
-    LeadSource AS Opp_Original_Source,
+    Final_Source__c AS Opp_Original_Source,  -- Using Final_Source__c instead of LeadSource
+    Finance_View__c AS Opp_Finance_View__c,  -- NEW: Add Finance_View__c for channel mapping
     SGA__c AS Opp_SGA_Name,                        -- SGA name associated with this opportunity
     Opportunity_Owner_Name__c AS Opp_SGM_Name,    -- SGM who owns this opportunity
     SQL__c AS SQO_raw,  -- NOTE: This field represents SQO status despite the name
@@ -116,8 +101,10 @@ Combined AS (
     END AS salesforce_url,
     
     -- Attribution
-    --##TODO## Work with Kenji when we update Final Source to move from Original Source to Final Source
+    -- Using Final_Source__c from both Lead and Opportunity
     COALESCE(o.Opp_Original_Source, l.Lead_Original_Source, 'Unknown') AS Original_source,
+    -- Using Finance_View__c from both Lead and Opportunity for channel mapping (prefer Opportunity over Lead, default to 'Other')
+    COALESCE(o.Opp_Finance_View__c, l.Lead_Finance_View__c, 'Other') AS Finance_View__c,
     COALESCE(o.Opp_External_Agency__c, l.Lead_External_Agency__c) AS External_Agency__c,
     
     -- ═══════════════════════════════════════════════════════════════════════
@@ -180,14 +167,14 @@ Combined AS (
     -- 'leads' where they 'convert' into Recruiting Type Opportunities.
 ),
 
--- Add Channel Mapping (using new_mapping table - simplified, no effective_date needed)
+-- Add Channel Mapping (using Finance_View__c directly from Salesforce records)
 With_Channel_Mapping AS (
   SELECT
     c.*,
-    IFNULL(nm.Channel_Grouping_Name, 'Other') AS Channel_Grouping_Name
+    -- Use Finance_View__c directly from Combined CTE (which comes from Lead/Opp records)
+    -- Keep field name as Channel_Grouping_Name for backward compatibility
+    IFNULL(c.Finance_View__c, 'Other') AS Channel_Grouping_Name
   FROM Combined c
-  LEFT JOIN `savvy-gtm-analytics.SavvyGTMData.new_mapping` nm
-    ON c.Original_source = nm.original_source
 ),
 
 -- Add User lookup for Opportunity SGA names (when SGA_Owner_Name__c is NULL)

@@ -16,7 +16,7 @@ import { FilterOptions } from '@/types/filters';
 interface AdvancedFiltersProps {
   filters: AdvancedFiltersType;
   onFiltersChange: (filters: AdvancedFiltersType) => void;
-  onApply?: () => void; // Optional: if provided, will be called to actually apply filters
+  onApply?: (updatedFilters?: AdvancedFiltersType) => void; // Optional: if provided, will be called to actually apply filters. Can pass updated filters directly.
   viewMode: ViewMode;
   onClose: () => void;
   isOpen: boolean;
@@ -140,10 +140,12 @@ export function AdvancedFilters({
   };
 
   const handleApply = () => {
+    // Update the filters state first
     onFiltersChange(localFilters);
-    // If onApply is provided, call it to actually apply the filters (same as GlobalFilters button)
+    // If onApply is provided, call it with the updated filters to actually apply them
+    // This ensures all filters (global + advanced) are applied together
     if (onApply) {
-      onApply();
+      onApply(localFilters);
     }
     onClose();
   };

@@ -85,9 +85,39 @@ function filtersAreEqual(a: DashboardFilters, b: DashboardFilters): boolean {
   if (a.channel !== b.channel || a.source !== b.source) return false;
   if (a.sga !== b.sga || a.sgm !== b.sgm || a.stage !== b.stage) return false;
   if (a.experimentationTag !== b.experimentationTag || a.metricFilter !== b.metricFilter) return false;
+  
+  // Compare advanced filters safely without JSON.stringify (avoids circular reference errors)
   const advA = a.advancedFilters ?? DEFAULT_ADVANCED_FILTERS;
   const advB = b.advancedFilters ?? DEFAULT_ADVANCED_FILTERS;
-  return JSON.stringify(advA) === JSON.stringify(advB);
+  
+  // Compare date range filters
+  if (advA.initialCallScheduled.enabled !== advB.initialCallScheduled.enabled) return false;
+  if (advA.initialCallScheduled.preset !== advB.initialCallScheduled.preset) return false;
+  if (advA.initialCallScheduled.startDate !== advB.initialCallScheduled.startDate) return false;
+  if (advA.initialCallScheduled.endDate !== advB.initialCallScheduled.endDate) return false;
+  
+  if (advA.qualificationCallDate.enabled !== advB.qualificationCallDate.enabled) return false;
+  if (advA.qualificationCallDate.preset !== advB.qualificationCallDate.preset) return false;
+  if (advA.qualificationCallDate.startDate !== advB.qualificationCallDate.startDate) return false;
+  if (advA.qualificationCallDate.endDate !== advB.qualificationCallDate.endDate) return false;
+  
+  // Compare multi-select filters (compare arrays by length and sorted values to handle order differences)
+  const compareMultiSelect = (a: typeof advA.channels, b: typeof advB.channels) => {
+    if (a.selectAll !== b.selectAll) return false;
+    if (a.selectAll) return true; // If both are "select all", arrays don't matter
+    const aSorted = [...a.selected].sort();
+    const bSorted = [...b.selected].sort();
+    if (aSorted.length !== bSorted.length) return false;
+    return aSorted.every((val, idx) => val === bSorted[idx]);
+  };
+  
+  if (!compareMultiSelect(advA.channels, advB.channels)) return false;
+  if (!compareMultiSelect(advA.sources, advB.sources)) return false;
+  if (!compareMultiSelect(advA.sgas, advB.sgas)) return false;
+  if (!compareMultiSelect(advA.sgms, advB.sgms)) return false;
+  if (!compareMultiSelect(advA.experimentationTags, advB.experimentationTags)) return false;
+  
+  return true;
 }
 
 export default function DashboardPage() {
@@ -349,10 +379,16 @@ export default function DashboardPage() {
         })),
       });
       // Also log the full data to see everything
-      console.log('[DEBUG] Full saved reports data:', JSON.stringify(data, null, 2));
+      // Safely stringify data, handling circular references
+      try {
+        console.log('[DEBUG] Full saved reports data:', JSON.stringify(data, null, 2));
+      } catch (stringifyError) {
+        console.log('[DEBUG] Full saved reports data (stringify failed, logging object):', data);
+      }
       setSavedReports(data);
     } catch (error) {
-      console.error('Failed to fetch saved reports:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Failed to fetch saved reports:', errorMessage);
     } finally {
       setIsLoadingReports(false);
     }
@@ -504,8 +540,18 @@ export default function DashboardPage() {
   }, []);
 
   // Apply pending filter changes → triggers single fetch, avoids race conditions
-  const handleApplyFilters = useCallback(() => {
-    setAppliedFilters({ ...filters });
+  // If updatedAdvancedFilters is provided, use it to construct the complete filters object
+  const handleApplyFilters = useCallback((updatedAdvancedFilters?: typeof filters.advancedFilters) => {
+    if (updatedAdvancedFilters !== undefined) {
+      // AdvancedFilters is applying - use the provided advancedFilters and current global filters
+      setAppliedFilters({ 
+        ...filters, 
+        advancedFilters: updatedAdvancedFilters 
+      });
+    } else {
+      // GlobalFilters is applying - use current filters state (which includes any pending advanced filter changes)
+      setAppliedFilters({ ...filters });
+    }
   }, [filters]);
 
   // Fetch dashboard data when applied filters change (not on every dropdown change)
@@ -606,8 +652,9 @@ export default function DashboardPage() {
       await Promise.all(promises);
       
     } catch (error) {
-      console.error('Failed to fetch dashboard data:', error);
+      // Safely log error without circular references
       const errorMessage = handleApiError(error);
+      console.error('Failed to fetch dashboard data:', errorMessage, error instanceof Error ? error.stack : '');
       // You can add toast notification here: toast.error(errorMessage);
     } finally {
       setLoading(false);
@@ -708,15 +755,17 @@ export default function DashboardPage() {
     }
   };
   
-  // Handle channel row click - update filters directly
+  // Handle channel row click - update filters directly and immediately apply
   const handleChannelClick = (channel: string | null) => {
     setSelectedChannel(channel);
     setSelectedSource(null); // Reset source when channel changes
-    setFilters(prev => ({
-      ...prev,
+    const updatedFilters = {
+      ...appliedFilters,
       channel: channel,
       source: null, // Reset source when channel changes
-    }));
+    };
+    setFilters(updatedFilters);
+    setAppliedFilters(updatedFilters); // Immediately apply to trigger refetch with channel filter
   };
   
   // Handle source row click - update filters directly
@@ -1043,7 +1092,10 @@ export default function DashboardPage() {
           onFiltersChange={(newAdvancedFilters) => {
             setFilters(prev => ({ ...prev, advancedFilters: newAdvancedFilters }));
           }}
-          onApply={handleApplyFilters}
+          onApply={(updatedAdvancedFilters) => {
+            // Pass the updated advanced filters to handleApplyFilters so it can apply all filters together
+            handleApplyFilters(updatedAdvancedFilters);
+          }}
           viewMode={viewMode}
           onClose={() => setShowAdvancedFilters(false)}
           isOpen={showAdvancedFilters}
