@@ -1,4 +1,4 @@
-import { DashboardFilters, FilterOptions } from '@/types/filters';
+import { DashboardFilters, FilterOptions, DEFAULT_ADVANCED_FILTERS } from '@/types/filters';
 import { 
   FunnelMetrics, 
   FunnelMetricsWithGoals,
@@ -85,6 +85,63 @@ function getBaseUrl(): string {
 }
 
 /**
+ * Safely create a clean copy of filters object, removing any non-serializable properties
+ * (like React elements, DOM nodes, or circular references)
+ */
+function cleanFilters(filters: DashboardFilters): DashboardFilters {
+  // Create a clean copy with only serializable properties
+  const clean: DashboardFilters = {
+    startDate: filters.startDate,
+    endDate: filters.endDate,
+    datePreset: filters.datePreset,
+    year: filters.year,
+    channel: filters.channel,
+    source: filters.source,
+    sga: filters.sga,
+    sgm: filters.sgm,
+    stage: filters.stage,
+    experimentationTag: filters.experimentationTag,
+    metricFilter: filters.metricFilter,
+  };
+  
+  // Safely merge advancedFilters with defaults to ensure all nested properties exist
+  if (filters.advancedFilters) {
+    clean.advancedFilters = {
+      initialCallScheduled: {
+        ...DEFAULT_ADVANCED_FILTERS.initialCallScheduled,
+        ...(filters.advancedFilters.initialCallScheduled || {}),
+      },
+      qualificationCallDate: {
+        ...DEFAULT_ADVANCED_FILTERS.qualificationCallDate,
+        ...(filters.advancedFilters.qualificationCallDate || {}),
+      },
+      channels: {
+        ...DEFAULT_ADVANCED_FILTERS.channels,
+        ...(filters.advancedFilters.channels || {}),
+      },
+      sources: {
+        ...DEFAULT_ADVANCED_FILTERS.sources,
+        ...(filters.advancedFilters.sources || {}),
+      },
+      sgas: {
+        ...DEFAULT_ADVANCED_FILTERS.sgas,
+        ...(filters.advancedFilters.sgas || {}),
+      },
+      sgms: {
+        ...DEFAULT_ADVANCED_FILTERS.sgms,
+        ...(filters.advancedFilters.sgms || {}),
+      },
+      experimentationTags: {
+        ...DEFAULT_ADVANCED_FILTERS.experimentationTags,
+        ...(filters.advancedFilters.experimentationTags || {}),
+      },
+    };
+  }
+  
+  return clean;
+}
+
+/**
  * Fetch API endpoint with proper URL construction.
  * Uses relative URLs in browser, absolute URLs on server.
  * 
@@ -125,7 +182,7 @@ export const dashboardApi = {
   getFunnelMetrics: (filters: DashboardFilters, viewMode?: ViewMode) =>
     apiFetch<FunnelMetricsWithGoals>('/api/dashboard/funnel-metrics', {
       method: 'POST',
-      body: JSON.stringify({ filters, ...(viewMode && { viewMode }) }),
+      body: JSON.stringify({ filters: cleanFilters(filters), ...(viewMode && { viewMode }) }),
     }),
 
   getConversionRates: (
@@ -143,7 +200,7 @@ export const dashboardApi = {
     }>('/api/dashboard/conversion-rates', {
       method: 'POST',
       body: JSON.stringify({ 
-        filters, 
+        filters: cleanFilters(filters), 
         includeTrends: options?.includeTrends ?? false,
         granularity: options?.granularity ?? 'quarter',
         mode: options?.mode ?? 'cohort',
@@ -154,20 +211,20 @@ export const dashboardApi = {
   getChannelPerformance: (filters: DashboardFilters, viewMode?: ViewMode) =>
     apiFetch<{ channels: ChannelPerformanceWithGoals[] }>('/api/dashboard/source-performance', {
       method: 'POST',
-      body: JSON.stringify({ filters, groupBy: 'channel', ...(viewMode && { viewMode }) }),
+      body: JSON.stringify({ filters: cleanFilters(filters), groupBy: 'channel', ...(viewMode && { viewMode }) }),
     }),
 
   // Updated to return SourcePerformanceWithGoals[] and accept optional viewMode
   getSourcePerformance: (filters: DashboardFilters, viewMode?: ViewMode) =>
     apiFetch<{ sources: SourcePerformanceWithGoals[] }>('/api/dashboard/source-performance', {
       method: 'POST',
-      body: JSON.stringify({ filters, groupBy: 'source', ...(viewMode && { viewMode }) }),
+      body: JSON.stringify({ filters: cleanFilters(filters), groupBy: 'source', ...(viewMode && { viewMode }) }),
     }),
 
   getDetailRecords: (filters: DashboardFilters, limit = 50000) =>
     apiFetch<{ records: DetailRecord[] }>('/api/dashboard/detail-records', {
       method: 'POST',
-      body: JSON.stringify({ filters, limit }),
+      body: JSON.stringify({ filters: cleanFilters(filters), limit }),
     }),
 
   // Get single record detail by ID (GET method, not POST)
@@ -179,7 +236,7 @@ export const dashboardApi = {
   getOpenPipeline: (filters?: Partial<DashboardFilters>) =>
     apiFetch<{ records: DetailRecord[]; summary: any }>('/api/dashboard/open-pipeline', {
       method: 'POST',
-      body: JSON.stringify(filters ?? {}),
+      body: JSON.stringify(filters ? cleanFilters(filters as DashboardFilters) : {}),
     }),
 
   getDataFreshness: () => apiFetch<DataFreshness>('/api/dashboard/data-freshness'),
@@ -227,10 +284,17 @@ export const dashboardApi = {
     filters?: { channel?: string; source?: string; sga?: string; sgm?: string },
     sgms?: string[]
   ): Promise<{ records: DetailRecord[]; stage: string }> => {
+    // Clean filters to remove any non-serializable properties
+    const cleanFiltersObj = filters ? {
+      channel: filters.channel,
+      source: filters.source,
+      sga: filters.sga,
+      sgm: filters.sgm,
+    } : undefined;
     const response = await fetch('/api/dashboard/pipeline-drilldown', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stage, filters, sgms }),
+      body: JSON.stringify({ stage, filters: cleanFiltersObj, sgms }),
     });
     
     if (!response.ok) {

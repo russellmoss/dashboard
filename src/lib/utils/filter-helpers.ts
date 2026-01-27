@@ -1,6 +1,6 @@
 // src/lib/utils/filter-helpers.ts
 
-import { AdvancedFilters } from '@/types/filters';
+import { AdvancedFilters, DEFAULT_ADVANCED_FILTERS } from '@/types/filters';
 
 interface FilterClauseResult {
   whereClauses: string[];
@@ -20,72 +20,103 @@ export function buildAdvancedFilterClauses(
   const whereClauses: string[] = [];
   const params: Record<string, unknown> = {};
 
+  // Merge with defaults to ensure all nested properties exist
+  const safeFilters: AdvancedFilters = {
+    initialCallScheduled: {
+      ...DEFAULT_ADVANCED_FILTERS.initialCallScheduled,
+      ...(filters.initialCallScheduled || {}),
+    },
+    qualificationCallDate: {
+      ...DEFAULT_ADVANCED_FILTERS.qualificationCallDate,
+      ...(filters.qualificationCallDate || {}),
+    },
+    channels: {
+      ...DEFAULT_ADVANCED_FILTERS.channels,
+      ...(filters.channels || {}),
+    },
+    sources: {
+      ...DEFAULT_ADVANCED_FILTERS.sources,
+      ...(filters.sources || {}),
+    },
+    sgas: {
+      ...DEFAULT_ADVANCED_FILTERS.sgas,
+      ...(filters.sgas || {}),
+    },
+    sgms: {
+      ...DEFAULT_ADVANCED_FILTERS.sgms,
+      ...(filters.sgms || {}),
+    },
+    experimentationTags: {
+      ...DEFAULT_ADVANCED_FILTERS.experimentationTags,
+      ...(filters.experimentationTags || {}),
+    },
+  };
+
   // Initial Call Scheduled Date filter
   // CRITICAL: Initial_Call_Scheduled_Date__c is a DATE field - direct comparison (no TIMESTAMP wrapper)
-  if (filters.initialCallScheduled.enabled) {
-    if (filters.initialCallScheduled.startDate) {
+  if (safeFilters.initialCallScheduled.enabled) {
+    if (safeFilters.initialCallScheduled.startDate) {
       whereClauses.push(`Initial_Call_Scheduled_Date__c >= @${paramPrefix}_initial_start`);
-      params[`${paramPrefix}_initial_start`] = filters.initialCallScheduled.startDate;
+      params[`${paramPrefix}_initial_start`] = safeFilters.initialCallScheduled.startDate;
     }
-    if (filters.initialCallScheduled.endDate) {
+    if (safeFilters.initialCallScheduled.endDate) {
       whereClauses.push(`Initial_Call_Scheduled_Date__c <= @${paramPrefix}_initial_end`);
-      params[`${paramPrefix}_initial_end`] = filters.initialCallScheduled.endDate;
+      params[`${paramPrefix}_initial_end`] = safeFilters.initialCallScheduled.endDate;
     }
   }
 
   // Qualification Call Date filter
   // CRITICAL: Qualification_Call_Date__c is a DATE field - direct comparison (no TIMESTAMP wrapper)
-  if (filters.qualificationCallDate.enabled) {
-    if (filters.qualificationCallDate.startDate) {
+  if (safeFilters.qualificationCallDate.enabled) {
+    if (safeFilters.qualificationCallDate.startDate) {
       whereClauses.push(`Qualification_Call_Date__c >= @${paramPrefix}_qual_start`);
-      params[`${paramPrefix}_qual_start`] = filters.qualificationCallDate.startDate;
+      params[`${paramPrefix}_qual_start`] = safeFilters.qualificationCallDate.startDate;
     }
-    if (filters.qualificationCallDate.endDate) {
+    if (safeFilters.qualificationCallDate.endDate) {
       whereClauses.push(`Qualification_Call_Date__c <= @${paramPrefix}_qual_end`);
-      params[`${paramPrefix}_qual_end`] = filters.qualificationCallDate.endDate;
+      params[`${paramPrefix}_qual_end`] = safeFilters.qualificationCallDate.endDate;
     }
   }
 
   // Channel filter (multi-select)
-  // CRITICAL: Must use COALESCE pattern to match existing queries
-  if (!filters.channels.selectAll && filters.channels.selected.length > 0) {
-    whereClauses.push(`COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') IN UNNEST(@${paramPrefix}_channels)`);
-    params[`${paramPrefix}_channels`] = filters.channels.selected;
+  // Channel_Grouping_Name now comes directly from Finance_View__c in the view
+  if (!safeFilters.channels.selectAll && safeFilters.channels.selected.length > 0) {
+    whereClauses.push(`v.Channel_Grouping_Name IN UNNEST(@${paramPrefix}_channels)`);
+    params[`${paramPrefix}_channels`] = safeFilters.channels.selected;
   }
-  // NOTE: This requires the query to include: LEFT JOIN `${MAPPING_TABLE}` nm ON v.Original_source = nm.original_source
 
   // Source filter (multi-select)
-  if (!filters.sources.selectAll && filters.sources.selected.length > 0) {
+  if (!safeFilters.sources.selectAll && safeFilters.sources.selected.length > 0) {
     whereClauses.push(`v.Original_source IN UNNEST(@${paramPrefix}_sources)`);
-    params[`${paramPrefix}_sources`] = filters.sources.selected;
+    params[`${paramPrefix}_sources`] = safeFilters.sources.selected;
   }
 
   // SGA filter (multi-select)
   // NOTE: For lead metrics, use SGA_Owner_Name__c
   // For opportunity metrics, queries should use Opp_SGA_Name__c
   // Since advanced filters apply at view level, we use SGA_Owner_Name__c
-  if (!filters.sgas.selectAll && filters.sgas.selected.length > 0) {
+  if (!safeFilters.sgas.selectAll && safeFilters.sgas.selected.length > 0) {
     whereClauses.push(`v.SGA_Owner_Name__c IN UNNEST(@${paramPrefix}_sgas)`);
-    params[`${paramPrefix}_sgas`] = filters.sgas.selected;
+    params[`${paramPrefix}_sgas`] = safeFilters.sgas.selected;
   }
 
   // SGM filter (multi-select)
   // NOTE: SGM only applies to opportunity-level metrics
-  if (!filters.sgms.selectAll && filters.sgms.selected.length > 0) {
+  if (!safeFilters.sgms.selectAll && safeFilters.sgms.selected.length > 0) {
     whereClauses.push(`v.SGM_Owner_Name__c IN UNNEST(@${paramPrefix}_sgms)`);
-    params[`${paramPrefix}_sgms`] = filters.sgms.selected;
+    params[`${paramPrefix}_sgms`] = safeFilters.sgms.selected;
   }
 
   // Experimentation Tag filter (multi-select)
   // NOTE: Uses Experimentation_Tag_List array field - check if any selected tag is in the array
-  if (!filters.experimentationTags.selectAll && filters.experimentationTags.selected.length > 0) {
+  if (!safeFilters.experimentationTags.selectAll && safeFilters.experimentationTags.selected.length > 0) {
     // Use EXISTS with UNNEST to check if any tag in the array matches the selected tags
     whereClauses.push(`EXISTS (
       SELECT 1 
       FROM UNNEST(v.Experimentation_Tag_List) as tag
       WHERE tag IN UNNEST(@${paramPrefix}_experimentation_tags)
     )`);
-    params[`${paramPrefix}_experimentation_tags`] = filters.experimentationTags.selected;
+    params[`${paramPrefix}_experimentation_tags`] = safeFilters.experimentationTags.selected;
   }
 
   return { whereClauses, params };

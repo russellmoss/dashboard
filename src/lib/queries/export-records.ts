@@ -2,7 +2,7 @@ import { runQuery } from '../bigquery';
 import { ExportDetailRecord, ConversionAnalysisRecord } from '../sheets/sheets-types';
 import { DashboardFilters } from '@/types/filters';
 import { buildDateRangeFromFilters } from '../utils/date-helpers';
-import { FULL_TABLE, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
+import { FULL_TABLE, RECRUITING_RECORD_TYPE } from '@/config/constants';
 
 /**
  * Get all detail records for export with correct cohort-based date filtering
@@ -30,7 +30,8 @@ export async function getExportDetailRecords(
   };
 
   if (filters.channel) {
-    filterConditions.push('COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, \'Other\') = @channel');
+    // Channel_Grouping_Name now comes directly from Finance_View__c in the view
+    filterConditions.push('v.Channel_Grouping_Name = @channel');
     params.channel = filters.channel;
   }
   if (filters.source) {
@@ -65,7 +66,7 @@ export async function getExportDetailRecords(
         
         -- Attribution
         v.Original_source as original_source,
-        COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+        IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
         v.SGA_Owner_Name__c as sga,
         v.SGM_Owner_Name__c as sgm,
         
@@ -121,7 +122,6 @@ export async function getExportDetailRecords(
         v.advisor_join_date__c as _joined_date
 
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
       WHERE 1=1 ${optionalFilters}
     ),
     

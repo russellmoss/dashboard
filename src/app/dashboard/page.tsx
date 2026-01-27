@@ -87,8 +87,72 @@ function filtersAreEqual(a: DashboardFilters, b: DashboardFilters): boolean {
   if (a.experimentationTag !== b.experimentationTag || a.metricFilter !== b.metricFilter) return false;
   
   // Compare advanced filters safely without JSON.stringify (avoids circular reference errors)
-  const advA = a.advancedFilters ?? DEFAULT_ADVANCED_FILTERS;
-  const advB = b.advancedFilters ?? DEFAULT_ADVANCED_FILTERS;
+  // Merge with defaults to ensure all properties exist (handles partial objects)
+  const advA: typeof DEFAULT_ADVANCED_FILTERS = {
+    ...DEFAULT_ADVANCED_FILTERS,
+    ...(a.advancedFilters || {}),
+    initialCallScheduled: {
+      ...DEFAULT_ADVANCED_FILTERS.initialCallScheduled,
+      ...(a.advancedFilters?.initialCallScheduled || {}),
+    },
+    qualificationCallDate: {
+      ...DEFAULT_ADVANCED_FILTERS.qualificationCallDate,
+      ...(a.advancedFilters?.qualificationCallDate || {}),
+    },
+    channels: {
+      ...DEFAULT_ADVANCED_FILTERS.channels,
+      ...(a.advancedFilters?.channels || {}),
+    },
+    sources: {
+      ...DEFAULT_ADVANCED_FILTERS.sources,
+      ...(a.advancedFilters?.sources || {}),
+    },
+    sgas: {
+      ...DEFAULT_ADVANCED_FILTERS.sgas,
+      ...(a.advancedFilters?.sgas || {}),
+    },
+    sgms: {
+      ...DEFAULT_ADVANCED_FILTERS.sgms,
+      ...(a.advancedFilters?.sgms || {}),
+    },
+    experimentationTags: {
+      ...DEFAULT_ADVANCED_FILTERS.experimentationTags,
+      ...(a.advancedFilters?.experimentationTags || {}),
+    },
+  };
+  
+  const advB: typeof DEFAULT_ADVANCED_FILTERS = {
+    ...DEFAULT_ADVANCED_FILTERS,
+    ...(b.advancedFilters || {}),
+    initialCallScheduled: {
+      ...DEFAULT_ADVANCED_FILTERS.initialCallScheduled,
+      ...(b.advancedFilters?.initialCallScheduled || {}),
+    },
+    qualificationCallDate: {
+      ...DEFAULT_ADVANCED_FILTERS.qualificationCallDate,
+      ...(b.advancedFilters?.qualificationCallDate || {}),
+    },
+    channels: {
+      ...DEFAULT_ADVANCED_FILTERS.channels,
+      ...(b.advancedFilters?.channels || {}),
+    },
+    sources: {
+      ...DEFAULT_ADVANCED_FILTERS.sources,
+      ...(b.advancedFilters?.sources || {}),
+    },
+    sgas: {
+      ...DEFAULT_ADVANCED_FILTERS.sgas,
+      ...(b.advancedFilters?.sgas || {}),
+    },
+    sgms: {
+      ...DEFAULT_ADVANCED_FILTERS.sgms,
+      ...(b.advancedFilters?.sgms || {}),
+    },
+    experimentationTags: {
+      ...DEFAULT_ADVANCED_FILTERS.experimentationTags,
+      ...(b.advancedFilters?.experimentationTags || {}),
+    },
+  };
   
   // Compare date range filters
   if (advA.initialCallScheduled.enabled !== advB.initialCallScheduled.enabled) return false;

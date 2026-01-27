@@ -2,7 +2,7 @@ import { runQuery, buildQueryParams } from '../bigquery';
 import { DetailRecord } from '@/types/dashboard';
 import { formatCurrency } from '../utils/date-helpers';
 import { RawDetailRecordResult, RawOpenPipelineResult, toNumber, toString } from '@/types/bigquery-raw';
-import { FULL_TABLE, OPEN_PIPELINE_STAGES, RECRUITING_RECORD_TYPE, MAPPING_TABLE } from '@/config/constants';
+import { FULL_TABLE, OPEN_PIPELINE_STAGES, RECRUITING_RECORD_TYPE } from '@/config/constants';
 import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
 const _getOpenPipelineRecords = async (
@@ -15,8 +15,8 @@ const _getOpenPipelineRecords = async (
   };
   
   if (filters?.channel) {
-    // Use mapped channel from new_mapping table
-    conditions.push('COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, \'Other\') = @channel');
+    // Channel_Grouping_Name now comes directly from Finance_View__c in the view
+    conditions.push('v.Channel_Grouping_Name = @channel');
     params.channel = filters.channel;
   }
   if (filters?.source) {
@@ -50,7 +50,7 @@ const _getOpenPipelineRecords = async (
       v.primary_key as id,
       v.advisor_name,
       v.Original_source as source,
-      COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+      IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
       v.StageName as stage,
       v.SGA_Owner_Name__c as sga,
       v.SGM_Owner_Name__c as sgm,
@@ -63,7 +63,6 @@ const _getOpenPipelineRecords = async (
       v.is_mql,
       v.recordtypeid
     FROM \`${FULL_TABLE}\` v
-    LEFT JOIN \`${MAPPING_TABLE}\` nm
       ON v.Original_source = nm.original_source
     ${whereClause}
     ORDER BY v.Opportunity_AUM DESC NULLS LAST
@@ -257,7 +256,7 @@ const _getOpenPipelineRecordsByStage = async (
   };
   
   if (filters?.channel) {
-    conditions.push('COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, \'Other\') = @channel');
+    conditions.push('v.Channel_Grouping_Name = @channel');
     params.channel = filters.channel;
   }
   if (filters?.source) {
@@ -294,7 +293,7 @@ const _getOpenPipelineRecordsByStage = async (
       v.Full_Opportunity_ID__c as opportunity_id,
       v.advisor_name,
       v.Original_source as source,
-      COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as channel,
+      IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
       v.StageName as stage,
       v.SGA_Owner_Name__c as sga,
       v.SGM_Owner_Name__c as sgm,
@@ -312,7 +311,7 @@ const _getOpenPipelineRecordsByStage = async (
       v.is_mql,
       v.recordtypeid
     FROM \`${FULL_TABLE}\` v
-    LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source
+ ON v.Original_source = nm.original_source
     ${whereClause}
     ORDER BY v.Opportunity_AUM DESC NULLS LAST
     LIMIT 1000
