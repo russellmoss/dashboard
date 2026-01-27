@@ -53,6 +53,7 @@ export function SGAHubContent() {
   const [closedLostRecords, setClosedLostRecords] = useState<ClosedLostRecord[]>([]);
   const [closedLostLoading, setClosedLostLoading] = useState(false);
   const [closedLostError, setClosedLostError] = useState<string | null>(null);
+  const [showAllClosedLost, setShowAllClosedLost] = useState(false);
   
   // Re-Engagement state
   const [reEngagementOpportunities, setReEngagementOpportunities] = useState<ReEngagementOpportunity[]>([]);
@@ -117,18 +118,24 @@ export function SGAHubContent() {
   };
   
   // Fetch closed lost records
-  const fetchClosedLostRecords = async () => {
+  const fetchClosedLostRecords = async (showAll: boolean = showAllClosedLost) => {
     try {
       setClosedLostLoading(true);
       setClosedLostError(null);
-      
-      const response = await dashboardApi.getClosedLostRecords();
+
+      const response = await dashboardApi.getClosedLostRecords(undefined, undefined, showAll);
       setClosedLostRecords(response.records);
     } catch (err) {
       setClosedLostError(handleApiError(err));
     } finally {
       setClosedLostLoading(false);
     }
+  };
+
+  // Handle toggle for showing all closed lost records
+  const handleToggleShowAllClosedLost = (showAll: boolean) => {
+    setShowAllClosedLost(showAll);
+    fetchClosedLostRecords(showAll);
   };
   
   // Fetch re-engagement opportunities
@@ -689,6 +696,8 @@ export function SGAHubContent() {
             reEngagementLoading={reEngagementLoading}
             onClosedLostRecordClick={handleClosedLostRecordClick}
             onReEngagementClick={handleReEngagementClick}
+            showAllRecords={showAllClosedLost}
+            onToggleShowAll={handleToggleShowAllClosedLost}
           />
         </>
       )}

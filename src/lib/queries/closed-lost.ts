@@ -15,6 +15,7 @@ interface RawClosedLostResult {
   id: string; // Full_Opportunity_ID__c
   primary_key: string | null; // primary_key from vw_funnel_master (may be null if JOIN fails)
   opp_name: string | null;
+  sga_name: string | null; // SGA name from the view
   lead_id: string | null; // Full_prospect_id__c
   opportunity_id: string; // Full_Opportunity_ID__c
   lead_url: string | null; // Constructed in query
@@ -55,30 +56,35 @@ function normalizeTimeBucket(bucket: ClosedLostTimeBucket): string[] {
 }
 
 /**
- * Get closed lost records for a specific SGA
- * @param sgaName - Exact SGA name (from user.name, matches sga_name in view)
+ * Get closed lost records for a specific SGA or all SGAs
+ * @param sgaName - Exact SGA name (from user.name, matches sga_name in view). Pass null to get all records.
  * @param timeBuckets - Optional array of time buckets to filter by ('all' means no filter)
  */
 const _getClosedLostRecords = async (
-  sgaName: string,
+  sgaName: string | null,
   timeBuckets?: ClosedLostTimeBucket[]
 ): Promise<ClosedLostRecord[]> => {
   // Separate 180+ from other buckets (view only has 30-179 days)
   const has180Plus = timeBuckets && timeBuckets.includes('180+');
-  const otherBuckets = timeBuckets && timeBuckets.length > 0 && !timeBuckets.includes('all') 
+  const otherBuckets = timeBuckets && timeBuckets.length > 0 && !timeBuckets.includes('all')
     ? timeBuckets.filter(b => b !== '180+')
     : undefined;
-  
+
   const results: RawClosedLostResult[] = [];
-  
+
   // Query view for 30-179 days (if other buckets are selected or all buckets)
   if (!has180Plus || (otherBuckets && otherBuckets.length > 0)) {
-    const conditions: string[] = [`sga_name = @sgaName`];
-    const params: Record<string, any> = { 
-      sgaName,
+    const conditions: string[] = [];
+    const params: Record<string, any> = {
       reEngagementRecordType: RE_ENGAGEMENT_RECORD_TYPE,
     };
-    
+
+    // Only filter by SGA if sgaName is provided
+    if (sgaName) {
+      conditions.push(`sga_name = @sgaName`);
+      params.sgaName = sgaName;
+    }
+
     // Handle time bucket filtering
     if (otherBuckets && otherBuckets.length > 0) {
       // Flatten all possible bucket values
@@ -86,25 +92,26 @@ const _getClosedLostRecords = async (
       for (const bucket of otherBuckets) {
         allBucketValues.push(...normalizeTimeBucket(bucket));
       }
-      
+
       if (allBucketValues.length > 0) {
         // Use IN with UNNEST for array parameter
         conditions.push('time_since_last_contact_bucket IN UNNEST(@timeBuckets)');
         params.timeBuckets = allBucketValues;
       }
     }
-    
+
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    
+
     const query = `
       SELECT DISTINCT
         cl.Full_Opportunity_ID__c as id,
         ANY_VALUE(v.primary_key) as primary_key,
         cl.opp_name,
+        cl.sga_name,
         cl.Full_prospect_id__c as lead_id,
         cl.Full_Opportunity_ID__c as opportunity_id,
-        CASE 
-          WHEN cl.Full_prospect_id__c IS NOT NULL 
+        CASE
+          WHEN cl.Full_prospect_id__c IS NOT NULL
           THEN CONCAT('https://savvywealth.lightning.force.com/lightning/r/Lead/', cl.Full_prospect_id__c, '/view')
           ELSE NULL
         END as lead_url,
@@ -130,7 +137,7 @@ const _getClosedLostRecords = async (
           ELSE NULL
         END as time_since_closed_lost_bucket
       FROM \`${CLOSED_LOST_VIEW}\` cl
-      LEFT JOIN \`${FULL_TABLE}\` v 
+      LEFT JOIN \`${FULL_TABLE}\` v
         ON cl.Full_Opportunity_ID__c = v.Full_Opportunity_ID__c
       LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.Opportunity\` o
         ON cl.Full_Opportunity_ID__c = o.Full_Opportunity_ID__c
@@ -145,6 +152,7 @@ const _getClosedLostRecords = async (
       GROUP BY
         cl.Full_Opportunity_ID__c,
         cl.opp_name,
+        cl.sga_name,
         cl.Full_prospect_id__c,
         cl.salesforce_url,
         cl.last_contact_date,
@@ -155,13 +163,22 @@ const _getClosedLostRecords = async (
         cl.time_since_last_contact_bucket
       ORDER BY cl.closed_lost_date DESC, cl.last_contact_date DESC
     `;
-    
+
     const viewResults = await runQuery<RawClosedLostResult>(query, params);
     results.push(...viewResults);
   }
   
   // Query base tables for 180+ days if needed
   if (has180Plus) {
+    // Build the SGA filter clause conditionally
+    const sgaFilterClause = sgaName
+      ? `WHERE
+            CASE
+              WHEN s.SGA_Owner_Name__c = 'Savvy Marketing' THEN u.Name
+              ELSE s.SGA_Owner_Name__c
+            END = @sgaName`
+      : '';
+
     // Use the same query structure as the view but for 180+ days
     const query180Plus = `
       WITH
@@ -213,20 +230,17 @@ const _getClosedLostRecords = async (
             s.Full_Opportunity_ID__c
           FROM sql_opps AS s
           LEFT JOIN sga_opp_user AS u ON s.opportunity_sga_id = u.Id
-          WHERE
-            CASE
-              WHEN s.SGA_Owner_Name__c = 'Savvy Marketing' THEN u.Name
-              ELSE s.SGA_Owner_Name__c
-            END = @sgaName
+          ${sgaFilterClause}
         )
       SELECT DISTINCT
         w.Full_Opportunity_ID__c as id,
         ANY_VALUE(v.primary_key) as primary_key,
         w.opp_name,
+        w.sga_name,
         w.Full_prospect_id__c as lead_id,
         w.Full_Opportunity_ID__c as opportunity_id,
-        CASE 
-          WHEN w.Full_prospect_id__c IS NOT NULL 
+        CASE
+          WHEN w.Full_prospect_id__c IS NOT NULL
           THEN CONCAT('https://savvywealth.lightning.force.com/lightning/r/Lead/', w.Full_prospect_id__c, '/view')
           ELSE NULL
         END as lead_url,
@@ -252,7 +266,7 @@ const _getClosedLostRecords = async (
           ELSE NULL
         END as time_since_closed_lost_bucket
       FROM with_sga_name w
-      LEFT JOIN \`${FULL_TABLE}\` v 
+      LEFT JOIN \`${FULL_TABLE}\` v
         ON w.Full_Opportunity_ID__c = v.Full_Opportunity_ID__c
       LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.Opportunity\` o
         ON w.Full_Opportunity_ID__c = o.Full_Opportunity_ID__c
@@ -266,6 +280,7 @@ const _getClosedLostRecords = async (
       GROUP BY
         w.Full_Opportunity_ID__c,
         w.opp_name,
+        w.sga_name,
         w.Full_prospect_id__c,
         w.salesforce_url,
         w.last_contact_date,
@@ -275,11 +290,13 @@ const _getClosedLostRecords = async (
         w.closed_lost_details
       ORDER BY w.closed_lost_date DESC, w.last_contact_date DESC
     `;
-    
-    const params180Plus: Record<string, any> = { 
-      sgaName,
+
+    const params180Plus: Record<string, any> = {
       reEngagementRecordType: RE_ENGAGEMENT_RECORD_TYPE,
     };
+    if (sgaName) {
+      params180Plus.sgaName = sgaName;
+    }
     const results180Plus = await runQuery<RawClosedLostResult>(query180Plus, params180Plus);
     results.push(...results180Plus);
   }
@@ -358,5 +375,6 @@ function transformClosedLostRecord(row: RawClosedLostResult): ClosedLostRecord {
     daysSinceContact: toNumber(row.days_since_contact),
     daysSinceClosedLost: toNumber(row.days_since_closed_lost),
     timeSinceClosedLostBucket: toString(row.time_since_closed_lost_bucket) || 'Unknown',
+    sgaName: row.sga_name ? toString(row.sga_name) : undefined,
   };
 }

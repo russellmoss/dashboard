@@ -9,13 +9,15 @@ import { ExternalLink, ChevronUp, ChevronDown } from 'lucide-react';
 import { formatDate } from '@/lib/utils/format-helpers';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
-type SortColumn = 'oppName' | 'closedLostDate' | 'daysSinceClosedLost' | 'closedLostReason' | 'closedLostTimeBucket' | null;
+type SortColumn = 'oppName' | 'closedLostDate' | 'daysSinceClosedLost' | 'closedLostReason' | 'closedLostTimeBucket' | 'sgaName' | null;
 type SortDirection = 'asc' | 'desc';
 
 interface ClosedLostTableProps {
   records: ClosedLostRecord[];
   isLoading?: boolean;
   onRecordClick?: (record: ClosedLostRecord) => void;
+  showAllRecords?: boolean;
+  onToggleShowAll?: (showAll: boolean) => void;
 }
 
 /**
@@ -79,10 +81,10 @@ function getRowColorClass(bucket: string, index: number): string {
  */
 function sortRecords(records: ClosedLostRecord[], sortColumn: SortColumn, sortDirection: SortDirection): ClosedLostRecord[] {
   if (!sortColumn) return records;
-  
+
   return [...records].sort((a, b) => {
     let comparison = 0;
-    
+
     switch (sortColumn) {
       case 'oppName':
         comparison = (a.oppName || '').toLowerCase().localeCompare((b.oppName || '').toLowerCase());
@@ -101,13 +103,16 @@ function sortRecords(records: ClosedLostRecord[], sortColumn: SortColumn, sortDi
       case 'closedLostTimeBucket':
         comparison = (a.timeSinceClosedLostBucket || '').toLowerCase().localeCompare((b.timeSinceClosedLostBucket || '').toLowerCase());
         break;
+      case 'sgaName':
+        comparison = (a.sgaName || '').toLowerCase().localeCompare((b.sgaName || '').toLowerCase());
+        break;
     }
-    
+
     return sortDirection === 'asc' ? comparison : -comparison;
   });
 }
 
-export function ClosedLostTable({ records, isLoading = false, onRecordClick }: ClosedLostTableProps) {
+export function ClosedLostTable({ records, isLoading = false, onRecordClick, showAllRecords = false, onToggleShowAll }: ClosedLostTableProps) {
   const [sortColumn, setSortColumn] = useState<SortColumn>('daysSinceClosedLost'); // Default sort by days since closed lost
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc'); // Default descending (most urgent first)
   const [selectedClosedLostBuckets, setSelectedClosedLostBuckets] = useState<Set<string>>(new Set()); // Empty = show all (Days Since Closed Lost)
@@ -216,10 +221,38 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick }: C
   return (
     <Card className="mb-6 dark:bg-gray-800 dark:border-gray-700">
       <div className="mb-4">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-          Closed Lost Follow-Up Records
-        </h3>
-        
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Closed Lost Follow-Up Records
+          </h3>
+
+          {/* My Records / All Records Toggle */}
+          {onToggleShowAll && (
+            <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+              <button
+                onClick={() => onToggleShowAll(false)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  !showAllRecords
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                My Records
+              </button>
+              <button
+                onClick={() => onToggleShowAll(true)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  showAllRecords
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                All Records
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* Time Bucket Filter */}
         {availableClosedLostBuckets.length > 0 && (
           <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -257,6 +290,9 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick }: C
           <TableHead>
             <TableRow>
               <SortableHeader column="oppName">Opportunity Name</SortableHeader>
+              {showAllRecords && (
+                <SortableHeader column="sgaName">SGA</SortableHeader>
+              )}
               <SortableHeader column="closedLostDate">Closed Lost Date</SortableHeader>
               <SortableHeader column="daysSinceClosedLost" alignRight>Days Since Closed Lost</SortableHeader>
               <SortableHeader column="closedLostReason">Closed Lost Reason</SortableHeader>
@@ -267,15 +303,15 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick }: C
           <TableBody>
             {sortedRecords.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-gray-500 dark:text-gray-400 py-8">
+                <TableCell colSpan={showAllRecords ? 7 : 6} className="text-center text-gray-500 dark:text-gray-400 py-8">
                   {selectedClosedLostBuckets.size > 0
-                    ? 'No records found matching selected time buckets' 
+                    ? 'No records found matching selected time buckets'
                     : 'No closed lost records found'}
                 </TableCell>
               </TableRow>
             ) : (
               sortedRecords.map((record, idx) => (
-                <TableRow 
+                <TableRow
                   key={record.id}
                   className={`${getRowColorClass(record.timeSinceClosedLostBucket, idx)} transition-colors ${
                     onRecordClick ? 'cursor-pointer' : ''
@@ -285,6 +321,11 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick }: C
                   <TableCell className="font-medium border-r border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100">
                     {record.oppName || 'Unknown'}
                   </TableCell>
+                  {showAllRecords && (
+                    <TableCell className="border-r border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300">
+                      {record.sgaName || 'Unknown'}
+                    </TableCell>
+                  )}
                   <TableCell className="text-sm border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
                     {formatDate(record.closedLostDate) || '-'}
                   </TableCell>
@@ -295,8 +336,8 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick }: C
                     {record.closedLostReason || 'Unknown'}
                   </TableCell>
                   <TableCell className="border-r border-gray-200 dark:border-gray-700">
-                    <Badge 
-                      size="xs" 
+                    <Badge
+                      size="xs"
                       className={getTimeBucketColor(record.timeSinceClosedLostBucket)}
                     >
                       {record.timeSinceClosedLostBucket || 'Unknown'}

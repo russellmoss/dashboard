@@ -13,6 +13,10 @@ export const dynamic = 'force-dynamic';
 /**
  * GET /api/sga-hub/closed-lost
  * Get closed lost records for the logged-in SGA or specified SGA (admin/manager only)
+ * Query params:
+ * - userEmail: (admin/manager only) View a specific user's records
+ * - showAll: (any role) When 'true', returns all records with SGA column
+ * - timeBuckets: Comma-separated time bucket filters
  */
 export async function GET(request: NextRequest) {
   try {
@@ -21,55 +25,61 @@ export async function GET(request: NextRequest) {
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
+
     const permissions = await getUserPermissions(session.user.email);
-    
+
     // Check role permissions
     if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
-    
+
     // Parse query params
     const { searchParams } = new URL(request.url);
     const targetUserEmail = searchParams.get('userEmail'); // Admin/manager only
     const timeBucketsParam = searchParams.get('timeBuckets'); // Comma-separated or single value
-    
+    const showAll = searchParams.get('showAll') === 'true'; // Toggle for all records
+
     // Determine which user's records to fetch
-    let userEmail = session.user.email;
-    
-    if (targetUserEmail) {
+    let sgaName: string | null = null;
+
+    if (showAll) {
+      // Show all records - pass null to query to skip SGA filter
+      sgaName = null;
+    } else if (targetUserEmail) {
       // Only admin/manager can view other users' records
       if (!['admin', 'manager'].includes(permissions.role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
-      userEmail = targetUserEmail;
-    } else {
-      // SGA role can only view own records
-      if (permissions.role === 'sga' && userEmail !== session.user.email) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      const targetUser = await prisma.user.findUnique({
+        where: { email: targetUserEmail },
+        select: { name: true },
+      });
+      if (!targetUser) {
+        return NextResponse.json({ error: 'User not found' }, { status: 404 });
       }
+      sgaName = targetUser.name;
+    } else {
+      // Get current user's name for filtering
+      const user = await prisma.user.findUnique({
+        where: { email: session.user.email },
+        select: { name: true },
+      });
+      if (!user) {
+        return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      }
+      sgaName = user.name;
     }
-    
-    // Get user to retrieve name for BigQuery filter
-    const user = await prisma.user.findUnique({
-      where: { email: userEmail },
-      select: { name: true },
-    });
-    
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-    
+
     // Parse timeBuckets parameter
     let timeBuckets: ClosedLostTimeBucket[] | undefined;
-    
+
     if (timeBucketsParam) {
       // Handle comma-separated string or single value
       const buckets = timeBucketsParam.split(',').map(b => b.trim()) as ClosedLostTimeBucket[];
       // Validate buckets are valid ClosedLostTimeBucket values
       const validBuckets: ClosedLostTimeBucket[] = ['30-60', '60-90', '90-120', '120-150', '150-180', '180+', 'all'];
       timeBuckets = buckets.filter(b => validBuckets.includes(b));
-      
+
       // If no valid buckets, default to all
       if (timeBuckets.length === 0) {
         timeBuckets = ['30-60', '60-90', '90-120', '120-150', '150-180', '180+'];
@@ -78,12 +88,12 @@ export async function GET(request: NextRequest) {
       // Default to all buckets if not specified
       timeBuckets = ['30-60', '60-90', '90-120', '120-150', '150-180', '180+'];
     }
-    
-    // Fetch closed lost records
-    const records = await getClosedLostRecords(user.name, timeBuckets);
-    
+
+    // Fetch closed lost records (pass null for sgaName to get all records)
+    const records = await getClosedLostRecords(sgaName, timeBuckets);
+
     return NextResponse.json({ records });
-    
+
   } catch (error) {
     console.error('[API] Error fetching closed lost records:', error);
     return NextResponse.json(

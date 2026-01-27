@@ -14,6 +14,8 @@ interface ClosedLostFollowUpTabsProps {
   reEngagementLoading?: boolean;
   onClosedLostRecordClick?: (record: ClosedLostRecord) => void;
   onReEngagementClick?: (opportunity: ReEngagementOpportunity) => void;
+  showAllRecords?: boolean;
+  onToggleShowAll?: (showAll: boolean) => void;
 }
 
 type TabType = 'closed-lost' | 're-engagement';
@@ -25,6 +27,8 @@ export function ClosedLostFollowUpTabs({
   reEngagementLoading = false,
   onClosedLostRecordClick,
   onReEngagementClick,
+  showAllRecords = false,
+  onToggleShowAll,
 }: ClosedLostFollowUpTabsProps) {
   const [activeTab, setActiveTab] = useState<TabType>('closed-lost');
   
@@ -78,6 +82,8 @@ export function ClosedLostFollowUpTabs({
           records={closedLostRecords}
           isLoading={closedLostLoading}
           onRecordClick={onClosedLostRecordClick}
+          showAllRecords={showAllRecords}
+          onToggleShowAll={onToggleShowAll}
         />
       )}
       

@@ -174,6 +174,7 @@ export interface ClosedLostRecord {
   daysSinceContact: number;
   daysSinceClosedLost: number;
   timeSinceClosedLostBucket: string;
+  sgaName?: string; // SGA name (included when viewing all records)
 }
 
 /** Re-Engagement opportunity record */
