@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { X, ExternalLink } from 'lucide-react';
 import {
   Table,
@@ -21,6 +21,7 @@ import {
   DrillDownRecord
 } from '@/types/drill-down';
 import { formatDate } from '@/lib/utils/format-helpers';
+import { ExportButton } from '@/components/ui/ExportButton';
 
 // Type guards
 function isInitialCallRecord(record: DrillDownRecord): record is InitialCallRecord {
@@ -89,6 +90,7 @@ export function MetricDrillDownModal({
   loading,
   error,
   onRecordClick,
+  canExport = false,
 }: MetricDrillDownModalProps) {
   // Handle ESC key
   useEffect(() => {
@@ -108,6 +110,52 @@ export function MetricDrillDownModal({
       document.body.style.overflow = 'unset';
     };
   }, [isOpen, onClose]);
+
+  // Prepare data for CSV export
+  const exportData = useMemo(() => {
+    if (metricType === 'initial-calls') {
+      return (records as InitialCallRecord[]).map(record => ({
+        'Advisor Name': record.advisorName,
+        'Initial Call Date': formatDate(record.initialCallDate) || '',
+        'Source': record.source,
+        'Channel': record.channel,
+        'Lead Score': record.leadScoreTier || '',
+        'Stage': record.tofStage,
+        'Salesforce URL': record.leadUrl || record.opportunityUrl || '',
+      }));
+    } else if (metricType === 'qualification-calls') {
+      return (records as QualificationCallRecord[]).map(record => ({
+        'Advisor Name': record.advisorName,
+        'Qual Call Date': formatDate(record.qualificationCallDate) || '',
+        'Source': record.source,
+        'Channel': record.channel,
+        'AUM': record.aumFormatted,
+        'Stage': record.tofStage,
+        'Salesforce URL': record.leadUrl || record.opportunityUrl || '',
+      }));
+    } else {
+      return (records as SQODrillDownRecord[]).map(record => ({
+        'Advisor Name': record.advisorName,
+        'SQO Date': formatDate(record.sqoDate) || '',
+        'Source': record.source,
+        'Channel': record.channel,
+        'AUM': record.aumFormatted,
+        'Tier': record.aumTier || '',
+        'Stage': record.stageName || record.tofStage,
+        'Salesforce URL': record.opportunityUrl || record.leadUrl || '',
+      }));
+    }
+  }, [records, metricType]);
+
+  // Generate filename from title
+  const exportFilename = useMemo(() => {
+    const sanitizedTitle = title
+      .replace(/[^a-z0-9]/gi, '-')
+      .toLowerCase()
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+    return `drilldown-${sanitizedTitle}`;
+  }, [title]);
 
   if (!isOpen) return null;
 
@@ -154,6 +202,9 @@ export function MetricDrillDownModal({
             <span className="text-sm text-gray-500 dark:text-gray-400">
               {loading ? 'Loading...' : `${records.length} records`}
             </span>
+            {canExport && (
+              <ExportButton data={exportData} filename={exportFilename} />
+            )}
             <button
               onClick={onClose}
               className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"

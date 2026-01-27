@@ -548,6 +548,7 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
         loading={drillDownLoading}
         error={drillDownError}
         onRecordClick={handleRecordClick}
+        canExport={true}
       />
 
       {/* Record Detail Modal */}

@@ -57,6 +57,7 @@ export interface MetricDrillDownModalProps {
   loading: boolean;
   error: string | null;
   onRecordClick: (primaryKey: string) => void;
+  canExport?: boolean;
 }
 
 // Props for ClickableMetricValue
