@@ -2,12 +2,13 @@
 
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Badge } from '@tremor/react';
 import { ClosedLostRecord } from '@/types/sga-hub';
 import { ExternalLink, ChevronUp, ChevronDown } from 'lucide-react';
 import { formatDate } from '@/lib/utils/format-helpers';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { ClosedLostFilters } from './ClosedLostFilters';
 
 type SortColumn = 'oppName' | 'closedLostDate' | 'daysSinceClosedLost' | 'closedLostReason' | 'closedLostTimeBucket' | 'sgaName' | null;
 type SortDirection = 'asc' | 'desc';
@@ -115,10 +116,24 @@ function sortRecords(records: ClosedLostRecord[], sortColumn: SortColumn, sortDi
 export function ClosedLostTable({ records, isLoading = false, onRecordClick, showAllRecords = false, onToggleShowAll }: ClosedLostTableProps) {
   const [sortColumn, setSortColumn] = useState<SortColumn>('daysSinceClosedLost'); // Default sort by days since closed lost
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc'); // Default descending (most urgent first)
-  const [selectedClosedLostBuckets, setSelectedClosedLostBuckets] = useState<Set<string>>(new Set()); // Empty = show all (Days Since Closed Lost)
   
-  // Available time buckets from records (Days Since Closed Lost)
-  const availableClosedLostBuckets = useMemo(() => {
+  // Filter state (only used in admin view)
+  const [selectedSGAs, setSelectedSGAs] = useState<string[]>([]);
+  const [selectedTimeBuckets, setSelectedTimeBuckets] = useState<string[]>([]);
+  const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
+  
+  // Extract unique values from records for initial filter state
+  const availableSGAs = useMemo(() => {
+    const sgas = new Set<string>();
+    records.forEach(record => {
+      if (record.sgaName) {
+        sgas.add(record.sgaName);
+      }
+    });
+    return Array.from(sgas).sort();
+  }, [records]);
+
+  const availableTimeBuckets = useMemo(() => {
     const buckets = new Set<string>();
     records.forEach(record => {
       if (record.timeSinceClosedLostBucket) {
@@ -127,20 +142,63 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick, sho
     });
     return Array.from(buckets).sort();
   }, [records]);
+
+  const availableReasons = useMemo(() => {
+    const reasons = new Set<string>();
+    records.forEach(record => {
+      if (record.closedLostReason) {
+        reasons.add(record.closedLostReason);
+      }
+    });
+    return Array.from(reasons).sort();
+  }, [records]);
+
+  // Initialize filters with all values selected by default (only in admin view)
+  useEffect(() => {
+    if (showAllRecords) {
+      if (selectedSGAs.length === 0 && availableSGAs.length > 0) {
+        setSelectedSGAs([...availableSGAs]);
+      }
+      if (selectedTimeBuckets.length === 0 && availableTimeBuckets.length > 0) {
+        setSelectedTimeBuckets([...availableTimeBuckets]);
+      }
+      if (selectedReasons.length === 0 && availableReasons.length > 0) {
+        setSelectedReasons([...availableReasons]);
+      }
+    }
+  }, [showAllRecords, availableSGAs, availableTimeBuckets, availableReasons, selectedSGAs.length, selectedTimeBuckets.length, selectedReasons.length]);
   
-  // Filter records by selected buckets
+  // Filter records by selected filters (only in admin view)
   const filteredRecords = useMemo(() => {
+    if (!showAllRecords) {
+      return records; // No filtering for non-admin view
+    }
+
     let filtered = records;
     
-    // Filter by Days Since Closed Lost
-    if (selectedClosedLostBuckets.size > 0) {
+    // Filter by SGA Name
+    if (selectedSGAs.length > 0) {
       filtered = filtered.filter(record => 
-        record.timeSinceClosedLostBucket && selectedClosedLostBuckets.has(record.timeSinceClosedLostBucket)
+        record.sgaName && selectedSGAs.includes(record.sgaName)
+      );
+    }
+    
+    // Filter by Days Since Closed Lost Time Bucket
+    if (selectedTimeBuckets.length > 0) {
+      filtered = filtered.filter(record => 
+        record.timeSinceClosedLostBucket && selectedTimeBuckets.includes(record.timeSinceClosedLostBucket)
+      );
+    }
+    
+    // Filter by Closed Lost Reason
+    if (selectedReasons.length > 0) {
+      filtered = filtered.filter(record => 
+        record.closedLostReason && selectedReasons.includes(record.closedLostReason)
       );
     }
     
     return filtered;
-  }, [records, selectedClosedLostBuckets]);
+  }, [records, showAllRecords, selectedSGAs, selectedTimeBuckets, selectedReasons]);
   
   // Sort filtered records
   const sortedRecords = useMemo(() => {
@@ -165,17 +223,15 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick, sho
     }
   };
   
-  // Toggle closed lost bucket filter
-  const toggleClosedLostBucket = (bucket: string) => {
-    setSelectedClosedLostBuckets(prev => {
-      const next = new Set(prev);
-      if (next.has(bucket)) {
-        next.delete(bucket);
-      } else {
-        next.add(bucket);
-      }
-      return next;
-    });
+  // Handle filter apply
+  const handleApplyFilters = (filters: {
+    sgas: string[];
+    timeBuckets: string[];
+    reasons: string[];
+  }) => {
+    setSelectedSGAs(filters.sgas);
+    setSelectedTimeBuckets(filters.timeBuckets);
+    setSelectedReasons(filters.reasons);
   };
   
   // Sortable header cell component
@@ -219,71 +275,52 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick, sho
   }
   
   return (
-    <Card className="mb-6 dark:bg-gray-800 dark:border-gray-700">
-      <div className="mb-4">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Closed Lost Follow-Up Records
-          </h3>
+    <>
+      {/* Filters (only shown in admin view) */}
+      {showAllRecords && (
+        <ClosedLostFilters
+          records={records}
+          selectedSGAs={selectedSGAs}
+          selectedTimeBuckets={selectedTimeBuckets}
+          selectedReasons={selectedReasons}
+          onApply={handleApplyFilters}
+        />
+      )}
 
-          {/* My Records / All Records Toggle */}
-          {onToggleShowAll && (
-            <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-              <button
-                onClick={() => onToggleShowAll(false)}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  !showAllRecords
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                }`}
-              >
-                My Records
-              </button>
-              <button
-                onClick={() => onToggleShowAll(true)}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  showAllRecords
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                }`}
-              >
-                All Records
-              </button>
-            </div>
-          )}
-        </div>
+      <Card className="mb-6 dark:bg-gray-800 dark:border-gray-700">
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Closed Lost Follow-Up Records
+            </h3>
 
-        {/* Time Bucket Filter */}
-        {availableClosedLostBuckets.length > 0 && (
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <span className="text-sm text-gray-600 dark:text-gray-400 font-medium">Filter by Days Since Closed Lost:</span>
-            {availableClosedLostBuckets.map(bucket => {
-              const isSelected = selectedClosedLostBuckets.size === 0 || selectedClosedLostBuckets.has(bucket);
-              return (
+            {/* My Records / All Records Toggle */}
+            {onToggleShowAll && (
+              <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
                 <button
-                  key={bucket}
-                  onClick={() => toggleClosedLostBucket(bucket)}
-                  className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                    isSelected
-                      ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border border-blue-300 dark:border-blue-700'
-                      : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  onClick={() => onToggleShowAll(false)}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    !showAllRecords
+                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                   }`}
                 >
-                  {bucket}
+                  My Records
                 </button>
-              );
-            })}
-            {selectedClosedLostBuckets.size > 0 && (
-              <button
-                onClick={() => setSelectedClosedLostBuckets(new Set())}
-                className="px-3 py-1 rounded-md text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline"
-              >
-                Clear filters
-              </button>
+                <button
+                  onClick={() => onToggleShowAll(true)}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    showAllRecords
+                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                  }`}
+                >
+                  All Records
+                </button>
+              </div>
             )}
           </div>
-        )}
-      </div>
+        </div>
       
       <div className="overflow-x-auto">
         <Table>
@@ -304,8 +341,8 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick, sho
             {sortedRecords.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={showAllRecords ? 7 : 6} className="text-center text-gray-500 dark:text-gray-400 py-8">
-                  {selectedClosedLostBuckets.size > 0
-                    ? 'No records found matching selected time buckets'
+                  {showAllRecords && (selectedSGAs.length > 0 || selectedTimeBuckets.length > 0 || selectedReasons.length > 0)
+                    ? 'No records found matching selected filters'
                     : 'No closed lost records found'}
                 </TableCell>
               </TableRow>
@@ -381,7 +418,7 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick, sho
       {sortedRecords.length > 0 && (
         <div className="mt-4 text-sm text-gray-500 dark:text-gray-400">
           Showing {sortedRecords.length} record{sortedRecords.length !== 1 ? 's' : ''}
-          {selectedClosedLostBuckets.size > 0 && (
+          {showAllRecords && (selectedSGAs.length < availableSGAs.length || selectedTimeBuckets.length < availableTimeBuckets.length || selectedReasons.length < availableReasons.length) && (
             <span className="ml-2 text-blue-600 dark:text-blue-400">
               (filtered from {records.length} total)
             </span>
@@ -389,5 +426,6 @@ export function ClosedLostTable({ records, isLoading = false, onRecordClick, sho
         </div>
       )}
     </Card>
+    </>
   );
 }

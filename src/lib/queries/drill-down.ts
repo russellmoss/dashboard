@@ -92,6 +92,7 @@ function transformSQODrillDownRecord(raw: RawSQODrillDownRecord): SQODrillDownRe
     sqoDate: dateValue ? dateValue.split('T')[0] : '', // Extract YYYY-MM-DD part
     source: toString(raw.Original_source) || 'Unknown',
     channel: toString(raw.channel) || 'Other',
+    sgaName: raw.sga_name ? toString(raw.sga_name) : null,
     aum: aum,
     aumFormatted: aum ? formatCurrency(aum) : '-',
     underwrittenAum: underwrittenAum,
@@ -200,9 +201,10 @@ export const getQualificationCallsDrillDown = cachedQuery(
  * Get SQO drill-down records for a specific SGA and date range
  * Can be used for both weekly and quarterly views
  * Supports optional channel and source filters for leaderboard drill-down
+ * Supports team-level drill-down when sgaName is null (returns all SGAs)
  */
 const _getSQODrillDown = async (
-  sgaName: string,
+  sgaName: string | null,
   startDate: string,
   endDate: string,
   options?: {
@@ -225,6 +227,11 @@ const _getSQODrillDown = async (
     ? 'AND v.Original_source IN UNNEST(@sources)'
     : '';
 
+  // Build SGA filter clause (optional - if sgaName is null, don't filter by SGA)
+  const sgaFilter = sgaName !== null
+    ? 'AND COALESCE(COALESCE(sga_user.Name, v.Opp_SGA_Name__c), v.SGA_Owner_Name__c) = @sgaName'
+    : '';
+
   const query = `
     SELECT 
       v.primary_key,
@@ -235,6 +242,7 @@ const _getSQODrillDown = async (
         ? 'COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, \'Other\') as channel'
         : 'v.Channel_Grouping_Name as channel'
       },
+      COALESCE(COALESCE(sga_user.Name, v.Opp_SGA_Name__c), v.SGA_Owner_Name__c) as sga_name,
       v.Opportunity_AUM,
       v.Underwritten_AUM__c,
       v.aum_tier,
@@ -246,23 +254,27 @@ const _getSQODrillDown = async (
     ${useMappingTable ? `LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source` : ''}
     LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user
       ON v.Opp_SGA_Name__c = sga_user.Id
-    WHERE COALESCE(COALESCE(sga_user.Name, v.Opp_SGA_Name__c), v.SGA_Owner_Name__c) = @sgaName
-      AND v.is_sqo_unique = 1
+    WHERE v.is_sqo_unique = 1
       AND v.Date_Became_SQO__c IS NOT NULL
       AND v.recordtypeid = @recruitingRecordType
       AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
       AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(CONCAT(@endDate, ' 23:59:59'))
+      ${sgaFilter}
       ${channelFilter}
       ${sourceFilter}
     ORDER BY v.Date_Became_SQO__c DESC
   `;
 
   const params: Record<string, any> = {
-    sgaName,
     startDate,
     endDate,
     recruitingRecordType: RECRUITING_RECORD_TYPE,
   };
+
+  // Only add sgaName to params if it's not null
+  if (sgaName !== null) {
+    params.sgaName = sgaName;
+  }
 
   if (channels && channels.length > 0) {
     params.channels = channels;

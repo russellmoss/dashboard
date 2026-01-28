@@ -677,12 +677,14 @@ export function ExploreResults({ response, isLoading, error, streamingMessage, c
       });
     } else if (drillDownType === 'leaderboard' && context?.sgaName) {
       // Filter by SGA
-      additionalFilters.push({
-        dimension: 'sga',
-        operator: 'equals',
-        value: context.sgaName,
-      });
-      title = `${title} - ${context.sgaName}`;
+      if (context.sgaName) {
+        additionalFilters.push({
+          dimension: 'sga',
+          operator: 'equals',
+          value: context.sgaName,
+        });
+        title = `${title} - ${context.sgaName}`;
+      }
     }
 
     // Merge additional filters with existing filters

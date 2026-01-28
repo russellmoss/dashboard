@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const targetUserEmail = searchParams.get('userEmail');
     const sgaNameParam = searchParams.get('sgaName'); // For leaderboard drill-down
+    const teamLevel = searchParams.get('teamLevel') === 'true'; // For team-level drill-down (admin view)
     const weekStartDate = searchParams.get('weekStartDate');
     const weekEndDate = searchParams.get('weekEndDate');
     const quarter = searchParams.get('quarter');
@@ -42,9 +43,16 @@ export async function GET(request: NextRequest) {
     }
 
     // Determine SGA name to use for BigQuery filter
-    let sgaName: string;
+    let sgaName: string | null = null;
     
-    if (sgaNameParam) {
+    if (teamLevel) {
+      // Team-level drill-down: no SGA filter (returns all SQOs for team)
+      // Only admins/managers can access team-level drill-down
+      if (!['admin', 'manager'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      sgaName = null; // Explicitly set to null for team-level
+    } else if (sgaNameParam) {
       // If sgaName is provided (from leaderboard), use it directly
       // No permission check - everyone can view any SGA's SQOs
       sgaName = sgaNameParam;

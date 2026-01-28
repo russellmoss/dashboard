@@ -11,12 +11,17 @@ import {
   getAllSGAQuarterlyGoals,
 } from '@/lib/queries/quarterly-goals';
 import { getCurrentQuarter } from '@/lib/utils/sga-hub-helpers';
+import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/sga-hub/quarterly-goals
  * Get quarterly goals for the logged-in user or all SGAs (admin)
+ * 
+ * Supports two modes:
+ * 1. Legacy mode: quarter (string), allSGAs, userEmail
+ * 2. New mode: year, quarter (number), sgaNames (optional array)
  */
 export async function GET(request: NextRequest) {
   try {
@@ -27,14 +32,63 @@ export async function GET(request: NextRequest) {
     }
 
     const permissions = await getUserPermissions(session.user.email);
+    if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
 
     // Parse query params
     const { searchParams } = new URL(request.url);
+    const year = searchParams.get('year');
+    const quarterNum = searchParams.get('quarter');
+    const sgaNames = searchParams.getAll('sgaNames');
+    
+    // Legacy parameters
     const quarter = searchParams.get('quarter') || getCurrentQuarter();
     const targetUserEmail = searchParams.get('userEmail');
     const allSGAs = searchParams.get('allSGAs') === 'true'; // Admin only
 
-    // Admin: Get all SGAs' goals for a quarter
+    // NEW MODE: year and quarter (number) provided - return Record format
+    if (year && quarterNum && !isNaN(parseInt(quarterNum, 10))) {
+      const yearNum = parseInt(year, 10);
+      const quarterNumber = parseInt(quarterNum, 10);
+
+      if (isNaN(yearNum) || isNaN(quarterNumber) || quarterNumber < 1 || quarterNumber > 4) {
+        return NextResponse.json(
+          { error: 'Invalid year or quarter' },
+          { status: 400 }
+        );
+      }
+
+      const quarterStr = `${yearNum}-Q${quarterNumber}`;
+      
+      // Get all goals for the quarter
+      const goals = await getAllSGAQuarterlyGoals(quarterStr);
+      
+      // Get User records to map userEmail to name
+      const userEmails = goals.map(g => g.userEmail);
+      const users = await prisma.user.findMany({
+        where: { email: { in: userEmails } },
+        select: { email: true, name: true },
+      });
+      
+      const emailToNameMap = new Map(users.map(u => [u.email, u.name]));
+      
+      // Convert to Record format: sgaName -> sqoGoal
+      const goalsRecord: Record<string, number | null> = {};
+      goals.forEach(goal => {
+        const sgaName = emailToNameMap.get(goal.userEmail);
+        if (sgaName) {
+          // Filter by sgaNames if provided
+          if (sgaNames.length === 0 || sgaNames.includes(sgaName)) {
+            goalsRecord[sgaName] = goal.sqoGoal;
+          }
+        }
+      });
+      
+      return NextResponse.json({ goals: goalsRecord });
+    }
+
+    // LEGACY MODE: Admin: Get all SGAs' goals for a quarter
     if (allSGAs) {
       if (!['admin', 'manager'].includes(permissions.role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -44,7 +98,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ goals, quarter });
     }
 
-    // Get specific user's goals
+    // LEGACY MODE: Get specific user's goals
     let userEmail = session.user.email;
 
     if (targetUserEmail) {
@@ -52,10 +106,6 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
       userEmail = targetUserEmail;
-    } else {
-      if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-      }
     }
 
     // Get all quarters for user (for historical view)

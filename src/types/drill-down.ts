@@ -36,6 +36,7 @@ export interface QualificationCallRecord extends DrillDownRecordBase {
 // SQO Drill-Down Record
 export interface SQODrillDownRecord extends DrillDownRecordBase {
   sqoDate: string;
+  sgaName: string | null; // SGA name (null for single-SGA drill-downs, populated for team-level)
   aum: number | null;
   aumFormatted: string;
   underwrittenAum: number | null;
@@ -101,6 +102,7 @@ export interface RawSQODrillDownRecord {
   Date_Became_SQO__c: { value: string } | string | null;
   Original_source: string;
   channel: string | null;
+  sga_name: string | null;
   Opportunity_AUM: number | null;
   Underwritten_AUM__c: number | null;
   aum_tier: string | null;
@@ -114,7 +116,7 @@ export interface RawSQODrillDownRecord {
 export interface DrillDownContext {
   metricType: MetricType;
   title: string;
-  sgaName: string;
+  sgaName: string | null; // null for team-level drill-down
   weekStartDate?: string;
   weekEndDate?: string;
   quarter?: string;

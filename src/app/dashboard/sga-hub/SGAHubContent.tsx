@@ -13,6 +13,7 @@ import { QuarterlyProgressChart } from '@/components/sga-hub/QuarterlyProgressCh
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LeaderboardTable } from '@/components/sga-hub/LeaderboardTable';
 import { LeaderboardFilters } from '@/components/sga-hub/LeaderboardFilters';
+import { AdminQuarterlyProgressView } from '@/components/sga-hub/AdminQuarterlyProgressView';
 import { dashboardApi, handleApiError } from '@/lib/api-client';
 import { FilterOptions } from '@/types/filters';
 import { WeeklyGoal, WeeklyActual, WeeklyGoalWithActuals, ClosedLostRecord, ReEngagementOpportunity, QuarterlyProgress, SQODetail, LeaderboardEntry } from '@/types/sga-hub';
@@ -145,7 +146,9 @@ export function SGAHubContent() {
       setReEngagementLoading(true);
       setReEngagementError(null);
       
-      const response = await dashboardApi.getReEngagementOpportunities();
+      // Admins always see all records (showAll=true), SGAs see their own (showAll=false/undefined)
+      const showAll = isAdmin;
+      const response = await dashboardApi.getReEngagementOpportunities(showAll);
       setReEngagementOpportunities(response.opportunities);
     } catch (err) {
       setReEngagementError(handleApiError(err));
@@ -268,7 +271,7 @@ export function SGAHubContent() {
     if (activeTab === 'weekly-goals') {
       fetchWeeklyData();
     } else if (activeTab === 'closed-lost') {
-      fetchClosedLostRecords();
+      fetchClosedLostRecords(isAdmin ? true : showAllClosedLost);
       fetchReEngagementOpportunities();
     } else if (activeTab === 'quarterly-progress') {
       fetchQuarterlyProgress();
@@ -506,6 +509,78 @@ export function SGAHubContent() {
     }
   };
 
+  const handleAdminQuarterlySQOClick = async (
+    sgaName: string,
+    filters: { year: number; quarter: number; channels: string[]; sources: string[] }
+  ) => {
+    setDrillDownLoading(true);
+    setDrillDownError(null);
+    setDrillDownMetricType('sqos');
+    setDrillDownOpen(true);
+    
+    const title = `${sgaName} - SQOs - ${filters.year}-Q${filters.quarter}`;
+    setDrillDownTitle(title);
+    
+    setDrillDownContext({
+      metricType: 'sqos',
+      title,
+      sgaName: sgaName,
+      quarter: `${filters.year}-Q${filters.quarter}`,
+    });
+    
+    try {
+      const response = await dashboardApi.getSQODrillDown(
+        sgaName,
+        { quarter: `${filters.year}-Q${filters.quarter}` },
+        undefined, // userEmail
+        filters.channels.length > 0 ? filters.channels : undefined,
+        filters.sources.length > 0 ? filters.sources : undefined
+      );
+      setDrillDownRecords(response.records);
+    } catch (error) {
+      console.error('Error fetching SQO drill-down:', error);
+      setDrillDownError('Failed to load SQO records. Please try again.');
+    } finally {
+      setDrillDownLoading(false);
+    }
+  };
+
+  const handleAdminTeamSQOClick = async (
+    filters: { year: number; quarter: number; channels: string[]; sources: string[] }
+  ) => {
+    setDrillDownLoading(true);
+    setDrillDownError(null);
+    setDrillDownMetricType('sqos');
+    setDrillDownOpen(true);
+    
+    const title = `Team SQOs - ${filters.year}-Q${filters.quarter}`;
+    setDrillDownTitle(title);
+    
+    setDrillDownContext({
+      metricType: 'sqos',
+      title,
+      sgaName: null, // Team-level, no specific SGA
+      quarter: `${filters.year}-Q${filters.quarter}`,
+    });
+    
+    try {
+      const response = await dashboardApi.getSQODrillDown(
+        null, // null for team-level
+        { quarter: `${filters.year}-Q${filters.quarter}` },
+        undefined, // userEmail
+        filters.channels.length > 0 ? filters.channels : undefined,
+        filters.sources.length > 0 ? filters.sources : undefined,
+        true // teamLevel flag
+      );
+      setDrillDownRecords(response.records);
+    } catch (error) {
+      console.error('Error fetching team SQO drill-down:', error);
+      setDrillDownError('Failed to load SQO records. Please try again.');
+    } finally {
+      setDrillDownLoading(false);
+    }
+  };
+
   // Handle row click in drill-down modal
   const handleRecordClick = (primaryKey: string) => {
     setDrillDownOpen(false);
@@ -697,94 +772,103 @@ export function SGAHubContent() {
             reEngagementLoading={reEngagementLoading}
             onClosedLostRecordClick={handleClosedLostRecordClick}
             onReEngagementClick={handleReEngagementClick}
-            showAllRecords={showAllClosedLost}
-            onToggleShowAll={handleToggleShowAllClosedLost}
+            showAllRecords={isAdmin ? true : showAllClosedLost}
+            onToggleShowAll={isAdmin ? undefined : handleToggleShowAllClosedLost}
           />
         </>
       )}
       
       {activeTab === 'quarterly-progress' && (
-        <>
-          <div className="mb-4 flex items-end justify-between gap-4">
-            <div className="w-fit">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
-                Quarter
-              </label>
-              <select
-                value={selectedQuarter}
-                onChange={(e) => setSelectedQuarter(e.target.value)}
-                className="min-w-[140px] px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
-              >
-                {(() => {
-                  const quarters: string[] = [];
-                  const currentQuarterInfo = getQuarterInfo(getCurrentQuarter());
-                  let year = currentQuarterInfo.year;
-                  let quarterNum: 1 | 2 | 3 | 4 = currentQuarterInfo.quarterNumber;
-                  
-                  // Generate last 8 quarters
-                  for (let i = 0; i < 8; i++) {
-                    const quarter = `${year}-Q${quarterNum}`;
-                    const info = getQuarterInfo(quarter);
-                    quarters.push(quarter);
-                    if (quarterNum === 1) {
-                      quarterNum = 4;
-                      year--;
-                    } else {
-                      quarterNum = (quarterNum - 1) as 1 | 2 | 3 | 4;
+        isAdmin ? (
+          // Admin view: Show AdminQuarterlyProgressView
+          <AdminQuarterlyProgressView
+            onSQOClick={handleAdminQuarterlySQOClick}
+            onTeamSQOClick={handleAdminTeamSQOClick}
+          />
+        ) : (
+          // SGA view: Show existing quarterly progress (UNCHANGED)
+          <>
+            <div className="mb-4 flex items-end justify-between gap-4">
+              <div className="w-fit">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+                  Quarter
+                </label>
+                <select
+                  value={selectedQuarter}
+                  onChange={(e) => setSelectedQuarter(e.target.value)}
+                  className="min-w-[140px] px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
+                >
+                  {(() => {
+                    const quarters: string[] = [];
+                    const currentQuarterInfo = getQuarterInfo(getCurrentQuarter());
+                    let year = currentQuarterInfo.year;
+                    let quarterNum: 1 | 2 | 3 | 4 = currentQuarterInfo.quarterNumber;
+                    
+                    // Generate last 8 quarters
+                    for (let i = 0; i < 8; i++) {
+                      const quarter = `${year}-Q${quarterNum}`;
+                      const info = getQuarterInfo(quarter);
+                      quarters.push(quarter);
+                      if (quarterNum === 1) {
+                        quarterNum = 4;
+                        year--;
+                      } else {
+                        quarterNum = (quarterNum - 1) as 1 | 2 | 3 | 4;
+                      }
                     }
-                  }
-                  
-                  return quarters.map(q => {
-                    const info = getQuarterInfo(q);
-                    return (
-                      <option key={q} value={q}>
-                        {info.label}
-                      </option>
-                    );
-                  });
-                })()}
-              </select>
+                    
+                    return quarters.map(q => {
+                      const info = getQuarterInfo(q);
+                      return (
+                        <option key={q} value={q}>
+                          {info.label}
+                        </option>
+                      );
+                    });
+                  })()}
+                </select>
+              </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={Download}
+                onClick={() => {
+                  const allProgress = historicalProgress.length > 0 
+                    ? historicalProgress 
+                    : (quarterlyProgress ? [quarterlyProgress] : []);
+                  exportQuarterlyProgressCSV(allProgress, sgaName);
+                }}
+                disabled={!quarterlyProgress && historicalProgress.length === 0}
+              >
+                Export CSV
+              </Button>
             </div>
-            <Button
-              size="sm"
-              variant="secondary"
-              icon={Download}
-              onClick={() => {
-                const allProgress = historicalProgress.length > 0 
-                  ? historicalProgress 
-                  : (quarterlyProgress ? [quarterlyProgress] : []);
-                exportQuarterlyProgressCSV(allProgress, sgaName);
-              }}
-              disabled={!quarterlyProgress && historicalProgress.length === 0}
-            >
-              Export CSV
-            </Button>
-          </div>
-          
-          {quarterlyError && (
-            <Card className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-              <Text className="text-red-600 dark:text-red-400">{quarterlyError}</Text>
-            </Card>
-          )}
-          
-          {quarterlyProgress && (
-            <QuarterlyProgressCard
-              progress={quarterlyProgress}
-              onSQOClick={handleQuarterlySQOClick}
+            
+            {quarterlyError && (
+              <Card className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                <Text className="text-red-600 dark:text-red-400">{quarterlyError}</Text>
+              </Card>
+            )}
+            
+            {quarterlyProgress && (
+              <QuarterlyProgressCard
+                progress={quarterlyProgress}
+                onSQOClick={handleQuarterlySQOClick}
+              />
+            )}
+            
+            <QuarterlyProgressChart
+              progressData={historicalProgress}
+              isLoading={quarterlyLoading}
             />
-          )}
-          
-          <QuarterlyProgressChart
-            progressData={historicalProgress}
-            isLoading={quarterlyLoading}
-          />
-          
-          <SQODetailTable
-            sqos={sqoDetails}
-            isLoading={quarterlyLoading}
-            onRecordClick={handleSQODetailClick}
-          />
-        </>
+            
+            <SQODetailTable
+              sqos={sqoDetails}
+              isLoading={quarterlyLoading}
+              onRecordClick={handleSQODetailClick}
+            />
+          </>
+        )
       )}
 
       {activeTab === 'activity' && (
@@ -811,6 +895,7 @@ export function SGAHubContent() {
         loading={drillDownLoading}
         error={drillDownError}
         onRecordClick={handleRecordClick}
+        canExport={true}
       />
 
       {/* Record Detail Modal */}

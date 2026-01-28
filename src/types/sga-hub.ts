@@ -131,6 +131,20 @@ export interface SQODetail {
   salesforceUrl: string;
 }
 
+/** Admin quarterly progress with team totals and individual SGA breakdown */
+export interface AdminQuarterlyProgress {
+  year: number;
+  quarter: number;
+  teamTotalSQOs: number;
+  sgaIndividualGoalsAggregate: number; // Sum of all SGA goals
+  sgaManagerGoal: number | null;       // Manager's goal
+  sgaBreakdown: Array<{
+    sgaName: string;
+    sqoCount: number;
+    // Note: individual goal, progress%, pacing are calculated client-side
+  }>;
+}
+
 // ============================================================================
 // CLOSED LOST
 // ============================================================================

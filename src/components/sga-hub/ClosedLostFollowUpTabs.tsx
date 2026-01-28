@@ -92,6 +92,7 @@ export function ClosedLostFollowUpTabs({
           opportunities={reEngagementOpportunities}
           isLoading={reEngagementLoading}
           onRecordClick={onReEngagementClick}
+          showAllRecords={showAllRecords}
         />
       )}
     </div>

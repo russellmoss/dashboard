@@ -190,13 +190,6 @@ export default function DashboardPage() {
   const { data: session, status } = useSession();
   const permissions = getSessionPermissions(session);
 
-  // Redirect SGA users to SGA Hub as their default homepage
-  useEffect(() => {
-    if (status === 'authenticated' && permissions?.role === 'sga') {
-      router.replace('/dashboard/sga-hub');
-    }
-  }, [status, permissions?.role, router]);
-
   // State
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<DashboardFilters>(DEFAULT_FILTERS);

@@ -29,11 +29,16 @@ interface RawReEngagementResult {
 
 /**
  * Get open re-engagement opportunities owned by the SGA
- * @param sgaName - Exact SGA name (from user.name)
+ * @param sgaName - Exact SGA name (from user.name), or null to show all records
  */
 const _getReEngagementOpportunities = async (
-  sgaName: string
+  sgaName: string | null
 ): Promise<ReEngagementOpportunity[]> => {
+  // Build SGA filter condition
+  const sgaFilter = sgaName 
+    ? `AND COALESCE(owner_user.Name, re.Opportunity_Owner_Name__c) = @sgaName`
+    : ''; // No filter = show all
+
   const query = `
     SELECT DISTINCT
       re.Full_Opportunity_ID__c as id,
@@ -58,7 +63,7 @@ const _getReEngagementOpportunities = async (
       ON re.OwnerId = owner_user.Id
     WHERE re.recordtypeid = @reEngagementRecordType
       AND re.StageName NOT IN ('Closed Lost', 'Closed Won', 'Closed')
-      AND COALESCE(owner_user.Name, re.Opportunity_Owner_Name__c) = @sgaName
+      ${sgaFilter}
     GROUP BY
       re.Full_Opportunity_ID__c,
       re.Name,
@@ -75,9 +80,12 @@ const _getReEngagementOpportunities = async (
   `;
   
   const params: Record<string, any> = {
-    sgaName,
     reEngagementRecordType: RE_ENGAGEMENT_RECORD_TYPE,
   };
+  
+  if (sgaName) {
+    params.sgaName = sgaName;
+  }
   
   const results = await runQuery<RawReEngagementResult>(query, params);
   return results.map(transformReEngagementOpportunity);

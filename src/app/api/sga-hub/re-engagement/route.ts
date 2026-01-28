@@ -31,35 +31,46 @@ export async function GET(request: NextRequest) {
     // Parse query params
     const { searchParams } = new URL(request.url);
     const targetUserEmail = searchParams.get('userEmail'); // Admin/manager only
+    const showAll = searchParams.get('showAll') === 'true';
     
-    // Determine which user's records to fetch
-    let userEmail = session.user.email;
+    // Only admins/managers can use showAll
+    if (showAll && !['admin', 'manager'].includes(permissions.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     
-    if (targetUserEmail) {
+    // Determine SGA name to filter by
+    let sgaName: string | null = null;
+    
+    if (showAll) {
+      // Show all records - pass null to query
+      sgaName = null;
+    } else if (targetUserEmail) {
       // Only admin/manager can view other users' records
       if (!['admin', 'manager'].includes(permissions.role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
-      userEmail = targetUserEmail;
-    } else {
-      // SGA role can only view own records
-      if (permissions.role === 'sga' && userEmail !== session.user.email) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      const targetUser = await prisma.user.findUnique({
+        where: { email: targetUserEmail },
+        select: { name: true },
+      });
+      if (!targetUser) {
+        return NextResponse.json({ error: 'User not found' }, { status: 404 });
       }
-    }
-    
-    // Get user to retrieve name for BigQuery filter
-    const user = await prisma.user.findUnique({
-      where: { email: userEmail },
-      select: { name: true },
-    });
-    
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      sgaName = targetUser.name;
+    } else {
+      // Get current user's name for filtering
+      const user = await prisma.user.findUnique({
+        where: { email: session.user.email },
+        select: { name: true },
+      });
+      if (!user) {
+        return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      }
+      sgaName = user.name;
     }
     
     // Fetch re-engagement opportunities
-    const opportunities = await getReEngagementOpportunities(user.name);
+    const opportunities = await getReEngagementOpportunities(sgaName);
     
     return NextResponse.json({ opportunities });
     

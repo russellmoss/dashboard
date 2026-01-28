@@ -1,14 +1,16 @@
 'use client';
 
-import { useState } from 'react';
-import { signIn } from 'next-auth/react';
+import { useState, useEffect } from 'react';
+import { signIn, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Eye, EyeOff } from 'lucide-react';
+import { getSessionPermissions } from '@/types/auth';
 
 export const dynamic = 'force-dynamic';
 
 export default function LoginPage() {
   const router = useRouter();
+  const { data: session, update: updateSession } = useSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -20,6 +22,21 @@ export default function LoginPage() {
   const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
   const [forgotPasswordMessage, setForgotPasswordMessage] = useState('');
   const [forgotPasswordError, setForgotPasswordError] = useState('');
+  const [justLoggedIn, setJustLoggedIn] = useState(false);
+
+  // Handle redirect after login based on user role
+  useEffect(() => {
+    if (justLoggedIn && session) {
+      const permissions = getSessionPermissions(session);
+      if (permissions) {
+        // SGA users go to SGA Hub, everyone else goes to Funnel Performance
+        const redirectPath = permissions.role === 'sga' ? '/dashboard/sga-hub' : '/dashboard';
+        router.push(redirectPath);
+        router.refresh();
+        setJustLoggedIn(false);
+      }
+    }
+  }, [justLoggedIn, session, router]);
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,8 +88,10 @@ export default function LoginPage() {
       if (result?.error) {
         setLoginError('Invalid email or password');
       } else if (result?.ok) {
-        router.push('/dashboard');
-        router.refresh();
+        // Update session to get permissions
+        await updateSession();
+        // Set flag to trigger redirect in useEffect once session updates
+        setJustLoggedIn(true);
       }
     } catch (err) {
       setLoginError('An error occurred. Please try again.');

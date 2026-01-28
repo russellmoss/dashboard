@@ -21,19 +21,19 @@ model User {
   createdBy    String?
 
   // Relations
-  savedReports          SavedReport[]
-  gameScores            GameScore[]
-  passwordResetTokens   PasswordResetToken[]
+  savedReports        SavedReport[]
+  gameScores          GameScore[]
+  passwordResetTokens PasswordResetToken[]
 }
 
 model PasswordResetToken {
-  id        String   @id @default(cuid())
-  token     String   @unique
+  id        String    @id @default(cuid())
+  token     String    @unique
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([token])
   @@index([userId])
@@ -71,6 +71,20 @@ model QuarterlyGoal {
   @@index([quarter])
 }
 
+model ManagerQuarterlyGoal {
+  id        String   @id @default(cuid())
+  quarter   String // Format: "2026-Q1", "2026-Q2", etc. (matches QuarterlyGoal format)
+  sqoGoal   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String? // Email of admin/manager who created
+  updatedBy String? // Email of admin/manager who last updated
+
+  @@unique([quarter])
+  @@index([quarter])
+  @@map("manager_quarterly_goals")
+}
+
 model ExploreFeedback {
   id         String   @id @default(cuid())
   userId     String? // User email (from session.user.email)
@@ -96,28 +110,28 @@ model ExploreFeedback {
 
 // Pipeline Catcher Game Leaderboard
 model GameScore {
-  id             String   @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   // User relation
-  userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   // Score data
-  score          BigInt   // Total AUM caught (stored in dollars)
-  advisorsCaught Int      // Number of SQOs caught
-  joinedCaught   Int      // Number of Joined advisors caught (bonus)
-  ghostsHit      Int      // Number of ghosts/stop signs hit
-  
+  score          BigInt // Total AUM caught (stored in dollars)
+  advisorsCaught Int // Number of SQOs caught
+  joinedCaught   Int // Number of Joined advisors caught (bonus)
+  ghostsHit      Int // Number of ghosts/stop signs hit
+
   // Game context
-  quarter        String   // e.g., "2025-Q1", "2025-Q2"
-  gameDuration   Int      // Seconds played (max 180)
-  
+  quarter      String // e.g., "2025-Q1", "2025-Q2"
+  gameDuration Int // Seconds played (max 180)
+
   // Leaderboard message
-  message        String?  @db.VarChar(100)
-  
+  message String? @db.VarChar(100)
+
   // Timestamps
-  playedAt       DateTime @default(now())
-  
+  playedAt DateTime @default(now())
+
   // Indexes for fast leaderboard queries
   @@index([quarter, score(sort: Desc)])
   @@index([userId])

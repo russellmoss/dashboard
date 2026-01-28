@@ -134,16 +134,26 @@ export function MetricDrillDownModal({
         'Salesforce URL': record.leadUrl || record.opportunityUrl || '',
       }));
     } else {
-      return (records as SQODrillDownRecord[]).map(record => ({
-        'Advisor Name': record.advisorName,
-        'SQO Date': formatDate(record.sqoDate) || '',
-        'Source': record.source,
-        'Channel': record.channel,
-        'AUM': record.aumFormatted,
-        'Tier': record.aumTier || '',
-        'Stage': record.stageName || record.tofStage,
-        'Salesforce URL': record.opportunityUrl || record.leadUrl || '',
-      }));
+      return (records as SQODrillDownRecord[]).map(record => {
+        const baseExport = {
+          'Advisor Name': record.advisorName,
+          'SQO Date': formatDate(record.sqoDate) || '',
+          'Source': record.source,
+          'Channel': record.channel,
+          'AUM': record.aumFormatted,
+          'Tier': record.aumTier || '',
+          'Stage': record.stageName || record.tofStage,
+          'Salesforce URL': record.opportunityUrl || record.leadUrl || '',
+        };
+        // Include SGA Name if available (for team-level drill-downs)
+        if (record.sgaName) {
+          return {
+            'SGA Name': record.sgaName,
+            ...baseExport,
+          };
+        }
+        return baseExport;
+      });
     }
   }, [records, metricType]);
 
@@ -159,7 +169,20 @@ export function MetricDrillDownModal({
 
   if (!isOpen) return null;
 
-  const columns = COLUMN_CONFIGS[metricType];
+  // Check if we should show SGA name column (for team-level SQO drill-downs)
+  const showSGAName = metricType === 'sqos' && records.length > 0 && 
+    records.some(r => isSQODrillDownRecord(r) && r.sgaName !== null);
+
+  // Get columns, adding SGA name column for team-level SQO drill-downs
+  let columns = COLUMN_CONFIGS[metricType];
+  if (showSGAName && metricType === 'sqos') {
+    // Insert SGA name column after Advisor Name
+    columns = [
+      columns[0], // Advisor Name
+      { key: 'sgaName', label: 'SGA Name', width: 'w-32' },
+      ...columns.slice(1), // Rest of columns
+    ];
+  }
 
   // Get cell value based on record type and column key
   const getCellValue = (record: DrillDownRecord, key: string): string => {
@@ -173,6 +196,9 @@ export function MetricDrillDownModal({
     }
     if (key === 'sqoDate' && isSQODrillDownRecord(record)) {
       return formatDate(record.sqoDate) || '-';
+    }
+    if (key === 'sgaName' && isSQODrillDownRecord(record)) {
+      return record.sgaName || '-';
     }
     
     const value = record[key as keyof DrillDownRecord];

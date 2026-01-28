@@ -2,20 +2,22 @@
 
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Badge } from '@tremor/react';
 import { ReEngagementOpportunity } from '@/types/sga-hub';
 import { ExternalLink, ChevronUp, ChevronDown } from 'lucide-react';
 import { formatDate } from '@/lib/utils/format-helpers';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { ReEngagementFilters } from './ReEngagementFilters';
 
-type SortColumn = 'oppName' | 'stageName' | 'createdDate' | 'lastActivityDate' | 'closeDate' | 'amount' | null;
+type SortColumn = 'oppName' | 'stageName' | 'sgaName' | 'createdDate' | 'lastActivityDate' | 'closeDate' | 'amount' | null;
 type SortDirection = 'asc' | 'desc';
 
 interface ReEngagementOpportunitiesTableProps {
   opportunities: ReEngagementOpportunity[];
   isLoading?: boolean;
   onRecordClick?: (opportunity: ReEngagementOpportunity) => void;
+  showAllRecords?: boolean; // Admin view - show SGA name and filters
 }
 
 /**
@@ -52,6 +54,9 @@ function sortRecords(opportunities: ReEngagementOpportunity[], sortColumn: SortC
       case 'amount':
         comparison = (a.amount || 0) - (b.amount || 0);
         break;
+      case 'sgaName':
+        comparison = (a.sgaName || '').toLowerCase().localeCompare((b.sgaName || '').toLowerCase());
+        break;
     }
     
     return sortDirection === 'asc' ? comparison : -comparison;
@@ -59,33 +64,140 @@ function sortRecords(opportunities: ReEngagementOpportunity[], sortColumn: SortC
 }
 
 /**
- * Get color for stage badge
+ * Get color for stage badge - each stage gets its own unique color
+ * Uses color scheme similar to time buckets in Closed Lost table
  */
 function getStageColor(stage: string): string {
-  const normalized = stage.toLowerCase();
-  if (normalized.includes('joined') || normalized.includes('signed')) {
-    return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-  }
-  if (normalized.includes('negotiating') || normalized.includes('sales process')) {
-    return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
-  }
-  if (normalized.includes('discovery') || normalized.includes('qualifying')) {
-    return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
-  }
-  if (normalized.includes('on hold') || normalized.includes('planned nurture')) {
+  if (!stage) {
     return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200';
   }
+  
+  const normalized = stage.toLowerCase().trim();
+  
+  // Each stage gets its own unique color
+  if (normalized === 'joined') {
+    return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+  }
+  if (normalized === 'signed') {
+    return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200';
+  }
+  if (normalized === 'negotiating') {
+    return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
+  }
+  if (normalized === 'sales process') {
+    return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200';
+  }
+  if (normalized === 're-engaged') {
+    return 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200';
+  }
+  if (normalized === 'qualifying') {
+    return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
+  }
+  if (normalized === 'discovery') {
+    return 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200';
+  }
+  if (normalized === 'outreach') {
+    return 'bg-lime-100 text-lime-800 dark:bg-lime-900 dark:text-lime-200';
+  }
+  if (normalized === 'engaged') {
+    return 'bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200';
+  }
+  if (normalized === 'call scheduled') {
+    return 'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200';
+  }
+  if (normalized === 'on hold') {
+    return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200';
+  }
+  if (normalized === 'planned nurture') {
+    return 'bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200';
+  }
+  if (normalized === 'closed lost') {
+    return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
+  }
+  
+  // Default - Gray for unknown stages
   return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200';
 }
 
-export function ReEngagementOpportunitiesTable({ opportunities, isLoading = false, onRecordClick }: ReEngagementOpportunitiesTableProps) {
+export function ReEngagementOpportunitiesTable({ opportunities, isLoading = false, onRecordClick, showAllRecords = false }: ReEngagementOpportunitiesTableProps) {
   const [sortColumn, setSortColumn] = useState<SortColumn>('createdDate');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   
-  // Sort records
+  // Filter state (only used in admin view)
+  const [selectedSGAs, setSelectedSGAs] = useState<string[]>([]);
+  const [selectedStages, setSelectedStages] = useState<string[]>([]);
+  
+  // Extract unique values from opportunities for initial filter state
+  const availableSGAs = useMemo(() => {
+    const sgas = new Set<string>();
+    opportunities.forEach(opp => {
+      if (opp.sgaName) {
+        sgas.add(opp.sgaName);
+      }
+    });
+    return Array.from(sgas).sort();
+  }, [opportunities]);
+
+  const availableStages = useMemo(() => {
+    const stages = new Set<string>();
+    opportunities.forEach(opp => {
+      if (opp.stageName) {
+        stages.add(opp.stageName);
+      }
+    });
+    return Array.from(stages).sort();
+  }, [opportunities]);
+
+  // Initialize filters with all values selected by default (only in admin view)
+  useEffect(() => {
+    if (showAllRecords) {
+      if (selectedSGAs.length === 0 && availableSGAs.length > 0) {
+        setSelectedSGAs([...availableSGAs]);
+      }
+      if (selectedStages.length === 0 && availableStages.length > 0) {
+        setSelectedStages([...availableStages]);
+      }
+    }
+  }, [showAllRecords, availableSGAs, availableStages, selectedSGAs.length, selectedStages.length]);
+  
+  // Filter records by selected filters (only in admin view)
+  const filteredRecords = useMemo(() => {
+    if (!showAllRecords) {
+      return opportunities; // No filtering for non-admin view
+    }
+
+    let filtered = opportunities;
+    
+    // Filter by SGA Name
+    if (selectedSGAs.length > 0) {
+      filtered = filtered.filter(opp => 
+        opp.sgaName && selectedSGAs.includes(opp.sgaName)
+      );
+    }
+    
+    // Filter by Stage
+    if (selectedStages.length > 0) {
+      filtered = filtered.filter(opp => 
+        opp.stageName && selectedStages.includes(opp.stageName)
+      );
+    }
+    
+    return filtered;
+  }, [opportunities, showAllRecords, selectedSGAs, selectedStages]);
+  
+  // Sort filtered records
   const sortedRecords = useMemo(() => {
-    return sortRecords(opportunities, sortColumn, sortDirection);
-  }, [opportunities, sortColumn, sortDirection]);
+    return sortRecords(filteredRecords, sortColumn, sortDirection);
+  }, [filteredRecords, sortColumn, sortDirection]);
+  
+  // Handle filter apply
+  const handleApplyFilters = (filters: {
+    sgas: string[];
+    stages: string[];
+  }) => {
+    setSelectedSGAs(filters.sgas);
+    setSelectedStages(filters.stages);
+  };
   
   // Handle column header click for sorting
   const handleSort = (column: SortColumn) => {
@@ -144,34 +256,50 @@ export function ReEngagementOpportunitiesTable({ opportunities, isLoading = fals
   }
   
   return (
-    <Card className="mb-6 dark:bg-gray-800 dark:border-gray-700">
-      <div className="mb-4">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-          Open Re-Engagement Opportunities
-        </h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
-          Re-Engagement opportunities for advisors who previously had closed lost opportunities
-        </p>
-      </div>
-      
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHead>
-            <TableRow>
-              <SortableHeader column="oppName">Opportunity Name</SortableHeader>
-              <SortableHeader column="stageName">Stage</SortableHeader>
-              <SortableHeader column="createdDate">Created Date</SortableHeader>
-              <SortableHeader column="lastActivityDate">Last Activity</SortableHeader>
-              <SortableHeader column="closeDate">Close Date</SortableHeader>
-              <SortableHeader column="amount" alignRight>Amount / AUM</SortableHeader>
-              <TableHeaderCell className="text-gray-600 dark:text-gray-400">Actions</TableHeaderCell>
-            </TableRow>
-          </TableHead>
+    <>
+      {/* Filters (only shown in admin view) */}
+      {showAllRecords && (
+        <ReEngagementFilters
+          opportunities={opportunities}
+          selectedSGAs={selectedSGAs}
+          selectedStages={selectedStages}
+          onApply={handleApplyFilters}
+        />
+      )}
+
+      <Card className="mb-6 dark:bg-gray-800 dark:border-gray-700">
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+            Open Re-Engagement Opportunities
+          </h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Re-Engagement opportunities for advisors who previously had closed lost opportunities
+          </p>
+        </div>
+        
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHead>
+              <TableRow>
+                <SortableHeader column="oppName">Opportunity Name</SortableHeader>
+                {showAllRecords && (
+                  <SortableHeader column="sgaName">SGA</SortableHeader>
+                )}
+                <SortableHeader column="stageName">Stage</SortableHeader>
+                <SortableHeader column="createdDate">Created Date</SortableHeader>
+                <SortableHeader column="lastActivityDate">Last Activity</SortableHeader>
+                <SortableHeader column="closeDate">Close Date</SortableHeader>
+                <SortableHeader column="amount" alignRight>Amount / AUM</SortableHeader>
+                <TableHeaderCell className="text-gray-600 dark:text-gray-400">Actions</TableHeaderCell>
+              </TableRow>
+            </TableHead>
           <TableBody>
             {sortedRecords.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-gray-500 dark:text-gray-400 py-8">
-                  No open re-engagement opportunities found
+                <TableCell colSpan={showAllRecords ? 8 : 7} className="text-center text-gray-500 dark:text-gray-400 py-8">
+                  {showAllRecords && (selectedSGAs.length > 0 || selectedStages.length > 0)
+                    ? 'No opportunities found matching selected filters'
+                    : 'No open re-engagement opportunities found'}
                 </TableCell>
               </TableRow>
             ) : (
@@ -190,6 +318,11 @@ export function ReEngagementOpportunitiesTable({ opportunities, isLoading = fals
                   <TableCell className="font-medium border-r border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100">
                     {opp.oppName || 'Unknown'}
                   </TableCell>
+                  {showAllRecords && (
+                    <TableCell className="border-r border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300">
+                      {opp.sgaName || 'Unknown'}
+                    </TableCell>
+                  )}
                   <TableCell className="border-r border-gray-200 dark:border-gray-700">
                     <Badge 
                       size="xs" 
@@ -237,8 +370,14 @@ export function ReEngagementOpportunitiesTable({ opportunities, isLoading = fals
       {sortedRecords.length > 0 && (
         <div className="mt-4 text-sm text-gray-500 dark:text-gray-400">
           Showing {sortedRecords.length} opportunity{sortedRecords.length !== 1 ? 'ies' : ''}
+          {showAllRecords && (selectedSGAs.length < availableSGAs.length || selectedStages.length < availableStages.length) && (
+            <span className="ml-2 text-blue-600 dark:text-blue-400">
+              (filtered from {opportunities.length} total)
+            </span>
+          )}
         </div>
       )}
     </Card>
+    </>
   );
 }

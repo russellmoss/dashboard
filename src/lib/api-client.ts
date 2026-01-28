@@ -27,7 +27,8 @@ import {
   ReEngagementOpportunity,
   QuarterlyProgress,
   SQODetail,
-  LeaderboardEntry
+  LeaderboardEntry,
+  AdminQuarterlyProgress
 } from '@/types/sga-hub';
 import { 
   InitialCallRecord, 
@@ -369,10 +370,10 @@ export const dashboardApi = {
     return apiFetch<{ records: ClosedLostRecord[] }>(`/api/sga-hub/closed-lost?${params.toString()}`);
   },
 
-  getReEngagementOpportunities: (userEmail?: string) => {
+  getReEngagementOpportunities: (showAll?: boolean) => {
     const params = new URLSearchParams();
-    if (userEmail) {
-      params.append('userEmail', userEmail);
+    if (showAll) {
+      params.set('showAll', 'true');
     }
     return apiFetch<{ opportunities: ReEngagementOpportunity[] }>(`/api/sga-hub/re-engagement?${params.toString()}`);
   },
@@ -388,6 +389,62 @@ export const dashboardApi = {
     apiFetch<{ sqos: SQODetail[] }>(
       `/api/sga-hub/sqo-details?${new URLSearchParams({ quarter }).toString()}`
     ),
+
+  getManagerQuarterlyGoal: (quarter: string) =>
+    apiFetch<{ goal: number | null }>(
+      `/api/sga-hub/manager-quarterly-goal?${new URLSearchParams({ quarter }).toString()}`
+    ),
+
+  setManagerQuarterlyGoal: (quarter: string, sqoGoal: number) =>
+    apiFetch<{ goal: number; message: string }>(
+      '/api/sga-hub/manager-quarterly-goal',
+      {
+        method: 'POST',
+        body: JSON.stringify({ quarter, sqoGoal }),
+      }
+    ),
+
+  getAdminQuarterlyProgress: (params: {
+    year: number;
+    quarter: number;
+    sgaNames?: string[];
+    channels?: string[];
+    sources?: string[];
+  }) => {
+    const searchParams = new URLSearchParams({
+      year: params.year.toString(),
+      quarter: params.quarter.toString(),
+    });
+    
+    if (params.sgaNames && params.sgaNames.length > 0) {
+      params.sgaNames.forEach(sga => searchParams.append('sgaNames', sga));
+    }
+    if (params.channels && params.channels.length > 0) {
+      params.channels.forEach(ch => searchParams.append('channels', ch));
+    }
+    if (params.sources && params.sources.length > 0) {
+      params.sources.forEach(src => searchParams.append('sources', src));
+    }
+    
+    return apiFetch<AdminQuarterlyProgress>(
+      `/api/sga-hub/admin-quarterly-progress?${searchParams.toString()}`
+    );
+  },
+
+  getSGAQuarterlyGoals: (year: number, quarter: number, sgaNames?: string[]) => {
+    const params = new URLSearchParams({
+      year: year.toString(),
+      quarter: quarter.toString(),
+    });
+    
+    if (sgaNames && sgaNames.length > 0) {
+      sgaNames.forEach(sga => params.append('sgaNames', sga));
+    }
+    
+    return apiFetch<{ goals: Record<string, number | null> }>(
+      `/api/sga-hub/quarterly-goals?${params.toString()}`
+    );
+  },
 
   getSGALeaderboard: (filters: {
     startDate: string;
@@ -436,19 +493,26 @@ export const dashboardApi = {
     ),
 
   getSQODrillDown: (
-    sgaName: string,
+    sgaName: string | null,
     options: { weekStartDate?: string; weekEndDate?: string; quarter?: string },
     userEmail?: string,
     channels?: string[],
-    sources?: string[]
+    sources?: string[],
+    teamLevel?: boolean
   ) => {
     const params = new URLSearchParams({
-      sgaName, // Always pass sgaName for leaderboard drill-down
       ...(options.weekStartDate && { weekStartDate: options.weekStartDate }),
       ...(options.weekEndDate && { weekEndDate: options.weekEndDate }),
       ...(options.quarter && { quarter: options.quarter }),
       ...(userEmail && { userEmail }),
     });
+    
+    // Add sgaName only if not team-level, otherwise add teamLevel flag
+    if (teamLevel) {
+      params.append('teamLevel', 'true');
+    } else if (sgaName !== null) {
+      params.append('sgaName', sgaName);
+    }
     
     // Add array parameters (channels and sources)
     if (channels && channels.length > 0) {
