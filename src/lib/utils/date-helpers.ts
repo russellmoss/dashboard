@@ -78,6 +78,15 @@ export function formatCurrency(value: number | null | undefined): string {
   return '$' + v.toFixed(0);
 }
 
+/** Format AUM in millions (M) or billions (B), rounded to nearest tenth. e.g. $97.2M, $1.5B */
+export function formatAumCompact(value: number | null | undefined): string {
+  const v = Number(value) || 0;
+  if (v >= 1000000000) return '$' + (Math.round(v / 100000000) / 10).toFixed(1) + 'B';
+  if (v >= 1000000) return '$' + (Math.round(v / 100000) / 10).toFixed(1) + 'M';
+  if (v >= 1000) return '$' + (Math.round(v / 100) / 10).toFixed(1) + 'K';
+  return '$' + v.toFixed(0);
+}
+
 export function formatPercent(value: number | null | undefined): string {
   const v = Number(value) || 0;
   return (v * 100).toFixed(1) + '%';

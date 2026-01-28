@@ -7,6 +7,7 @@ export interface RawFunnelMetricsResult {
   sqls: number | null;
   sqos: number | null;
   signed: number | null;
+  signed_aum: number | null;
   joined: number | null;
   pipeline_aum: number | null;
   joined_aum: number | null;

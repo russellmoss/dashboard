@@ -654,7 +654,9 @@ export default function DashboardPage() {
         featureSelection.scorecards.sqls ||
         featureSelection.scorecards.sqos ||
         featureSelection.scorecards.signed ||
+        featureSelection.scorecards.signedAum ||
         featureSelection.scorecards.joined ||
+        featureSelection.scorecards.joinedAum ||
         featureSelection.scorecards.openPipeline ||
         // Tables need metrics for calculations
         featureSelection.tables.channelPerformance ||
@@ -1034,7 +1036,9 @@ export default function DashboardPage() {
             (featureSelection.scorecards.sqls ||
              featureSelection.scorecards.sqos ||
              featureSelection.scorecards.signed ||
+             featureSelection.scorecards.signedAum ||
              featureSelection.scorecards.joined ||
+             featureSelection.scorecards.joinedAum ||
              featureSelection.scorecards.openPipeline) && (
               <CardErrorBoundary>
                 <Scorecards
@@ -1045,7 +1049,9 @@ export default function DashboardPage() {
                     sqls: featureSelection.scorecards.sqls,
                     sqos: featureSelection.scorecards.sqos,
                     signed: featureSelection.scorecards.signed,
+                    signedAum: featureSelection.scorecards.signedAum,
                     joined: featureSelection.scorecards.joined,
+                    joinedAum: featureSelection.scorecards.joinedAum,
                     openPipeline: featureSelection.scorecards.openPipeline,
                   }}
                 />

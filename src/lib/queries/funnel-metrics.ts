@@ -147,6 +147,17 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
       ) as signed,
       SUM(
         CASE 
+          WHEN v.Stage_Entered_Signed__c IS NOT NULL
+            AND TIMESTAMP(v.Stage_Entered_Signed__c) >= TIMESTAMP(@startDate) 
+            AND TIMESTAMP(v.Stage_Entered_Signed__c) <= TIMESTAMP(@endDate)
+            AND v.is_primary_opp_record = 1
+            ${sgaFilterForOpp}
+          THEN COALESCE(v.Underwritten_AUM__c, v.Amount, 0)
+          ELSE 0 
+        END
+      ) as signed_aum,
+      SUM(
+        CASE 
           WHEN advisor_join_date__c IS NOT NULL
             AND DATE(advisor_join_date__c) >= DATE(@startDate) 
             AND DATE(advisor_join_date__c) <= DATE(@endDate)
@@ -160,12 +171,12 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
       0 as pipeline_aum,
       SUM(
         CASE 
-          WHEN advisor_join_date__c IS NOT NULL
-            AND DATE(advisor_join_date__c) >= DATE(@startDate) 
-            AND DATE(advisor_join_date__c) <= DATE(@endDate)
-            AND is_joined_unique = 1
+          WHEN v.advisor_join_date__c IS NOT NULL
+            AND DATE(v.advisor_join_date__c) >= DATE(@startDate) 
+            AND DATE(v.advisor_join_date__c) <= DATE(@endDate)
+            AND v.is_joined_unique = 1
             ${sgaFilterForOpp}
-          THEN Opportunity_AUM 
+          THEN COALESCE(v.Underwritten_AUM__c, v.Amount, 0)
           ELSE 0 
         END
       ) as joined_aum
@@ -213,6 +224,7 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
     sqls: toNumber(metrics.sqls),
     sqos: toNumber(metrics.sqos),
     signed: toNumber(metrics.signed),
+    signedAum: toNumber(metrics.signed_aum),
     joined: toNumber(metrics.joined),
     pipelineAum: toNumber(metrics.pipeline_aum),
     joinedAum: toNumber(metrics.joined_aum),

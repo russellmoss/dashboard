@@ -15,7 +15,9 @@ export interface FeatureSelection {
     sqls: boolean;
     sqos: boolean;
     signed: boolean;
+    signedAum: boolean;
     joined: boolean;
+    joinedAum: boolean;
     openPipeline: boolean;
   };
   conversionRates: {
@@ -46,7 +48,9 @@ export const DEFAULT_FEATURE_SELECTION: FeatureSelection = {
     sqls: true,
     sqos: true,
     signed: true,
+    signedAum: true,
     joined: true,
+    joinedAum: true,
     openPipeline: true,
   },
   conversionRates: {
@@ -144,7 +148,9 @@ export function getEffectiveFeatureSelection(
         sqls: volume,
         sqos: volume,
         signed: volume,
+        signedAum: volume,
         joined: volume,
+        joinedAum: volume,
         openPipeline: volume,
       },
       conversionRates: typeof oldFormat.conversionRates === 'boolean'
@@ -181,7 +187,9 @@ export function getEffectiveFeatureSelection(
       sqls: featureSelection.scorecards?.sqls ?? true,
       sqos: featureSelection.scorecards?.sqos ?? true,
       signed: featureSelection.scorecards?.signed ?? true,
+      signedAum: featureSelection.scorecards?.signedAum ?? true,
       joined: featureSelection.scorecards?.joined ?? true,
+      joinedAum: featureSelection.scorecards?.joinedAum ?? true,
       openPipeline: featureSelection.scorecards?.openPipeline ?? true,
     },
     conversionRates: typeof featureSelection.conversionRates === 'boolean'

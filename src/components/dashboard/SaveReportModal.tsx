@@ -257,11 +257,29 @@ export function SaveReportModal({
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
+                      checked={featureSelection.scorecards.signedAum}
+                      onChange={() => toggleFeature('scorecards', 'signedAum')}
+                      className="rounded border-gray-300 dark:border-gray-600"
+                    />
+                    <span className="text-gray-600 dark:text-gray-400">Signed AUM</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
                       checked={featureSelection.scorecards.joined}
                       onChange={() => toggleFeature('scorecards', 'joined')}
                       className="rounded border-gray-300 dark:border-gray-600"
                     />
                     <span className="text-gray-600 dark:text-gray-400">Joined</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={featureSelection.scorecards.joinedAum}
+                      onChange={() => toggleFeature('scorecards', 'joinedAum')}
+                      className="rounded border-gray-300 dark:border-gray-600"
+                    />
+                    <span className="text-gray-600 dark:text-gray-400">Joined AUM</span>
                   </label>
                 </div>
               </div>

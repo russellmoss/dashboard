@@ -11,9 +11,10 @@ export interface FunnelMetrics {
   sqls: number;
   sqos: number;
   signed: number;     // Count by Stage_Entered_Signed__c
+  signedAum: number;  // Sum of Opportunity_AUM for signed records (Underwritten_AUM__c / Amount)
   joined: number;
+  joinedAum: number;  // Sum of Opportunity_AUM for joined records
   pipelineAum: number;
-  joinedAum: number;
   openPipelineAum: number;
 }
 
