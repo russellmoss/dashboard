@@ -18,6 +18,7 @@ const ROLE_COLOR_CLASSES: Record<string, string> = {
   sgm: 'text-green-600 dark:text-green-400',
   sga: 'text-yellow-600 dark:text-yellow-400',
   viewer: 'text-gray-600 dark:text-gray-400',
+  recruiter: 'text-purple-600 dark:text-purple-400',
 };
 
 export function UserManagement({ currentUserEmail }: UserManagementProps) {
@@ -147,6 +148,11 @@ export function UserManagement({ currentUserEmail }: UserManagementProps) {
                     <span className={`font-semibold ${ROLE_COLOR_CLASSES[user.role] || 'text-gray-600 dark:text-gray-400'}`}>
                       {user.role.toUpperCase()}
                     </span>
+                    {user.role === 'recruiter' && user.externalAgency && (
+                      <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                        ({user.externalAgency})
+                      </span>
+                    )}
                   </td>
                   <td className="py-3 px-4">
                     {user.isActive ? (

@@ -48,6 +48,8 @@ export interface RecordDetailFull {
   sga: string | null;
   sgm: string | null;
   externalAgency: string | null;
+  nextSteps: string | null;          // From Lead.Next_Steps__c
+  opportunityNextStep: string | null; // From Opportunity.NextStep
   leadScoreTier: string | null;
   experimentationTag: string | null;
   
@@ -121,6 +123,8 @@ export interface RecordDetailRaw {
   SGA_Owner_Name__c: string | null;
   SGM_Owner_Name__c: string | null;
   External_Agency__c: string | null;
+  Next_Steps__c: string | null;
+  NextStep: string | null;
   Lead_Score_Tier__c: string | null;
   Experimentation_Tag_Raw__c: string | null;
   

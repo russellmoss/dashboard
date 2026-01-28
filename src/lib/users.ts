@@ -7,11 +7,12 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'admin' | 'manager' | 'sgm' | 'sga' | 'viewer';
+  role: 'admin' | 'manager' | 'sgm' | 'sga' | 'viewer' | 'recruiter';
   isActive?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
   createdBy?: string | null;
+  externalAgency?: string | null;
 }
 
 // Retry helper for database operations (handles Neon connection timeouts)
@@ -101,6 +102,7 @@ export async function validateUser(
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       createdBy: user.createdBy,
+      externalAgency: user.externalAgency ?? null,
     };
   } catch (error) {
     logger.error('[validateUser] Database error', error);
@@ -124,6 +126,7 @@ export async function getUserByEmail(email: string): Promise<User | null> {
     updatedAt: user.updatedAt,
     isActive: user.isActive ?? true,
     createdBy: user.createdBy,
+    externalAgency: user.externalAgency ?? null,
   };
 }
 
@@ -143,6 +146,7 @@ export async function getUserById(id: string): Promise<User | null> {
     updatedAt: user.updatedAt,
     isActive: user.isActive ?? true,
     createdBy: user.createdBy,
+    externalAgency: user.externalAgency ?? null,
   };
 }
 
@@ -160,11 +164,19 @@ export async function getAllUsers(): Promise<User[]> {
     updatedAt: user.updatedAt,
     isActive: user.isActive ?? true,
     createdBy: user.createdBy,
+    externalAgency: user.externalAgency ?? null,
   }));
 }
 
 export async function createUser(
-  data: { email: string; name: string; password?: string; role: string; isActive?: boolean },
+  data: {
+    email: string;
+    name: string;
+    password?: string;
+    role: string;
+    isActive?: boolean;
+    externalAgency?: string | null;
+  },
   createdBy: string
 ): Promise<User> {
   const existingUser = await prisma.user.findUnique({
@@ -186,6 +198,7 @@ export async function createUser(
     role: data.role,
     isActive: data.isActive ?? true,
     createdBy,
+    externalAgency: data.externalAgency ?? null,
     ...(passwordHash !== null && { passwordHash }),
   } as Prisma.UserUncheckedCreateInput;
 
@@ -202,19 +215,27 @@ export async function createUser(
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     createdBy: user.createdBy,
+    externalAgency: user.externalAgency ?? null,
   };
 }
 
 export async function updateUser(
   id: string,
-  data: { name?: string; role?: string; password?: string; isActive?: boolean }
+  data: {
+    name?: string;
+    role?: string;
+    password?: string;
+    isActive?: boolean;
+    externalAgency?: string | null;
+  }
 ): Promise<User> {
   const updateData: any = {};
-  
-  if (data.name) updateData.name = data.name;
-  if (data.role) updateData.role = data.role;
+
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.role !== undefined) updateData.role = data.role;
   if (data.password) updateData.passwordHash = await bcrypt.hash(data.password, 10);
   if (typeof data.isActive === 'boolean') updateData.isActive = data.isActive;
+  if (data.externalAgency !== undefined) updateData.externalAgency = data.externalAgency;
 
   const user = await prisma.user.update({
     where: { id },
@@ -230,6 +251,7 @@ export async function updateUser(
     updatedAt: user.updatedAt,
     isActive: user.isActive ?? true,
     createdBy: user.createdBy,
+    externalAgency: user.externalAgency ?? null,
   };
 }
 

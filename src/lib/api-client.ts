@@ -753,6 +753,44 @@ export const pipelineCatcherApi = {
     }),
 };
 
+/**
+ * Recruiter Hub API client
+ */
+export const recruiterHubApi = {
+  getExternalAgencies: () =>
+    apiFetch<{ agencies: string[] }>('/api/recruiter-hub/external-agencies'),
+
+  getProspects: (filters: {
+    stages?: string[];
+    openOnly?: boolean;
+    externalAgencies?: string[];
+  }) =>
+    apiFetch<{ records: unknown[]; count: number }>(
+      '/api/recruiter-hub/prospects',
+      {
+        method: 'POST',
+        body: JSON.stringify(filters),
+      }
+    ),
+
+  getOpportunities: (filters: {
+    stages?: string[];
+    sgms?: string[];
+    openOnly?: boolean;
+    externalAgencies?: string[];
+  }) =>
+    apiFetch<{ records: unknown[]; count: number }>(
+      '/api/recruiter-hub/opportunities',
+      {
+        method: 'POST',
+        body: JSON.stringify(filters),
+      }
+    ),
+
+  getSgmOptions: () =>
+    apiFetch<{ sgms: string[] }>('/api/recruiter-hub/opportunities'),
+};
+
 export function handleApiError(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 401) return 'Please sign in to continue';

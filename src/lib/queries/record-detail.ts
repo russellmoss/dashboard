@@ -26,6 +26,8 @@ const _getRecordDetail = async (id: string): Promise<RecordDetailFull | null> =>
       v.SGA_Owner_Name__c,
       v.SGM_Owner_Name__c,
       v.External_Agency__c,
+      v.Next_Steps__c,
+      v.NextStep,
       v.Lead_Score_Tier__c,
       v.Experimentation_Tag_Raw__c,
       
@@ -147,6 +149,8 @@ function transformToRecordDetail(r: RecordDetailRaw): RecordDetailFull {
     sga: r.SGA_Owner_Name__c ? toString(r.SGA_Owner_Name__c) : null,
     sgm: r.SGM_Owner_Name__c ? toString(r.SGM_Owner_Name__c) : null,
     externalAgency: r.External_Agency__c ? toString(r.External_Agency__c) : null,
+    nextSteps: r.Next_Steps__c ? toString(r.Next_Steps__c) : null,
+    opportunityNextStep: r.NextStep ? toString(r.NextStep) : null,
     leadScoreTier: r.Lead_Score_Tier__c ? toString(r.Lead_Score_Tier__c) : null,
     experimentationTag: r.Experimentation_Tag_Raw__c ? toString(r.Experimentation_Tag_Raw__c) : null,
 

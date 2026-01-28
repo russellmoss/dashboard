@@ -57,8 +57,13 @@ export default function LoginPage() {
     if (justLoggedIn && session) {
       const permissions = getSessionPermissions(session);
       if (permissions) {
-        // SGA users go to SGA Hub, everyone else goes to Funnel Performance
-        const redirectPath = permissions.role === 'sga' ? '/dashboard/sga-hub' : '/dashboard';
+        // SGA → SGA Hub, Recruiter → Recruiter Hub, everyone else → Funnel Performance
+        const redirectPath =
+          permissions.role === 'sga'
+            ? '/dashboard/sga-hub'
+            : permissions.role === 'recruiter'
+              ? '/dashboard/recruiter-hub'
+              : '/dashboard';
         router.push(redirectPath);
         router.refresh();
         setJustLoggedIn(false);

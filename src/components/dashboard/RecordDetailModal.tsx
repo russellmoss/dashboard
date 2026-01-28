@@ -12,7 +12,8 @@ import {
   Tag,
   Building,
   AlertCircle,
-  FileText
+  FileText,
+  ListChecks
 } from 'lucide-react';
 // Removed Badge import - using custom styled badges instead
 import { RecordDetailFull } from '@/types/record-detail';
@@ -337,6 +338,31 @@ export function RecordDetailModal({
                   </div>
                 </div>
               </div>
+
+              {/* Next Steps Section */}
+              {(record.nextSteps || record.opportunityNextStep) && (
+                <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4 border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+                  <SectionHeader icon={ListChecks} title="Next Steps" />
+                  <div className="space-y-2">
+                    {record.nextSteps && (
+                      <div>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">Lead Next Steps:</span>
+                        <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">
+                          {record.nextSteps}
+                        </p>
+                      </div>
+                    )}
+                    {record.opportunityNextStep && (
+                      <div>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">Opportunity Next Step:</span>
+                        <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">
+                          {record.opportunityNextStep}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Stage Entry Dates - Collapsible/Secondary */}
               {(record.stageEnteredDiscovery || record.stageEnteredSalesProcess || 

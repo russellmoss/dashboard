@@ -1,16 +1,16 @@
 import { UserPermissions } from '@/types/user';
 import { getUserByEmail } from './users';
 
-const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmFilter'>> = {
+const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmFilter' | 'recruiterFilter'>> = {
   admin: {
     role: 'admin',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11],
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12],  // 12 = Recruiter Hub
     canExport: true,
     canManageUsers: true,
   },
   manager: {
     role: 'manager',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11],
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12],  // 12 = Recruiter Hub
     canExport: true,
     canManageUsers: false,
   },
@@ -32,6 +32,12 @@ const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmF
     canExport: false,
     canManageUsers: false,
   },
+  recruiter: {
+    role: 'recruiter',
+    allowedPages: [7, 12],  // Settings (7) + Recruiter Hub (12) only
+    canExport: true,
+    canManageUsers: false,
+  },
 };
 
 export async function getUserPermissions(email: string): Promise<UserPermissions> {
@@ -43,17 +49,19 @@ export async function getUserPermissions(email: string): Promise<UserPermissions
       allowedPages: [1, 3, 7, 10],
       sgaFilter: null,
       sgmFilter: null,
+      recruiterFilter: null,
       canExport: false,
       canManageUsers: false,
     };
   }
-  
+
   const basePermissions = ROLE_PERMISSIONS[user.role] || ROLE_PERMISSIONS.viewer;
-  
+
   return {
     ...basePermissions,
     sgaFilter: user.role === 'sga' ? user.name : null,
     sgmFilter: user.role === 'sgm' ? user.name : null,
+    recruiterFilter: user.role === 'recruiter' ? (user.externalAgency ?? null) : null,
   };
 }
 
@@ -64,9 +72,11 @@ export function canAccessPage(permissions: UserPermissions, pageNumber: number):
 export function getDataFilters(permissions: UserPermissions): {
   sgaFilter: string | null;
   sgmFilter: string | null;
+  recruiterFilter: string | null;
 } {
   return {
     sgaFilter: permissions.sgaFilter,
     sgmFilter: permissions.sgmFilter,
+    recruiterFilter: permissions.recruiterFilter,
   };
 }

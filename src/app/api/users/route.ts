@@ -33,6 +33,7 @@ export async function GET() {
       createdAt: user.createdAt?.toISOString() || new Date().toISOString(),
       updatedAt: user.updatedAt?.toISOString() || new Date().toISOString(),
       createdBy: user.createdBy || '',
+      externalAgency: user.externalAgency ?? null,
     }));
     return NextResponse.json({ users: safeUsers });
     
@@ -58,17 +59,34 @@ export async function POST(request: NextRequest) {
     }
     
     const body = await request.json();
-    const { email, name, password, role, isActive } = body;
-    
+    const { email, name, password, role, isActive, externalAgency } = body;
+
     if (!email || !name || !role) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
-    
+
+    // Validate externalAgency for recruiter role
+    if (role === 'recruiter') {
+      if (!externalAgency || String(externalAgency).trim() === '') {
+        return NextResponse.json(
+          { error: 'External Agency is required for Recruiter role' },
+          { status: 400 }
+        );
+      }
+    }
+
     const user = await createUser(
-      { email, name, password, role, isActive },
+      {
+        email,
+        name,
+        password,
+        role,
+        isActive,
+        externalAgency: role === 'recruiter' ? String(externalAgency).trim() : null,
+      },
       session.user.email
     );
-    
+
     // Convert to SafeUser (exclude passwordHash)
     const safeUser: SafeUser = {
       id: user.id,
@@ -79,6 +97,7 @@ export async function POST(request: NextRequest) {
       createdAt: user.createdAt?.toISOString() || new Date().toISOString(),
       updatedAt: user.updatedAt?.toISOString() || new Date().toISOString(),
       createdBy: session.user.email,
+      externalAgency: user.externalAgency ?? null,
     };
     
     return NextResponse.json({ user: safeUser }, { status: 201 });

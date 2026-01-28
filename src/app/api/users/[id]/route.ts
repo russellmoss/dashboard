@@ -49,10 +49,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       createdAt: user.createdAt?.toISOString() || new Date().toISOString(),
       updatedAt: user.updatedAt?.toISOString() || new Date().toISOString(),
       createdBy: fullUser?.createdBy || '',
+      externalAgency: user.externalAgency ?? null,
     };
-    
+
     return NextResponse.json({ user: safeUser });
-    
   } catch (error) {
     console.error('Error fetching user:', error);
     return NextResponse.json({ error: 'Failed to fetch user' }, { status: 500 });
@@ -63,26 +63,42 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await getServerSession(authOptions);
-    
+
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
+
     const permissions = await getUserPermissions(session.user.email);
-    
+
     if (!permissions.canManageUsers) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
-    
+
+    const existingUser = await getUserById(params.id);
+    if (!existingUser) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
     const body = await request.json();
+
+    // Validate externalAgency for recruiter role
+    if (body.role === 'recruiter') {
+      if (!body.externalAgency || String(body.externalAgency).trim() === '') {
+        return NextResponse.json(
+          { error: 'External Agency is required for Recruiter role' },
+          { status: 400 }
+        );
+      }
+      body.externalAgency = String(body.externalAgency).trim();
+    }
+
+    // Clear externalAgency when role changes from recruiter to something else
+    if (body.role && body.role !== 'recruiter' && existingUser.role === 'recruiter') {
+      body.externalAgency = null;
+    }
+
     const user = await updateUser(params.id, body);
-    
-    // Get full user with createdBy from database
-    const fullUser = await prisma.user.findUnique({
-      where: { id: params.id },
-      select: { createdBy: true },
-    });
-    
+
     // Convert to SafeUser (exclude passwordHash)
     const safeUser: SafeUser = {
       id: user.id,
@@ -92,11 +108,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       isActive: user.isActive ?? true,
       createdAt: user.createdAt?.toISOString() || new Date().toISOString(),
       updatedAt: user.updatedAt?.toISOString() || new Date().toISOString(),
-      createdBy: fullUser?.createdBy || '',
+      createdBy: existingUser.createdBy || '',
+      externalAgency: user.externalAgency ?? null,
     };
-    
+
     return NextResponse.json({ user: safeUser });
-    
   } catch (error: any) {
     console.error('Error updating user:', error);
     return NextResponse.json(

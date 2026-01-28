@@ -19,6 +19,7 @@ WITH Lead_Base AS (
     Lead_Score_Tier__c,
     External_Agency__c AS Lead_External_Agency__c,
     SGA_Owner_Name__c AS Lead_SGA_Owner_Name__c,  -- SGA who owns/worked this lead
+    Next_Steps__c AS Lead_Next_Steps__c,
     Initial_Call_Scheduled_Date__c,
     Stage_Entered_Closed__c AS lead_closed_date,  -- WHEN the lead was closed (timestamp for period-resolved)
     --##TODO## Talk to Kenji on how we get campaigns in here (if we want) or if we should bring in UTM Parameters
@@ -61,8 +62,9 @@ Opp_Base AS (
     Stage_Entered_Closed__c,
     Qualification_Call_Date__c,
     Experimentation_Tag__c AS Opportunity_Experimentation_Tag__c,
-    External_Agency__c AS Opp_External_Agency__c
-    
+    External_Agency__c AS Opp_External_Agency__c,
+    NextStep AS Opp_NextStep
+
   FROM `savvy-gtm-analytics.SavvyGTMData.Opportunity`
   WHERE RecordTypeId IN ('012Dn000000mrO3IAI', '012VS000009VoxrYAC')
 ),
@@ -113,7 +115,9 @@ Combined AS (
     l.Lead_SGA_Owner_Name__c AS SGA_Owner_Name__c,  -- SGA who owns/worked the lead
     o.Opp_SGA_Name AS Opp_SGA_Name__c,              -- SGA associated with the opportunity
     o.Opp_SGM_Name AS SGM_Owner_Name__c,            -- SGM who owns the opportunity
-    
+    l.Lead_Next_Steps__c AS Next_Steps__c,
+    o.Opp_NextStep AS NextStep,
+
     -- Dates
     COALESCE(l.Lead_FilterDate, o.Opp_CreatedDate, o.Date_Became_SQO__c, TIMESTAMP(o.advisor_join_date__c)) AS FilterDate,
     l.CreatedDate,

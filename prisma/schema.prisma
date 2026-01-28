@@ -10,17 +10,18 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  name         String
-  passwordHash String?  // Optional for OAuth-only users
-  role         String   @default("viewer")
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  createdBy    String?
+  id             String   @id @default(cuid())
+  email          String   @unique
+  name           String
+  passwordHash   String?  // Optional for OAuth-only users
+  role           String   @default("viewer")
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdBy      String?
+  externalAgency String?  // Links recruiter to their External Agency (matches External_Agency__c in Salesforce)
 
-  // Relations
+  // Relations (keep existing relations as-is)
   savedReports        SavedReport[]
   gameScores          GameScore[]
   passwordResetTokens PasswordResetToken[]
