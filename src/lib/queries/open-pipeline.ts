@@ -63,7 +63,6 @@ const _getOpenPipelineRecords = async (
       v.is_mql,
       v.recordtypeid
     FROM \`${FULL_TABLE}\` v
-      ON v.Original_source = nm.original_source
     ${whereClause}
     ORDER BY v.Opportunity_AUM DESC NULLS LAST
   `;
@@ -311,7 +310,6 @@ const _getOpenPipelineRecordsByStage = async (
       v.is_mql,
       v.recordtypeid
     FROM \`${FULL_TABLE}\` v
- ON v.Original_source = nm.original_source
     ${whereClause}
     ORDER BY v.Opportunity_AUM DESC NULLS LAST
     LIMIT 1000
