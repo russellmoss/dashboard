@@ -47,7 +47,7 @@ export function ChangePasswordModal({ isOpen, onClose }: ChangePasswordModalProp
       return;
     }
 
-    if (currentPassword === newPassword) {
+    if (currentPassword && currentPassword === newPassword) {
       setError('New password must be different from current password');
       return;
     }
@@ -111,7 +111,7 @@ export function ChangePasswordModal({ isOpen, onClose }: ChangePasswordModalProp
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label htmlFor="currentPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Current Password
+                  Current Password <span className="text-gray-500 font-normal">(leave blank if you sign in with Google)</span>
                 </label>
                 <div className="relative">
                   <input
@@ -120,7 +120,6 @@ export function ChangePasswordModal({ isOpen, onClose }: ChangePasswordModalProp
                     value={currentPassword}
                     onChange={(e) => setCurrentPassword(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 pr-10"
-                    required
                     disabled={isLoading}
                   />
                   <button

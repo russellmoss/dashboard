@@ -12,23 +12,23 @@ const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmF
     role: 'manager',
     allowedPages: [1, 3, 7, 8, 9, 10, 11],
     canExport: true,
-    canManageUsers: true,
+    canManageUsers: false,
   },
   sgm: {
     role: 'sgm',
-    allowedPages: [1, 3, 10],
+    allowedPages: [1, 3, 7, 10],
     canExport: true,
     canManageUsers: false,
   },
   sga: {
     role: 'sga',
-    allowedPages: [1, 3, 8, 10, 11],
+    allowedPages: [1, 3, 7, 8, 10, 11],
     canExport: true,
     canManageUsers: false,
   },
   viewer: {
     role: 'viewer',
-    allowedPages: [1, 3, 10],
+    allowedPages: [1, 3, 7, 10],
     canExport: false,
     canManageUsers: false,
   },
@@ -40,7 +40,7 @@ export async function getUserPermissions(email: string): Promise<UserPermissions
   if (!user) {
     return {
       role: 'viewer',
-      allowedPages: [1, 3, 10],
+      allowedPages: [1, 3, 7, 10],
       sgaFilter: null,
       sgmFilter: null,
       canExport: false,

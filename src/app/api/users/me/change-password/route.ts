@@ -20,9 +20,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { currentPassword, newPassword } = body;
 
-    if (!currentPassword || !newPassword) {
+    if (!newPassword) {
       return NextResponse.json(
-        { error: 'Current password and new password are required' },
+        { error: 'New password is required' },
         { status: 400 }
       );
     }
@@ -46,12 +46,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const isCurrentPasswordValid = await verifyPassword(currentPassword, user.passwordHash);
-    if (!isCurrentPasswordValid) {
-      return NextResponse.json(
-        { error: 'Current password is incorrect' },
-        { status: 400 }
-      );
+    const isOAuthOnly = user.passwordHash == null;
+    if (isOAuthOnly) {
+      // OAuth-only users can set a password without providing a current one
+    } else {
+      if (!currentPassword) {
+        return NextResponse.json(
+          { error: 'Current password is required' },
+          { status: 400 }
+        );
+      }
+      const hash = user.passwordHash;
+      if (!hash) {
+        return NextResponse.json(
+          { error: 'Current password is required' },
+          { status: 400 }
+        );
+      }
+      const isCurrentPasswordValid = await verifyPassword(currentPassword, hash);
+      if (!isCurrentPasswordValid) {
+        return NextResponse.json(
+          { error: 'Current password is incorrect' },
+          { status: 400 }
+        );
+      }
     }
 
     const newPasswordHash = await hashPassword(newPassword);

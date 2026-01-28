@@ -13,7 +13,7 @@ model User {
   id           String   @id @default(cuid())
   email        String   @unique
   name         String
-  passwordHash String
+  passwordHash String?  // Optional for OAuth-only users
   role         String   @default("viewer")
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())

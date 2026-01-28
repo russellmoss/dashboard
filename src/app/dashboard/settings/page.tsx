@@ -37,7 +37,7 @@ export default function SettingsPage() {
     <div>
       <div className="mb-6">
         <Title>Settings</Title>
-        <Text>Manage your account and, if applicable, users and system settings.</Text>
+        <Text>Update your personal account settings. Admins can also manage users and permissions.</Text>
       </div>
 
       <div className="mb-6 p-4 bg-white dark:bg-gray-800 rounded-lg shadow">

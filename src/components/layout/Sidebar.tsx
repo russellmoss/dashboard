@@ -50,9 +50,9 @@ const PAGES = [
   { id: 1, name: 'Funnel Performance', href: '/dashboard', icon: BarChart3 },
   { id: 3, name: 'Open Pipeline', href: '/dashboard/pipeline', icon: Layers },
   { id: 10, name: 'Explore', href: '/dashboard/explore', icon: Bot },
-  { id: 7, name: 'Settings', href: '/dashboard/settings', icon: Settings },
   { id: 8, name: 'SGA Hub', href: '/dashboard/sga-hub', icon: Target },
   { id: 9, name: 'SGA Management', href: '/dashboard/sga-management', icon: Users },
+  { id: 7, name: 'Settings', href: '/dashboard/settings', icon: Settings },
 ];
 
 interface SidebarProps {

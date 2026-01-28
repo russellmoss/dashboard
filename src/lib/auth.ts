@@ -1,7 +1,8 @@
 import { NextAuthOptions } from 'next-auth';
 import type { Session } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
-import { validateUser } from './users';
+import GoogleProvider from 'next-auth/providers/google';
+import { validateUser, getUserByEmail } from './users';
 import { getUserPermissions } from './permissions';
 import { ExtendedSession } from '@/types/auth';
 import { getLoginLimiter, checkRateLimit } from '@/lib/rate-limit';
@@ -39,6 +40,20 @@ export const authOptions: NextAuthOptions = {
   // Ensure URL is never empty during build
   ...(typeof window === 'undefined' && { url: getNextAuthUrl() }),
   providers: [
+    ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+      ? [
+          GoogleProvider({
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            authorization: {
+              params: {
+                prompt: 'select_account',
+                hd: 'savvywealth.com', // Hint: prefer @savvywealth.com accounts
+              },
+            },
+          }),
+        ]
+      : []),
     CredentialsProvider({
       name: 'Email',
       credentials: {
@@ -86,6 +101,22 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
+    async signIn({ user, account }) {
+      if (account?.provider === 'google' && user?.email) {
+        const email = user.email.toLowerCase().trim();
+        if (!email.endsWith('@savvywealth.com')) {
+          return '/login?error=InvalidDomain';
+        }
+        const dbUser = await getUserByEmail(email);
+        if (!dbUser) {
+          return '/login?error=NotProvisioned';
+        }
+        if (dbUser.isActive === false) {
+          return '/login?error=AccountDisabled';
+        }
+      }
+      return true;
+    },
     async session({ session, token }) {
       if (session.user) {
         (session.user as { id?: string }).id = (token.sub ?? token.id) as string;
@@ -99,7 +130,16 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.email = user.email;
-        (token as { id?: string }).id = user.id;
+        if (user.email) {
+          const dbUser = await getUserByEmail(user.email.toLowerCase());
+          if (dbUser) {
+            (token as { id?: string }).id = dbUser.id;
+          } else {
+            (token as { id?: string }).id = user.id;
+          }
+        } else {
+          (token as { id?: string }).id = user.id;
+        }
       }
       return token;
     },

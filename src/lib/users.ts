@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import type { Prisma } from '@prisma/client';
 import prisma from './prisma';
 import { logger } from './logger';
 
@@ -73,6 +74,12 @@ export async function validateUser(
     // Check if user is active
     if (user.isActive === false) {
       logger.warn('[validateUser] User is inactive', { email: normalizedEmail });
+      return null;
+    }
+
+    // OAuth-only users have no password; they must sign in with Google
+    if (!user.passwordHash) {
+      logger.warn('[validateUser] User has no password (OAuth-only)', { email: normalizedEmail });
       return null;
     }
 
@@ -168,17 +175,22 @@ export async function createUser(
     throw new Error('User with this email already exists');
   }
 
-  const passwordHash = await bcrypt.hash(data.password || 'Savvy1234!', 10);
+  const passwordHash =
+    data.password != null && data.password !== ''
+      ? await bcrypt.hash(data.password, 10)
+      : null;
+
+  const createData = {
+    email: data.email.toLowerCase(),
+    name: data.name,
+    role: data.role,
+    isActive: data.isActive ?? true,
+    createdBy,
+    ...(passwordHash !== null && { passwordHash }),
+  } as Prisma.UserUncheckedCreateInput;
 
   const user = await prisma.user.create({
-    data: {
-      email: data.email.toLowerCase(),
-      name: data.name,
-      passwordHash,
-      role: data.role,
-      isActive: data.isActive ?? true,
-      createdBy,
-    },
+    data: createData,
   });
 
   return {

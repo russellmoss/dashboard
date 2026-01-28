@@ -145,15 +145,14 @@ export function UserModal({ isOpen, onClose, onSaved, user }: UserModalProps) {
           
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Password {isEditing && '(leave blank to keep current)'}
+              Password {isEditing ? '(leave blank to keep current)' : '(optional for Google sign-in only)'}
             </label>
             <input
               type="password"
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              required={!isEditing}
-              minLength={8}
-              placeholder={isEditing ? '••••••••' : 'Min 8 characters'}
+              minLength={formData.password ? 8 : undefined}
+              placeholder={isEditing ? '••••••••' : 'Min 8 characters, or leave blank'}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             />
           </div>
