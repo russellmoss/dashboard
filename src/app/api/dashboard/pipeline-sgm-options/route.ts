@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { runQuery } from '@/lib/bigquery';
 import { FULL_TABLE, RECRUITING_RECORD_TYPE, OPEN_PIPELINE_STAGES } from '@/config/constants';
 import { SgmOption } from '@/types/dashboard';
+import { getUserPermissions } from '@/lib/permissions';
 
 // Force dynamic rendering (uses headers for authentication)
 export const dynamic = 'force-dynamic';
@@ -20,8 +21,12 @@ export async function GET(request: NextRequest) {
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
-    // Note: Permission check removed - all authenticated users can access pipeline data
+
+    const permissions = await getUserPermissions(session.user.email);
+    // Recruiters are not allowed to access dashboard pipeline endpoints
+    if (permissions.role === 'recruiter') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     
     // Build stage parameters
     const stageParams = OPEN_PIPELINE_STAGES.map((_, i) => `@stage${i}`);

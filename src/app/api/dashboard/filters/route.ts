@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { runQuery } from '@/lib/bigquery';
 import { FULL_TABLE } from '@/config/constants';
 import { FilterOptions } from '@/types/filters';
+import { getUserPermissions } from '@/lib/permissions';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +13,12 @@ export async function GET() {
     const session = await getServerSession(authOptions);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const permissions = await getUserPermissions(session.user?.email || '');
+    // Recruiters are not allowed to access main dashboard endpoints
+    if (permissions.role === 'recruiter') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     
     // Get distinct filter options from BigQuery with counts

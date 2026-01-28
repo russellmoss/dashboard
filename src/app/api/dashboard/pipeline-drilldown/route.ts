@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getOpenPipelineRecordsByStage } from '@/lib/queries/open-pipeline';
+import { getUserPermissions } from '@/lib/permissions';
 
 // Force dynamic rendering (uses headers for authentication)
 export const dynamic = 'force-dynamic';
@@ -13,8 +14,12 @@ export async function POST(request: NextRequest) {
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
-    // Note: No permission checks or data restrictions - all authenticated users can access all pipeline data
+
+    const permissions = await getUserPermissions(session.user.email);
+    // Recruiters are not allowed to access dashboard pipeline endpoints
+    if (permissions.role === 'recruiter') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     
     const body = await request.json();
     const { stage, filters, sgms } = body;
@@ -26,7 +31,6 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // No permission-based data restrictions - all users see all data
     // Apply user's SGM filter selection if provided
     const pipelineFilters = { ...filters };
     if (sgms && sgms.length > 0) {

@@ -31,6 +31,10 @@ export async function POST(request: NextRequest) {
     const mode = (body.mode as 'period' | 'cohort') || 'cohort';
 
     const permissions = await getUserPermissions(session.user.email);
+    // Recruiters are not allowed to access main dashboard endpoints (including exports)
+    if (permissions.role === 'recruiter') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     
     // Check export permission
     if (!permissions.canExport) {

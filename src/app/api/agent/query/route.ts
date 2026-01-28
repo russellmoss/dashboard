@@ -11,6 +11,7 @@ import { authOptions } from '@/lib/auth';
 import { logger } from '@/lib/logger';
 import { runQuery } from '@/lib/bigquery';
 import Anthropic from '@anthropic-ai/sdk';
+import { getUserPermissions } from '@/lib/permissions';
 
 export const dynamic = 'force-dynamic';
 
@@ -113,6 +114,12 @@ export async function POST(request: NextRequest) {
         { error: 'Unauthorized' },
         { status: 401 }
       );
+    }
+
+    const permissions = await getUserPermissions(session.user?.email || '');
+    // Recruiters are restricted to Recruiter Hub only (no Explore/agent queries)
+    if (permissions.role === 'recruiter') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // 2. Parse request

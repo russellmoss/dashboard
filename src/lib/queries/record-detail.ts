@@ -10,7 +10,11 @@ import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 /**
  * Fetches a single record by primary_key with all fields for modal display
  */
-const _getRecordDetail = async (id: string): Promise<RecordDetailFull | null> => {
+const _getRecordDetail = async (
+  id: string,
+  recruiterFilter?: string | null
+): Promise<RecordDetailFull | null> => {
+  const recruiterCondition = recruiterFilter ? 'AND v.External_Agency__c = @recruiterFilter' : '';
   const query = `
     SELECT
       -- Identifiers
@@ -99,10 +103,14 @@ const _getRecordDetail = async (id: string): Promise<RecordDetailFull | null> =>
     LEFT JOIN \`${MAPPING_TABLE}\` nm
       ON v.Original_source = nm.original_source
     WHERE v.primary_key = @id
+    ${recruiterCondition}
     LIMIT 1
   `;
 
-  const params = { id };
+  const params: Record<string, unknown> = { id };
+  if (recruiterFilter) {
+    params.recruiterFilter = recruiterFilter;
+  }
 
   const results = await runQuery<RecordDetailRaw>(query, params);
 

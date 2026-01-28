@@ -15,6 +15,7 @@ export async function middleware(request: NextRequest) {
   if (
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api/auth') ||
+    pathname.startsWith('/api/cron') ||
     pathname === '/login' ||
     pathname.startsWith('/static') ||
     pathname.startsWith('/monitoring') || // Sentry tunnel route
@@ -38,14 +39,46 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // If no token and trying to access protected API route, return 401
-  // /api/games/* is NOT checked here - those routes use getServerSession directly
-  // (avoids getToken vs session mismatch that caused 401s for game levels)
-  if (!token && pathname.startsWith('/api/dashboard')) {
+  // Default-deny for recruiters: they may only access Recruiter Hub + Settings in dashboard.
+  // This runs BEFORE any page JS, preventing "flash" and blocking direct URL access.
+  if (token && pathname.startsWith('/dashboard')) {
+    const role = (token as any)?.role as string | undefined;
+    if (role === 'recruiter') {
+      const allowed =
+        pathname.startsWith('/dashboard/recruiter-hub') ||
+        pathname.startsWith('/dashboard/settings');
+
+      if (!allowed) {
+        const redirectUrl = request.nextUrl.clone();
+        redirectUrl.pathname = '/dashboard/recruiter-hub';
+        redirectUrl.search = '';
+        return NextResponse.redirect(redirectUrl);
+      }
+    }
+  }
+
+  // If no token and trying to access API routes, return 401
+  // (Public exceptions are handled above: /api/auth/* and /api/cron/*)
+  if (!token && pathname.startsWith('/api')) {
     return NextResponse.json(
       { error: 'Unauthorized' },
       { status: 401 }
     );
+  }
+
+  // Recruiters are blocked from ALL /api/* by default (defense-in-depth),
+  // except explicit allowlist required for Recruiter Hub + Settings + approved shared endpoints.
+  if (token && pathname.startsWith('/api')) {
+    const role = (token as any)?.role as string | undefined;
+    const allowlisted =
+      pathname.startsWith('/api/auth') ||
+      pathname.startsWith('/api/recruiter-hub') ||
+      pathname === '/api/users/me/change-password' ||
+      pathname === '/api/dashboard/data-freshness';
+
+    if (role === 'recruiter' && !allowlisted) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
   }
 
   return NextResponse.next();
@@ -54,6 +87,6 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     '/dashboard/:path*',
-    '/api/dashboard/:path*',
+    '/api/:path*',
   ],
 };

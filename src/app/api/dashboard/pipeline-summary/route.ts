@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getOpenPipelineSummary } from '@/lib/queries/open-pipeline';
 import { formatCurrency } from '@/lib/utils/date-helpers';
+import { getUserPermissions } from '@/lib/permissions';
 
 // Force dynamic rendering (uses headers for authentication)
 export const dynamic = 'force-dynamic';
@@ -14,13 +15,16 @@ export async function POST(request: NextRequest) {
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
-    // Note: No permission checks or data restrictions - all authenticated users can access all pipeline data
+
+    const permissions = await getUserPermissions(session.user.email);
+    // Recruiters are not allowed to access dashboard pipeline endpoints
+    if (permissions.role === 'recruiter') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     
     const body = await request.json();
     const { stages, sgms } = body;
     
-    // No permission-based data restrictions - all users see all data
     const summary = await getOpenPipelineSummary({ stages, sgms });
     
     // Format response

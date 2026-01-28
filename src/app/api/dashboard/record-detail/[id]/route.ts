@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getRecordDetail } from '@/lib/queries/record-detail';
+import { getUserPermissions } from '@/lib/permissions';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +26,8 @@ export async function GET(
       );
     }
 
+    const permissions = await getUserPermissions(session.user?.email || '');
+
     // Validate id parameter
     const { id } = params;
     if (!id || typeof id !== 'string') {
@@ -42,7 +45,20 @@ export async function GET(
       );
     }
 
-    // Fetch record
+    // Recruiters may only view record details for records in their agency
+    if (permissions.role === 'recruiter') {
+      if (!permissions.allowedPages.includes(12) || !permissions.recruiterFilter) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      const record = await getRecordDetail(id, permissions.recruiterFilter);
+      if (!record) {
+        // Avoid leaking existence of records outside their filter
+        return NextResponse.json({ error: 'Record not found' }, { status: 404 });
+      }
+      return NextResponse.json({ record });
+    }
+
+    // Fetch record (non-recruiters)
     const record = await getRecordDetail(id);
 
     if (!record) {

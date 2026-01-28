@@ -88,6 +88,7 @@ export const authOptions: NextAuthOptions = {
             id: user.id,
             email: user.email,
             name: user.name,
+            role: user.role,
           };
         } catch (error: any) {
           console.error('[Auth] Error during authorization:', {
@@ -134,13 +135,29 @@ export const authOptions: NextAuthOptions = {
           const dbUser = await getUserByEmail(user.email.toLowerCase());
           if (dbUser) {
             (token as { id?: string }).id = dbUser.id;
+            (token as { role?: string }).role = dbUser.role;
           } else {
             (token as { id?: string }).id = user.id;
+            // Credentials provider includes role; OAuth user may not.
+            (token as { role?: string }).role = (user as { role?: string }).role;
           }
         } else {
           (token as { id?: string }).id = user.id;
+          (token as { role?: string }).role = (user as { role?: string }).role;
         }
       }
+
+      // Backfill role for existing JWTs that predate the `token.role` claim.
+      // This will run at most once per session (after role is present, no DB call).
+      const email = typeof token.email === 'string' ? token.email.toLowerCase().trim() : null;
+      if (email && !(token as { role?: string }).role) {
+        const dbUser = await getUserByEmail(email);
+        if (dbUser) {
+          (token as { id?: string }).id = (token as { id?: string }).id ?? dbUser.id;
+          (token as { role?: string }).role = dbUser.role;
+        }
+      }
+
       return token;
     },
   },

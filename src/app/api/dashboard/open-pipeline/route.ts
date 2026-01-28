@@ -20,6 +20,10 @@ export async function POST(request: NextRequest) {
     
     // Apply permission-based filters
     const permissions = await getUserPermissions(session.user?.email || '');
+    // Recruiters are not allowed to access dashboard pipeline endpoints
+    if (permissions.role === 'recruiter') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     const pipelineFilters: {
       channel?: string;
       source?: string;

@@ -47,14 +47,19 @@ export async function POST(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const permissions = await getUserPermissions(session.user?.email || '');
+    // Recruiters are not allowed to access main dashboard endpoints
+    if (permissions.role === 'recruiter') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     
     const body = await request.json();
     const filters: DashboardFilters = body.filters;
     const groupBy: 'channel' | 'source' = body.groupBy || 'source';
     
     // Note: SGA/SGM filters are NOT automatically applied to main dashboard
-    // All users (including SGAs) can see all data on the funnel performance dashboard
-    // SGA filters are only applied in SGA Hub features
+    // (Non-recruiter users can see all data on the funnel performance dashboard)
     
     if (groupBy === 'channel') {
       // Fetch channel performance and goals in parallel

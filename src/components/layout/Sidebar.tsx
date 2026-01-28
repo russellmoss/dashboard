@@ -59,13 +59,14 @@ const PAGES = [
 interface SidebarProps {
   isCollapsed: boolean;
   onToggle: () => void;
+  allowedPagesOverride?: number[];
 }
 
-export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
+export function Sidebar({ isCollapsed, onToggle, allowedPagesOverride }: SidebarProps) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const permissions = getSessionPermissions(session);
-  const allowedPages = permissions?.allowedPages || [1, 2];
+  const allowedPages = allowedPagesOverride || permissions?.allowedPages || [1, 2];
 
   const filteredPages = PAGES.filter(page => allowedPages.includes(page.id));
 

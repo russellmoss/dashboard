@@ -17,6 +17,12 @@ export async function POST(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const permissions = await getUserPermissions(session.user?.email || '');
+    // Recruiters are not allowed to access main dashboard endpoints
+    if (permissions.role === 'recruiter') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     
     // Handle both old format (just filters) and new format ({ filters, viewMode })
     const body = await request.json();
@@ -24,8 +30,7 @@ export async function POST(request: NextRequest) {
     const viewMode: ViewMode | undefined = body.viewMode;
     
     // Note: SGA/SGM filters are NOT automatically applied to main dashboard
-    // All users (including SGAs) can see all data on the funnel performance dashboard
-    // SGA filters are only applied in SGA Hub features
+    // (Non-recruiter users can see all data on the funnel performance dashboard)
     
     const { startDate, endDate } = buildDateRangeFromFilters(filters);
     logger.debug('[Funnel Metrics API] Date range', { startDate, endDate, datePreset: filters.datePreset, year: filters.year, viewMode });
