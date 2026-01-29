@@ -259,8 +259,8 @@ export function RecruiterHubContent() {
         av = getProspectStageLabel(a);
         bv = getProspectStageLabel(b);
       } else {
-        av = (a as Record<string, unknown>)[key] as string | null | undefined;
-        bv = (b as Record<string, unknown>)[key] as string | null | undefined;
+        av = (a as unknown as Record<string, unknown>)[key] as string | null | undefined;
+        bv = (b as unknown as Record<string, unknown>)[key] as string | null | undefined;
       }
       const aStr = (av ?? '').toString().toLowerCase();
       const bStr = (bv ?? '').toString().toLowerCase();
@@ -273,8 +273,8 @@ export function RecruiterHubContent() {
     const dir = opportunitySortDir;
     const mult = dir === 'asc' ? 1 : -1;
     return [...filteredOpportunities].sort((a, b) => {
-      const av = (a as Record<string, unknown>)[key] as string | null | undefined;
-      const bv = (b as Record<string, unknown>)[key] as string | null | undefined;
+      const av = (a as unknown as Record<string, unknown>)[key] as string | null | undefined;
+      const bv = (b as unknown as Record<string, unknown>)[key] as string | null | undefined;
       const aStr = (av ?? '').toString().toLowerCase();
       const bStr = (bv ?? '').toString().toLowerCase();
       return mult * (aStr < bStr ? -1 : aStr > bStr ? 1 : 0);
