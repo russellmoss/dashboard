@@ -3,7 +3,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
-import { getUserPermissions } from '@/lib/permissions'; // Required for admin permission checks
+import { getUserPermissions } from '@/lib/permissions';
+import { forbidRecruiter } from '@/lib/api-authz';
 
 /**
  * GET /api/saved-reports
@@ -16,6 +17,11 @@ export async function GET(request: NextRequest) {
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    // Block recruiters from saved reports
+    const permissions = await getUserPermissions(session.user.email);
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
 
     // Get user from database
     const user = await prisma.user.findUnique({
@@ -113,6 +119,11 @@ export async function POST(request: NextRequest) {
 
     // Check if admin template and user has permission
     const permissions = await getUserPermissions(session.user.email);
+
+    // Block recruiters from saved reports
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
+
     const isAdminTemplate = reportType === 'admin_template';
     if (isAdminTemplate && !['admin', 'manager'].includes(permissions.role)) {
       return NextResponse.json(

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions, getSessionUserId } from '@/lib/auth';
+import { getUserPermissions } from '@/lib/permissions';
+import { forbidRecruiter } from '@/lib/api-authz';
 import { getAvailableLevels } from '@/lib/queries/pipeline-catcher';
 import { getCurrentQuarter } from '@/config/game-constants';
 import prisma from '@/lib/prisma';
@@ -14,7 +16,12 @@ export async function GET(request: NextRequest) {
     if (!getSessionUserId(session)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
+
+    // Block recruiters from games
+    const permissions = await getUserPermissions(session?.user?.email || '');
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
+
     const levels = await getAvailableLevels();
     
     // Get high scores (top score per quarter)

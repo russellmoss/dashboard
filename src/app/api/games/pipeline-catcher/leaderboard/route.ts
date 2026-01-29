@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions, getSessionUserId } from '@/lib/auth';
+import { getUserPermissions } from '@/lib/permissions';
+import { forbidRecruiter } from '@/lib/api-authz';
 import prisma from '@/lib/prisma';
 import { LeaderboardApiResponse, SubmitScoreRequest, SubmitScoreResponse, LeaderboardEntry } from '@/types/game';
 
@@ -19,7 +21,12 @@ export async function GET(request: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
+
+    // Block recruiters from games
+    const permissions = await getUserPermissions(session?.user?.email || '');
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
+
     const quarter = new URL(request.url).searchParams.get('quarter');
     if (!quarter) {
       return NextResponse.json({ error: 'Quarter required' }, { status: 400 });
@@ -66,10 +73,23 @@ export async function POST(request: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
+
+    // Block recruiters from games
+    const permissions = await getUserPermissions(session?.user?.email || '');
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
+
     const body: SubmitScoreRequest = await request.json();
     const { quarter, score, advisorsCaught, joinedCaught, ghostsHit, gameDuration, message } = body;
-    
+
+    // Validate score is non-negative
+    if (typeof score !== 'number' || !Number.isFinite(score) || score < 0) {
+      return NextResponse.json(
+        { error: 'Score must be a non-negative number' },
+        { status: 400 }
+      );
+    }
+
     const newScore = await prisma.gameScore.create({
       data: {
         userId,
@@ -122,7 +142,12 @@ export async function PATCH(request: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
+
+    // Block recruiters from games
+    const permissions = await getUserPermissions(session?.user?.email || '');
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
+
     const body = await request.json();
     const { scoreId, message } = body as { scoreId: string; message?: string };
     if (!scoreId || typeof scoreId !== 'string') {

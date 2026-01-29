@@ -12,6 +12,7 @@ import { logger } from '@/lib/logger';
 import { runQuery } from '@/lib/bigquery';
 import Anthropic from '@anthropic-ai/sdk';
 import { getUserPermissions } from '@/lib/permissions';
+import { forbidRecruiter } from '@/lib/api-authz';
 
 export const dynamic = 'force-dynamic';
 
@@ -117,10 +118,9 @@ export async function POST(request: NextRequest) {
     }
 
     const permissions = await getUserPermissions(session.user?.email || '');
-    // Recruiters are restricted to Recruiter Hub only (no Explore/agent queries)
-    if (permissions.role === 'recruiter') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    // Block recruiters from Explore/agent queries
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
 
     // 2. Parse request
     const body: AgentRequest = await request.json();

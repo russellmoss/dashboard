@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { getUserPermissions } from '@/lib/permissions';
+import { forbidRecruiter } from '@/lib/api-authz';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
 
@@ -19,6 +21,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    // Block recruiters from saved reports
+    const permissions = await getUserPermissions(session.user.email);
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
 
     const user = await prisma.user.findUnique({
       where: { email: session.user.email },

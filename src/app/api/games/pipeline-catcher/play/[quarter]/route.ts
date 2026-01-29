@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions, getSessionUserId } from '@/lib/auth';
+import { getUserPermissions } from '@/lib/permissions';
+import { forbidRecruiter } from '@/lib/api-authz';
 import { getGameDataForQuarter } from '@/lib/queries/pipeline-catcher';
 import { GameDataApiResponse } from '@/types/game';
 
@@ -15,7 +17,12 @@ export async function GET(
     if (!getSessionUserId(session)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
+
+    // Block recruiters from games
+    const permissions = await getUserPermissions(session?.user?.email || '');
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
+
     // Next.js 14+ App Router: params may be a Promise
     const resolvedParams = await Promise.resolve(params);
     const { quarter } = resolvedParams;

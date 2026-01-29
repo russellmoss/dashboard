@@ -1,328 +1,426 @@
-## Recruiter Security Audit
+# Recruiter Security Audit
 
-### 1. High‑level summary (non‑technical)
-
-We’ve added a dedicated “Recruiter Hub” experience inside the Savvy dashboard for external recruiters. The critical requirement is that **a recruiter must only ever see the data we explicitly choose to share with them** and **must never be able to see internal pipeline data, SGA/Sales performance, or any other advisor records**.
-
-To achieve this, we made changes in three layers:
-
-- **Login & identity**: When a user signs in, the system knows their **role** (e.g. admin, manager, SGA, recruiter) and, for recruiters, which **agency** they belong to.
-- **Front‑end navigation**: The visible sidebar and pages in the browser redirect recruiters away from any part of the dashboard that is not theirs.
-- **Back‑end (server) protections**: All of the important protections live on the server, not in the browser. Even if a recruiter:
-  - Types a forbidden URL manually,
-  - Calls an API directly from the browser console, or
-  - Uses a script to hit our API endpoints,
-  the **server** will reject access or filter the data down to only their agency.
-
-We also put in place a **“default deny” policy** for recruiters:
-
-- Any new dashboard page or API we create in the future is **blocked for recruiters by default** unless we deliberately allow it.
-
-In plain English: **we assume recruiters are untrusted and we only open very specific, narrow doors for them.**
+**Last Updated:** 2026-01-28
+**Status:** Hardened and Verified
+**Verification:** All 28 security tests passing (`npm run verify:recruiter-security`)
 
 ---
 
-### 2. What a recruiter can and cannot access (behavioral view)
+## 1. Executive Summary
 
-When a user with `role = recruiter` logs in:
+We have implemented a **defense-in-depth security model** for the recruiter role. Recruiters are external users who must only see data related to their own agency within the Recruiter Hub.
 
-- They are automatically taken to the **Recruiter Hub**.
-- They can also access the **Settings** page to change their password and view basic account info.
-- They **cannot** navigate to:
-  - Funnel Performance
-  - Open Pipeline
-  - SGA Hub
-  - SGA Activity
-  - Explore (AI agent)
-  - Any future dashboard pages we add (unless we explicitly allow them).
+**Key Security Guarantees:**
 
-If a recruiter tries to:
+1. **Default-Deny Architecture**: All new pages and APIs are blocked for recruiters by default
+2. **Multi-Layer Protection**: Middleware + Route-level + Query-level security
+3. **Automated Verification**: Security tests validate all 28 critical endpoints
+4. **Future-Proof**: New development automatically inherits recruiter restrictions
 
-- Open `/dashboard`, `/dashboard/pipeline`, `/dashboard/sga-hub`, `/dashboard/explore`, etc. via the URL bar:
-  - They are immediately redirected to `/dashboard/recruiter-hub` **before** the forbidden page can render.
-- Call internal APIs like `/api/dashboard/funnel-metrics` or `/api/sga-hub/weekly-actuals` directly from the console:
-  - The server responds with **HTTP 403 Forbidden**.
-- Call a **new** API we add under `/api/...` in the future:
-  - The server will also respond with **HTTP 403 Forbidden**, unless we deliberately put that API on a small recruiter allowlist.
-
-Inside the **Recruiter Hub**, even the data they do receive is:
-
-- **Filtered by their agency** on the server (using their `External_Agency__c`).
-- Structured so that:
-  - Prospect lists only include prospects associated with their agency.
-  - Opportunity lists only include opportunities associated with their agency.
-
-So **“what they see” is limited both by page access and by record‑level filtering**.
+**Bottom Line:** A recruiter cannot access any dashboard data, API, or page unless we explicitly allow it. Even then, data is filtered to their agency only.
 
 ---
 
-### 3. Architecture overview (for technical readers / CTO)
+## 2. What Recruiters Can and Cannot Access
 
-This section explains the design at the level of concerns a CTO or security‑minded engineer would have.
+### Allowed (Explicitly Permitted)
 
-#### 3.1 Roles & permissions
+| Resource | Path | Notes |
+|----------|------|-------|
+| Recruiter Hub | `/dashboard/recruiter-hub` | Main page for recruiters |
+| Settings | `/dashboard/settings` | Password change, account info |
+| Prospects API | `/api/recruiter-hub/prospects` | Filtered by agency |
+| Opportunities API | `/api/recruiter-hub/opportunities` | Filtered by agency |
+| External Agencies API | `/api/recruiter-hub/external-agencies` | Returns only their agency |
+| Record Detail API | `/api/dashboard/record-detail/[id]` | Filtered by agency, returns 404 for others |
+| Data Freshness | `/api/dashboard/data-freshness` | Non-sensitive metadata |
+| Auth APIs | `/api/auth/*` | Login, logout, session |
+| Change Password | `/api/users/me/change-password` | Self-service password change |
 
-Core concepts:
+### Blocked (Returns 403 Forbidden)
 
-- **User role** (from the `User` table, via Prisma):
-  - `admin`, `manager`, `sgm`, `sga`, `viewer`, `recruiter`.
-- **User permissions** (`UserPermissions` in `src/types/user.ts`, computed in `src/lib/permissions.ts`):
-  - `role` – normalized role string.
-  - `allowedPages` – which numbered dashboard pages the role can see.
-  - `sgaFilter`, `sgmFilter` – used to filter data by SGA/SGM.
-  - `recruiterFilter` – for recruiters, this is the **External Agency** they are bound to.
-  - `canExport`, `canManageUsers`.
+| Category | Examples | Protection Layer |
+|----------|----------|------------------|
+| Main Dashboard | `/dashboard`, `/dashboard/pipeline` | Middleware redirect |
+| SGA Hub | `/dashboard/sga-hub`, `/api/sga-hub/*` | Middleware + Route |
+| Explore (AI) | `/dashboard/explore`, `/api/agent/query` | Middleware + Route |
+| Games | `/api/games/pipeline-catcher/*` | Middleware + Route |
+| Saved Reports | `/api/saved-reports/*` | Middleware + Route |
+| All Dashboard APIs | `/api/dashboard/funnel-metrics`, etc. | Middleware + Route |
+| Admin APIs | `/api/admin/*` | Middleware + Route |
+| Export | `/api/dashboard/export-sheets` | Middleware + Route |
+| **Any Future API** | `/api/new-feature/*` | Middleware (automatic) |
 
-For recruiters specifically:
+---
 
-- `allowedPages = [7, 12]` meaning:
-  - 7 = Settings
-  - 12 = Recruiter Hub
-- `recruiterFilter = user.externalAgency` (or `null` for non‑recruiters).
+## 3. Security Architecture
 
-These permissions are:
+### 3.1 Three-Layer Defense Model
 
-- Used **server‑side** in API routes and page loaders.
-- Also injected into the **NextAuth session** for convenience on the client.
-
-#### 3.2 JWT & session: embedding role into the token
-
-In `src/lib/auth.ts` (NextAuth config):
-
-- During **credentials login**, we return:
-  - `id`, `email`, `name`, and **`role`** from our own `User` table.
-- In the **`jwt` callback**:
-  - We look up the DB user via `getUserByEmail()` and set:
-    - `token.id = dbUser.id`
-    - `token.role = dbUser.role`
-  - We added a **backfill** path:
-    - If `token.role` is missing (e.g. old JWTs), we re‑fetch the user by email once and populate `token.role`.
-
-Why this matters:
-
-- The **middleware** uses `getToken()` (NextAuth JWT) to read `token.role` and make **pre‑request decisions** (redirect/403) before any React or page code runs.
-- This means even if a page or route forgets to check role, the middleware can still enforce a **global default‑deny** policy.
-
-#### 3.3 Middleware: global default‑deny for recruiters
-
-`src/middleware.ts` is configured with:
-
-```ts
-export const config = {
-  matcher: [
-    '/dashboard/:path*',
-    '/api/:path*',
-  ],
-};
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     LAYER 1: MIDDLEWARE                         │
+│  src/middleware.ts                                              │
+│  - Runs BEFORE any page or API code                             │
+│  - Default-deny for recruiters on all /api/* and /dashboard/*   │
+│  - Explicit allowlist for recruiter-accessible paths            │
+│  - Redirects recruiters away from forbidden dashboard pages     │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   LAYER 2: ROUTE HANDLERS                       │
+│  Each API route (defense-in-depth)                              │
+│  - Uses forbidRecruiter(permissions) helper                     │
+│  - Returns 403 even if middleware somehow bypassed              │
+│  - Self-documenting security in code                            │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   LAYER 3: QUERY FILTERING                      │
+│  For recruiter-accessible endpoints only                        │
+│  - Uses permissions.recruiterFilter (agency)                    │
+│  - BigQuery WHERE clause: External_Agency__c = @agency          │
+│  - Returns 404 (not 403) for records outside agency             │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-This means the middleware runs for:
+### 3.2 Middleware Allowlist (Current)
 
-- All dashboard pages under `/dashboard/...`
-- All APIs under `/api/...`
+The middleware at `src/middleware.ts` defines what recruiters CAN access:
 
-##### 3.3.1 Public exceptions
+```typescript
+// Recruiter allowlist (everything else is 403)
+const allowlisted =
+  pathname.startsWith('/api/auth') ||
+  pathname.startsWith('/api/recruiter-hub') ||
+  pathname.startsWith('/api/dashboard/record-detail') ||  // Has agency filtering
+  pathname === '/api/users/me/change-password' ||
+  pathname === '/api/dashboard/data-freshness';
+```
 
-We explicitly skip the middleware’s auth checks for:
+**Important:** Any path NOT in this list returns 403 for recruiters automatically.
 
-- `/_next` (Next.js internals, assets)
-- `/api/auth/*` (NextAuth, password flows)
-- `/api/cron/*` (CRON endpoints protected via `CRON_SECRET` header)
-- `/login`
-- `/static/*`
-- `/monitoring/*` (Sentry tunnel)
-- Requests for files (paths containing a dot, e.g. `.js`, `.css`)
+### 3.3 Route-Level Pattern
 
-Everything else under `/dashboard/*` and `/api/*` is considered **protected**.
+All sensitive API routes use this pattern:
 
-##### 3.3.2 Dashboard routing for recruiters (page‑level isolation)
+```typescript
+import { getUserPermissions } from '@/lib/permissions';
+import { forbidRecruiter } from '@/lib/api-authz';
 
-Middleware logic:
+export async function POST(request: NextRequest) {
+  // 1. Authentication
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
-- If **no token** and path starts with `/dashboard`:
-  - Redirect to `/login` with `callbackUrl`.
-- If token exists and path starts with `/dashboard`:
-  - Read `role` from the token.
-  - If `role === 'recruiter'`:
-    - Only allow:
-      - `/dashboard/recruiter-hub...`
-      - `/dashboard/settings...`
-    - For **any other** `/dashboard/...` path:
-      - Immediately redirect to `/dashboard/recruiter-hub` with a clean query string.
+  // 2. Authorization - Block recruiters
+  const permissions = await getUserPermissions(session.user.email);
+  const forbidden = forbidRecruiter(permissions);
+  if (forbidden) return forbidden;
 
-Result:
-
-- A recruiter cannot render any other dashboard page; even “typing the URL in the address bar” is intercepted at the middleware layer and redirected.
-
-##### 3.3.3 API gating for recruiters (API‑level isolation)
-
-For API routes:
-
-- If **no token** and path starts with `/api` (and is not in the public exceptions):
-  - Return `401 Unauthorized`.
-- If token exists and path starts with `/api`:
-  - Read `role` from token.
-  - For `role === 'recruiter'`:
-    - We use a **tight allowlist**:
-      - `/api/auth/*` (already excluded above)
-      - `/api/recruiter-hub/*` – recruiter queries
-      - `/api/users/me/change-password` – change password flow
-      - `/api/dashboard/data-freshness` – non‑sensitive data freshness info
-    - If the path is **not** on this allowlist:
-      - Return `403 Forbidden`.
-
-This gives us:
-
-- A **global, centralized guarantee** that recruiters cannot call any other APIs:
-  - `/api/dashboard/*` – blocked by middleware + route code.
-  - `/api/sga-hub/*`, `/api/sga-activity/*`, `/api/agent/query`, `/api/saved-reports/*`, etc. – blocked by middleware even if a route forgot to check.
-  - Future `/api/new-feature/*` – blocked by default until we explicitly add it to the recruiter allowlist.
-
-In other words: **the default posture for recruiters is “no API access unless we opt in.”**
-
----
-
-### 4. Route‑level defenses (defense in depth)
-
-Even with middleware in place, we maintain **route‑level checks** as a second layer:
-
-- Most sensitive APIs already:
-  - Call `getServerSession(authOptions)` to ensure the user is authenticated.
-  - Call `getUserPermissions(session.user.email)` to know their role and filters.
-  - Enforce role‑based allow/deny logic.
-
-Examples:
-
-- `/api/dashboard/*`:
-  - Recruiters get `403` from the route itself (even before middleware changes).
-- `/api/agent/query` (Explore backend):
-  - Recruiters get `403`.
-- `/api/sga-hub/*` and `/api/sga-activity/*`:
-  - Only `admin`, `manager`, and `sga` roles are allowed.
-- `/api/recruiter-hub/*`:
-  - They verify `permissions.allowedPages` includes the Recruiter Hub page (12).
-  - They pass `permissions.recruiterFilter` down into BigQuery/SQL queries to filter by `External_Agency__c`.
-
-We also added a small **helper** in `src/lib/api-authz.ts`:
-
-```ts
-export function forbidRecruiter(permissions: UserPermissions) {
-  if (permissions.role !== 'recruiter') return null;
-  return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  // 3. Business logic...
 }
 ```
 
-This gives us a simple pattern for future sensitive routes:
+**Files using this pattern:** 19 API routes (verified via grep)
 
-```ts
-const permissions = await getUserPermissions(session.user.email);
-const forbidden = forbidRecruiter(permissions);
-if (forbidden) return forbidden;
+---
+
+## 4. Building New Features: Security Checklist
+
+### 4.1 Adding a New Dashboard Page
+
+When creating a new page under `/dashboard/`:
+
+1. **No action needed for blocking** - Middleware automatically redirects recruiters to `/dashboard/recruiter-hub`
+2. **Verify in browser** - Log in as recruiter, try to access the new page URL directly
+3. **Expected result** - Immediate redirect to Recruiter Hub
+
+### 4.2 Adding a New API Route
+
+When creating a new API under `/api/`:
+
+```typescript
+// REQUIRED: Add this pattern to ALL new API routes
+import { getUserPermissions } from '@/lib/permissions';
+import { forbidRecruiter } from '@/lib/api-authz';
+
+export async function GET(request: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // ADD THIS - blocks recruiters with 403
+  const permissions = await getUserPermissions(session.user.email);
+  const forbidden = forbidRecruiter(permissions);
+  if (forbidden) return forbidden;
+
+  // Your business logic here...
+}
 ```
 
-While middleware already does the heavy lifting, this keeps our API code self‑documenting and robust.
+**Why both middleware AND route-level?**
+- Middleware provides the global safety net
+- Route-level makes the code self-documenting
+- Defense-in-depth catches configuration mistakes
+
+### 4.3 Adding a Recruiter-Accessible Feature
+
+If you intentionally want recruiters to access something:
+
+1. **Add to middleware allowlist** in `src/middleware.ts`:
+   ```typescript
+   const allowlisted =
+     // ... existing paths ...
+     pathname.startsWith('/api/your-new-path') ||  // Document why!
+   ```
+
+2. **Filter by agency** in the route:
+   ```typescript
+   const permissions = await getUserPermissions(session.user.email);
+
+   // For recruiter-accessible routes, filter by agency
+   if (permissions.role === 'recruiter') {
+     if (!permissions.recruiterFilter) {
+       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+     }
+     // Use permissions.recruiterFilter in your query
+     const data = await getDataForAgency(permissions.recruiterFilter);
+     return NextResponse.json({ data });
+   }
+   ```
+
+3. **Never trust client input** for agency filtering:
+   ```typescript
+   // WRONG - recruiter can manipulate this
+   const agency = request.body.agency;
+
+   // RIGHT - use server-side permissions
+   const agency = permissions.recruiterFilter;
+   ```
+
+### 4.4 Verification After Changes
+
+Run the security verification script:
+
+```bash
+# Start dev server first
+npm run dev
+
+# In another terminal, get a recruiter session token and run:
+npm run verify:recruiter-security <session-token>
+```
+
+Expected output: All 28 tests passing
 
 ---
 
-### 5. Data‑level isolation inside Recruiter Hub
+## 5. Current Protection Status
 
-For the views that recruiters *are* allowed to see, we still enforce **row‑level security semantics**:
+### 5.1 Verified Protected Endpoints (23 endpoints, all return 403)
 
-- The **Recruiter Hub** queries (in `src/lib/queries/recruiter-hub.ts`) take a `recruiterFilter` parameter.
-- For recruiters:
-  - `recruiterFilter` is always set to their `externalAgency`.
-  - BigQuery / SQL conditions include:
-    - `WHERE External_Agency__c = @recruiterFilter`
-  - This ensures:
-    - Prospects and opportunities for **other agencies** are never returned to that recruiter, even if they guess IDs or try to pivot.
+**Dashboard APIs:**
+- `/api/dashboard/funnel-metrics`
+- `/api/dashboard/conversion-rates`
+- `/api/dashboard/detail-records`
+- `/api/dashboard/source-performance`
+- `/api/dashboard/filters`
+- `/api/dashboard/export-sheets`
+- `/api/dashboard/forecast`
+- `/api/dashboard/open-pipeline`
+- `/api/dashboard/pipeline-drilldown`
+- `/api/dashboard/pipeline-sgm-options`
+- `/api/dashboard/pipeline-summary`
 
-For admins/managers:
+**SGA Hub APIs:**
+- `/api/sga-hub/weekly-goals`
+- `/api/sga-hub/weekly-actuals`
+- `/api/sga-hub/quarterly-progress`
+- `/api/sga-hub/closed-lost`
 
-- They can see **all** agencies in the Recruiter Hub and can filter by external agency explicitly.
+**Games APIs:**
+- `/api/games/pipeline-catcher/leaderboard`
+- `/api/games/pipeline-catcher/levels`
+- `/api/games/pipeline-catcher/play/[quarter]`
 
-So recruiter visibility is constrained in **two dimensions**:
+**Explore/Agent APIs:**
+- `/api/explore/feedback`
+- `/api/agent/query`
 
-1. **Which API routes they can call** (middleware + route checks).
-2. **Which rows those APIs return** (agency filter in queries).
+**Saved Reports APIs:**
+- `/api/saved-reports` (GET, POST)
+
+**Admin APIs:**
+- `/api/admin/refresh-cache`
+
+### 5.2 Verified Accessible Endpoints (5 endpoints)
+
+- `/api/recruiter-hub/prospects` → 200 (filtered by agency)
+- `/api/recruiter-hub/opportunities` → 200 (filtered by agency)
+- `/api/recruiter-hub/external-agencies` → 200 (only their agency)
+- `/api/dashboard/data-freshness` → 200 (non-sensitive)
+- `/api/dashboard/record-detail/[id]` → 200/404 (filtered by agency)
 
 ---
 
-### 6. Confidence level and robustness
+## 6. Key Files Reference
 
-#### 6.1 What we’re very confident about
+| File | Purpose |
+|------|---------|
+| `src/middleware.ts` | Global default-deny, recruiter allowlist |
+| `src/lib/api-authz.ts` | `forbidRecruiter()` helper function |
+| `src/lib/permissions.ts` | `getUserPermissions()`, role definitions |
+| `src/lib/auth.ts` | NextAuth config, JWT with role |
+| `src/lib/queries/recruiter-hub.ts` | Agency-filtered queries |
+| `scripts/verify-recruiter-security.js` | Automated security tests |
+| `.cursorrules` | Recruiter Security Rules section |
 
-Given the current design, we are **very confident** that:
+---
 
-1. **A recruiter cannot render any non‑Recruiter‑Hub dashboard content**
-   - Middleware reads `token.role` and **redirects**:
-     - `/dashboard/*` pages other than Recruiter Hub + Settings → `/dashboard/recruiter-hub`.
-2. **A recruiter cannot access any non‑Recruiter‑Hub API**
-   - Middleware enforces a **global allowlist** for recruiters under `/api/*`.
-   - New APIs added anywhere under `/api/...` are automatically **403** for recruiters unless we consciously add them to the allowlist.
-3. **Recruiter Hub data is scoped to their agency**
-   - Server‑side filtering uses `permissions.recruiterFilter` (mapped to external agency).
-   - There is no client‑side “filter only” – the server never returns other agencies’ rows to that user.
+## 7. Permissions Reference
 
-Together, this gives us:
+```typescript
+// From src/lib/permissions.ts
+const ROLE_PERMISSIONS = {
+  recruiter: {
+    role: 'recruiter',
+    allowedPages: [7, 12],  // 7=Settings, 12=Recruiter Hub ONLY
+    canExport: true,        // Can export their agency's data
+    canManageUsers: false,
+  },
+  // ... other roles have more allowedPages
+};
 
-- **Strong isolation by role** (recruiter vs internal users).
-- **Strong isolation by agency** among recruiters.
-- **Defense in depth**:
-  - Middleware (token‑based, early).
-  - Route‑level checks.
-  - Query‑level filters.
+// recruiterFilter is set from user.externalAgency in the database
+```
 
-#### 6.2 Remaining risks and honest limitations
+---
 
-No design is absolutely perfect; the realistic residual risks are:
+## 8. Risks and Mitigations
 
-1. **Misconfiguration inside `/api/recruiter-hub/*`**
-   - These APIs are intentionally reachable by recruiters.
-   - If a future developer forgets to apply `permissions.recruiterFilter` when adding a new recruiter‑hub query, they could accidentally return all agencies’ records.
-   - Mitigation:
-     - Follow the existing query patterns religiously.
-     - Add tests that assert a recruiter only sees their agency’s records.
+### 8.1 Low Risk: Misconfigured Recruiter Hub Query
 
-2. **Expanding the recruiter allowlist in middleware**
-   - If we later add more allowlisted paths for recruiters (e.g. `/api/some-shared-utility`), we must treat that as a **security‑sensitive decision** and ensure those endpoints:
-     - Either return only non‑sensitive aggregate/metadata data, or
-     - Enforce their own row‑level filters.
+**Risk:** A new query in `/api/recruiter-hub/*` forgets to filter by agency.
 
-3. **Human error in future code**
-   - Middleware and helpers significantly reduce the chance of mistakes, but a developer could still:
-     - Bypass our helper patterns.
-     - Add a public route outside the protected prefixes (e.g. mistakenly under `/public-api/*`) that surfaces sensitive data.
-   - Mitigation:
-     - Architectural discipline: keep **all** internal data APIs under `/api/...`.
-     - Periodic security review of new endpoints.
-     - Automated tests that log in as a recruiter and:
-       - Crawl known routes.
-       - Probe a curated list of sensitive APIs and assert `403`.
+**Mitigation:**
+- Follow existing patterns in `src/lib/queries/recruiter-hub.ts`
+- Always use `permissions.recruiterFilter` from server
+- Never trust client-supplied agency filters
+- Add to security test suite
 
-4. **Session / token anomalies**
-   - We rely on `token.role` being correct. The JWT callback backfills missing roles by re‑reading the DB, which is robust, but:
-     - If the DB were manually corrupted (e.g. recruiter’s role changed to `admin` incorrectly), middleware would trust that.
-   - Mitigation:
-     - Treat role assignments as privileged operations (only admins).
-     - Consider adding admin tooling/logging around role changes.
+### 8.2 Low Risk: Middleware Allowlist Expansion
 
-Overall, these are **normal operational risks** rather than design flaws.
+**Risk:** Adding new paths to recruiter allowlist without proper filtering.
 
-#### 6.3 Practical assurance level
+**Mitigation:**
+- Document why each path is allowlisted
+- Require agency filtering for any data-returning endpoint
+- Code review checklist for security implications
 
-Given:
+### 8.3 Very Low Risk: New API Without forbidRecruiter
 
-- Default‑deny at the middleware layer for all `/dashboard/*` and `/api/*` for recruiters.
-- Route‑level role checks for sensitive routes.
-- Query‑level filtering by `External_Agency__c`.
-- Sticky Cursor rules that remind future coding sessions to treat recruiters as untrusted.
+**Risk:** Developer forgets to add `forbidRecruiter()` to new route.
 
-We can reasonably say:
+**Mitigation:**
+- Middleware blocks it anyway (defense-in-depth)
+- `.cursorrules` reminds AI assistants to add the pattern
+- Security test catches the regression
 
-- **It is very unlikely that a recruiter can see any data outside what we explicitly expose in Recruiter Hub.**
-- Any regression would most likely come from:
-  - A new recruiter‑hub query that forgets to filter by agency, or
-  - A consciously added allowlist exception that is misdesigned.
+---
 
-With periodic review and basic automated tests around recruiter permissions, this design should be **robust enough for production use and external recruiter access**, even as the dashboard evolves. 
+## 9. Testing Recruiter Security
 
+### 9.1 Automated Testing
+
+```bash
+# Run all security tests
+npm run verify:recruiter-security <session-token>
+```
+
+### 9.2 Manual Testing Checklist
+
+1. **Login as recruiter**
+2. **Try forbidden pages:**
+   - Navigate to `/dashboard` → Should redirect to `/dashboard/recruiter-hub`
+   - Navigate to `/dashboard/explore` → Should redirect
+   - Navigate to `/dashboard/sga-hub` → Should redirect
+3. **Try forbidden APIs (browser console):**
+   ```javascript
+   fetch('/api/dashboard/funnel-metrics', {method:'POST'}).then(r=>console.log(r.status))
+   // Expected: 403
+   ```
+4. **Verify data isolation:**
+   - Check that prospects/opportunities only show your agency
+   - Try to access a record ID from another agency → Should get 404
+
+---
+
+## 10. Future Development Guidelines
+
+### DO:
+- Add `forbidRecruiter()` to all new API routes by default
+- Use `permissions.recruiterFilter` for any recruiter-accessible data
+- Run security tests after adding new endpoints
+- Document any additions to the middleware allowlist
+
+### DON'T:
+- Trust client-supplied agency/filter parameters for recruiters
+- Add paths to the middleware allowlist without agency filtering
+- Assume middleware alone is sufficient (add route-level checks too)
+- Create public APIs outside `/api/` that return sensitive data
+
+### Code Review Checklist:
+- [ ] New API routes have `forbidRecruiter()` check
+- [ ] If recruiter-accessible, uses `permissions.recruiterFilter`
+- [ ] No client-supplied filters override server-side agency restrictions
+- [ ] Middleware allowlist changes are documented with rationale
+- [ ] Security tests updated for new endpoints
+
+---
+
+## 11. Audit History
+
+| Date | Action | Verified By |
+|------|--------|-------------|
+| 2026-01-28 | Initial security audit | Human + Claude |
+| 2026-01-28 | Hardening implementation (19 files) | Claude Code Opus 4.5 |
+| 2026-01-28 | Automated tests created and passing (28/28) | Claude Code Opus 4.5 |
+| 2026-01-28 | Documentation updated | Claude Code Opus 4.5 |
+
+---
+
+## 12. Quick Reference Card
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                  RECRUITER SECURITY QUICK REF                   │
+├────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  NEW API ROUTE? Add this after session check:                   │
+│  ─────────────────────────────────────────────                  │
+│  const permissions = await getUserPermissions(session.user.email);
+│  const forbidden = forbidRecruiter(permissions);                │
+│  if (forbidden) return forbidden;                               │
+│                                                                  │
+│  RECRUITER-ACCESSIBLE ENDPOINT? Filter by agency:              │
+│  ─────────────────────────────────────────────────              │
+│  const agency = permissions.recruiterFilter;  // NEVER from client
+│  const data = await query(agency);                              │
+│                                                                  │
+│  VERIFY SECURITY:                                               │
+│  ─────────────────                                              │
+│  npm run verify:recruiter-security <token>                      │
+│                                                                  │
+│  KEY FILES:                                                     │
+│  ──────────                                                     │
+│  src/middleware.ts          → Allowlist                         │
+│  src/lib/api-authz.ts       → forbidRecruiter()                 │
+│  src/lib/permissions.ts     → getUserPermissions()              │
+│                                                                  │
+└────────────────────────────────────────────────────────────────┘
+```

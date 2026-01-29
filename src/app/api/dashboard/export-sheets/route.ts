@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getUserPermissions } from '@/lib/permissions';
+import { forbidRecruiter } from '@/lib/api-authz';
 import { DashboardFilters } from '@/types/filters';
 import { GoogleSheetsExporter } from '@/lib/sheets/google-sheets-exporter';
 import { SheetsExportData } from '@/lib/sheets/sheets-types';
@@ -31,10 +32,9 @@ export async function POST(request: NextRequest) {
     const mode = (body.mode as 'period' | 'cohort') || 'cohort';
 
     const permissions = await getUserPermissions(session.user.email);
-    // Recruiters are not allowed to access main dashboard endpoints (including exports)
-    if (permissions.role === 'recruiter') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    // Block recruiters from main dashboard endpoints (including exports)
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
     
     // Check export permission
     if (!permissions.canExport) {

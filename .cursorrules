@@ -1914,3 +1914,131 @@ sql: `SUM(
 
 **Reference Fix:**
 - **SQO Count Discrepancy (Fixed: January 16, 2026)**: Changed SQO metric definition from TIMESTAMP() to DATE() conversion for date comparisons. Removed redundant WHERE clause date filters in compileSingleMetric(). Updated sqo_detail_list to use DATE() conversion for consistency. This ensures metric queries and drilldown queries return matching counts (20 SQOs this quarter).
+
+---
+
+## Recruiter Security Rules
+
+### Overview
+
+Recruiters are external users who should only access their own client data via `/api/recruiter-hub`. All other dashboard data is restricted.
+
+### Default-Deny Architecture
+
+- **Middleware blocks recruiters** from all `/api/*` routes except an explicit allowlist
+- **Defense-in-depth**: Route-level checks provide secondary protection
+- **Data filtering**: Use `permissions.recruiterFilter` to filter data by agency
+
+### Allowlisted Routes for Recruiters
+
+```
+/api/auth*                           - Authentication
+/api/recruiter-hub*                  - Recruiter-specific endpoints
+/api/users/me/change-password        - Password management
+/api/dashboard/data-freshness        - Data freshness indicator
+/api/dashboard/record-detail         - Record detail modal (has built-in agency filtering)
+```
+
+### Adding New API Routes - CRITICAL
+
+When creating new API routes, you MUST decide:
+
+1. **Recruiter-accessible route** (e.g., `/api/recruiter-hub/*`):
+   - Add to middleware allowlist if not under `/api/recruiter-hub`
+   - Use `permissions.recruiterFilter` to filter data by agency
+   - Never trust client-supplied agency filters
+
+2. **Non-recruiter route** (default):
+   - Add `forbidRecruiter(permissions)` check after session validation:
+   ```typescript
+   import { getUserPermissions } from '@/lib/permissions';
+   import { forbidRecruiter } from '@/lib/api-authz';
+
+   // After session check:
+   const permissions = await getUserPermissions(session.user.email);
+   const forbidden = forbidRecruiter(permissions);
+   if (forbidden) return forbidden;
+   ```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/middleware.ts` | Default-deny pattern, recruiter allowlist |
+| `src/lib/api-authz.ts` | `forbidRecruiter()` helper function |
+| `src/lib/permissions.ts` | `getUserPermissions()` returns role and `recruiterFilter` |
+
+### Pattern: Route-Level Recruiter Block
+
+```typescript
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { getUserPermissions } from '@/lib/permissions';
+import { forbidRecruiter } from '@/lib/api-authz';
+
+export async function GET(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Block recruiters from this route
+    const permissions = await getUserPermissions(session.user.email);
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
+
+    // ... rest of handler
+  } catch (error) {
+    // ... error handling
+  }
+}
+```
+
+### Pattern: Recruiter Data Filtering
+
+```typescript
+// For recruiter-accessible routes, filter by agency
+const permissions = await getUserPermissions(session.user.email);
+
+if (permissions.role === 'recruiter' && permissions.recruiterFilter) {
+  // Add agency filter to query
+  whereClause.externalAgencyId = permissions.recruiterFilter.agencyId;
+}
+```
+
+### Common Pitfalls - Recruiter Security
+
+#### ❌ Trusting Client-Supplied Agency Filters
+- **WRONG**: `const agencyId = request.query.agencyId;`
+- **RIGHT**: `const agencyId = permissions.recruiterFilter?.agencyId;`
+- **WHY**: Client can manipulate query params to access other agencies' data
+
+#### ❌ Forgetting Route-Level Checks
+- **WRONG**: Relying only on middleware allowlist
+- **RIGHT**: Add `forbidRecruiter()` check in route handler
+- **WHY**: Defense-in-depth protects against middleware bypass
+
+#### ❌ Not Blocking New Routes
+- **WRONG**: Creating new API route without considering recruiter access
+- **RIGHT**: Default to blocking with `forbidRecruiter()`, explicitly allow if needed
+- **WHY**: Fail-secure prevents accidental data exposure
+
+### Routes That Block Recruiters
+
+These routes use `forbidRecruiter()` for defense-in-depth:
+
+- `/api/games/*` - Pipeline Catcher game
+- `/api/explore/*` - AI-powered exploration
+- `/api/saved-reports/*` - Custom report management
+- `/api/sga-hub/*` - SGA tracking features
+- `/api/dashboard/*` (except data-freshness, record-detail) - Main dashboard APIs
+
+### Testing Recruiter Security
+
+1. **Create test recruiter user** with role='recruiter' and agency assignment
+2. **Test middleware blocking**: Verify 403 on non-allowlisted routes
+3. **Test data filtering**: Verify recruiter only sees their agency's data
+4. **Test route-level blocks**: Verify `forbidRecruiter()` returns 403
+5. **Test bypasses**: Try accessing other agencies via query params (should fail)

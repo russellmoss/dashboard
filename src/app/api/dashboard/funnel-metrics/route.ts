@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { getFunnelMetrics } from '@/lib/queries/funnel-metrics';
 import { getAggregateForecastGoals } from '@/lib/queries/forecast-goals';
 import { getUserPermissions } from '@/lib/permissions';
+import { forbidRecruiter } from '@/lib/api-authz';
 import { DashboardFilters } from '@/types/filters';
 import { ViewMode } from '@/types/dashboard';
 import { buildDateRangeFromFilters } from '@/lib/utils/date-helpers';
@@ -19,10 +20,9 @@ export async function POST(request: NextRequest) {
     }
 
     const permissions = await getUserPermissions(session.user?.email || '');
-    // Recruiters are not allowed to access main dashboard endpoints
-    if (permissions.role === 'recruiter') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    // Block recruiters from main dashboard endpoints
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
     
     // Handle both old format (just filters) and new format ({ filters, viewMode })
     const body = await request.json();

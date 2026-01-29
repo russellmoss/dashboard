@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { getOpenPipelineSummary } from '@/lib/queries/open-pipeline';
 import { formatCurrency } from '@/lib/utils/date-helpers';
 import { getUserPermissions } from '@/lib/permissions';
+import { forbidRecruiter } from '@/lib/api-authz';
 
 // Force dynamic rendering (uses headers for authentication)
 export const dynamic = 'force-dynamic';
@@ -17,10 +18,9 @@ export async function POST(request: NextRequest) {
     }
 
     const permissions = await getUserPermissions(session.user.email);
-    // Recruiters are not allowed to access dashboard pipeline endpoints
-    if (permissions.role === 'recruiter') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    // Block recruiters from dashboard pipeline endpoints
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
     
     const body = await request.json();
     const { stages, sgms } = body;

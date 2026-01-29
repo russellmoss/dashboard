@@ -3,7 +3,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
-import { getUserPermissions } from '@/lib/permissions'; // Required for admin permission checks
+import { getUserPermissions } from '@/lib/permissions';
+import { forbidRecruiter } from '@/lib/api-authz';
 
 interface RouteParams {
   params: { id: string };
@@ -16,10 +17,15 @@ interface RouteParams {
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await getServerSession(authOptions);
-    
+
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    // Block recruiters from saved reports
+    const permissions = await getUserPermissions(session.user.email);
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
 
     const user = await prisma.user.findUnique({
       where: { email: session.user.email },
@@ -89,6 +95,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     // Check edit permission: user owns it OR (it's admin template AND user is admin/manager)
     const permissions = await getUserPermissions(session.user.email);
+
+    // Block recruiters from saved reports
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
+
     const isOwner = existingReport.userId === user.id;
     const isAdminEditingTemplate = 
       existingReport.reportType === 'admin_template' && 
@@ -185,6 +196,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     // Check delete permission: user owns it OR (it's admin template AND user is admin/manager)
     const permissions = await getUserPermissions(session.user.email);
+
+    // Block recruiters from saved reports
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
+
     const isOwner = existingReport.userId === user.id;
     const isAdminDeletingTemplate = 
       existingReport.reportType === 'admin_template' && 

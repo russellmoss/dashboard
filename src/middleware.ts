@@ -73,6 +73,7 @@ export async function middleware(request: NextRequest) {
     const allowlisted =
       pathname.startsWith('/api/auth') ||
       pathname.startsWith('/api/recruiter-hub') ||
+      pathname.startsWith('/api/dashboard/record-detail') ||  // Record detail modal (route has proper recruiter filtering)
       pathname === '/api/users/me/change-password' ||
       pathname === '/api/dashboard/data-freshness';
 

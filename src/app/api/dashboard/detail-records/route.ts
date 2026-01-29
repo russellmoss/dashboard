@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getDetailRecords } from '@/lib/queries/detail-records';
 import { getUserPermissions } from '@/lib/permissions';
+import { forbidRecruiter } from '@/lib/api-authz';
 import { DashboardFilters } from '@/types/filters';
 
 export const dynamic = 'force-dynamic';
@@ -15,10 +16,9 @@ export async function POST(request: NextRequest) {
     }
 
     const permissions = await getUserPermissions(session.user?.email || '');
-    // Recruiters are not allowed to access main dashboard endpoints
-    if (permissions.role === 'recruiter') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    // Block recruiters from main dashboard endpoints
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
     
     const body = await request.json();
     const filters: DashboardFilters = body.filters;

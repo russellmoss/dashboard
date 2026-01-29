@@ -5,6 +5,7 @@ import { runQuery } from '@/lib/bigquery';
 import { FULL_TABLE } from '@/config/constants';
 import { FilterOptions } from '@/types/filters';
 import { getUserPermissions } from '@/lib/permissions';
+import { forbidRecruiter } from '@/lib/api-authz';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,10 +17,9 @@ export async function GET() {
     }
 
     const permissions = await getUserPermissions(session.user?.email || '');
-    // Recruiters are not allowed to access main dashboard endpoints
-    if (permissions.role === 'recruiter') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    // Block recruiters from main dashboard endpoints
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
     
     // Get distinct filter options from BigQuery with counts
     // Channel_Grouping_Name now comes directly from Finance_View__c in the view

@@ -5,6 +5,7 @@ import { runQuery } from '@/lib/bigquery';
 import { FULL_TABLE, RECRUITING_RECORD_TYPE, OPEN_PIPELINE_STAGES } from '@/config/constants';
 import { SgmOption } from '@/types/dashboard';
 import { getUserPermissions } from '@/lib/permissions';
+import { forbidRecruiter } from '@/lib/api-authz';
 
 // Force dynamic rendering (uses headers for authentication)
 export const dynamic = 'force-dynamic';
@@ -23,10 +24,9 @@ export async function GET(request: NextRequest) {
     }
 
     const permissions = await getUserPermissions(session.user.email);
-    // Recruiters are not allowed to access dashboard pipeline endpoints
-    if (permissions.role === 'recruiter') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    // Block recruiters from dashboard pipeline endpoints
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
     
     // Build stage parameters
     const stageParams = OPEN_PIPELINE_STAGES.map((_, i) => `@stage${i}`);

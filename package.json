@@ -13,6 +13,7 @@
     "test:dashboard": "node scripts/test-dashboard-queries.js",
     "verify:game": "node scripts/verify-pipeline-catcher.js",
     "verify:game:api": "node scripts/verify-pipeline-catcher.js --api",
+    "verify:recruiter-security": "node scripts/verify-recruiter-security.js",
     "postinstall": "prisma generate"
   },
   "dependencies": {
