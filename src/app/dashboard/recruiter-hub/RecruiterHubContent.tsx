@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { Title, Text, Card } from '@tremor/react';
-import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Search, ExternalLink, Download, Filter, Check } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Search, ExternalLink, Download, Filter, Check, ArrowUp, ArrowDown } from 'lucide-react';
 import { RecordDetailModal } from '@/components/dashboard/RecordDetailModal';
 import type { UserPermissions } from '@/types/user';
 
@@ -138,6 +138,12 @@ export function RecruiterHubContent() {
   const [prospectsPage, setProspectsPage] = useState(1);
   const [opportunitiesPage, setOpportunitiesPage] = useState(1);
 
+  type SortDir = 'asc' | 'desc';
+  const [prospectSortKey, setProspectSortKey] = useState<string | null>('advisor_name');
+  const [prospectSortDir, setProspectSortDir] = useState<SortDir>('asc');
+  const [opportunitySortKey, setOpportunitySortKey] = useState<string | null>('advisor_name');
+  const [opportunitySortDir, setOpportunitySortDir] = useState<SortDir>('asc');
+
   useEffect(() => {
     if (isAdmin) {
       fetch('/api/recruiter-hub/external-agencies')
@@ -234,24 +240,65 @@ export function RecruiterHubContent() {
       o.SGM_Owner_Name__c?.toLowerCase().includes(opportunitySearch.toLowerCase())
   );
 
-  const prospectsTotalPages = Math.max(1, Math.ceil(filteredProspects.length / ROWS_PER_PAGE));
-  const opportunitiesTotalPages = Math.max(1, Math.ceil(filteredOpportunities.length / ROWS_PER_PAGE));
-  const paginatedProspects = filteredProspects.slice(
+  function getProspectStageLabel(p: ProspectRecord): string {
+    return p.Conversion_Status === 'Closed'
+      ? 'Closed Lost'
+      : p.Full_Opportunity_ID__c
+        ? 'Qualified'
+        : p.TOF_Stage;
+  }
+
+  const sortedProspects = (() => {
+    const key = prospectSortKey ?? 'advisor_name';
+    const dir = prospectSortDir;
+    const mult = dir === 'asc' ? 1 : -1;
+    return [...filteredProspects].sort((a, b) => {
+      let av: string | null | undefined;
+      let bv: string | null | undefined;
+      if (key === 'stage') {
+        av = getProspectStageLabel(a);
+        bv = getProspectStageLabel(b);
+      } else {
+        av = (a as Record<string, unknown>)[key] as string | null | undefined;
+        bv = (b as Record<string, unknown>)[key] as string | null | undefined;
+      }
+      const aStr = (av ?? '').toString().toLowerCase();
+      const bStr = (bv ?? '').toString().toLowerCase();
+      return mult * (aStr < bStr ? -1 : aStr > bStr ? 1 : 0);
+    });
+  })();
+
+  const sortedOpportunities = (() => {
+    const key = opportunitySortKey ?? 'advisor_name';
+    const dir = opportunitySortDir;
+    const mult = dir === 'asc' ? 1 : -1;
+    return [...filteredOpportunities].sort((a, b) => {
+      const av = (a as Record<string, unknown>)[key] as string | null | undefined;
+      const bv = (b as Record<string, unknown>)[key] as string | null | undefined;
+      const aStr = (av ?? '').toString().toLowerCase();
+      const bStr = (bv ?? '').toString().toLowerCase();
+      return mult * (aStr < bStr ? -1 : aStr > bStr ? 1 : 0);
+    });
+  })();
+
+  const prospectsTotalPages = Math.max(1, Math.ceil(sortedProspects.length / ROWS_PER_PAGE));
+  const opportunitiesTotalPages = Math.max(1, Math.ceil(sortedOpportunities.length / ROWS_PER_PAGE));
+  const paginatedProspects = sortedProspects.slice(
     (prospectsPage - 1) * ROWS_PER_PAGE,
     prospectsPage * ROWS_PER_PAGE
   );
-  const paginatedOpportunities = filteredOpportunities.slice(
+  const paginatedOpportunities = sortedOpportunities.slice(
     (opportunitiesPage - 1) * ROWS_PER_PAGE,
     opportunitiesPage * ROWS_PER_PAGE
   );
 
   useEffect(() => {
     setProspectsPage(1);
-  }, [prospectSearch, prospectFiltersApplied]);
+  }, [prospectSearch, prospectFiltersApplied, prospectSortKey, prospectSortDir]);
 
   useEffect(() => {
     setOpportunitiesPage(1);
-  }, [opportunitySearch, opportunityFiltersApplied]);
+  }, [opportunitySearch, opportunityFiltersApplied, opportunitySortKey, opportunitySortDir]);
 
   function escapeCsvCell(value: string | null | undefined): string {
     const s = String(value ?? '');
@@ -261,17 +308,9 @@ export function RecruiterHubContent() {
     return s;
   }
 
-  function getProspectStageLabel(p: ProspectRecord): string {
-    return p.Conversion_Status === 'Closed'
-      ? 'Closed Lost'
-      : p.Full_Opportunity_ID__c
-        ? 'Qualified'
-        : p.TOF_Stage;
-  }
-
   function exportProspectsCsv() {
     const headers = ['Advisor', 'External Agency', 'SGA', 'Stage', 'Next Steps', 'Salesforce URL'];
-    const rows = filteredProspects.map((p) => [
+    const rows = sortedProspects.map((p) => [
       escapeCsvCell(p.advisor_name),
       escapeCsvCell(p.External_Agency__c),
       escapeCsvCell(p.SGA_Owner_Name__c ?? ''),
@@ -291,7 +330,7 @@ export function RecruiterHubContent() {
 
   function exportOpportunitiesCsv() {
     const headers = ['Advisor', 'External Agency', 'SGM', 'Stage', 'Next Step', 'Salesforce URL'];
-    const rows = filteredOpportunities.map((o) => [
+    const rows = sortedOpportunities.map((o) => [
       escapeCsvCell(o.advisor_name),
       escapeCsvCell(o.External_Agency__c),
       escapeCsvCell(o.SGM_Owner_Name__c ?? ''),
@@ -308,6 +347,58 @@ export function RecruiterHubContent() {
     a.click();
     URL.revokeObjectURL(url);
   }
+
+  function handleProspectSort(key: string) {
+    if (prospectSortKey === key) {
+      setProspectSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setProspectSortKey(key);
+      setProspectSortDir('asc');
+    }
+  }
+
+  function handleOpportunitySort(key: string) {
+    if (opportunitySortKey === key) {
+      setOpportunitySortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setOpportunitySortKey(key);
+      setOpportunitySortDir('asc');
+    }
+  }
+
+  const SortableTh = ({
+    label,
+    sortKey,
+    currentKey,
+    currentDir,
+    onSort,
+  }: {
+    label: string;
+    sortKey: string;
+    currentKey: string | null;
+    currentDir: SortDir;
+    onSort: (key: string) => void;
+  }) => (
+    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className="flex items-center gap-1.5 hover:text-gray-700 dark:hover:text-gray-300 group w-full"
+      >
+        <span>{label}</span>
+        <span className="flex flex-col opacity-60 group-hover:opacity-100">
+          <ArrowUp
+            className={`w-3.5 h-3.5 -mb-0.5 ${currentKey === sortKey && currentDir === 'asc' ? 'text-blue-600 dark:text-blue-400 opacity-100' : ''}`}
+            aria-hidden
+          />
+          <ArrowDown
+            className={`w-3.5 h-3.5 ${currentKey === sortKey && currentDir === 'desc' ? 'text-blue-600 dark:text-blue-400 opacity-100' : ''}`}
+            aria-hidden
+          />
+        </span>
+      </button>
+    </th>
+  );
 
   const EmptyState = ({ agencyName }: { agencyName?: string }) => (
     <div className="text-center py-12">
@@ -527,24 +618,12 @@ export function RecruiterHubContent() {
                 </colgroup>
                 <thead>
                   <tr className="border-b border-gray-200 dark:border-gray-700">
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                      Advisor
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                      External Agency
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                      SGA
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                      Stage
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                      Next Steps
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                      SF
-                    </th>
+                    <SortableTh label="Advisor" sortKey="advisor_name" currentKey={prospectSortKey} currentDir={prospectSortDir} onSort={handleProspectSort} />
+                    <SortableTh label="External Agency" sortKey="External_Agency__c" currentKey={prospectSortKey} currentDir={prospectSortDir} onSort={handleProspectSort} />
+                    <SortableTh label="SGA" sortKey="SGA_Owner_Name__c" currentKey={prospectSortKey} currentDir={prospectSortDir} onSort={handleProspectSort} />
+                    <SortableTh label="Stage" sortKey="stage" currentKey={prospectSortKey} currentDir={prospectSortDir} onSort={handleProspectSort} />
+                    <SortableTh label="Next Steps" sortKey="Next_Steps__c" currentKey={prospectSortKey} currentDir={prospectSortDir} onSort={handleProspectSort} />
+                    <SortableTh label="SF" sortKey="salesforce_url" currentKey={prospectSortKey} currentDir={prospectSortDir} onSort={handleProspectSort} />
                   </tr>
                 </thead>
                 <tbody>
@@ -884,24 +963,12 @@ export function RecruiterHubContent() {
                 </colgroup>
                 <thead>
                   <tr className="border-b border-gray-200 dark:border-gray-700">
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                      Advisor
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                      External Agency
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                      SGM
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                      Stage
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                      Next Step
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                      SF
-                    </th>
+                    <SortableTh label="Advisor" sortKey="advisor_name" currentKey={opportunitySortKey} currentDir={opportunitySortDir} onSort={handleOpportunitySort} />
+                    <SortableTh label="External Agency" sortKey="External_Agency__c" currentKey={opportunitySortKey} currentDir={opportunitySortDir} onSort={handleOpportunitySort} />
+                    <SortableTh label="SGM" sortKey="SGM_Owner_Name__c" currentKey={opportunitySortKey} currentDir={opportunitySortDir} onSort={handleOpportunitySort} />
+                    <SortableTh label="Stage" sortKey="StageName" currentKey={opportunitySortKey} currentDir={opportunitySortDir} onSort={handleOpportunitySort} />
+                    <SortableTh label="Next Step" sortKey="NextStep" currentKey={opportunitySortKey} currentDir={opportunitySortDir} onSort={handleOpportunitySort} />
+                    <SortableTh label="SF" sortKey="salesforce_url" currentKey={opportunitySortKey} currentDir={opportunitySortDir} onSort={handleOpportunitySort} />
                   </tr>
                 </thead>
                 <tbody>
