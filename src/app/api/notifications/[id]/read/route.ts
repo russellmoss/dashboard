@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { getSessionPermissions } from '@/types/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,12 +23,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-      select: { id: true },
-    });
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
 
-    if (!user) {
+    const userId = permissions.userId;
+    if (!userId) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
@@ -35,7 +38,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const result = await prisma.requestNotification.updateMany({
       where: {
         id,
-        userId: user.id,
+        userId,
       },
       data: { isRead: true },
     });

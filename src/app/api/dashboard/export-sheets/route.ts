@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { forbidRecruiter } from '@/lib/api-authz';
 import { DashboardFilters } from '@/types/filters';
 import { GoogleSheetsExporter } from '@/lib/sheets/google-sheets-exporter';
@@ -31,7 +31,11 @@ export async function POST(request: NextRequest) {
     // Parse mode parameter (default to 'cohort' to match dashboard default)
     const mode = (body.mode as 'period' | 'cohort') || 'cohort';
 
-    const permissions = await getUserPermissions(session.user.email);
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
     // Block recruiters from main dashboard endpoints (including exports)
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;

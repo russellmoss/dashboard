@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { getWeeklyActuals, getAllSGAWeeklyActuals } from '@/lib/queries/weekly-actuals';
 import { getDefaultWeekRange } from '@/lib/utils/sga-hub-helpers';
 import { prisma } from '@/lib/prisma';
@@ -21,7 +21,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     
-    const permissions = await getUserPermissions(session.user.email);
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
     const { searchParams } = new URL(request.url);
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');

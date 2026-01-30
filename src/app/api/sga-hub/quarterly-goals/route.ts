@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { 
   getQuarterlyGoal,
   getQuarterlyGoals,
@@ -31,7 +31,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const permissions = await getUserPermissions(session.user.email);
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
     if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
@@ -134,7 +138,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const permissions = await getUserPermissions(session.user.email);
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
 
     // Only admin/manager can set quarterly goals
     if (!['admin', 'manager'].includes(permissions.role)) {

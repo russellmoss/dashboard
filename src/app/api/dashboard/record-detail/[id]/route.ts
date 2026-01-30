@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getRecordDetail } from '@/lib/queries/record-detail';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +26,11 @@ export async function GET(
       );
     }
 
-    const permissions = await getUserPermissions(session.user?.email || '');
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
 
     // Validate id parameter
     const { id } = params;

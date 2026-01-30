@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getOpenPipelineRecords, getOpenPipelineSummary } from '@/lib/queries/open-pipeline';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { forbidRecruiter } from '@/lib/api-authz';
 import { DashboardFilters } from '@/types/filters';
 
@@ -19,8 +19,11 @@ export async function POST(request: NextRequest) {
     const filters: Partial<DashboardFilters> = body.filters || {};
     const includeSummary = body.includeSummary || false;
     
-    // Apply permission-based filters
-    const permissions = await getUserPermissions(session.user?.email || '');
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
     // Block recruiters from dashboard pipeline endpoints
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;

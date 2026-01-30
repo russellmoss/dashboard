@@ -71,6 +71,7 @@ export interface RequestAttachmentInfo {
   filename: string;
   mimeType: string;
   size: number;
+  data?: string | null; // Base64 encoded file data (not returned in list queries for performance)
   wrikeAttachmentId: string | null;
   wrikeDownloadUrl: string | null;
   createdAt: string;

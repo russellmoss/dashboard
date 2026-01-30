@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { prisma } from '@/lib/prisma';
 import { RequestStatus, RequestPriority } from '@prisma/client';
 import { syncUpdateToWrike, deleteFromWrike } from '@/lib/wrike';
@@ -39,18 +39,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const permissions = await getUserPermissions(session.user.email);
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
 
     if (permissions.role === 'recruiter') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-      select: { id: true },
-    });
-
-    if (!user) {
+    const userId = permissions.userId;
+    if (!userId) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
@@ -94,7 +94,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check visibility
-    const canView = await canViewRequest(user.id, permissions.canManageRequests, dashboardRequest);
+    const canView = await canViewRequest(userId, permissions.canManageRequests, dashboardRequest);
     if (!canView) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
@@ -122,18 +122,18 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const permissions = await getUserPermissions(session.user.email);
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
 
     if (permissions.role === 'recruiter') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-      select: { id: true },
-    });
-
-    if (!user) {
+    const userId = permissions.userId;
+    if (!userId) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
@@ -147,7 +147,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check permissions
-    const isOwner = existingRequest.submitterId === user.id;
+    const isOwner = existingRequest.submitterId === userId;
     if (!permissions.canManageRequests && !isOwner) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
@@ -175,7 +175,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         fieldName: 'title',
         oldValue: existingRequest.title,
         newValue: title,
-        editedById: user.id,
+        editedById: userId,
       });
     }
 
@@ -185,7 +185,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         fieldName: 'description',
         oldValue: existingRequest.description,
         newValue: description,
-        editedById: user.id,
+        editedById: userId,
       });
     }
 
@@ -198,7 +198,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         fieldName: 'priority',
         oldValue: existingRequest.priority,
         newValue: priority || null,
-        editedById: user.id,
+        editedById: userId,
       });
     }
 
@@ -208,7 +208,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         fieldName: 'affectedPage',
         oldValue: existingRequest.affectedPage,
         newValue: affectedPage || null,
-        editedById: user.id,
+        editedById: userId,
       });
     }
 
@@ -236,7 +236,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         fieldName: 'isPrivate',
         oldValue: String(existingRequest.isPrivate),
         newValue: String(isPrivate),
-        editedById: user.id,
+        editedById: userId,
       });
     }
 
@@ -320,18 +320,18 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const permissions = await getUserPermissions(session.user.email);
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
 
     if (permissions.role === 'recruiter') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-      select: { id: true },
-    });
-
-    if (!user) {
+    const userId = permissions.userId;
+    if (!userId) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
@@ -344,7 +344,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check permissions
-    const isOwner = existingRequest.submitterId === user.id;
+    const isOwner = existingRequest.submitterId === userId;
     const canDelete = permissions.canManageRequests ||
       (isOwner && existingRequest.status === RequestStatus.SUBMITTED);
 

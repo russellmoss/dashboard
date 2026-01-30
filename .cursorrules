@@ -124,9 +124,81 @@ SELECT COUNT(Id) FROM Lead WHERE IsConverted = true AND ConvertedDate >= [START]
 
 ### API Routes (`src/app/api/dashboard/`)
 - Use `getServerSession()` for authentication
-- Apply permission-based filters via `getUserPermissions()`
+- Extract permissions via `getSessionPermissions(session)` from `@/types/auth` (NO database query)
 - Return `NextResponse.json()` with proper error handling
 - Log errors but don't expose sensitive details
+
+---
+
+## Authentication & Permissions Pattern (CRITICAL)
+
+### ❌ NEVER DO THIS (causes unnecessary database queries):
+```typescript
+import { getUserPermissions } from '@/lib/permissions';
+
+const session = await getServerSession(authOptions);
+const permissions = await getUserPermissions(session.user.email); // BAD - queries DB!
+
+// Also avoid querying User table just for user ID:
+const user = await prisma.user.findUnique({ 
+  where: { email: session.user.email },
+  select: { id: true }
+}); // BAD - unnecessary DB query!
+```
+
+### ✅ ALWAYS DO THIS (zero database queries):
+```typescript
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { getSessionPermissions } from '@/types/auth';
+
+const session = await getServerSession(authOptions);
+const permissions = getSessionPermissions(session); // GOOD - no DB query!
+
+if (!permissions) {
+  return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+}
+
+// User ID is available directly from permissions:
+const userId = permissions.userId; // GOOD - no DB query!
+```
+
+### Why This Matters
+- The session callback in `authOptions` already computes permissions from JWT data
+- `getUserPermissions(email)` ALWAYS queries the database, even when data exists in session
+- `getSessionPermissions(session)` extracts pre-computed permissions with zero DB queries
+- User ID (`permissions.userId`) is stored in the JWT - no need to query User table
+- **Impact**: Eliminating these queries reduces 2-6 DB queries per API request to zero
+
+### Available Permission Fields
+```typescript
+interface UserPermissions {
+  userId: string;                    // User's database ID
+  role: UserRole;                    // admin, manager, sga, sgm, recruiter, viewer, revops_admin
+  allowedPages: number[];            // Page IDs user can access
+  canExport: boolean;                // Can export data
+  canManageUsers: boolean;           // Can manage user accounts
+  canManageRequests: boolean;        // Can manage dashboard requests (revops_admin only)
+  sgaFilter: string | null;          // SGA name filter (for sga role)
+  sgmFilter: string | null;          // SGM name filter (for sgm role)
+  recruiterFilter: string | null;    // External agency filter (for recruiter role)
+}
+```
+
+### When Creating New API Routes
+1. Import `getSessionPermissions` from `@/types/auth`
+2. Call `getServerSession(authOptions)` once
+3. Extract permissions with `getSessionPermissions(session)`
+4. Use `permissions.userId` instead of querying the User table
+5. Check `permissions.role` or specific permission flags for authorization
+6. For recruiter blocking, use `forbidRecruiter(permissions)` from `@/lib/api-authz`
+
+### Exception: When to Use getUserPermissions()
+Only use `getUserPermissions(email)` when you need **fresh data from the database** after a role change. This is rare - typically only in:
+- Admin user management (after updating a user's role)
+- The `/api/auth/permissions` route (legacy, should be migrated)
+
+---
 
 ### Components (`src/components/dashboard/`)
 - Use client components (`'use client'`) for interactivity
@@ -673,7 +745,7 @@ When reviewing or modifying code:
 - **Query files**: Always maintain consistency between `getConversionRates()` and `getConversionTrends()`
 - **Component files**: Keep data transformation minimal - do it in query functions
 - **Type files**: Update types when data structures change
-- **API routes**: Always apply permission filters via `getUserPermissions()`
+- **API routes**: Always apply permission filters via `getSessionPermissions(session)` (NOT `getUserPermissions()`)
 
 ### Common Patterns
 
@@ -688,9 +760,17 @@ const results = await runQuery<RawType>(query, params);
 
 **API Route Pattern**:
 ```typescript
+import { getSessionPermissions } from '@/types/auth';
+
 const session = await getServerSession(authOptions);
 if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-const permissions = await getUserPermissions(session.user?.email || '');
+
+const permissions = getSessionPermissions(session);  // NO DB query!
+if (!permissions) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+// Use permissions.userId instead of querying User table
+const userId = permissions.userId;
+
 // Apply permission filters
 const data = await getDataFunction(filters);
 return NextResponse.json(data);
@@ -1745,10 +1825,10 @@ const report = await prisma.savedReport.create({
 - **RIGHT**: Enforce in application logic with `updateMany` before setting default
 - **WHY**: Prisma doesn't support WHERE clauses in `@@unique` constraints
 
-#### ❌ Not Using getUserPermissions for Admin Checks
-- **WRONG**: `user.role === 'admin'`
-- **RIGHT**: `const permissions = await getUserPermissions(email); permissions.role === 'admin'`
-- **WHY**: Permissions system centralizes role checks and includes additional context
+#### ❌ Using getUserPermissions Instead of getSessionPermissions
+- **WRONG**: `const permissions = await getUserPermissions(email);` // Queries DB!
+- **RIGHT**: `const permissions = getSessionPermissions(session);` // No DB query
+- **WHY**: Session already contains permissions from JWT. getUserPermissions always queries DB unnecessarily.
 
 #### ❌ Not Handling Null featureSelection in Saved Reports
 - **WRONG**: `report.featureSelection` used directly
@@ -1951,11 +2031,13 @@ When creating new API routes, you MUST decide:
 2. **Non-recruiter route** (default):
    - Add `forbidRecruiter(permissions)` check after session validation:
    ```typescript
-   import { getUserPermissions } from '@/lib/permissions';
+   import { getSessionPermissions } from '@/types/auth';
    import { forbidRecruiter } from '@/lib/api-authz';
 
    // After session check:
-   const permissions = await getUserPermissions(session.user.email);
+   const permissions = getSessionPermissions(session);  // NO DB query!
+   if (!permissions) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+   
    const forbidden = forbidRecruiter(permissions);
    if (forbidden) return forbidden;
    ```
@@ -1966,7 +2048,8 @@ When creating new API routes, you MUST decide:
 |------|---------|
 | `src/middleware.ts` | Default-deny pattern, recruiter allowlist |
 | `src/lib/api-authz.ts` | `forbidRecruiter()` helper function |
-| `src/lib/permissions.ts` | `getUserPermissions()` returns role and `recruiterFilter` |
+| `src/types/auth.ts` | `getSessionPermissions()` extracts permissions from session (NO DB query) |
+| `src/lib/permissions.ts` | `getPermissionsFromToken()` (used by session callback), `getUserPermissions()` (legacy, queries DB) |
 
 ### Pattern: Route-Level Recruiter Block
 
@@ -1974,7 +2057,7 @@ When creating new API routes, you MUST decide:
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { forbidRecruiter } from '@/lib/api-authz';
 
 export async function GET(request: NextRequest) {
@@ -1984,10 +2067,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get permissions from session (NO DB query!)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     // Block recruiters from this route
-    const permissions = await getUserPermissions(session.user.email);
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
+
+    // Use permissions.userId instead of querying User table
+    const userId = permissions.userId;
 
     // ... rest of handler
   } catch (error) {
@@ -2000,11 +2091,11 @@ export async function GET(request: NextRequest) {
 
 ```typescript
 // For recruiter-accessible routes, filter by agency
-const permissions = await getUserPermissions(session.user.email);
+const permissions = getSessionPermissions(session);  // NO DB query!
 
-if (permissions.role === 'recruiter' && permissions.recruiterFilter) {
+if (permissions?.role === 'recruiter' && permissions.recruiterFilter) {
   // Add agency filter to query
-  whereClause.externalAgencyId = permissions.recruiterFilter.agencyId;
+  whereClause.externalAgency = permissions.recruiterFilter;  // recruiterFilter is the agency name string
 }
 ```
 

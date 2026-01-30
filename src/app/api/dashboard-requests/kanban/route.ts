@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { prisma } from '@/lib/prisma';
 import { RequestStatus, RequestType, RequestPriority } from '@prisma/client';
 
@@ -25,18 +25,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const permissions = await getUserPermissions(session.user.email);
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
 
     if (permissions.role === 'recruiter') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-      select: { id: true },
-    });
-
-    if (!user) {
+    // Use userId from permissions
+    const userId = permissions.userId;
+    if (!userId) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
@@ -98,7 +99,7 @@ export async function POST(request: NextRequest) {
           baseWhere,
           {
             OR: [
-              { submitterId: user.id },
+              { submitterId: userId },
               {
                 AND: [
                   { isPrivate: false },

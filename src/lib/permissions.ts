@@ -1,7 +1,16 @@
-import { UserPermissions } from '@/types/user';
+import { UserPermissions, UserRole } from '@/types/user';
 import { getUserByEmail } from './users';
 
-const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmFilter' | 'recruiterFilter'>> = {
+// Token data structure (what we store in JWT)
+export interface TokenUserData {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  externalAgency?: string | null;
+}
+
+const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmFilter' | 'recruiterFilter' | 'userId'>> = {
   revops_admin: {
     role: 'revops_admin',
     allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13],  // All pages + 13 = Dashboard Requests
@@ -53,9 +62,31 @@ const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmF
   },
 };
 
+/**
+ * Get permissions from token data WITHOUT a database query.
+ * Use this in session callbacks and API routes where token data is available.
+ * This is the preferred method for performance.
+ */
+export function getPermissionsFromToken(tokenData: TokenUserData): UserPermissions {
+  const basePermissions = ROLE_PERMISSIONS[tokenData.role] || ROLE_PERMISSIONS.viewer;
+
+  return {
+    ...basePermissions,
+    sgaFilter: tokenData.role === 'sga' ? tokenData.name : null,
+    sgmFilter: tokenData.role === 'sgm' ? tokenData.name : null,
+    recruiterFilter: tokenData.role === 'recruiter' ? (tokenData.externalAgency ?? null) : null,
+    userId: tokenData.id,
+  };
+}
+
+/**
+ * Get permissions by querying the database for fresh user data.
+ * Use this only when you need to ensure data is up-to-date (e.g., after role changes).
+ * For most API routes, prefer using session.permissions (derived from token).
+ */
 export async function getUserPermissions(email: string): Promise<UserPermissions> {
   const user = await getUserByEmail(email);
-  
+
   if (!user) {
     return {
       role: 'viewer',
@@ -66,6 +97,7 @@ export async function getUserPermissions(email: string): Promise<UserPermissions
       canExport: false,
       canManageUsers: false,
       canManageRequests: false,
+      userId: null,
     };
   }
 
@@ -76,6 +108,7 @@ export async function getUserPermissions(email: string): Promise<UserPermissions
     sgaFilter: user.role === 'sga' ? user.name : null,
     sgmFilter: user.role === 'sgm' ? user.name : null,
     recruiterFilter: user.role === 'recruiter' ? (user.externalAgency ?? null) : null,
+    userId: user.id,
   };
 }
 

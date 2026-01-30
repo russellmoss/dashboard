@@ -4,7 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { runQuery } from '@/lib/bigquery';
 import { FULL_TABLE, RECRUITING_RECORD_TYPE, OPEN_PIPELINE_STAGES } from '@/config/constants';
 import { SgmOption } from '@/types/dashboard';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { forbidRecruiter } from '@/lib/api-authz';
 
 // Force dynamic rendering (uses headers for authentication)
@@ -23,7 +23,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const permissions = await getUserPermissions(session.user.email);
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
     // Block recruiters from dashboard pipeline endpoints
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;

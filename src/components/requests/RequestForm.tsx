@@ -138,12 +138,18 @@ export function RequestForm({ onSuccess }: RequestFormProps) {
         }
       }
 
-      await dashboardRequestsApi.create(input);
+      const createdRequest = await dashboardRequestsApi.create(input);
 
-      // TODO: Handle file upload in Phase 9 (Wrike integration)
-      // For now, we'll just note that a file was selected
+      // Upload attachment if file was selected
       if (selectedFile) {
-        console.log('File upload will be implemented with Wrike integration:', selectedFile.name);
+        try {
+          await dashboardRequestsApi.uploadAttachment(createdRequest.id, selectedFile);
+        } catch (uploadError) {
+          console.error('Failed to upload attachment:', uploadError);
+          // Request was created successfully, but attachment failed
+          // We'll still show success but note the attachment issue
+          setError('Request created, but attachment upload failed. You can add it later from the request details.');
+        }
       }
 
       setSuccess(true);

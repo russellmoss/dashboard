@@ -13,6 +13,9 @@ import {
   MessageCircle,
   Clock,
   FileText,
+  Paperclip,
+  Download,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { dashboardRequestsApi } from '@/lib/api-client';
 import {
@@ -444,6 +447,69 @@ export function RequestDetailModal({
                             </p>
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {/* Attachments */}
+                    {request.attachments && request.attachments.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                          <Paperclip className="w-4 h-4" />
+                          Attachments ({request.attachments.length})
+                        </h4>
+                        <div className="space-y-2">
+                          {request.attachments.map((attachment) => {
+                            const isImage = attachment.mimeType.startsWith('image/');
+                            const attachmentUrl = dashboardRequestsApi.getAttachmentUrl(request.id, attachment.id);
+                            const formatFileSize = (bytes: number) => {
+                              if (bytes < 1024) return `${bytes} B`;
+                              if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+                              return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+                            };
+
+                            return (
+                              <div
+                                key={attachment.id}
+                                className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
+                              >
+                                {isImage ? (
+                                  <ImageIcon className="w-5 h-5 text-blue-500 flex-shrink-0" />
+                                ) : (
+                                  <FileText className="w-5 h-5 text-gray-500 flex-shrink-0" />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                    {attachment.filename}
+                                  </p>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    {formatFileSize(attachment.size)} - Uploaded by {attachment.uploadedBy.name}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {isImage && (
+                                    <a
+                                      href={attachmentUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                                      title="View image"
+                                    >
+                                      <ExternalLink className="w-4 h-4" />
+                                    </a>
+                                  )}
+                                  <a
+                                    href={attachmentUrl}
+                                    download={attachment.filename}
+                                    className="p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                                    title="Download"
+                                  >
+                                    <Download className="w-4 h-4" />
+                                  </a>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
                   </div>

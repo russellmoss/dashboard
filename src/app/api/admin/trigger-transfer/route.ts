@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { triggerDataTransfer, isWithinCooldown } from '@/lib/data-transfer';
 import { revalidateTag } from 'next/cache';
 import { CACHE_TAGS } from '@/lib/cache';
@@ -20,8 +20,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
+
     // Permission check
-    const permissions = await getUserPermissions(session.user?.email || '');
     if (!ALLOWED_ROLES.includes(permissions.role)) {
       return NextResponse.json(
         { error: 'Only admins and managers can trigger data transfers' },
@@ -78,7 +83,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const permissions = await getUserPermissions(session.user?.email || '');
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
+
     if (!ALLOWED_ROLES.includes(permissions.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }

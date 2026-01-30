@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { forbidRecruiter } from '@/lib/api-authz';
 
 interface RouteParams {
@@ -22,18 +22,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
+
     // Block recruiters from saved reports
-    const permissions = await getUserPermissions(session.user.email);
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
-
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-    });
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
 
     const report = await prisma.savedReport.findUnique({
       where: { id: params.id },
@@ -44,7 +41,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check access: user owns it OR it's an admin template
-    const canAccess = report.userId === user.id || report.reportType === 'admin_template';
+    const canAccess = report.userId === permissions.userId || report.reportType === 'admin_template';
     if (!canAccess) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
@@ -77,13 +74,15 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-    });
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
     }
+
+    // Block recruiters from saved reports
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
 
     const existingReport = await prisma.savedReport.findUnique({
       where: { id: params.id },
@@ -94,13 +93,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check edit permission: user owns it OR (it's admin template AND user is admin/manager)
-    const permissions = await getUserPermissions(session.user.email);
-
-    // Block recruiters from saved reports
-    const forbidden = forbidRecruiter(permissions);
-    if (forbidden) return forbidden;
-
-    const isOwner = existingReport.userId === user.id;
+    const isOwner = existingReport.userId === permissions.userId;
     const isAdminEditingTemplate = 
       existingReport.reportType === 'admin_template' && 
       ['admin', 'manager'].includes(permissions.role);
@@ -124,7 +117,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (isDefault && existingReport.reportType === 'user') {
       await prisma.savedReport.updateMany({
         where: {
-          userId: user.id,
+          userId: permissions.userId,
           isDefault: true,
           isActive: true,
           id: { not: params.id },
@@ -147,7 +140,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     logger.info('[PUT /api/saved-reports/[id]] Updated report', {
       reportId: report.id,
-      userId: user.id,
+      userId: permissions.userId,
     });
 
     return NextResponse.json({ 
@@ -173,18 +166,20 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await getServerSession(authOptions);
-    
+
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-    });
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
     }
+
+    // Block recruiters from saved reports
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
 
     const existingReport = await prisma.savedReport.findUnique({
       where: { id: params.id },
@@ -195,13 +190,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check delete permission: user owns it OR (it's admin template AND user is admin/manager)
-    const permissions = await getUserPermissions(session.user.email);
-
-    // Block recruiters from saved reports
-    const forbidden = forbidRecruiter(permissions);
-    if (forbidden) return forbidden;
-
-    const isOwner = existingReport.userId === user.id;
+    const isOwner = existingReport.userId === permissions.userId;
     const isAdminDeletingTemplate = 
       existingReport.reportType === 'admin_template' && 
       ['admin', 'manager'].includes(permissions.role);
@@ -218,7 +207,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     logger.info('[DELETE /api/saved-reports/[id]] Deleted report', {
       reportId: params.id,
-      userId: user.id,
+      userId: permissions.userId,
     });
 
     return NextResponse.json({ success: true });

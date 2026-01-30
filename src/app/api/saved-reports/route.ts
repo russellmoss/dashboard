@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { forbidRecruiter } from '@/lib/api-authz';
 
 /**
@@ -18,24 +18,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
+
     // Block recruiters from saved reports
-    const permissions = await getUserPermissions(session.user.email);
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
-
-    // Get user from database
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-    });
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
 
     // Fetch user's reports
     const userReports = await prisma.savedReport.findMany({
       where: {
-        userId: user.id,
+        userId: permissions.userId,
         isActive: true,
         dashboard: 'funnel_performance',
       },
@@ -90,13 +86,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-    });
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
     }
+
+    // Block recruiters from saved reports
+    const forbidden = forbidRecruiter(permissions);
+    if (forbidden) return forbidden;
 
     const body = await request.json();
     const { name, description, filters, featureSelection, viewMode, isDefault, reportType } = body;
@@ -117,13 +115,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if admin template and user has permission
-    const permissions = await getUserPermissions(session.user.email);
-
-    // Block recruiters from saved reports
-    const forbidden = forbidRecruiter(permissions);
-    if (forbidden) return forbidden;
-
     const isAdminTemplate = reportType === 'admin_template';
     if (isAdminTemplate && !['admin', 'manager'].includes(permissions.role)) {
       return NextResponse.json(
@@ -137,7 +128,7 @@ export async function POST(request: NextRequest) {
     if (isDefault && !isAdminTemplate) {
       await prisma.savedReport.updateMany({
         where: {
-          userId: user.id,
+          userId: permissions.userId,
           isDefault: true,
           isActive: true,
         },
@@ -150,7 +141,7 @@ export async function POST(request: NextRequest) {
     // The reportType field distinguishes between user reports and admin templates
     const report = await prisma.savedReport.create({
       data: {
-        userId: user.id,
+        userId: permissions.userId,
         name: name.trim(),
         description: description?.trim() || null,
         filters,
@@ -165,7 +156,7 @@ export async function POST(request: NextRequest) {
 
     logger.info('[POST /api/saved-reports] Created report', {
       reportId: report.id,
-      userId: user.id,
+      userId: permissions.userId,
       reportType: report.reportType,
     });
 

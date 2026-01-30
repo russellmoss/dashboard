@@ -248,6 +248,7 @@ model RequestAttachment {
   filename          String
   mimeType          String
   size              Int
+  data              String?          @db.Text // Base64 encoded file data for local storage
   wrikeAttachmentId String?          @unique
   wrikeDownloadUrl  String?
   createdAt         DateTime         @default(now())

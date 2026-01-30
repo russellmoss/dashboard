@@ -3,9 +3,10 @@ import type { Session } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import GoogleProvider from 'next-auth/providers/google';
 import { validateUser, getUserByEmail } from './users';
-import { getUserPermissions } from './permissions';
+import { getPermissionsFromToken, TokenUserData } from './permissions';
 import { ExtendedSession } from '@/types/auth';
 import { getLoginLimiter, checkRateLimit } from '@/lib/rate-limit';
+import { UserRole } from '@/types/user';
 
 /** Get user id from session (set by auth callbacks). Use in API routes. */
 export function getSessionUserId(session: Session | null): string | null {
@@ -115,46 +116,81 @@ export const authOptions: NextAuthOptions = {
         if (dbUser.isActive === false) {
           return '/login?error=AccountDisabled';
         }
+        // Store dbUser data on user object for jwt callback to use
+        // This avoids another DB query in jwt callback
+        (user as any)._dbUser = dbUser;
       }
       return true;
     },
     async session({ session, token }) {
       if (session.user) {
+        // Set user ID from token
         (session.user as { id?: string }).id = (token.sub ?? token.id) as string;
-        if (session.user.email) {
-          const permissions = await getUserPermissions(session.user.email);
-          (session as ExtendedSession).permissions = permissions;
-        }
+
+        // Derive permissions from token data (NO DATABASE QUERY)
+        // All required data is stored in the JWT at sign-in time
+        const tokenData: TokenUserData = {
+          id: (token.id as string) || (token.sub as string) || '',
+          email: (token.email as string) || '',
+          name: (token.name as string) || '',
+          role: ((token.role as string) || 'viewer') as UserRole,
+          externalAgency: (token.externalAgency as string | null) || null,
+        };
+
+        const permissions = getPermissionsFromToken(tokenData);
+        (session as ExtendedSession).permissions = permissions;
       }
       return session;
     },
     async jwt({ token, user }) {
+      // On initial sign-in, populate token with all user data
       if (user) {
         token.email = user.email;
-        if (user.email) {
+
+        // Check if we already have dbUser from signIn callback (Google OAuth)
+        const cachedDbUser = (user as any)._dbUser;
+
+        if (cachedDbUser) {
+          // Use cached data from signIn callback (no DB query needed)
+          token.id = cachedDbUser.id;
+          token.name = cachedDbUser.name;
+          token.role = cachedDbUser.role;
+          token.externalAgency = cachedDbUser.externalAgency ?? null;
+        } else if (user.email) {
+          // Credentials provider - user object already has the data
+          const credUser = user as { id: string; name?: string; role?: string };
+          token.id = credUser.id;
+          token.name = credUser.name || user.name;
+          token.role = credUser.role;
+
+          // For credentials, we need to get externalAgency from DB
+          // This only happens once at sign-in, not on every request
           const dbUser = await getUserByEmail(user.email.toLowerCase());
           if (dbUser) {
-            (token as { id?: string }).id = dbUser.id;
-            (token as { role?: string }).role = dbUser.role;
-          } else {
-            (token as { id?: string }).id = user.id;
-            // Credentials provider includes role; OAuth user may not.
-            (token as { role?: string }).role = (user as { role?: string }).role;
+            token.externalAgency = dbUser.externalAgency ?? null;
+            // Ensure we have the latest data
+            token.id = dbUser.id;
+            token.name = dbUser.name;
+            token.role = dbUser.role;
           }
         } else {
-          (token as { id?: string }).id = user.id;
-          (token as { role?: string }).role = (user as { role?: string }).role;
+          token.id = user.id;
+          token.role = (user as { role?: string }).role;
         }
       }
 
-      // Backfill role for existing JWTs that predate the `token.role` claim.
-      // This will run at most once per session (after role is present, no DB call).
+      // Backfill missing data for existing JWTs (migration path)
+      // This only runs if role or externalAgency is missing - typically once after upgrade
       const email = typeof token.email === 'string' ? token.email.toLowerCase().trim() : null;
-      if (email && !(token as { role?: string }).role) {
+      const needsBackfill = email && (!token.role || token.externalAgency === undefined);
+
+      if (needsBackfill) {
         const dbUser = await getUserByEmail(email);
         if (dbUser) {
-          (token as { id?: string }).id = (token as { id?: string }).id ?? dbUser.id;
-          (token as { role?: string }).role = dbUser.role;
+          token.id = token.id ?? dbUser.id;
+          token.name = token.name ?? dbUser.name;
+          token.role = token.role ?? dbUser.role;
+          token.externalAgency = token.externalAgency ?? dbUser.externalAgency ?? null;
         }
       }
 

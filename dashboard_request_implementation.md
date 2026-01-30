@@ -16,7 +16,7 @@ WRIKE_ACCESS_TOKEN=${WRIKE_ACCESS_TOKEN}  # Set in .env - NEVER commit actual to
 WRIKE_FOLDER_ID=IEAGT6KAI7777RTZ
 WRIKE_WORKFLOW_ID=IEAGT6KAK77ZMBWA
 WRIKE_WEBHOOK_SECRET=your_random_secret_here  # Generate a random string for webhook verification
-NEXT_PUBLIC_APP_URL=https://yourdomain.com    # App URL for email links
+NEXT_PUBLIC_APP_URL=https://dashboard-eta-lime-45.vercel.app  # REQUIRED for email links
 ```
 
 > ⚠️ **SECURITY NOTE**: Never commit actual tokens to version control. Set `WRIKE_ACCESS_TOKEN` in your `.env.local` file only.
@@ -65,7 +65,7 @@ Before starting, confirm:
   WRIKE_ACCESS_TOKEN=${WRIKE_ACCESS_TOKEN}  # Set in .env.local - NEVER commit
   WRIKE_FOLDER_ID=IEAGT6KAI7777RTZ (add to .env)
   WRIKE_WEBHOOK_SECRET=your_random_secret_here
-  NEXT_PUBLIC_APP_URL=https://yourdomain.com
+  NEXT_PUBLIC_APP_URL=https://dashboard-eta-lime-45.vercel.app
   ```
 
 ### Infrastructure Decisions
@@ -1973,7 +1973,7 @@ import { prisma } from './prisma';
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
-const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || 'noreply@yourdomain.com';
+const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || 'noreply@savvywealth.com';
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
 interface NotifyOptions {
@@ -3535,12 +3535,12 @@ WRIKE_FOLDER_ID=IEAGT6KAI7777RTZ
 WRIKE_WORKFLOW_ID=IEAGT6KAK77ZMBWA
 WRIKE_WEBHOOK_SECRET=your_random_secret_here  # Generate a random string
 
-# App Configuration
-NEXT_PUBLIC_APP_URL=https://yourdomain.com
+# App Configuration (REQUIRED for email links)
+NEXT_PUBLIC_APP_URL=https://dashboard-eta-lime-45.vercel.app
 
 # SendGrid (existing - verify these are set)
 SENDGRID_API_KEY=${SENDGRID_API_KEY}
-SENDGRID_FROM_EMAIL=noreply@yourdomain.com
+SENDGRID_FROM_EMAIL=noreply@savvywealth.com
 ```
 
 **Note**: No additional environment variables needed for file storage — we're using the existing Neon database connection.

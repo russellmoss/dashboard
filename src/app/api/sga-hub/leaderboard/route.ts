@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { getSGALeaderboard } from '@/lib/queries/sga-leaderboard';
 import { LeaderboardFilters } from '@/types/sga-hub';
 
@@ -36,7 +36,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Authorization check - SGA Hub is accessible to admin, manager, and sga roles
-    const permissions = await getUserPermissions(session.user.email);
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
     if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }

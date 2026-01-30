@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { prisma } from '@/lib/prisma';
 import { RequestStatus, RequestType, RequestPriority } from '@prisma/client';
 import { syncToWrike } from '@/lib/wrike';
@@ -19,20 +19,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const permissions = await getUserPermissions(session.user.email);
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
 
     // Block recruiter role
     if (permissions.role === 'recruiter') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Get user ID for visibility filtering
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-      select: { id: true },
-    });
-
-    if (!user) {
+    // Use userId from permissions
+    const userId = permissions.userId;
+    if (!userId) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
           !includeArchived ? { status: { not: RequestStatus.ARCHIVED } } : {},
           {
             OR: [
-              { submitterId: user.id },
+              { submitterId: userId },
               {
                 AND: [
                   { isPrivate: false },
@@ -104,20 +104,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const permissions = await getUserPermissions(session.user.email);
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
 
     // Block recruiter role
     if (permissions.role === 'recruiter') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Get user
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-      select: { id: true, name: true },
-    });
-
-    if (!user) {
+    // Use userId from permissions
+    const userId = permissions.userId;
+    if (!userId) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
@@ -172,7 +172,7 @@ export async function POST(request: NextRequest) {
         valueExpected: valueExpected || null,
         errorOccurredAt: errorOccurredAt ? new Date(errorOccurredAt) : null,
         isPrivate: isPrivate || false,
-        submitterId: user.id,
+        submitterId: userId,
         status: RequestStatus.SUBMITTED,
         statusChangedAt: new Date(),
       },

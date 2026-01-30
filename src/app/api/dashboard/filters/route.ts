@@ -4,7 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { runQuery } from '@/lib/bigquery';
 import { FULL_TABLE } from '@/config/constants';
 import { FilterOptions } from '@/types/filters';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { forbidRecruiter } from '@/lib/api-authz';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +16,11 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const permissions = await getUserPermissions(session.user?.email || '');
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
     // Block recruiters from main dashboard endpoints
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
+import { getSessionPermissions } from '@/types/auth';
 
 /**
  * GET /api/saved-reports/default
@@ -18,17 +19,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-    });
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
     }
 
     const defaultReport = await prisma.savedReport.findFirst({
       where: {
-        userId: user.id,
+        userId: permissions.userId,
         isDefault: true,
         isActive: true,
         dashboard: 'funnel_performance',

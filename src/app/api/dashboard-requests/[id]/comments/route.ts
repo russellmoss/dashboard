@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { prisma } from '@/lib/prisma';
 import { RequestStatus } from '@prisma/client';
 import { syncCommentToWrike } from '@/lib/wrike';
@@ -40,18 +40,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const permissions = await getUserPermissions(session.user.email);
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
 
     if (permissions.role === 'recruiter') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-      select: { id: true, name: true },
-    });
-
-    if (!user) {
+    const userId = permissions.userId;
+    if (!userId) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check if user can access this request
-    const canAccess = await canAccessRequest(user.id, permissions.canManageRequests, dashboardRequest);
+    const canAccess = await canAccessRequest(userId, permissions.canManageRequests, dashboardRequest);
     if (!canAccess) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
@@ -85,7 +85,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       data: {
         content: content.trim(),
         requestId: id,
-        authorId: user.id,
+        authorId: userId,
       },
       include: {
         author: {
@@ -95,12 +95,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
 
     // Sync comment to Wrike in background
-    syncCommentToWrike(id, comment.id, user.name || 'Unknown', content.trim()).catch((err) => {
+    const userName = session.user.name || 'Unknown';
+    syncCommentToWrike(id, comment.id, userName, content.trim()).catch((err) => {
       console.error('[API] Background Wrike comment sync failed:', err);
     });
 
     // Notify request submitter of new comment in background
-    notifyNewComment(id, user.id, content.trim()).catch((err) => {
+    notifyNewComment(id, userId, content.trim()).catch((err) => {
       console.error('[API] Background comment notification failed:', err);
     });
 
@@ -127,18 +128,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const permissions = await getUserPermissions(session.user.email);
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
 
     if (permissions.role === 'recruiter') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-      select: { id: true },
-    });
-
-    if (!user) {
+    const userId = permissions.userId;
+    if (!userId) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
@@ -152,7 +153,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check if user can access this request
-    const canAccess = await canAccessRequest(user.id, permissions.canManageRequests, dashboardRequest);
+    const canAccess = await canAccessRequest(userId, permissions.canManageRequests, dashboardRequest);
     if (!canAccess) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }

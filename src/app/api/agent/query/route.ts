@@ -11,7 +11,7 @@ import { authOptions } from '@/lib/auth';
 import { logger } from '@/lib/logger';
 import { runQuery } from '@/lib/bigquery';
 import Anthropic from '@anthropic-ai/sdk';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { forbidRecruiter } from '@/lib/api-authz';
 
 export const dynamic = 'force-dynamic';
@@ -117,7 +117,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const permissions = await getUserPermissions(session.user?.email || '');
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
+
     // Block recruiters from Explore/agent queries
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -37,6 +37,9 @@ export function KanbanBoard({ canManageRequests, onRequestClick }: KanbanBoardPr
   const [activeCard, setActiveCard] = useState<DashboardRequestCard | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
 
+  // Ref to prevent duplicate fetches (React Strict Mode double-invokes effects)
+  const fetchingRef = useRef(false);
+
   // Configure drag sensors
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -47,7 +50,11 @@ export function KanbanBoard({ canManageRequests, onRequestClick }: KanbanBoardPr
   );
 
   // Fetch kanban data
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (force = false) => {
+    // Prevent duplicate fetches unless forced (e.g., manual refresh)
+    if (fetchingRef.current && !force) return;
+
+    fetchingRef.current = true;
     try {
       setError(null);
       const result = await dashboardRequestsApi.getKanban(filters);
@@ -57,6 +64,7 @@ export function KanbanBoard({ canManageRequests, onRequestClick }: KanbanBoardPr
       setError('Failed to load requests. Please try again.');
     } finally {
       setLoading(false);
+      fetchingRef.current = false;
     }
   }, [filters]);
 
@@ -177,7 +185,7 @@ export function KanbanBoard({ canManageRequests, onRequestClick }: KanbanBoardPr
   // Handle refresh
   const handleRefresh = () => {
     setLoading(true);
-    fetchData();
+    fetchData(true); // Force refresh
   };
 
   if (loading && !data) {

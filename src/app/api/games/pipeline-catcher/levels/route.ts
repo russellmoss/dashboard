@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions, getSessionUserId } from '@/lib/auth';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { forbidRecruiter } from '@/lib/api-authz';
 import { getAvailableLevels } from '@/lib/queries/pipeline-catcher';
 import { getCurrentQuarter } from '@/config/game-constants';
@@ -17,8 +17,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
+
     // Block recruiters from games
-    const permissions = await getUserPermissions(session?.user?.email || '');
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
 

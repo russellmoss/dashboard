@@ -23,6 +23,7 @@ export interface UserPermissions {
   canExport: boolean;
   canManageUsers: boolean;
   canManageRequests: boolean;  // RevOps Admin only - manage Dashboard Requests
+  userId?: string | null;  // User ID for API routes that need it
 }
 
 // For API responses (excludes passwordHash)

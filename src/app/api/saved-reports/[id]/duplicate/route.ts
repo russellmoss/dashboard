@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { forbidRecruiter } from '@/lib/api-authz';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
@@ -22,18 +22,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
+
     // Block recruiters from saved reports
-    const permissions = await getUserPermissions(session.user.email);
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
-
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-    });
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
 
     const sourceReport = await prisma.savedReport.findUnique({
       where: { id: params.id },
@@ -44,7 +41,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check access: user owns it OR it's an admin template
-    const canAccess = sourceReport.userId === user.id || sourceReport.reportType === 'admin_template';
+    const canAccess = sourceReport.userId === permissions.userId || sourceReport.reportType === 'admin_template';
     if (!canAccess) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
@@ -59,7 +56,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Create duplicate (always as user report, never as template)
     const duplicatedReport = await prisma.savedReport.create({
       data: {
-        userId: user.id,
+        userId: permissions.userId,
         name: newName.substring(0, 255), // Ensure max length
         description: sourceReport.description,
         filters: sourceReport.filters as any,
@@ -75,7 +72,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     logger.info('[POST /api/saved-reports/[id]/duplicate] Duplicated report', {
       sourceReportId: params.id,
       newReportId: duplicatedReport.id,
-      userId: user.id,
+      userId: permissions.userId,
     });
 
     return NextResponse.json({ 

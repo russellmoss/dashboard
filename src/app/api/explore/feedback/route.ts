@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { forbidRecruiter } from '@/lib/api-authz';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
@@ -20,8 +20,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
+
     // Block recruiters - they can't access Explore so shouldn't submit feedback
-    const permissions = await getUserPermissions(session.user.email || '');
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
 

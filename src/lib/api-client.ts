@@ -888,6 +888,38 @@ export const dashboardRequestsApi = {
   getAnalytics: () =>
     apiFetch<{ analytics: RequestAnalytics }>('/api/dashboard-requests/analytics')
       .then(res => res.analytics),
+
+  // Upload attachment (uses FormData, not JSON)
+  uploadAttachment: async (requestId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(
+      `/api/dashboard-requests/${encodeURIComponent(requestId)}/attachments`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+        // Note: Don't set Content-Type header - browser sets it with boundary
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new ApiError(
+        errorData.error || response.statusText,
+        response.status,
+        `/api/dashboard-requests/${requestId}/attachments`
+      );
+    }
+
+    const data = await response.json();
+    return data.attachment;
+  },
+
+  // Get attachment URL for display
+  getAttachmentUrl: (requestId: string, attachmentId: string) =>
+    `/api/dashboard-requests/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(attachmentId)}`,
 };
 
 /**

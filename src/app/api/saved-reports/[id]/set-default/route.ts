@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
-// Note: getUserPermissions not needed for this route (no admin permission checks required)
+import { getSessionPermissions } from '@/types/auth';
 
 interface RouteParams {
   params: { id: string };
@@ -21,12 +21,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-    });
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    // Use permissions from session (derived from JWT, no DB query)
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
     }
 
     const report = await prisma.savedReport.findUnique({
@@ -46,14 +44,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check ownership
-    if (report.userId !== user.id) {
+    if (report.userId !== permissions.userId) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
     // Unset any existing default
     await prisma.savedReport.updateMany({
       where: {
-        userId: user.id,
+        userId: permissions.userId,
         isDefault: true,
         isActive: true,
       },
@@ -68,7 +66,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     logger.info('[POST /api/saved-reports/[id]/set-default] Set default', {
       reportId: params.id,
-      userId: user.id,
+      userId: permissions.userId,
     });
 
     return NextResponse.json({ 
