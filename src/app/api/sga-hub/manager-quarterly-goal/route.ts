@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     if (!permissions) {
       return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
     }
-    if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
+    if (!['admin', 'manager', 'sga', 'sgm', 'revops_admin'].includes(permissions.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -87,8 +87,8 @@ export async function POST(request: NextRequest) {
     if (!permissions) {
       return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
     }
-    // Only admins/managers can set manager goals
-    if (!['admin', 'manager'].includes(permissions.role)) {
+    // Only admins/managers/revops_admin can set manager goals
+    if (!['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

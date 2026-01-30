@@ -34,7 +34,7 @@ import { formatDate } from '@/lib/utils/format-helpers';
 export function SGAHubContent() {
   const { data: session } = useSession();
   const permissions = getSessionPermissions(session);
-  const isAdmin = permissions?.role === 'admin' || permissions?.role === 'manager';
+  const isAdmin = permissions?.role === 'admin' || permissions?.role === 'manager' || permissions?.role === 'revops_admin';
   const sgaName = session?.user?.name || 'Unknown';
   
   const [activeTab, setActiveTab] = useState<SGAHubTab>('leaderboard');

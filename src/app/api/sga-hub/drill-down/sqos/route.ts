@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     if (!permissions) {
       return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
     }
-    if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
+    if (!['admin', 'manager', 'sga', 'sgm', 'revops_admin'].includes(permissions.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -51,8 +51,8 @@ export async function GET(request: NextRequest) {
     
     if (teamLevel) {
       // Team-level drill-down: no SGA filter (returns all SQOs for team)
-      // Only admins/managers can access team-level drill-down
-      if (!['admin', 'manager'].includes(permissions.role)) {
+      // Only admins/managers/revops_admin can access team-level drill-down
+      if (!['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
       sgaName = null; // Explicitly set to null for team-level
@@ -64,8 +64,8 @@ export async function GET(request: NextRequest) {
       // Legacy behavior: use logged-in user's name or target user's name
       let userEmail = session.user.email;
       if (targetUserEmail) {
-        // For targetUserEmail, still require admin/manager (legacy behavior)
-        if (!['admin', 'manager'].includes(permissions.role)) {
+        // For targetUserEmail, still require admin/manager/revops_admin (legacy behavior)
+        if (!['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
           return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
         userEmail = targetUserEmail;

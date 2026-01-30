@@ -38,8 +38,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
     }
 
-    // Only admin and manager can access this endpoint
-    if (!['admin', 'manager'].includes(permissions.role)) {
+    // Only admin, manager, and revops_admin can access this endpoint
+    if (!['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

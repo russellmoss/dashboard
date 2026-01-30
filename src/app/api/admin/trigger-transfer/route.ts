@@ -10,7 +10,7 @@ import { logger } from '@/lib/logger';
 export const dynamic = 'force-dynamic';
 
 // Roles allowed to trigger transfers
-const ALLOWED_ROLES = ['admin', 'manager'];
+const ALLOWED_ROLES = ['admin', 'manager', 'revops_admin'];
 
 export async function POST(request: NextRequest) {
   try {

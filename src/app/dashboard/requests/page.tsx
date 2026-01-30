@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getUserPermissions } from '@/lib/permissions';
+import { getSessionPermissions } from '@/types/auth';
 import { RequestsPageContent } from './RequestsPageContent';
 
 export const dynamic = 'force-dynamic';
@@ -13,7 +13,11 @@ export default async function DashboardRequestsPage() {
     redirect('/login');
   }
 
-  const permissions = await getUserPermissions(session.user.email);
+  // Use permissions from session (derived from JWT, no DB query)
+  const permissions = getSessionPermissions(session);
+  if (!permissions) {
+    redirect('/login');
+  }
 
   // Block recruiter role - they don't have access to page 13
   if (permissions.role === 'recruiter') {

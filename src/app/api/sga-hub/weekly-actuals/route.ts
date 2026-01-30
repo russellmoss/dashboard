@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
       : getDefaultWeekRange();
     
     if (allSGAs) {
-      if (!['admin', 'manager'].includes(permissions.role)) {
+      if (!['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
       
@@ -55,12 +55,12 @@ export async function GET(request: NextRequest) {
     
     let userEmail = session.user.email;
     if (targetUserEmail) {
-      if (!['admin', 'manager'].includes(permissions.role)) {
+      if (!['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
       userEmail = targetUserEmail;
     } else {
-      if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
+      if (!['admin', 'manager', 'sga', 'sgm', 'revops_admin'].includes(permissions.role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
     }

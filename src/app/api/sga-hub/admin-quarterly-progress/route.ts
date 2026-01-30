@@ -25,8 +25,8 @@ export async function GET(request: NextRequest) {
     if (!permissions) {
       return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
     }
-    // Only admins/managers can access
-    if (!['admin', 'manager'].includes(permissions.role)) {
+    // Only admins/managers/revops_admin can access
+    if (!['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
     }
 
-    if (permissions.role !== 'admin') {
+    if (!['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

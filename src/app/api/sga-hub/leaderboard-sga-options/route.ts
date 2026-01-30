@@ -47,13 +47,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Authorization check - SGA Hub is accessible to admin, manager, and sga roles
+    // Authorization check - SGA Hub is accessible to admin, manager, sga, sgm, and revops_admin roles
     // Use permissions from session (derived from JWT, no DB query)
     const permissions = getSessionPermissions(session);
     if (!permissions) {
       return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
     }
-    if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
+    if (!['admin', 'manager', 'sga', 'sgm', 'revops_admin'].includes(permissions.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

@@ -42,18 +42,18 @@ export async function GET(request: NextRequest) {
     let userEmail = session.user.email;
     
     if (targetUserEmail) {
-      // Only admin/manager can view other users' goals
-      if (!['admin', 'manager'].includes(permissions.role)) {
+      // Only admin/manager/revops_admin can view other users' goals
+      if (!['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
       userEmail = targetUserEmail;
     } else {
       // SGA role required for own goals
-      if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
+      if (!['admin', 'manager', 'sga', 'sgm', 'revops_admin'].includes(permissions.role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
     }
-    
+
     // Use default range if not provided
     const dateRange = startDate && endDate 
       ? { startDate, endDate }
@@ -109,18 +109,18 @@ export async function POST(request: NextRequest) {
     let userEmail = session.user.email;
     
     if (targetUserEmail && targetUserEmail !== session.user.email) {
-      // Only admin/manager can set goals for other users
-      if (!['admin', 'manager'].includes(permissions.role)) {
+      // Only admin/manager/revops_admin can set goals for other users
+      if (!['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
       userEmail = targetUserEmail;
     } else {
       // SGA role required for own goals
-      if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
+      if (!['admin', 'manager', 'sga', 'sgm', 'revops_admin'].includes(permissions.role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
     }
-    
+
     // Handle copy from previous week
     if (copyFromWeek) {
       const copiedGoal = await copyWeeklyGoal(

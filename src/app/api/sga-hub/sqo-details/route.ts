@@ -38,14 +38,14 @@ export async function GET(request: NextRequest) {
     let userEmail = session.user.email;
 
     if (targetUserEmail) {
-      // Admin/Manager can view any SGA's SQO details
-      if (!['admin', 'manager'].includes(permissions.role)) {
+      // Admin/Manager/RevOps Admin can view any SGA's SQO details
+      if (!['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
       userEmail = targetUserEmail;
     } else {
       // SGA can only view their own SQO details
-      if (!['admin', 'manager', 'sga'].includes(permissions.role)) {
+      if (!['admin', 'manager', 'sga', 'sgm', 'revops_admin'].includes(permissions.role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
     }
