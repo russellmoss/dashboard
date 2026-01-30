@@ -8,6 +8,7 @@ import Image from 'next/image';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { CacheClearButton } from '@/components/ui/CacheClearButton';
 import { DataFreshnessIndicator } from '@/components/dashboard/DataFreshnessIndicator';
+import { NotificationBell } from '@/components/layout/NotificationBell';
 
 // Easter egg component - triple-click to access Pipeline Catcher game
 function EasterEggTrigger({ children }: { children: ReactNode }) {
@@ -64,9 +65,11 @@ export function Header() {
         <ThemeToggle />
         <CacheClearButton />
         <DataFreshnessIndicator variant="compact" className="hidden sm:flex" />
-        
+
         {session?.user && (
           <>
+            <NotificationBell />
+            <div className="h-6 w-px bg-gray-300 dark:bg-gray-600" />
             <div className="flex items-center gap-2">
               <User className="w-5 h-5 text-gray-500 dark:text-gray-400" />
               <span className="text-sm text-gray-700 dark:text-gray-300">{session.user.email}</span>

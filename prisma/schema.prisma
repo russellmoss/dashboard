@@ -13,18 +13,25 @@ model User {
   id             String   @id @default(cuid())
   email          String   @unique
   name           String
-  passwordHash   String?  // Optional for OAuth-only users
+  passwordHash   String? // Optional for OAuth-only users
   role           String   @default("viewer")
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   createdBy      String?
-  externalAgency String?  // Links recruiter to their External Agency (matches External_Agency__c in Salesforce)
+  externalAgency String? // Links recruiter to their External Agency (matches External_Agency__c in Salesforce)
 
   // Relations (keep existing relations as-is)
   savedReports        SavedReport[]
   gameScores          GameScore[]
   passwordResetTokens PasswordResetToken[]
+
+  // Dashboard Requests relations
+  submittedRequests   DashboardRequest[]    @relation("SubmittedRequests")
+  requestComments     RequestComment[]      @relation("RequestComments")
+  uploadedAttachments RequestAttachment[]   @relation("UploadedAttachments")
+  requestEdits        RequestEditHistory[]  @relation("RequestEdits")
+  notifications       RequestNotification[] @relation("UserNotifications")
 }
 
 model PasswordResetToken {
@@ -165,4 +172,117 @@ model SavedReport {
   @@index([isDefault])
   @@index([isActive])
   @@index([dashboard])
+}
+
+// Dashboard Request Enums
+enum RequestStatus {
+  SUBMITTED
+  PLANNED
+  IN_PROGRESS
+  DONE
+  ARCHIVED
+}
+
+enum RequestType {
+  FEATURE_REQUEST
+  DATA_ERROR
+}
+
+enum RequestPriority {
+  LOW
+  MEDIUM
+  HIGH
+  IMMEDIATE
+}
+
+// Main Dashboard Request Model
+model DashboardRequest {
+  id              String                @id @default(cuid())
+  title           String
+  description     String                @db.Text
+  requestType     RequestType
+  status          RequestStatus         @default(SUBMITTED)
+  priority        RequestPriority?
+  affectedPage    String?
+  filtersApplied  String?               @db.Text
+  valueSeen       String?
+  valueExpected   String?
+  errorOccurredAt DateTime?
+  isPrivate       Boolean               @default(false)
+  wrikeTaskId     String?               @unique
+  wrikePermalink  String?
+  lastSyncedAt    DateTime?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  statusChangedAt DateTime              @default(now())
+  submitterId     String
+  submitter       User                  @relation("SubmittedRequests", fields: [submitterId], references: [id])
+  comments        RequestComment[]
+  attachments     RequestAttachment[]
+  editHistory     RequestEditHistory[]
+  notifications   RequestNotification[]
+
+  @@index([submitterId])
+  @@index([status])
+  @@index([requestType])
+  @@index([wrikeTaskId])
+}
+
+model RequestComment {
+  id             String           @id @default(cuid())
+  content        String           @db.Text
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  requestId      String
+  request        DashboardRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  authorId       String
+  author         User             @relation("RequestComments", fields: [authorId], references: [id])
+  wrikeCommentId String?          @unique
+
+  @@index([requestId])
+  @@index([authorId])
+}
+
+model RequestAttachment {
+  id                String           @id @default(cuid())
+  filename          String
+  mimeType          String
+  size              Int
+  wrikeAttachmentId String?          @unique
+  wrikeDownloadUrl  String?
+  createdAt         DateTime         @default(now())
+  requestId         String
+  request           DashboardRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  uploadedById      String
+  uploadedBy        User             @relation("UploadedAttachments", fields: [uploadedById], references: [id])
+
+  @@index([requestId])
+}
+
+model RequestEditHistory {
+  id         String           @id @default(cuid())
+  fieldName  String
+  oldValue   String?          @db.Text
+  newValue   String?          @db.Text
+  createdAt  DateTime         @default(now())
+  requestId  String
+  request    DashboardRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  editedById String
+  editedBy   User             @relation("RequestEdits", fields: [editedById], references: [id])
+
+  @@index([requestId])
+}
+
+model RequestNotification {
+  id        String           @id @default(cuid())
+  message   String
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  requestId String
+  request   DashboardRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User             @relation("UserNotifications", fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+  @@index([requestId])
 }

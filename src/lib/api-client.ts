@@ -47,6 +47,18 @@ import {
   SubmitScoreRequest,
   SubmitScoreResponse,
 } from '@/types/game';
+import {
+  CreateRequestInput,
+  UpdateRequestInput,
+  RequestFilters,
+  DashboardRequestFull,
+  DashboardRequestCard,
+  KanbanBoardData,
+  RequestCommentWithAuthor,
+  RequestAnalytics,
+  RequestNotificationInfo,
+  RequestStatus,
+} from '@/types/dashboard-request';
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public endpoint: string) {
@@ -789,6 +801,122 @@ export const recruiterHubApi = {
 
   getSgmOptions: () =>
     apiFetch<{ sgms: string[] }>('/api/recruiter-hub/opportunities'),
+};
+
+/**
+ * Dashboard Requests API client
+ */
+export const dashboardRequestsApi = {
+  // Get requests for Kanban board
+  getKanban: (filters?: RequestFilters) =>
+    apiFetch<{ data: KanbanBoardData }>('/api/dashboard-requests/kanban', {
+      method: 'POST',
+      body: JSON.stringify(filters || {}),
+    }).then(res => res.data),
+
+  // Get recent submissions (for duplicate detection)
+  getRecent: (search?: string) =>
+    apiFetch<{ requests: DashboardRequestCard[] }>(
+      `/api/dashboard-requests/recent${search ? `?search=${encodeURIComponent(search)}` : ''}`
+    ).then(res => res.requests),
+
+  // Get single request details
+  getById: (id: string) =>
+    apiFetch<{ request: DashboardRequestFull }>(
+      `/api/dashboard-requests/${encodeURIComponent(id)}`
+    ).then(res => res.request),
+
+  // Create new request
+  create: (input: CreateRequestInput) =>
+    apiFetch<{ request: DashboardRequestFull }>('/api/dashboard-requests', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }).then(res => res.request),
+
+  // Update request
+  update: (id: string, input: UpdateRequestInput) =>
+    apiFetch<{ request: DashboardRequestFull }>(
+      `/api/dashboard-requests/${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      }
+    ).then(res => res.request),
+
+  // Update status only
+  updateStatus: (id: string, status: RequestStatus) =>
+    apiFetch<{ request: DashboardRequestFull; previousStatus: RequestStatus }>(
+      `/api/dashboard-requests/${encodeURIComponent(id)}/status`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      }
+    ),
+
+  // Delete request
+  delete: (id: string) =>
+    apiFetch<{ success: boolean }>(
+      `/api/dashboard-requests/${encodeURIComponent(id)}`,
+      { method: 'DELETE' }
+    ),
+
+  // Add comment
+  addComment: (requestId: string, content: string) =>
+    apiFetch<{ comment: RequestCommentWithAuthor }>(
+      `/api/dashboard-requests/${encodeURIComponent(requestId)}/comments`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ content }),
+      }
+    ).then(res => res.comment),
+
+  // Archive request
+  archive: (id: string) =>
+    apiFetch<{ request: DashboardRequestFull }>(
+      `/api/dashboard-requests/${encodeURIComponent(id)}/archive`,
+      { method: 'POST' }
+    ).then(res => res.request),
+
+  // Unarchive request
+  unarchive: (id: string) =>
+    apiFetch<{ request: DashboardRequestFull }>(
+      `/api/dashboard-requests/${encodeURIComponent(id)}/unarchive`,
+      { method: 'POST' }
+    ).then(res => res.request),
+
+  // Get analytics (RevOps Admin only)
+  getAnalytics: () =>
+    apiFetch<{ analytics: RequestAnalytics }>('/api/dashboard-requests/analytics')
+      .then(res => res.analytics),
+};
+
+/**
+ * Notifications API client
+ */
+export const notificationsApi = {
+  // Get all notifications for current user
+  getAll: () =>
+    apiFetch<{ notifications: RequestNotificationInfo[] }>('/api/notifications')
+      .then(res => res.notifications),
+
+  // Get unread count
+  getUnreadCount: () =>
+    apiFetch<{ count: number }>('/api/notifications/unread-count')
+      .then(res => res.count),
+
+  // Mark single notification as read
+  markAsRead: (id: string) =>
+    apiFetch<{ success: boolean }>(
+      `/api/notifications/${encodeURIComponent(id)}/read`,
+      { method: 'POST' }
+    ),
+
+  // Mark all notifications as read
+  markAllAsRead: () =>
+    apiFetch<{ success: boolean; count: number }>(
+      '/api/notifications/mark-all-read',
+      { method: 'POST' }
+    ),
 };
 
 export function handleApiError(error: unknown): string {

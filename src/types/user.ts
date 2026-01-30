@@ -1,9 +1,12 @@
+// Role type used across all user interfaces
+export type UserRole = 'admin' | 'manager' | 'sgm' | 'sga' | 'viewer' | 'recruiter' | 'revops_admin';
+
 export interface User {
   id: string;
   email: string;
   name: string;
   passwordHash: string;
-  role: 'admin' | 'manager' | 'sgm' | 'sga' | 'viewer' | 'recruiter';
+  role: UserRole;
   createdAt: string;
   updatedAt: string;
   createdBy: string;
@@ -12,13 +15,14 @@ export interface User {
 }
 
 export interface UserPermissions {
-  role: 'admin' | 'manager' | 'sgm' | 'sga' | 'viewer' | 'recruiter';
+  role: UserRole;
   allowedPages: number[];
   sgaFilter: string | null;  // If SGA, filter to their records
   sgmFilter: string | null;  // If SGM, filter to their team
   recruiterFilter: string | null;  // If recruiter, filter to their agency
   canExport: boolean;
   canManageUsers: boolean;
+  canManageRequests: boolean;  // RevOps Admin only - manage Dashboard Requests
 }
 
 // For API responses (excludes passwordHash)
@@ -26,7 +30,7 @@ export interface SafeUser {
   id: string;
   email: string;
   name: string;
-  role: 'admin' | 'manager' | 'sgm' | 'sga' | 'viewer' | 'recruiter';
+  role: UserRole;
   createdAt: string;
   updatedAt: string;
   createdBy: string;
@@ -39,7 +43,7 @@ export interface UserInput {
   email: string;
   name: string;
   password?: string;  // Optional for updates
-  role: 'admin' | 'manager' | 'sgm' | 'sga' | 'viewer' | 'recruiter';
+  role: UserRole;
   isActive?: boolean;
   externalAgency?: string | null;
 }

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import { SafeUser } from '@/types/user';
+import { SafeUser, UserRole } from '@/types/user';
 
 interface UserModalProps {
   isOpen: boolean;
@@ -16,7 +16,7 @@ export function UserModal({ isOpen, onClose, onSaved, user }: UserModalProps) {
     email: string;
     name: string;
     password: string;
-    role: 'admin' | 'manager' | 'sgm' | 'sga' | 'viewer' | 'recruiter';
+    role: UserRole;
     isActive: boolean;
     externalAgency: string;
     externalAgencyIsOther: boolean;
@@ -228,6 +228,7 @@ export function UserModal({ isOpen, onClose, onSaved, user }: UserModalProps) {
               onChange={(e) => handleRoleChange(e.target.value as typeof formData.role)}
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
             >
+              <option value="revops_admin">RevOps Admin - Full access + manage Dashboard Requests</option>
               <option value="admin">Admin - Full access, can manage users</option>
               <option value="manager">Manager - Full access, can manage users</option>
               <option value="sgm">SGM - Team data, pages 1-3 & 6</option>
