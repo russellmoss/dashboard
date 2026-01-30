@@ -41,7 +41,7 @@ export function DataFreshnessIndicator({
   // Hooks must be called unconditionally at the top level
   const { data: session } = useSession();
   const permissions = getSessionPermissions(session);
-  const isAdmin = permissions?.role === 'admin' || permissions?.role === 'manager';
+  const isAdmin = permissions?.role === 'admin' || permissions?.role === 'manager' || permissions?.role === 'revops_admin';
 
   const [freshness, setFreshness] = useState<DataFreshness | null>(null);
   const [loading, setLoading] = useState(true);
