@@ -7,7 +7,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useRef, useCallback, ReactNode } from 'react';
 import {
-  BarChart3, Settings, Menu, X, Target,
+  BarChart3, BarChart2, Settings, Menu, X, Target,
   Bot, Users, Layers, Briefcase, MessageSquarePlus
 } from 'lucide-react';
 
@@ -54,6 +54,7 @@ const PAGES = [
   { id: 9, name: 'SGA Management', href: '/dashboard/sga-management', icon: Users },
   { id: 12, name: 'Recruiter Hub', href: '/dashboard/recruiter-hub', icon: Briefcase },
   { id: 13, name: 'Dashboard Requests', href: '/dashboard/requests', icon: MessageSquarePlus },
+  { id: 14, name: 'Chart Builder', href: '/dashboard/chart-builder', icon: BarChart2 },
   { id: 7, name: 'Settings', href: '/dashboard/settings', icon: Settings },
 ];
 
