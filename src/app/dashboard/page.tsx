@@ -3,16 +3,64 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
+import nextDynamic from 'next/dynamic';
 import { Title, Text } from '@tremor/react';
 import { GlobalFilters } from '@/components/dashboard/GlobalFilters';
 import { Scorecards } from '@/components/dashboard/Scorecards';
 import { ConversionRateCards } from '@/components/dashboard/ConversionRateCards';
-import { ConversionTrendChart } from '@/components/dashboard/ConversionTrendChart';
-import { VolumeTrendChart } from '@/components/dashboard/VolumeTrendChart';
-import { ChannelPerformanceTable } from '@/components/dashboard/ChannelPerformanceTable';
-import { SourcePerformanceTable } from '@/components/dashboard/SourcePerformanceTable';
-import { DetailRecordsTable } from '@/components/dashboard/DetailRecordsTable';
 import { ExportToSheetsButton } from '@/components/dashboard/ExportToSheetsButton';
+import { ChartSkeleton, TableSkeleton } from '@/components/ui/Skeletons';
+
+// Lazy load chart and table components (they don't need SSR and are below the fold)
+const VolumeTrendChart = nextDynamic(
+  () => import('@/components/dashboard/VolumeTrendChart').then(mod => ({
+    default: mod.VolumeTrendChart
+  })),
+  {
+    loading: () => <ChartSkeleton height={320} />,
+    ssr: false,
+  }
+);
+
+const ConversionTrendChart = nextDynamic(
+  () => import('@/components/dashboard/ConversionTrendChart').then(mod => ({
+    default: mod.ConversionTrendChart
+  })),
+  {
+    loading: () => <ChartSkeleton height={384} />,
+    ssr: false,
+  }
+);
+
+const ChannelPerformanceTable = nextDynamic(
+  () => import('@/components/dashboard/ChannelPerformanceTable').then(mod => ({
+    default: mod.ChannelPerformanceTable
+  })),
+  {
+    loading: () => <TableSkeleton rows={5} />,
+    ssr: false,
+  }
+);
+
+const SourcePerformanceTable = nextDynamic(
+  () => import('@/components/dashboard/SourcePerformanceTable').then(mod => ({
+    default: mod.SourcePerformanceTable
+  })),
+  {
+    loading: () => <TableSkeleton rows={10} />,
+    ssr: false,
+  }
+);
+
+const DetailRecordsTable = nextDynamic(
+  () => import('@/components/dashboard/DetailRecordsTable').then(mod => ({
+    default: mod.DetailRecordsTable
+  })),
+  {
+    loading: () => <TableSkeleton rows={10} />,
+    ssr: false,
+  }
+);
 import { AdvancedFilters, AdvancedFiltersButton } from '@/components/dashboard/AdvancedFilters';
 import { RecordDetailModal } from '@/components/dashboard/RecordDetailModal';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';

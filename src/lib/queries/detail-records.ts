@@ -338,4 +338,6 @@ const _getDetailRecords = async (
   });
 };
 
+// Note: Not cached because result sets typically exceed Next.js 2MB cache limit
+// The query returns 50,000+ rows (~10MB), which cannot be cached
 export const getDetailRecords = _getDetailRecords;

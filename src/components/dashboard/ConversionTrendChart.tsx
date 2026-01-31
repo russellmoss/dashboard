@@ -2,7 +2,7 @@
 
 import { Card, Title, Text } from '@tremor/react';
 import { TrendDataPoint, ConversionTrendMode } from '@/types/dashboard';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useTheme } from 'next-themes';
 import { CHART_COLORS } from '@/config/theme';
 import {
@@ -141,15 +141,18 @@ export function ConversionTrendChart({
   };
 
   // Transform data for chart display with proper rounding (rates only)
-  const chartData = trends.map(t => ({
-    period: t.period,
-    isSelectedPeriod: t.isSelectedPeriod || false,
-    // Convert rates from decimal (0-1) to percentage (0-100) and round to 1 decimal
-    'Contacted→MQL': Number(((Number(t.contactedToMqlRate) || 0) * 100).toFixed(1)),
-    'MQL→SQL': Number(((Number(t.mqlToSqlRate) || 0) * 100).toFixed(1)),
-    'SQL→SQO': Number(((Number(t.sqlToSqoRate) || 0) * 100).toFixed(1)),
-    'SQO→Joined': Number(((Number(t.sqoToJoinedRate) || 0) * 100).toFixed(1)),
-  }));
+  const chartData = useMemo(() =>
+    trends.map(t => ({
+      period: t.period,
+      isSelectedPeriod: t.isSelectedPeriod || false,
+      // Convert rates from decimal (0-1) to percentage (0-100) and round to 1 decimal
+      'Contacted→MQL': Number(((Number(t.contactedToMqlRate) || 0) * 100).toFixed(1)),
+      'MQL→SQL': Number(((Number(t.mqlToSqlRate) || 0) * 100).toFixed(1)),
+      'SQL→SQO': Number(((Number(t.sqlToSqoRate) || 0) * 100).toFixed(1)),
+      'SQO→Joined': Number(((Number(t.sqoToJoinedRate) || 0) * 100).toFixed(1)),
+    })),
+    [trends]
+  );
 
   const rateCategories = ['Contacted→MQL', 'MQL→SQL', 'SQL→SQO', 'SQO→Joined'];
 

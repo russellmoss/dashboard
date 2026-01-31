@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, Text } from '@tremor/react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { ActivityBreakdown, ActivityChannel } from '@/types/sga-activity';
@@ -25,34 +25,38 @@ export default function ActivityBreakdownCard({
 }: ActivityBreakdownCardProps) {
   const [activeIndex, setActiveIndex] = useState<number | undefined>(undefined);
 
-  // Group by channel and calculate totals
-  const channelMap = new Map<string, number>();
-  
-  for (const breakdown of breakdowns) {
-    const currentCount = channelMap.get(breakdown.channel) || 0;
-    channelMap.set(breakdown.channel, currentCount + breakdown.count);
-  }
-  
-  // Prepare data for donut chart - maintain consistent order for color mapping
-  const channelOrder: ActivityChannel[] = ['SMS', 'Call', 'Email', 'LinkedIn'];
-  const sortedChannels = Array.from(channelMap.entries()).sort((a, b) => {
-    // Sort by predefined order first, then by count
-    const aIndex = channelOrder.indexOf(a[0] as ActivityChannel);
-    const bIndex = channelOrder.indexOf(b[0] as ActivityChannel);
-    if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
-    if (aIndex !== -1) return -1;
-    if (bIndex !== -1) return 1;
-    return b[1] - a[1];
-  });
-  
-  const donutData = sortedChannels.map(([channel, count]) => ({
-    name: channel,
-    value: count,
-    color: CHANNEL_COLORS[channel as ActivityChannel] || '#6b7280',
-  }));
+  // Memoize all chart data transformations
+  const { donutData, grandTotal } = useMemo(() => {
+    // Group by channel and calculate totals
+    const channelMap = new Map<string, number>();
 
-  // Calculate grand total
-  const grandTotal = donutData.reduce((sum, item) => sum + item.value, 0);
+    for (const breakdown of breakdowns) {
+      const currentCount = channelMap.get(breakdown.channel) || 0;
+      channelMap.set(breakdown.channel, currentCount + breakdown.count);
+    }
+
+    // Prepare data for donut chart - maintain consistent order for color mapping
+    const channelOrder: ActivityChannel[] = ['SMS', 'Call', 'Email', 'LinkedIn'];
+    const sortedChannels = Array.from(channelMap.entries()).sort((a, b) => {
+      // Sort by predefined order first, then by count
+      const aIndex = channelOrder.indexOf(a[0] as ActivityChannel);
+      const bIndex = channelOrder.indexOf(b[0] as ActivityChannel);
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return b[1] - a[1];
+    });
+
+    const data = sortedChannels.map(([channel, count]) => ({
+      name: channel,
+      value: count,
+      color: CHANNEL_COLORS[channel as ActivityChannel] || '#6b7280',
+    }));
+
+    const total = data.reduce((sum, item) => sum + item.value, 0);
+
+    return { donutData: data, grandTotal: total };
+  }, [breakdowns]);
 
   const handlePieClick = (data: any, index: number) => {
     if (data && data.name) {

@@ -2,7 +2,7 @@
 
 import { Card, Title, Text } from '@tremor/react';
 import { TrendDataPoint } from '@/types/dashboard';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useTheme } from 'next-themes';
 import { CHART_COLORS } from '@/config/theme';
 import {
@@ -63,14 +63,17 @@ export function VolumeTrendChart({
   };
 
   // Transform data for volume display - order matters for Recharts grouped bars
-  const chartData = trends.map(t => ({
-    period: t.period,
-    isSelectedPeriod: t.isSelectedPeriod || false,
-    // Order keys to match desired bar order: SQLs (left), SQOs (middle), Joined (right)
-    SQLs: Number(t.sqls) || 0,
-    SQOs: Number(t.sqos) || 0,
-    Joined: Number(t.joined) || 0,
-  }));
+  const chartData = useMemo(() =>
+    trends.map(t => ({
+      period: t.period,
+      isSelectedPeriod: t.isSelectedPeriod || false,
+      // Order keys to match desired bar order: SQLs (left), SQOs (middle), Joined (right)
+      SQLs: Number(t.sqls) || 0,
+      SQOs: Number(t.sqos) || 0,
+      Joined: Number(t.joined) || 0,
+    })),
+    [trends]
+  );
 
   const volumeCategories = ['SQLs', 'SQOs', 'Joined']; // Order: SQLs → SQOs → Joined
 
