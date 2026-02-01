@@ -13,49 +13,49 @@ export interface TokenUserData {
 const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmFilter' | 'recruiterFilter' | 'userId'>> = {
   revops_admin: {
     role: 'revops_admin',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 14],  // All pages + 14 = Chart Builder
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15],  // All pages + 14 = Chart Builder, 15 = Advisor Map
     canExport: true,
     canManageUsers: true,
     canManageRequests: true,  // Only role that can manage requests
   },
   admin: {
     role: 'admin',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 14],  // 14 = Chart Builder
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15],  // 14 = Chart Builder, 15 = Advisor Map
     canExport: true,
     canManageUsers: true,
     canManageRequests: false,
   },
   manager: {
     role: 'manager',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 14],  // 14 = Chart Builder
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15],  // 14 = Chart Builder, 15 = Advisor Map
     canExport: true,
     canManageUsers: false,
     canManageRequests: false,
   },
   sgm: {
     role: 'sgm',
-    allowedPages: [1, 3, 7, 10, 13, 14],  // 14 = Chart Builder
+    allowedPages: [1, 3, 7, 10, 13, 14, 15],  // 14 = Chart Builder, 15 = Advisor Map
     canExport: true,
     canManageUsers: false,
     canManageRequests: false,
   },
   sga: {
     role: 'sga',
-    allowedPages: [1, 3, 7, 8, 10, 11, 13, 14],  // 14 = Chart Builder
+    allowedPages: [1, 3, 7, 8, 10, 11, 13, 14, 15],  // 14 = Chart Builder, 15 = Advisor Map
     canExport: true,
     canManageUsers: false,
     canManageRequests: false,
   },
   viewer: {
     role: 'viewer',
-    allowedPages: [1, 3, 7, 10, 13],  // Added 13 = Dashboard Requests
+    allowedPages: [1, 3, 7, 10, 13, 15],  // 13 = Dashboard Requests, 15 = Advisor Map
     canExport: false,
     canManageUsers: false,
     canManageRequests: false,
   },
   recruiter: {
     role: 'recruiter',
-    allowedPages: [7, 12],  // Settings (7) + Recruiter Hub (12) only - NO Dashboard Requests
+    allowedPages: [7, 12],  // Settings (7) + Recruiter Hub (12) only - NO Dashboard Requests, NO Advisor Map
     canExport: true,
     canManageUsers: false,
     canManageRequests: false,
