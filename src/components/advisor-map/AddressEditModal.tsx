@@ -3,7 +3,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, MapPin, Save, Trash2, AlertCircle, CheckCircle } from 'lucide-react';
+import { X, MapPin, Save, Trash2, AlertCircle, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { AdvisorLocation } from '@/lib/queries/advisor-locations';
 
 interface AddressEditModalProps {
@@ -46,6 +46,7 @@ export function AddressEditModal({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Initialize form when advisor changes
   useEffect(() => {
@@ -341,37 +342,60 @@ export function AddressEditModal({
             </div>
           </div>
 
-          {/* Coordinates */}
+          {/* Auto-geocode info */}
+          <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+            <MapPin className="w-5 h-5 text-blue-500 flex-shrink-0" />
+            <span className="text-sm text-blue-700 dark:text-blue-300">
+              Coordinates will be automatically determined from the address using Google Maps.
+            </span>
+          </div>
+
+          {/* Advanced: Manual Coordinates (collapsible) */}
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-              Coordinates (optional - will auto-geocode if not provided)
-            </h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Latitude
-                </label>
-                <input
-                  type="text"
-                  value={formData.lat}
-                  onChange={(e) => handleChange('lat', e.target.value)}
-                  placeholder="37.7749"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="flex items-center gap-2 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+            >
+              {showAdvanced ? (
+                <ChevronUp className="w-4 h-4" />
+              ) : (
+                <ChevronDown className="w-4 h-4" />
+              )}
+              Advanced: Manual coordinates override
+            </button>
+
+            {showAdvanced && (
+              <div className="mt-3 grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Latitude
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.lat}
+                    onChange={(e) => handleChange('lat', e.target.value)}
+                    placeholder="Auto-generated"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Longitude
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.lng}
+                    onChange={(e) => handleChange('lng', e.target.value)}
+                    placeholder="Auto-generated"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <p className="col-span-2 text-xs text-gray-500 dark:text-gray-400">
+                  Only use manual coordinates if you need to fine-tune the pin location after geocoding.
+                </p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Longitude
-                </label>
-                <input
-                  type="text"
-                  value={formData.lng}
-                  onChange={(e) => handleChange('lng', e.target.value)}
-                  placeholder="-122.4194"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Notes */}
