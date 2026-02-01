@@ -187,16 +187,16 @@ export function RecordDetailModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-[1200] flex items-center justify-center">
       {/* Backdrop */}
-      <div 
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm" 
+      <div
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[1200]"
         onClick={onClose}
         aria-hidden="true"
       />
-      
+
       {/* Modal Content */}
-      <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="relative z-[1201] bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header - Fixed */}
         <div className="flex items-start justify-between p-6 border-b border-gray-200 dark:border-gray-700">
           <div className="flex-1 min-w-0">
