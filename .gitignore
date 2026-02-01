@@ -64,3 +64,4 @@ data/
 .DS_Store
 
 /src/generated/prisma
+nul
