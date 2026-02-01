@@ -24,7 +24,8 @@ interface RawAdvisorLocation {
   address_long: number | null;
   coord_source: string | null;
   geocode_accuracy: string | null;
-  Opportunity_AUM: number | null;
+  /** COALESCE(Account_Total_AUM__c, Opportunity_AUM) from query */
+  AUM: number | null;
   SGA_Owner_Name__c: string | null;
   SGM_Owner_Name__c: string | null;
   Channel_Grouping_Name: string | null;
@@ -105,70 +106,75 @@ const _getAdvisorLocations = async (
   const conditions: string[] = [];
   const params: Record<string, any> = {};
 
-  // Date filters
+  // Date filters (v = view alias)
   if (filters.startDate) {
-    conditions.push('advisor_join_date__c >= DATE(@startDate)');
+    conditions.push('v.advisor_join_date__c >= DATE(@startDate)');
     params.startDate = filters.startDate;
   }
   if (filters.endDate) {
-    conditions.push('advisor_join_date__c <= DATE(@endDate)');
+    conditions.push('v.advisor_join_date__c <= DATE(@endDate)');
     params.endDate = filters.endDate;
   }
 
   // Owner filters
   if (filters.sga) {
-    conditions.push('SGA_Owner_Name__c = @sga');
+    conditions.push('v.SGA_Owner_Name__c = @sga');
     params.sga = filters.sga;
   }
   if (filters.sgm) {
-    conditions.push('SGM_Owner_Name__c = @sgm');
+    conditions.push('v.SGM_Owner_Name__c = @sgm');
     params.sgm = filters.sgm;
   }
 
   // Channel/source filters
   if (filters.channel) {
-    conditions.push('Channel_Grouping_Name = @channel');
+    conditions.push('v.Channel_Grouping_Name = @channel');
     params.channel = filters.channel;
   }
   if (filters.source) {
-    conditions.push('Original_source = @source');
+    conditions.push('v.Original_source = @source');
     params.source = filters.source;
   }
 
   // Coordinate source filter
   if (filters.coordSourceFilter === 'geocoded') {
-    conditions.push("coord_source = 'Geocoded'");
+    conditions.push("v.coord_source = 'Geocoded'");
   } else if (filters.coordSourceFilter === 'sfdc') {
-    conditions.push("coord_source = 'SFDC'");
+    conditions.push("v.coord_source = 'SFDC'");
   }
 
   const whereClause = conditions.length > 0
     ? `WHERE ${conditions.join(' AND ')}`
     : '';
 
+  // AUM: prefer Account.Account_Total_AUM__c, fallback to Opportunity_AUM from view
   const query = `
     SELECT
-      primary_key,
-      advisor_name,
-      advisor_join_date__c,
-      address_street_1,
-      address_street_2,
-      address_city,
-      address_state,
-      address_postal,
-      address_country,
-      address_lat,
-      address_long,
-      coord_source,
-      geocode_accuracy,
-      Opportunity_AUM,
-      SGA_Owner_Name__c,
-      SGM_Owner_Name__c,
-      Channel_Grouping_Name,
-      Original_source
-    FROM \`${PROJECT_ID}.Tableau_Views.vw_joined_advisor_location\`
+      v.primary_key,
+      v.advisor_name,
+      v.advisor_join_date__c,
+      v.address_street_1,
+      v.address_street_2,
+      v.address_city,
+      v.address_state,
+      v.address_postal,
+      v.address_country,
+      v.address_lat,
+      v.address_long,
+      v.coord_source,
+      v.geocode_accuracy,
+      COALESCE(a.Account_Total_AUM__c, v.Opportunity_AUM) AS AUM,
+      v.SGA_Owner_Name__c,
+      v.SGM_Owner_Name__c,
+      v.Channel_Grouping_Name,
+      v.Original_source
+    FROM \`${PROJECT_ID}.Tableau_Views.vw_joined_advisor_location\` v
+    LEFT JOIN \`${PROJECT_ID}.SavvyGTMData.Opportunity\` o
+      ON v.Full_Opportunity_ID__c = o.Id
+    LEFT JOIN \`${PROJECT_ID}.SavvyGTMData.Account\` a
+      ON o.AccountId = a.Id AND a.IsDeleted = FALSE
     ${whereClause}
-    ORDER BY advisor_join_date__c DESC
+    ORDER BY v.advisor_join_date__c DESC
   `;
 
   // Fetch BigQuery data and overrides in parallel
@@ -241,7 +247,7 @@ const _getAdvisorLocations = async (
       lng,
       coordSource,
       geocodeAccuracy,
-      aum: row.Opportunity_AUM !== null ? toNumber(row.Opportunity_AUM) : null,
+      aum: row.AUM !== null ? toNumber(row.AUM) : null,
       sgaOwner: row.SGA_Owner_Name__c ? toString(row.SGA_Owner_Name__c) : null,
       sgmOwner: row.SGM_Owner_Name__c ? toString(row.SGM_Owner_Name__c) : null,
       channel: row.Channel_Grouping_Name ? toString(row.Channel_Grouping_Name) : null,

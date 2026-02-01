@@ -3,9 +3,14 @@
     "src/app/api/dashboard/export-sheets/route.ts": { "maxDuration": 60 },
     "src/app/api/agent/query/route.ts": { "maxDuration": 60 },
     "src/app/api/admin/trigger-transfer/route.ts": { "maxDuration": 60 },
-    "src/app/api/cron/trigger-transfer/route.ts": { "maxDuration": 60 }
+    "src/app/api/cron/trigger-transfer/route.ts": { "maxDuration": 60 },
+    "src/app/api/cron/geocode-advisors/route.ts": { "maxDuration": 60 }
   },
   "crons": [
+    {
+      "path": "/api/cron/geocode-advisors",
+      "schedule": "0 5 * * *"
+    },
     {
       "path": "/api/cron/refresh-cache",
       "schedule": "10 4 * * *"
