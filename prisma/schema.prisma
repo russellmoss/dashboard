@@ -287,3 +287,32 @@ model RequestNotification {
   @@index([userId, isRead])
   @@index([requestId])
 }
+
+// Advisor Address Override - allows manual correction of advisor locations
+model AdvisorAddressOverride {
+  id         String   @id @default(cuid())
+  primaryKey String   @unique // The advisor's primary_key from BigQuery (vw_funnel_master)
+
+  // Address fields (all optional - only override what's needed)
+  street1    String?
+  street2    String?
+  city       String?
+  state      String?  // Should be 2-letter abbreviation
+  postalCode String?
+  country    String?
+
+  // Coordinates (optional - will trigger re-geocoding if not provided)
+  lat        Float?
+  lng        Float?
+
+  // Metadata
+  notes      String?  @db.Text // Why the override was made
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  createdBy  String   // Email of user who created
+  updatedBy  String   // Email of user who last updated
+
+  @@index([primaryKey])
+  @@index([createdAt])
+  @@map("advisor_address_overrides")
+}
