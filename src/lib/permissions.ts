@@ -20,28 +20,28 @@ const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmF
   },
   admin: {
     role: 'admin',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15],  // 14 = Chart Builder, 15 = Advisor Map
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15],  // 15 = Advisor Map (Chart Builder restricted to revops_admin)
     canExport: true,
     canManageUsers: true,
     canManageRequests: false,
   },
   manager: {
     role: 'manager',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15],  // 14 = Chart Builder, 15 = Advisor Map
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15],  // 15 = Advisor Map (Chart Builder restricted to revops_admin)
     canExport: true,
     canManageUsers: false,
     canManageRequests: false,
   },
   sgm: {
     role: 'sgm',
-    allowedPages: [1, 3, 7, 10, 13, 14, 15],  // 14 = Chart Builder, 15 = Advisor Map
+    allowedPages: [1, 3, 7, 10, 13, 15],  // 15 = Advisor Map (Chart Builder restricted to revops_admin)
     canExport: true,
     canManageUsers: false,
     canManageRequests: false,
   },
   sga: {
     role: 'sga',
-    allowedPages: [1, 3, 7, 8, 10, 11, 13, 14, 15],  // 14 = Chart Builder, 15 = Advisor Map
+    allowedPages: [1, 3, 7, 8, 10, 11, 13, 15],  // 15 = Advisor Map (Chart Builder restricted to revops_admin)
     canExport: true,
     canManageUsers: false,
     canManageRequests: false,
