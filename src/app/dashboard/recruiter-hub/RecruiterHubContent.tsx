@@ -99,7 +99,7 @@ export function RecruiterHubContent() {
     }
   }, [session?.user?.email]);
 
-  const isAdmin = permissions?.role === 'admin' || permissions?.role === 'manager';
+  const isAdmin = permissions?.role === 'admin' || permissions?.role === 'manager' || permissions?.role === 'revops_admin';
   const recruiterFilter = permissions?.recruiterFilter ?? null;
 
   const [prospects, setProspects] = useState<ProspectRecord[]>([]);

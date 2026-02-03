@@ -1,0 +1,36 @@
+# Commits from the last 7 days
+
+- joined AUM for map
+- Improve address edit UX: auto-geocode message and collapsible coordinates
+- Fix RecordDetailModal z-index to appear above Leaflet map
+- Add Advisor Map (page 15) to role permissions
+- Add Advisor Map link to sidebar navigation
+- Add leaflet and react-leaflet dependencies for Advisor Map
+- Add nul to gitignore (Windows reserved name)
+- Add Advisor Map feature with geocoding and address overrides
+- Add Metabase Chart Builder integration
+- React performance optimization and caching improvements
+- revops sync fix
+- revops_admin permissions fix
+- duplicative query of User table fixed and request attachment fixed
+- dash requests
+- type error fix
+- table sorting for recruiter hub
+- recruiter hardening
+- recruiter security
+- Recruiter Hub
+- open pipe drilldown fix
+- Signed AUM and Joined AUM scorecards
+- oauth
+- Fix SGA navigation: Move default landing page logic to login, allow SGAs to access Funnel Performance
+- Make dark mode the default theme
+- Redirect SGA users to SGA Hub as their default homepage
+- Move SGA Activity into SGA Hub as Activity tab
+- Add My Records / All Records toggle to Closed Lost Follow-Up tab
+- Implement SGA Leaderboard feature with filters, drill-down, and ranking
+- Add CSV export to SGA Management drilldown modal
+- Fix advanced filters undefined property errors and update channel mapping
+- Update channel mapping to use Finance_View__c directly from view
+- Fix compileSingleMetric and compileSqoDetailList for opportunity-level SGA filtering
+- Fix semantic layer SGA filtering for opportunity-level metrics
+- Fix SQO filtering to include opportunity-level SGA associations
