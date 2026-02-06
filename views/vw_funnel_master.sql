@@ -16,6 +16,7 @@ WITH Lead_Base AS (
     DoNotCall,
     stage_entered_new__c,
     Experimentation_Tag__c AS Lead_Experimentation_Tag__c,
+    Campaign__c AS Lead_Campaign_Id__c,
     Lead_Score_Tier__c,
     External_Agency__c AS Lead_External_Agency__c,
     SGA_Owner_Name__c AS Lead_SGA_Owner_Name__c,  -- SGA who owns/worked this lead
@@ -63,6 +64,7 @@ Opp_Base AS (
     Qualification_Call_Date__c,
     Experimentation_Tag__c AS Opportunity_Experimentation_Tag__c,
     External_Agency__c AS Opp_External_Agency__c,
+    CampaignId AS Opp_Campaign_Id__c,
     NextStep AS Opp_NextStep
 
   FROM `savvy-gtm-analytics.SavvyGTMData.Opportunity`
@@ -160,6 +162,11 @@ Combined AS (
     -- Experiment Tags (raw)
     COALESCE(o.Opportunity_Experimentation_Tag__c, l.Lead_Experimentation_Tag__c) AS Experimentation_Tag_Raw__c,
     
+    -- Campaign IDs (raw and coalesced)
+    COALESCE(o.Opp_Campaign_Id__c, l.Lead_Campaign_Id__c) AS Campaign_Id__c,
+    l.Lead_Campaign_Id__c,
+    o.Opp_Campaign_Id__c,
+    
     -- Record Classification
     o.RecordTypeId AS recordtypeid,
     l.Lead_Score_Tier__c
@@ -189,6 +196,16 @@ With_SGA_Lookup AS (
   FROM With_Channel_Mapping wcm
   LEFT JOIN `savvy-gtm-analytics.SavvyGTMData.User` u
     ON wcm.Opp_SGA_Name__c = u.Id
+),
+
+-- Join Campaign table to get campaign names for display
+With_Campaign_Name AS (
+  SELECT
+    wsl.*,
+    c.Name AS Campaign_Name__c
+  FROM With_SGA_Lookup wsl
+  LEFT JOIN `savvy-gtm-analytics.SavvyGTMData.Campaign` c
+    ON wsl.Campaign_Id__c = c.Id
 ),
 
 -- Final transformation with all derived fields
@@ -369,7 +386,7 @@ Final AS (
       THEN 1 ELSE 0 
     END AS sqo_to_joined_progression
     
-  FROM With_SGA_Lookup wsl
+  FROM With_Campaign_Name wsl
 )
 
 SELECT * FROM Final
