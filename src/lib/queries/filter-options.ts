@@ -1,6 +1,7 @@
 import { runQuery } from '../bigquery';
 import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 import { FULL_TABLE } from '@/config/constants';
+import type { FilterOption } from '@/types/filters';
 
 /**
  * Cache filter options for 1 hour
@@ -61,6 +62,7 @@ export interface RawFilterOptions {
   stages: string[];
   years: number[];
   experimentationTags: string[];
+  campaigns: FilterOption[];
 }
 
 /**
@@ -202,6 +204,7 @@ const _getRawFilterOptions = async (): Promise<RawFilterOptions> => {
     experimentationTags: experimentationTagsResult
       .map(r => r.experimentation_tag || '')
       .filter(Boolean),
+    campaigns: [], // Phase 3: populate from Campaign query
   };
 };
 

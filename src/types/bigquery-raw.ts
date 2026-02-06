@@ -67,6 +67,8 @@ export interface RawDetailRecordResult {
   stage: string | null;
   sga: string | null;
   sgm: string | null;
+  campaign_id?: string | null;
+  campaign_name?: string | null;
   aum: number | null;
   salesforce_url: string | null;
   filter_date?: string | { value: string } | null;

@@ -863,6 +863,8 @@ export function ExploreResults({ response, isLoading, error, streamingMessage, c
           const sgm = (row.sgm as string) || 
                      (row.sgm_owner_name__c as string) || 
                      null;
+          const campaignId = (row.campaign_id as string) || (row.Campaign_Id__c as string) || null;
+          const campaignName = (row.campaign_name as string) || (row.Campaign_Name__c as string) || null;
           const aum = typeof row.aum === 'number' ? row.aum : 
                      (typeof row.aum === 'string' ? parseFloat(row.aum) || 0 : 0);
           // For MQLs, SQLs, and other metrics, check for metric-specific date columns
@@ -895,6 +897,8 @@ export function ExploreResults({ response, isLoading, error, streamingMessage, c
             stage,
             sga,
             sgm,
+            campaignId,
+            campaignName,
             aum,
             aumFormatted: aum ? formatCurrency(aum) : '-',
             salesforceUrl,

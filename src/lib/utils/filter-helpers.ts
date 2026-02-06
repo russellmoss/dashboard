@@ -50,6 +50,10 @@ export function buildAdvancedFilterClauses(
       ...DEFAULT_ADVANCED_FILTERS.experimentationTags,
       ...(filters.experimentationTags || {}),
     },
+    campaigns: {
+      ...DEFAULT_ADVANCED_FILTERS.campaigns,
+      ...(filters.campaigns || {}),
+    },
   };
 
   // Initial Call Scheduled Date filter
@@ -133,6 +137,7 @@ export function hasActiveFilters(filters: AdvancedFilters): boolean {
     !filters.sources.selectAll ||
     !filters.sgas.selectAll ||
     !filters.sgms.selectAll ||
-    !filters.experimentationTags.selectAll
+    !filters.experimentationTags.selectAll ||
+    !filters.campaigns.selectAll
   );
 }

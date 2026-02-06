@@ -115,6 +115,7 @@ function cleanFilters(filters: DashboardFilters): DashboardFilters {
     sgm: filters.sgm,
     stage: filters.stage,
     experimentationTag: filters.experimentationTag,
+    campaignId: filters.campaignId,
     metricFilter: filters.metricFilter,
   };
   
@@ -148,6 +149,10 @@ function cleanFilters(filters: DashboardFilters): DashboardFilters {
       experimentationTags: {
         ...DEFAULT_ADVANCED_FILTERS.experimentationTags,
         ...(filters.advancedFilters.experimentationTags || {}),
+      },
+      campaigns: {
+        ...DEFAULT_ADVANCED_FILTERS.campaigns,
+        ...(filters.advancedFilters.campaigns || {}),
       },
     };
   }

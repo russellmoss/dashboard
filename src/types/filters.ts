@@ -34,6 +34,7 @@ export interface AdvancedFilters {
   sgas: MultiSelectFilter;
   sgms: MultiSelectFilter;
   experimentationTags: MultiSelectFilter;
+  campaigns: MultiSelectFilter;
 }
 
 // Default/empty advanced filters state
@@ -70,6 +71,10 @@ export const DEFAULT_ADVANCED_FILTERS: AdvancedFilters = {
     selectAll: true,
     selected: [],
   },
+  campaigns: {
+    selectAll: true,
+    selected: [],
+  },
 };
 
 // Helper to check if any advanced filters are active
@@ -81,7 +86,8 @@ export function hasActiveAdvancedFilters(filters: AdvancedFilters): boolean {
     !filters.sources.selectAll ||
     !filters.sgas.selectAll ||
     !filters.sgms.selectAll ||
-    !filters.experimentationTags.selectAll
+    !filters.experimentationTags.selectAll ||
+    !filters.campaigns.selectAll
   );
 }
 
@@ -95,6 +101,7 @@ export function countActiveAdvancedFilters(filters: AdvancedFilters): number {
   if (!filters.sgas.selectAll) count++;
   if (!filters.sgms.selectAll) count++;
   if (!filters.experimentationTags.selectAll) count++;
+  if (!filters.campaigns.selectAll) count++;
   return count;
 }
 
@@ -109,6 +116,7 @@ export interface DashboardFilters {
   sgm: string | null;
   stage: string | null;
   experimentationTag: string | null;
+  campaignId: string | null;
   metricFilter: 'all' | 'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'signed' | 'joined' | 'openPipeline';
   advancedFilters?: AdvancedFilters;  // Optional for backward compatibility
 }
@@ -121,6 +129,7 @@ export interface FilterOptions {
   stages: string[];
   years: number[];
   experimentationTags: string[];
+  campaigns: FilterOption[];
 }
 
 // Add export for activity dashboard

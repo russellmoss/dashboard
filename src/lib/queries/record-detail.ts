@@ -34,6 +34,8 @@ const _getRecordDetail = async (
       v.NextStep,
       v.Lead_Score_Tier__c,
       v.Experimentation_Tag_Raw__c,
+      v.Campaign_Id__c,
+      v.Campaign_Name__c,
       
       -- Dates - Key Milestones
       v.CreatedDate,
@@ -161,6 +163,8 @@ function transformToRecordDetail(r: RecordDetailRaw): RecordDetailFull {
     opportunityNextStep: r.NextStep ? toString(r.NextStep) : null,
     leadScoreTier: r.Lead_Score_Tier__c ? toString(r.Lead_Score_Tier__c) : null,
     experimentationTag: r.Experimentation_Tag_Raw__c ? toString(r.Experimentation_Tag_Raw__c) : null,
+    campaignId: r.Campaign_Id__c ? toString(r.Campaign_Id__c) : null,
+    campaignName: r.Campaign_Name__c ? toString(r.Campaign_Name__c) : null,
 
     // Dates - Key Milestones
     createdDate: extractDateValue(r.CreatedDate),

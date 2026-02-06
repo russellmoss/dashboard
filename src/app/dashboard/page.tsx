@@ -123,6 +123,7 @@ const DEFAULT_FILTERS: DashboardFilters = {
   sgm: null,
   stage: null,
   experimentationTag: null,
+  campaignId: null,
   metricFilter: 'all',
   advancedFilters: DEFAULT_ADVANCED_FILTERS,
 };
@@ -133,7 +134,7 @@ function filtersAreEqual(a: DashboardFilters, b: DashboardFilters): boolean {
   if (a.startDate !== b.startDate || a.endDate !== b.endDate) return false;
   if (a.channel !== b.channel || a.source !== b.source) return false;
   if (a.sga !== b.sga || a.sgm !== b.sgm || a.stage !== b.stage) return false;
-  if (a.experimentationTag !== b.experimentationTag || a.metricFilter !== b.metricFilter) return false;
+  if (a.experimentationTag !== b.experimentationTag || a.campaignId !== b.campaignId || a.metricFilter !== b.metricFilter) return false;
   
   // Compare advanced filters safely without JSON.stringify (avoids circular reference errors)
   // Merge with defaults to ensure all properties exist (handles partial objects)
@@ -168,6 +169,10 @@ function filtersAreEqual(a: DashboardFilters, b: DashboardFilters): boolean {
       ...DEFAULT_ADVANCED_FILTERS.experimentationTags,
       ...(a.advancedFilters?.experimentationTags || {}),
     },
+    campaigns: {
+      ...DEFAULT_ADVANCED_FILTERS.campaigns,
+      ...(a.advancedFilters?.campaigns || {}),
+    },
   };
   
   const advB: typeof DEFAULT_ADVANCED_FILTERS = {
@@ -201,6 +206,10 @@ function filtersAreEqual(a: DashboardFilters, b: DashboardFilters): boolean {
       ...DEFAULT_ADVANCED_FILTERS.experimentationTags,
       ...(b.advancedFilters?.experimentationTags || {}),
     },
+    campaigns: {
+      ...DEFAULT_ADVANCED_FILTERS.campaigns,
+      ...(b.advancedFilters?.campaigns || {}),
+    },
   };
   
   // Compare date range filters
@@ -229,6 +238,7 @@ function filtersAreEqual(a: DashboardFilters, b: DashboardFilters): boolean {
   if (!compareMultiSelect(advA.sgas, advB.sgas)) return false;
   if (!compareMultiSelect(advA.sgms, advB.sgms)) return false;
   if (!compareMultiSelect(advA.experimentationTags, advB.experimentationTags)) return false;
+  if (!compareMultiSelect(advA.campaigns, advB.campaigns)) return false;
   
   return true;
 }

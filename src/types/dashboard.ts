@@ -123,6 +123,8 @@ export interface DetailRecord {
   stage: string;
   sga: string | null;
   sgm: string | null;
+  campaignId: string | null;
+  campaignName: string | null;
   aum: number;
   aumFormatted: string;
   salesforceUrl: string;

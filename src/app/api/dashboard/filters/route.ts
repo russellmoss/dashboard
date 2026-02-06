@@ -76,6 +76,7 @@ export async function GET() {
       stages: rawOptions.stages,
       years: rawOptions.years,
       experimentationTags: rawOptions.experimentationTags,
+      campaigns: rawOptions.campaigns ?? [],
     };
 
     return NextResponse.json(filterOptions);

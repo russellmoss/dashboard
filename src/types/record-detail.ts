@@ -52,6 +52,8 @@ export interface RecordDetailFull {
   opportunityNextStep: string | null; // From Opportunity.NextStep
   leadScoreTier: string | null;
   experimentationTag: string | null;
+  campaignId: string | null;
+  campaignName: string | null;
   
   // Dates - Key Milestones
   createdDate: string | null;
@@ -127,6 +129,8 @@ export interface RecordDetailRaw {
   NextStep: string | null;
   Lead_Score_Tier__c: string | null;
   Experimentation_Tag_Raw__c: string | null;
+  Campaign_Id__c: string | null;
+  Campaign_Name__c: string | null;
   
   // Dates
   CreatedDate: { value: string } | string | null;
