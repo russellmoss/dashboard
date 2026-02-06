@@ -45,6 +45,11 @@ interface ExperimentationTagResult {
   experimentation_tag: string | null;
 }
 
+interface CampaignResult {
+  id: string | null;
+  name: string | null;
+}
+
 // Processed result type
 export interface RawFilterOptions {
   channels: string[];
@@ -155,6 +160,19 @@ const _getRawFilterOptions = async (): Promise<RawFilterOptions> => {
     ORDER BY experimentation_tag
   `;
 
+  const campaignsQuery = `
+    SELECT DISTINCT
+      c.Id as id,
+      c.Name as name
+    FROM \`savvy-gtm-analytics.SavvyGTMData.Campaign\` c
+    WHERE c.IsActive = TRUE
+      AND (
+        EXISTS (SELECT 1 FROM \`savvy-gtm-analytics.SavvyGTMData.Lead\` l WHERE l.Campaign__c = c.Id)
+        OR EXISTS (SELECT 1 FROM \`savvy-gtm-analytics.SavvyGTMData.Opportunity\` o WHERE o.CampaignId = c.Id)
+      )
+    ORDER BY c.Name ASC
+  `;
+
   // Execute all queries in parallel
   const [
     channelsResult,
@@ -164,6 +182,7 @@ const _getRawFilterOptions = async (): Promise<RawFilterOptions> => {
     stagesResult,
     yearsResult,
     experimentationTagsResult,
+    campaignsResult,
   ] = await Promise.all([
     runQuery<ChannelResult>(channelsQuery),
     runQuery<SourceResult>(sourcesQuery),
@@ -172,6 +191,7 @@ const _getRawFilterOptions = async (): Promise<RawFilterOptions> => {
     runQuery<StageResult>(stagesQuery),
     runQuery<YearResult>(yearsQuery),
     runQuery<ExperimentationTagResult>(experimentationTagsQuery),
+    runQuery<CampaignResult>(campaignsQuery),
   ]);
 
   return {
@@ -204,7 +224,9 @@ const _getRawFilterOptions = async (): Promise<RawFilterOptions> => {
     experimentationTags: experimentationTagsResult
       .map(r => r.experimentation_tag || '')
       .filter(Boolean),
-    campaigns: [], // Phase 3: populate from Campaign query
+    campaigns: campaignsResult
+      .filter(r => r.id && r.name)
+      .map(r => ({ value: r.id!, label: r.name!, isActive: true })),
   };
 };
 

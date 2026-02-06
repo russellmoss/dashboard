@@ -290,6 +290,7 @@ export function RecordDetailModal({
                     <DetailRow label="External Agency" value={record.externalAgency} />
                     <DetailRow label="Lead Score Tier" value={record.leadScoreTier} />
                     <DetailRow label="Experiment Tag" value={record.experimentationTag} />
+                    <DetailRow label="Campaign" value={record.campaignName} />
                   </div>
                 </div>
 

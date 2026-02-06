@@ -177,6 +177,13 @@ export function GlobalFilters({
     });
   };
 
+  const handleCampaignChange = (value: string) => {
+    onFiltersChange({
+      ...filters,
+      campaignId: value === '' ? null : value,
+    });
+  };
+
   const handleStartDateChange = (date: string) => {
     onFiltersChange({
       ...filters,
@@ -402,6 +409,27 @@ export function GlobalFilters({
               {filterOptions.experimentationTags.map((tag) => (
                 <option key={tag} value={tag}>
                   {tag}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Campaign */}
+        {filterOptions.campaigns && filterOptions.campaigns.length > 0 && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+              Campaign
+            </label>
+            <select
+              value={filters.campaignId || ''}
+              onChange={(e) => handleCampaignChange(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
+            >
+              <option value="">All Campaigns</option>
+              {filterOptions.campaigns.map((campaign) => (
+                <option key={campaign.value} value={campaign.value}>
+                  {campaign.label}
                 </option>
               ))}
             </select>

@@ -123,6 +123,12 @@ export function buildAdvancedFilterClauses(
     params[`${paramPrefix}_experimentation_tags`] = safeFilters.experimentationTags.selected;
   }
 
+  // Campaign filter (multi-select)
+  if (!safeFilters.campaigns.selectAll && safeFilters.campaigns.selected.length > 0) {
+    whereClauses.push(`v.Campaign_Id__c IN UNNEST(@${paramPrefix}_campaigns)`);
+    params[`${paramPrefix}_campaigns`] = safeFilters.campaigns.selected;
+  }
+
   return { whereClauses, params };
 }
 

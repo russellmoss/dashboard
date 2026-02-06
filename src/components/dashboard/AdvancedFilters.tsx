@@ -61,6 +61,7 @@ export function AdvancedFilters({
   const [sgaSearch, setSgaSearch] = useState('');
   const [sgmSearch, setSgmSearch] = useState('');
   const [experimentationTagSearch, setExperimentationTagSearch] = useState('');
+  const [campaignSearch, setCampaignSearch] = useState('');
 
   // Sync local filters when prop changes
   useEffect(() => {
@@ -97,9 +98,16 @@ export function AdvancedFilters({
     );
   }, [filterOptions, experimentationTagSearch]);
 
+  const filteredCampaigns = useMemo(() => {
+    if (!filterOptions?.campaigns) return [];
+    return filterOptions.campaigns.filter(c =>
+      c.label.toLowerCase().includes(campaignSearch.toLowerCase())
+    );
+  }, [filterOptions, campaignSearch]);
+
   // Handlers
   const handleMultiSelectChange = (
-    filterKey: 'channels' | 'sources' | 'sgas' | 'sgms' | 'experimentationTags',
+    filterKey: 'channels' | 'sources' | 'sgas' | 'sgms' | 'experimentationTags' | 'campaigns',
     value: string,
     checked: boolean
   ) => {
@@ -123,7 +131,7 @@ export function AdvancedFilters({
     });
   };
 
-  const handleSelectAll = (filterKey: 'channels' | 'sources' | 'sgas' | 'sgms' | 'experimentationTags') => {
+  const handleSelectAll = (filterKey: 'channels' | 'sources' | 'sgas' | 'sgms' | 'experimentationTags' | 'campaigns') => {
     setLocalFilters(prev => {
       const current = prev[filterKey];
       // Toggle: if currently "All" is selected, uncheck it (set to false with empty selection)
@@ -248,6 +256,18 @@ export function AdvancedFilters({
                   onChange={(value, checked) => handleMultiSelectChange('experimentationTags', value, checked)}
                   searchValue={experimentationTagSearch}
                   onSearchChange={setExperimentationTagSearch}
+                  searchable
+                />
+
+                {/* Campaigns */}
+                <MultiSelectFilterControl
+                  label="Campaigns"
+                  options={filteredCampaigns.map(c => ({ value: c.value, label: c.label, isActive: true }))}
+                  filter={localFilters.campaigns}
+                  onSelectAll={() => handleSelectAll('campaigns')}
+                  onChange={(value, checked) => handleMultiSelectChange('campaigns', value, checked)}
+                  searchValue={campaignSearch}
+                  onSearchChange={setCampaignSearch}
                   searchable
                 />
               </div>

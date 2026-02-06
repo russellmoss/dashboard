@@ -574,6 +574,17 @@ export const DIMENSIONS = {
     aliases: ['experiment', 'test tag', 'ab test'],
   },
 
+  campaign: {
+    name: 'Campaign',
+    description: 'Salesforce Campaign (marketing campaign object)',
+    field: 'v.Campaign_Id__c',
+    rawField: 'Campaign_Id__c',
+    requiresJoin: false,
+    filterable: true,
+    groupable: true,
+    aliases: ['marketing campaign', 'sfdc campaign'],
+  },
+
   stage_name: {
     name: 'Stage Name',
     description: 'Current opportunity stage',

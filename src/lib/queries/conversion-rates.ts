@@ -87,6 +87,10 @@ const _getConversionRates = async (
     )`);
     params.experimentationTag = filters.experimentationTag;
   }
+  if (filters.campaignId) {
+    conditions.push('v.Campaign_Id__c = @campaignId');
+    params.campaignId = filters.campaignId;
+  }
   
   // Add advanced filter clauses to existing conditions
   conditions.push(...advFilterClauses);
@@ -526,6 +530,10 @@ export async function getConversionTrends(
       WHERE tag = @experimentationTag
     )`);
     params.experimentationTag = filters.experimentationTag;
+  }
+  if (filters.campaignId) {
+    conditions.push('v.Campaign_Id__c = @campaignId');
+    params.campaignId = filters.campaignId;
   }
   
   // Add advanced filter clauses to existing conditions

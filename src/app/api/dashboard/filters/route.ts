@@ -76,7 +76,11 @@ export async function GET() {
       stages: rawOptions.stages,
       years: rawOptions.years,
       experimentationTags: rawOptions.experimentationTags,
-      campaigns: rawOptions.campaigns ?? [],
+      campaigns: (rawOptions.campaigns ?? []).map(c => ({
+        value: c.value,
+        label: c.label ?? c.value,
+        isActive: true,
+      })),
     };
 
     return NextResponse.json(filterOptions);
