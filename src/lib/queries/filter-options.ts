@@ -169,6 +169,7 @@ const _getRawFilterOptions = async (): Promise<RawFilterOptions> => {
       AND (
         EXISTS (SELECT 1 FROM \`savvy-gtm-analytics.SavvyGTMData.Lead\` l WHERE l.Campaign__c = c.Id)
         OR EXISTS (SELECT 1 FROM \`savvy-gtm-analytics.SavvyGTMData.Opportunity\` o WHERE o.CampaignId = c.Id)
+        OR EXISTS (SELECT 1 FROM \`savvy-gtm-analytics.SavvyGTMData.CampaignMember\` cm WHERE cm.CampaignId = c.Id)
       )
     ORDER BY c.Name ASC
   `;

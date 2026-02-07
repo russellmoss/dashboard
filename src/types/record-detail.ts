@@ -55,6 +55,8 @@ export interface RecordDetailFull {
   experimentationTag: string | null;
   campaignId: string | null;
   campaignName: string | null;
+  /** All campaigns this lead is a member of (from CampaignMember); filter by any. */
+  allCampaigns: Array<{ id: string; name: string | null }> | null;
   
   // Dates - Key Milestones
   createdDate: string | null;
@@ -132,6 +134,8 @@ export interface RecordDetailRaw {
   Experimentation_Tag_Raw__c: string | null;
   Campaign_Id__c: string | null;
   Campaign_Name__c: string | null;
+  /** All campaigns this lead is a member of (from CampaignMember); array of {id, name} */
+  all_campaigns: Array<{ id: string; name: string | null }> | null;
   
   // Dates
   CreatedDate: { value: string } | string | null;

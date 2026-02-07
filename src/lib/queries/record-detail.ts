@@ -36,6 +36,7 @@ const _getRecordDetail = async (
       v.Experimentation_Tag_Raw__c,
       v.Campaign_Id__c,
       v.Campaign_Name__c,
+      v.all_campaigns,
       
       -- Dates - Key Milestones
       v.CreatedDate,
@@ -166,6 +167,12 @@ function transformToRecordDetail(r: RecordDetailRaw): RecordDetailFull {
     experimentationTag: r.Experimentation_Tag_Raw__c ? toString(r.Experimentation_Tag_Raw__c) : null,
     campaignId: r.Campaign_Id__c ? toString(r.Campaign_Id__c) : null,
     campaignName: r.Campaign_Name__c ? toString(r.Campaign_Name__c) : null,
+    allCampaigns: Array.isArray(r.all_campaigns)
+      ? r.all_campaigns.map((c: { id?: string; name?: string | null }) => ({
+          id: c?.id != null ? String(c.id) : '',
+          name: c?.name != null ? String(c.name) : null,
+        }))
+      : null,
 
     // Dates - Key Milestones
     createdDate: extractDateValue(r.CreatedDate),

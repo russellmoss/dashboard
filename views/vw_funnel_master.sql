@@ -35,6 +35,28 @@ WITH Lead_Base AS (
   FROM `savvy-gtm-analytics.SavvyGTMData.Lead`
 ),
 
+-- All campaign memberships per lead (from CampaignMember). Every campaign a lead belongs to
+-- is included so the dashboard can filter by ANY campaign.
+-- CampaignMember synced to SavvyGTMData as of 2026-02-07.
+Campaign_Member_Agg AS (
+  SELECT
+    LeadId,
+    ARRAY_AGG(STRUCT(CampaignId AS id, CampaignName AS name) ORDER BY CampaignId) AS all_campaigns
+  FROM (
+    SELECT DISTINCT
+      cm.LeadId,
+      cm.CampaignId,
+      c.Name AS CampaignName
+    FROM `savvy-gtm-analytics.SavvyGTMData.CampaignMember` cm
+    LEFT JOIN `savvy-gtm-analytics.SavvyGTMData.Campaign` c
+      ON c.Id = cm.CampaignId AND c.IsDeleted = FALSE
+    WHERE cm.IsDeleted = FALSE
+      AND cm.LeadId IS NOT NULL
+      AND cm.CampaignId IS NOT NULL
+  )
+  GROUP BY LeadId
+),
+
 Opp_Base AS (
   SELECT
     Id AS Full_Opportunity_ID__c,
@@ -166,6 +188,8 @@ Combined AS (
     COALESCE(o.Opp_Campaign_Id__c, l.Lead_Campaign_Id__c) AS Campaign_Id__c,
     l.Lead_Campaign_Id__c,
     o.Opp_Campaign_Id__c,
+    -- All campaigns this lead is a member of (from CampaignMember); filter by ANY campaign
+    cma.all_campaigns AS all_campaigns,
     
     -- Record Classification
     o.RecordTypeId AS recordtypeid,
@@ -174,6 +198,8 @@ Combined AS (
   FROM Lead_Base l
   FULL OUTER JOIN Opp_Base o
     ON l.converted_oppty_id = o.Full_Opportunity_ID__c
+  LEFT JOIN Campaign_Member_Agg cma
+    ON cma.LeadId = l.Full_prospect_id__c
     --##TODO## In the future we may need to create a view of re-engagement opportunities and have them look like
     -- 'leads' where they 'convert' into Recruiting Type Opportunities.
 ),

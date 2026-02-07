@@ -66,7 +66,7 @@ const _getDetailRecords = async (
     params.experimentationTag = filters.experimentationTag;
   }
   if (filters.campaignId) {
-    conditions.push('v.Campaign_Id__c = @campaignId');
+    conditions.push('(v.Campaign_Id__c = @campaignId OR (SELECT COUNT(1) FROM UNNEST(IFNULL(v.all_campaigns, [])) AS camp WHERE camp.id = @campaignId) > 0)');
     params.campaignId = filters.campaignId;
   }
   

@@ -536,3 +536,73 @@ For **Provided List (Lead Scoring)** in Lead table: **1** lead has `stage_entere
 - **Edge cases (5a):** Late converters self-correct (in both num and denom); effectively-closed-then-actually-closed has no double-count; unusual statuses are minimal (1 converted-to-opp without MQL).
 - **Implementation:** `eligible_for_contacted_conversions` feeds **only** Contacted→MQL. Override only the Contacted→MQL denominator in **conversion-rates.ts** and **source-performance.ts** (same logic in both), and in **definitions.ts** / **query-compiler.ts** if semantic layer should use the N-day rule.
 - Contacted→MQL is used in **conversion-rates.ts**, **source-performance.ts**, semantic layer (**definitions.ts**, **query-compiler.ts**, **query-templates.ts**), dashboard UI, exports, and in **docs/** and **docs/semantic_layer/** as above; any change to the rate definition should be updated in those places and in this doc.
+
+---
+
+## 8. Campaign Visibility Fix
+
+### 8.1 Problem
+
+When leads are added to a scored list campaign (e.g. "Scored List January 2026"), they become **CampaignMembers** in Salesforce. The funnel view derives campaign from `COALESCE(Opp_Campaign_Id__c, Lead_Campaign_Id__c)` only. For that campaign:
+
+- `Lead.Campaign__c` = empty for all 2,621 leads  
+- `Opportunity.CampaignId` = set for only the 12 that converted  
+
+So the dashboard saw only 12 of 2,621 campaign members. Leads can be members of **multiple** campaigns; the design must allow filtering by **any** campaign a lead belongs to, without deduplicating to a single campaign per lead.
+
+**Experimentation tags are deprecated** — Step 4 (experimentation tag investigation) in the plan was skipped. Going forward, everything is campaigns.
+
+### 8.2 Findings (Phase 1)
+
+- **CampaignMember in BigQuery:** **CampaignMember is now synced** to `SavvyGTMData.CampaignMember` (as of 2026-02-07). ~10,945 rows, 10,847 distinct leads, 24 campaigns. The placeholder CTE in the view was replaced with the real aggregation.
+- **View grain:** One row per `primary_key` (99,918 in Tableau_Views.vw_funnel_master). Campaign in the view is single `Campaign_Id__c` (COALESCE Opp/Lead) and `Campaign_Name__c` from a join to Campaign; **all_campaigns** (ARRAY&lt;STRUCT&lt;id STRING, name STRING&gt;&gt;) is now populated from CampaignMember for every lead with memberships. Dashboard filters use `v.Campaign_Id__c IN UNNEST(@campaigns) OR (SELECT COUNT(1) FROM UNNEST(IFNULL(v.all_campaigns, [])) AS camp WHERE camp.id IN UNNEST(@campaigns)) > 0`. Filter options include campaigns that appear in CampaignMember.
+
+### 8.3 Design: Option D (array, no deduplication)
+
+- **Option D:** Add **all** campaign memberships as an array. No deduplication to a single campaign per lead — every campaign a lead belongs to is preserved and queryable.
+- **View:** New CTE **Campaign_Member_Agg** reads `SavvyGTMData.CampaignMember`, aggregates by LeadId, and produces `all_campaigns` = `ARRAY_AGG(DISTINCT STRUCT(CampaignId AS id, Campaign.Name AS name) …)`. This is LEFT JOINed to the lead side in Combined (on `LeadId = Full_prospect_id__c`). The column `all_campaigns` is carried through With_Channel_Mapping → With_SGA_Lookup → With_Campaign_Name → Final. Existing `Campaign_Id__c` and `Campaign_Name__c` are unchanged.
+- **Filter logic:** Campaign filter matches a row if **either** `v.Campaign_Id__c` is in the selected list **or** any element of `v.all_campaigns` has `id` in the selected list:  
+  `(v.Campaign_Id__c IN UNNEST(@campaigns) OR (SELECT COUNT(1) FROM UNNEST(IFNULL(v.all_campaigns, [])) AS camp WHERE camp.id IN (SELECT * FROM UNNEST(@campaigns))) > 0)`  
+  Same idea for single-campaign filters: `(v.Campaign_Id__c = @campaignId OR (SELECT COUNT(1) FROM UNNEST(IFNULL(v.all_campaigns, [])) AS camp WHERE camp.id = @campaignId) > 0)`.
+- **Filter options:** Campaigns list extended so campaigns that appear in CampaignMember are included:  
+  `OR EXISTS (SELECT 1 FROM SavvyGTMData.CampaignMember cm WHERE cm.CampaignId = c.Id)`.
+
+### 8.4 Implementation (done)
+
+| Location | Change |
+|----------|--------|
+| **views/vw_funnel_master.sql** | Added CTE `Campaign_Member_Agg` (aggregate CampaignMember by LeadId → `all_campaigns`); LEFT JOIN in Combined; pass `all_campaigns` through to Final. |
+| **src/lib/utils/filter-helpers.ts** | Campaign multi-select: match `Campaign_Id__c` OR any `all_campaigns[].id` in selected list. |
+| **src/lib/queries/conversion-rates.ts** | Single-campaign condition: match `Campaign_Id__c` OR any `all_campaigns[].id` = @campaignId. |
+| **src/lib/queries/source-performance.ts** | Same single-campaign condition. |
+| **src/lib/queries/funnel-metrics.ts** | Same single-campaign condition. |
+| **src/lib/queries/detail-records.ts** | Same single-campaign condition. |
+| **src/lib/queries/filter-options.ts** | Include campaigns that exist in CampaignMember in the dropdown. |
+| **src/types/record-detail.ts** | Added `all_campaigns` (raw) and `allCampaigns` (API) for record detail. |
+| **src/lib/queries/record-detail.ts** | Select and map `all_campaigns` → `allCampaigns`. |
+
+### 8.5 Validation (after CampaignMember is in BQ)
+
+- Deploy `vw_funnel_master` to BigQuery (dashboard uses `savvy-gtm-analytics.Tableau_Views.vw_funnel_master`); confirm no errors.
+- For a campaign that has members only via CampaignMember (e.g. Scored List January 2026): filter by that campaign and confirm row count ≥ Campaign.NumberOfLeads (or CampaignMember count for that CampaignId).
+- For a lead in multiple campaigns: filter by each campaign and confirm the same lead appears in each filtered set.
+- Filter options: confirm the campaign appears in the dropdown and that selecting it returns the expected members.
+
+### 8.6 Implementation complete (2026-02-07)
+
+- **CampaignMember** synced to `SavvyGTMData.CampaignMember`. Placeholder CTE in `views/vw_funnel_master.sql` replaced with real aggregation: read CampaignMember + Campaign (name), filter `IsDeleted = FALSE` and `LeadId`/`CampaignId` NOT NULL, subquery DISTINCT (LeadId, CampaignId, Name), GROUP BY LeadId with `ARRAY_AGG(STRUCT(CampaignId AS id, CampaignName AS name) ORDER BY CampaignId)` → **all_campaigns**. Join: **Campaign_Member_Agg.LeadId = l.Full_prospect_id__c**. Output: **LeadId**, **all_campaigns** (ARRAY&lt;STRUCT&lt;id STRING, name STRING&gt;&gt;). No app code changes; filter-helpers and all query files already handle `all_campaigns`.
+- **Validation:** Run against **Tableau_Views.vw_funnel_master** (FULL_TABLE). After **redeploying** the updated view, run all 7 validation queries and paste results below.
+
+**Validation results (run after redeploy):**
+
+| Check | Query / expectation | Result (pre-redeploy) | Result (post-redeploy) |
+|-------|----------------------|------------------------|-----------------------------------|
+| V1 Row count | total_rows unchanged | 99,918 | **99,918** ✓ |
+| V2 Scored List Jan 2026 | jan_members ~2,621 | 0 (placeholder) | **2,621** ✓ |
+| V3 Scored List Feb 2026 | feb_members ~2,492 | 0 (placeholder) | **2,492** ✓ |
+| V4 Campaign_Id__c | cnt = 12 for Jan campaign | 12 | **12** ✓ |
+| V5 Oct 2025 cohort rate | numer/denom/rate unchanged | numer=215, denom=5362, rate≈4.01% | **numer=215, denom=5362, rate≈4.01%** ✓ |
+| V6 Multi-campaign lead | all_campaigns has 2+ entries | all_campaigns=[] (placeholder) | **all_campaigns has 2 entries** (Widgets Webinar, Customer Conference - Email Invite) ✓ |
+| V7 Coverage | has_campaigns ~10,847 | has_campaigns=0, no_campaigns=99,918 | **has_campaigns=10,847, no_campaigns=89,071, total=99,918** ✓ |
+
+*All 7 validations passed after redeploy (2026-02-07). Pre-redeploy results above were from the deployed view (still with placeholder). After deploy of the updated `vw_funnel_master` to Tableau_Views, re-run V1–V7 and fill the “post-redeploy” column.*

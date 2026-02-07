@@ -123,9 +123,12 @@ export function buildAdvancedFilterClauses(
     params[`${paramPrefix}_experimentation_tags`] = safeFilters.experimentationTags.selected;
   }
 
-  // Campaign filter (multi-select)
+  // Campaign filter (multi-select): match single campaign (Campaign_Id__c) OR any membership (all_campaigns)
   if (!safeFilters.campaigns.selectAll && safeFilters.campaigns.selected.length > 0) {
-    whereClauses.push(`v.Campaign_Id__c IN UNNEST(@${paramPrefix}_campaigns)`);
+    whereClauses.push(`(
+      v.Campaign_Id__c IN UNNEST(@${paramPrefix}_campaigns)
+      OR (SELECT COUNT(1) FROM UNNEST(IFNULL(v.all_campaigns, [])) AS camp WHERE camp.id IN (SELECT * FROM UNNEST(@${paramPrefix}_campaigns))) > 0
+    )`);
     params[`${paramPrefix}_campaigns`] = safeFilters.campaigns.selected;
   }
 
