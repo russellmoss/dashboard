@@ -2160,7 +2160,7 @@ function compileMultiStageConversion(params: TemplateSelection['parameters']): C
   const stageFlags: Record<string, { progression: string; eligible: string; dateField: string }> = {
     contacted: {
       progression: 'contacted_to_mql_progression',
-      eligible: 'eligible_for_contacted_conversions',
+      eligible: 'eligible_for_contacted_conversions_30d',
       dateField: 'stage_entered_contacting__c',
     },
     mql: {

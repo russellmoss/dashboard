@@ -176,6 +176,10 @@ All metrics are calculated from the `vw_funnel_master` view:
    - Period and cohort modes use the same date fields for grouping
    - Numerators and denominators may use different date fields in period mode
 
+5. **Contacted→MQL denominator (30-day rule)**:
+   - The dashboard uses `eligible_for_contacted_conversions_30d` for the Contacted→MQL conversion rate denominator.
+   - Leads in Contacting for 30+ days without MQL or close are treated as resolved in the denominator (reporting only; no Salesforce change). See `docs/CALCULATIONS.md` and `cursor-implement-30day-rule.md`.
+
 ---
 
 ## View Modes

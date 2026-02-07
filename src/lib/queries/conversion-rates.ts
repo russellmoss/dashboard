@@ -112,7 +112,7 @@ const _getConversionRates = async (
         -- ═══════════════════════════════════════════════════════════════════
         -- CONTACTED → MQL (Period-Resolved)
         -- Denominator: Contacted in period AND resolved in period
-        -- Resolution = MQL'd OR Closed (whichever came first)
+        -- Resolution = MQL'd OR Closed OR 30-day effectively closed
         -- ═══════════════════════════════════════════════════════════════════
         COUNTIF(
           v.stage_entered_contacting__c IS NOT NULL
@@ -129,6 +129,11 @@ const _getConversionRates = async (
             (v.lead_closed_date IS NOT NULL 
              AND TIMESTAMP(v.lead_closed_date) >= TIMESTAMP(@startDate) 
              AND TIMESTAMP(v.lead_closed_date) <= TIMESTAMP(@endDate))
+            OR
+            -- Resolved by 30-day rule: no MQL, no close, 30+ days in Contacting
+            (v.mql_stage_entered_ts IS NULL
+             AND v.lead_closed_date IS NULL
+             AND DATE(v.stage_entered_contacting__c) + 30 <= CURRENT_DATE())
           )
         ) as contacted_denom,
         
@@ -271,7 +276,7 @@ const _getConversionRates = async (
           WHEN v.stage_entered_contacting__c IS NOT NULL
             AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
             AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
-          THEN v.eligible_for_contacted_conversions ELSE 0 
+          THEN v.eligible_for_contacted_conversions_30d ELSE 0 
         END) as contacted_denom,
         
         -- MQL→SQL (cohort by mql_stage_entered_ts - Call Scheduled date)
@@ -651,12 +656,17 @@ function buildPeriodModeQuery(
       SELECT
         ${periodFn('v.stage_entered_contacting__c')} as period,
         -- Denominator: Contacted AND resolved in same period
-        -- Resolution = earliest of: MQL date OR closed date (both must be in same period as entry)
+        -- Resolution = MQL in period OR closed in period OR 30+ days in Contacting by end of period
         COUNTIF(
           ${periodFn('v.stage_entered_contacting__c')} = ${periodFn('v.mql_stage_entered_ts')}
           OR (
             v.lead_closed_date IS NOT NULL 
             AND ${periodFn('v.stage_entered_contacting__c')} = ${periodFn('v.lead_closed_date')}
+          )
+          OR (
+            v.mql_stage_entered_ts IS NULL
+            AND v.lead_closed_date IS NULL
+            AND DATE(v.stage_entered_contacting__c) + 30 <= LAST_DAY(TIMESTAMP(v.stage_entered_contacting__c))
           )
         ) as contacted_denom,
         -- Numerator: MQL'd in same period as contacted
@@ -910,11 +920,11 @@ function buildCohortModeQuery(
     -- ═══════════════════════════════════════════════════════════════════════════
     
     -- CTE 1: CONTACTED COHORT (by stage_entered_contacting__c)
-    -- Uses eligible_for_contacted_conversions (resolved only) and contacted_to_mql_progression
+    -- Uses eligible_for_contacted_conversions_30d (resolved or 30d effective) and contacted_to_mql_progression
     WITH contacted_cohort AS (
       SELECT
         ${periodFn('v.stage_entered_contacting__c')} as period,
-        SUM(v.eligible_for_contacted_conversions) as eligible_contacts,
+        SUM(v.eligible_for_contacted_conversions_30d) as eligible_contacts,
         SUM(v.contacted_to_mql_progression) as progressed_to_mql
       FROM \`${FULL_TABLE}\` v
       WHERE v.stage_entered_contacting__c IS NOT NULL

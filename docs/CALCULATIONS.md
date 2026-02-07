@@ -63,6 +63,9 @@ Denominator:
       OR
       -- Resolved by being closed in period
       (lead_closed_date IN date_range)
+      OR
+      -- Resolved by 30-day rule: no MQL, no close, 30+ days in Contacting
+      (mql_stage_entered_ts IS NULL AND lead_closed_date IS NULL AND DATE(stage_entered_contacting__c) + 30 <= CURRENT_DATE())
     )
 ```
 
@@ -95,6 +98,9 @@ COUNTIF(
     (v.lead_closed_date IS NOT NULL 
      AND TIMESTAMP(v.lead_closed_date) >= TIMESTAMP(@startDate) 
      AND TIMESTAMP(v.lead_closed_date) <= TIMESTAMP(@endDate))
+    OR
+    -- Resolved by 30-day rule
+    (v.mql_stage_entered_ts IS NULL AND v.lead_closed_date IS NULL AND DATE(v.stage_entered_contacting__c) + 30 <= CURRENT_DATE())
   )
 ) as contacted_denom
 ```
@@ -108,9 +114,10 @@ Numerator:
     stage_entered_contacting__c IN date_range
 
 Denominator:
-  SUM(eligible_for_contacted_conversions) WHERE
+  SUM(eligible_for_contacted_conversions_30d) WHERE
     stage_entered_contacting__c IN date_range
 ```
+The dashboard uses `eligible_for_contacted_conversions_30d` for the Contacted→MQL denominator. Leads in Contacting for 30+ days without MQL or close are treated as resolved in the denominator (reporting only; no Salesforce change).
 
 **SQL Example (Cohort Mode)**:
 ```sql
@@ -122,21 +129,30 @@ SUM(CASE
   THEN v.contacted_to_mql_progression ELSE 0 
 END) as contacted_numer
 
--- Denominator
+-- Denominator (30-day effective resolution)
 SUM(CASE 
   WHEN v.stage_entered_contacting__c IS NOT NULL
     AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
     AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
-  THEN v.eligible_for_contacted_conversions ELSE 0 
+  THEN v.eligible_for_contacted_conversions_30d ELSE 0 
 END) as contacted_denom
 ```
 
 **Eligibility Flag Logic** (from `vw_funnel_master`):
 ```sql
--- eligible_for_contacted_conversions
+-- eligible_for_contacted_conversions (resolved only: MQL or closed)
 CASE 
   WHEN is_contacted = 1 AND (is_mql = 1 OR lead_closed_date IS NOT NULL)
   THEN 1 ELSE 0 
+END
+
+-- eligible_for_contacted_conversions_30d (used for Contacted→MQL rate; adds 30-day rule)
+CASE
+  WHEN is_contacted = 1 AND (
+    is_mql = 1 OR lead_closed_date IS NOT NULL
+    OR (mql_stage_entered_ts IS NULL AND lead_closed_date IS NULL AND DATE(stage_entered_contacting__c) + 30 <= CURRENT_DATE())
+  )
+  THEN 1 ELSE 0
 END
 
 -- contacted_to_mql_progression
@@ -672,7 +688,20 @@ CASE
 END
 ```
 - **Meaning**: Contacted lead that either became MQL or was closed
-- **Use**: Denominator for Contacted→MQL in cohort mode
+- **Use**: Legacy/reserved; dashboard Contacted→MQL uses `eligible_for_contacted_conversions_30d`
+
+#### `eligible_for_contacted_conversions_30d`
+```sql
+CASE
+  WHEN is_contacted = 1 AND (
+    is_mql = 1 OR lead_closed_date IS NOT NULL
+    OR (mql_stage_entered_ts IS NULL AND lead_closed_date IS NULL AND DATE(stage_entered_contacting__c) + 30 <= CURRENT_DATE())
+  )
+  THEN 1 ELSE 0
+END
+```
+- **Meaning**: Contacted lead that became MQL, was closed, or has been in Contacting 30+ days without MQL or close (effectively resolved for reporting)
+- **Use**: Denominator for Contacted→MQL in cohort and period mode; leads in Contacting 30+ days without MQL or close are treated as resolved (reporting only; no Salesforce change)
 
 #### `eligible_for_mql_conversions`
 ```sql
@@ -900,7 +929,7 @@ END
 | **SQOs** | 144 | `is_sqo_unique=1`, `recordtypeid='012Dn000000mrO3IAI'`, `Date_Became_SQO__c` in range |
 | **Joined** | 17 | `is_joined_unique=1`, `advisor_join_date__c` in range |
 | **Contacted→MQL (Period)** | 3.6% | Denominator uses `stage_entered_contacting__c` with resolution in period |
-| **Contacted→MQL (Cohort)** | 3.6% | Uses `eligible_for_contacted_conversions` and `contacted_to_mql_progression` |
+| **Contacted→MQL (Cohort)** | 3.6% | Uses `eligible_for_contacted_conversions_30d` and `contacted_to_mql_progression` |
 | **SQL→SQO (Period)** | 74.6% | Num: `Date_Became_SQO__c`, Denom: `converted_date_raw` (both in period) |
 | **SQL→SQO (Cohort)** | 74.6% | Uses `eligible_for_sql_conversions` and `sql_to_sqo_progression` |
 | **SQO→Joined (Period)** | 11.6% | Num: `advisor_join_date__c`, Denom: `Date_Became_SQO__c` (both in period) |

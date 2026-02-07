@@ -319,7 +319,7 @@ SELECT
       WHEN v.stage_entered_contacting__c IS NOT NULL
         AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP('2025-01-01')
         AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP('2025-01-31 23:59:59')
-      THEN v.eligible_for_contacted_conversions ELSE 0 
+      THEN v.eligible_for_contacted_conversions_30d ELSE 0 
     END)
   ) as contacted_to_mql_rate
 FROM `savvy-gtm-analytics.Tableau_Views.vw_funnel_master` v;

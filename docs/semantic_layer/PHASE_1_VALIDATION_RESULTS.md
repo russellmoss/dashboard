@@ -61,7 +61,7 @@
 | Field Name | Used In | Status |
 |------------|---------|--------|
 | `contacted_to_mql_progression` | contacted_to_mql_rate | ✅ Exists (INTEGER) |
-| `eligible_for_contacted_conversions` | contacted_to_mql_rate | ✅ Exists (INTEGER) |
+| `eligible_for_contacted_conversions_30d` | contacted_to_mql_rate | ✅ Exists (INTEGER); denominator uses 30-day effective resolution |
 | `mql_to_sql_progression` | mql_to_sql_rate | ✅ Exists (INTEGER) |
 | `eligible_for_mql_conversions` | mql_to_sql_rate | ✅ Exists (INTEGER) |
 | `sql_to_sqo_progression` | sql_to_sqo_rate | ✅ Exists (INTEGER) |

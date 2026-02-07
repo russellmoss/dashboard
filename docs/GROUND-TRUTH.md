@@ -4,6 +4,8 @@
 >
 > **Last Updated**: January 13, 2026  
 > **Verified Against**: `savvy-gtm-analytics.Tableau_Views.vw_funnel_master`
+>
+> **Contacted→MQL denominator**: The dashboard now uses `eligible_for_contacted_conversions_30d` (30-day effective resolution). Leads in Contacting for 30+ days without MQL or close are treated as resolved in the denominator (reporting only; no Salesforce change). Expected Contacted→MQL rates and denominators in this doc may differ from prior baselines; re-validate after deployment.
 
 ---
 
@@ -262,11 +264,11 @@ SELECT
   COUNT(DISTINCT CASE WHEN advisor_join_date__c >= '2025-01-01' AND advisor_join_date__c < '2025-04-01' 
     AND is_joined_unique = 1 AND recordtypeid = '012Dn000000mrO3IAI' THEN Full_Opportunity_ID__c END) as joined,  -- Expected: 12
   
-  -- Contacted→MQL (Expected: 314/6360 = 4.94%)
+  -- Contacted→MQL (Expected: 314/denom_30d = rate; denominator uses eligible_for_contacted_conversions_30d)
   SUM(CASE WHEN stage_entered_contacting__c >= '2025-01-01' AND stage_entered_contacting__c < '2025-04-01'
     THEN contacted_to_mql_progression ELSE 0 END) as contacted_mql_numer,
   SUM(CASE WHEN stage_entered_contacting__c >= '2025-01-01' AND stage_entered_contacting__c < '2025-04-01'
-    THEN eligible_for_contacted_conversions ELSE 0 END) as contacted_mql_denom,
+    THEN eligible_for_contacted_conversions_30d ELSE 0 END) as contacted_mql_denom,
     
   -- MQL→SQL (Expected: 123/444 = 27.70%)
   SUM(CASE WHEN mql_stage_entered_ts >= '2025-01-01' AND mql_stage_entered_ts < '2025-04-01'
@@ -303,11 +305,11 @@ SELECT
   COUNT(DISTINCT CASE WHEN advisor_join_date__c >= '2025-04-01' AND advisor_join_date__c < '2025-07-01' 
     AND is_joined_unique = 1 AND recordtypeid = '012Dn000000mrO3IAI' THEN Full_Opportunity_ID__c END) as joined,  -- Expected: 13
   
-  -- Contacted→MQL (Expected: 315/6809 = 4.63%)
+  -- Contacted→MQL (Expected: 315/denom_30d = rate; denominator uses eligible_for_contacted_conversions_30d)
   SUM(CASE WHEN stage_entered_contacting__c >= '2025-04-01' AND stage_entered_contacting__c < '2025-07-01'
     THEN contacted_to_mql_progression ELSE 0 END) as contacted_mql_numer,
   SUM(CASE WHEN stage_entered_contacting__c >= '2025-04-01' AND stage_entered_contacting__c < '2025-07-01'
-    THEN eligible_for_contacted_conversions ELSE 0 END) as contacted_mql_denom,
+    THEN eligible_for_contacted_conversions_30d ELSE 0 END) as contacted_mql_denom,
     
   -- MQL→SQL (Expected: 154/406 = 37.93%)
   SUM(CASE WHEN mql_stage_entered_ts >= '2025-04-01' AND mql_stage_entered_ts < '2025-07-01'

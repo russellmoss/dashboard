@@ -101,7 +101,7 @@ SELECT COUNT(Id) FROM Lead WHERE IsConverted = true AND ConvertedDate >= [START]
 4. **Date Dimensions & Flags**: Each conversion rate uses specific cohort dates and pre-calculated flags:
    | Conversion | Cohort Date | Numerator Flag | Denominator Flag |
    |------------|-------------|----------------|------------------|
-   | Contacted→MQL | `stage_entered_contacting__c` | `contacted_to_mql_progression` | `eligible_for_contacted_conversions` |
+   | Contacted→MQL | `stage_entered_contacting__c` | `contacted_to_mql_progression` | `eligible_for_contacted_conversions_30d` |
    | MQL→SQL | `mql_stage_entered_ts` | `mql_to_sql_progression` | `eligible_for_mql_conversions` |
    | SQL→SQO | `converted_date_raw` | `sql_to_sqo_progression` | `eligible_for_sql_conversions` |
    | SQO→Joined | `Date_Became_SQO__c` | `sqo_to_joined_progression` | `eligible_for_sqo_conversions` |

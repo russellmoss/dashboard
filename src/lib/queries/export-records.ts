@@ -97,6 +97,7 @@ export async function getExportDetailRecords(
         
         -- Eligibility Flags (Denominators for conversion rates)
         v.eligible_for_contacted_conversions,
+        v.eligible_for_contacted_conversions_30d,
         v.eligible_for_mql_conversions,
         v.eligible_for_sql_conversions,
         v.eligible_for_sqo_conversions,
@@ -191,7 +192,7 @@ export async function getExportDetailRecords(
         stage_name, aum, filter_date, contacted_date, mql_date, sql_date, sqo_date, joined_date,
         is_contacted, is_mql, is_sql, is_sqo, is_joined,
         contacted_to_mql_progression, mql_to_sql_progression, sql_to_sqo_progression, sqo_to_joined_progression,
-        eligible_for_contacted_conversions, eligible_for_mql_conversions, eligible_for_sql_conversions, eligible_for_sqo_conversions,
+        eligible_for_contacted_conversions, eligible_for_contacted_conversions_30d, eligible_for_mql_conversions, eligible_for_sql_conversions, eligible_for_sqo_conversions,
         is_sqo_unique, is_joined_unique, is_primary_opp_record,
         record_type_id, record_type_name
     )
@@ -239,6 +240,7 @@ export async function getExportDetailRecords(
     sql_to_sqo_progression: number;
     sqo_to_joined_progression: number;
     eligible_for_contacted_conversions: number;
+    eligible_for_contacted_conversions_30d: number;
     eligible_for_mql_conversions: number;
     eligible_for_sql_conversions: number;
     eligible_for_sqo_conversions: number;
@@ -281,7 +283,7 @@ export async function getExportDetailRecords(
     mqlToSqlProgression: r.mql_to_sql_progression,
     sqlToSqoProgression: r.sql_to_sqo_progression,
     sqoToJoinedProgression: r.sqo_to_joined_progression,
-    eligibleForContactedConversions: r.eligible_for_contacted_conversions,
+    eligibleForContactedConversions: r.eligible_for_contacted_conversions_30d,
     eligibleForMqlConversions: r.eligible_for_mql_conversions,
     eligibleForSqlConversions: r.eligible_for_sql_conversions,
     eligibleForSqoConversions: r.eligible_for_sqo_conversions,
@@ -309,7 +311,7 @@ export function buildConversionAnalysis(records: ExportDetailRecord[]): {
   const sqoToJoined: ConversionAnalysisRecord[] = [];
 
   for (const r of records) {
-    // Contacted → MQL analysis
+    // Contacted → MQL analysis (uses 30d eligibility so export matches dashboard rate)
     if (r.eligibleForContactedConversions || r.contactedToMqlProgression) {
       contactedToMql.push({
         advisorName: r.advisorName,

@@ -25,6 +25,7 @@ export interface ProgressionFlags {
 // Eligibility flags interface
 export interface EligibilityFlags {
   eligibleForContactedConversions: boolean;
+  eligibleForContactedConversions30d: boolean;
   eligibleForMqlConversions: boolean;
   eligibleForSqlConversions: boolean;
   eligibleForSqoConversions: boolean;
@@ -183,6 +184,7 @@ export interface RecordDetailRaw {
   
   // Eligibility flags
   eligible_for_contacted_conversions: number;
+  eligible_for_contacted_conversions_30d: number;
   eligible_for_mql_conversions: number;
   eligible_for_sql_conversions: number;
   eligible_for_sqo_conversions: number;

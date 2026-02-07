@@ -435,7 +435,8 @@ export class GoogleSheetsExporter {
    * Formulas match the exact cohort/period logic used in the dashboard
    * 
    * For COHORT mode:
-   * - Contacted → MQL: Count records where Contacted Date is in range AND eligible/progression flags match
+   * - Contacted → MQL: Count records where Contacted Date is in range AND eligible/progression flags match.
+   *   Denominator uses 30-day effective resolution (eligible_for_contacted_conversions_30d); rates come from API.
    * - MQL → SQL: Count records where MQL Date is in range AND eligible/progression flags match
    * - SQL → SQO: Count records where SQL Date is in range AND eligible/progression flags match
    * - SQO → Joined: Count records where SQO Date is in range AND eligible/progression flags match

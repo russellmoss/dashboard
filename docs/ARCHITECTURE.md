@@ -126,7 +126,7 @@ export async function runQuery<T>(query: string, params?: Record<string, any>): 
 - `contacted_to_mql_progression`, `mql_to_sql_progression`, etc.
 
 **Eligibility Flags** (for conversion rate denominators):
-- `eligible_for_contacted_conversions`, `eligible_for_mql_conversions`, etc.
+- `eligible_for_contacted_conversions_30d` (Contacted→MQL; 30-day effective resolution), `eligible_for_contacted_conversions` (legacy), `eligible_for_mql_conversions`, etc.
 
 ### DATE vs TIMESTAMP Handling
 
@@ -488,7 +488,7 @@ Four conversion rate cards, each showing:
 
 | Conversion | Numerator Flag | Denominator Flag |
 |------------|----------------|------------------|
-| Contacted → MQL | `contacted_to_mql_progression` | `eligible_for_contacted_conversions` |
+| Contacted → MQL | `contacted_to_mql_progression` | `eligible_for_contacted_conversions_30d` |
 | MQL → SQL | `mql_to_sql_progression` | `eligible_for_mql_conversions` |
 | SQL → SQO | `sql_to_sqo_progression` | `eligible_for_sql_conversions` |
 | SQO → Joined | `sqo_to_joined_progression` | `eligible_for_sqo_conversions` |

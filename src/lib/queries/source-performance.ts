@@ -136,7 +136,7 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
           WHEN v.stage_entered_contacting__c IS NOT NULL
             AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDateTimestamp)
             AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDateTimestamp)
-          THEN v.eligible_for_contacted_conversions ELSE 0 
+          THEN v.eligible_for_contacted_conversions_30d ELSE 0 
         END)
       ) as contacted_to_mql_rate,
       -- MQL→SQL (cohort by mql_stage_entered_ts - people who became MQL in the period)
@@ -353,7 +353,7 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
           WHEN v.stage_entered_contacting__c IS NOT NULL
             AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDateTimestamp)
             AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDateTimestamp)
-          THEN v.eligible_for_contacted_conversions ELSE 0 
+          THEN v.eligible_for_contacted_conversions_30d ELSE 0 
         END)
       ) as contacted_to_mql_rate,
       -- MQL→SQL (cohort by mql_stage_entered_ts - people who became MQL in the period)

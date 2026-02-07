@@ -92,6 +92,7 @@ const _getRecordDetail = async (
       
       -- Eligibility Flags
       v.eligible_for_contacted_conversions,
+      v.eligible_for_contacted_conversions_30d,
       v.eligible_for_mql_conversions,
       v.eligible_for_sql_conversions,
       v.eligible_for_sqo_conversions,
@@ -224,6 +225,7 @@ function transformToRecordDetail(r: RecordDetailRaw): RecordDetailFull {
 
     eligibilityFlags: {
       eligibleForContactedConversions: r.eligible_for_contacted_conversions === 1,
+      eligibleForContactedConversions30d: r.eligible_for_contacted_conversions_30d === 1,
       eligibleForMqlConversions: r.eligible_for_mql_conversions === 1,
       eligibleForSqlConversions: r.eligible_for_sql_conversions === 1,
       eligibleForSqoConversions: r.eligible_for_sqo_conversions === 1,

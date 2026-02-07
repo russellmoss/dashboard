@@ -329,6 +329,20 @@ Final AS (
       THEN 1 ELSE 0 
     END AS eligible_for_contacted_conversions,
     
+    -- 30-day effective resolution for Contacted→MQL denominator (reporting only)
+    CASE
+      WHEN is_contacted = 1 AND (
+        is_mql = 1
+        OR lead_closed_date IS NOT NULL
+        OR (
+          mql_stage_entered_ts IS NULL
+          AND lead_closed_date IS NULL
+          AND DATE(stage_entered_contacting__c) + 30 <= CURRENT_DATE()
+        )
+      )
+      THEN 1 ELSE 0
+    END AS eligible_for_contacted_conversions_30d,
+    
     -- MQL Eligibility (Cohort): MQL that became SQL or closed as lead
     CASE 
       WHEN is_mql = 1 AND (is_sql = 1 OR lead_closed_date IS NOT NULL)

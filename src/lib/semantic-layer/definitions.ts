@@ -403,10 +403,10 @@ export const AUM_METRICS = {
 export const CONVERSION_METRICS = {
   contacted_to_mql_rate: {
     name: 'Contacted to MQL Rate',
-    description: 'Percentage of contacted leads that became MQL (COHORT MODE - resolved only)',
+    description: 'Percentage of contacted leads that became MQL (COHORT MODE - resolved or 30d effective)',
     cohortDateField: 'stage_entered_contacting__c',
     numeratorField: 'contacted_to_mql_progression',
-    denominatorField: 'eligible_for_contacted_conversions',
+    denominatorField: 'eligible_for_contacted_conversions_30d',
     mode: 'cohort', // ALWAYS use cohort mode
     sql: `SAFE_DIVIDE(
       SUM(CASE 
@@ -419,7 +419,7 @@ export const CONVERSION_METRICS = {
         WHEN v.stage_entered_contacting__c IS NOT NULL
           AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
           AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
-        THEN v.eligible_for_contacted_conversions ELSE 0 
+        THEN v.eligible_for_contacted_conversions_30d ELSE 0 
       END)
     )`,
     format: 'percent',
