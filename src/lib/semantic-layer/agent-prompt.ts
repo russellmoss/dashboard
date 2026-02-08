@@ -163,8 +163,8 @@ When responding, ALWAYS include:
    - Examples:
      - "SGM of Corey" → filters: [{ "dimension": "sgm", "operator": "equals", "value": "Corey" }]
      - "SGA named John" → filters: [{ "dimension": "sga", "operator": "equals", "value": "John" }]
-9. **For Salesforce campaign by name:** When users mention a specific marketing campaign by name (e.g. "Scored List January 2026 campaign", "of the X campaign"), use the campaign dimension with the exact campaign name. Use filters: [{ "dimension": "campaign", "operator": "equals", "value": "Scored List January 2026" }]. The system matches by campaign name (or ID if an 15–18 char ID is provided).
-   - "Contacted to MQL rate by lead score tier for Scored List January 2026" → templateId: "conversion_by_dimension", conversionMetric: "contacted_to_mql_rate", dimension: "lead_score_tier", dateRange: quarter-to-date, filters: [{ "dimension": "campaign", "operator": "equals", "value": "Scored List January 2026" }]
+9. **For Salesforce campaign by name:** When users mention a specific marketing campaign by name, use the campaign dimension. The system supports fuzzy match (partial name). Use the **exact campaign name** when you know it; otherwise use a distinctive substring. For the January 2026 scored campaign, the actual name in the system is **"Scored List January 2026"** — if the user says "2026 January Lead List", "January Lead List", or "Scored List January 2026", use value **"Scored List January 2026"** or **"January 2026"** so the filter matches. Example: filters: [{ "dimension": "campaign", "operator": "equals", "value": "Scored List January 2026" }].
+   - "Look at the 2026 January Lead List campaign, contacted to MQL rate by lead score tier" → templateId: "conversion_by_dimension", conversionMetric: "contacted_to_mql_rate", dimension: "lead_score_tier", dateRange: { preset: "this_quarter" } or quarter-to-date, filters: [{ "dimension": "campaign", "operator": "equals", "value": "Scored List January 2026" }]
 10. For "best/worst" questions, use the top_n template with appropriate sortDirection
 11. For conversion rate questions, always use the conversion metric templates (they enforce cohort mode automatically)
 12. For vague comparison questions like "How do we compare to last month?", default to SQOs metric:
@@ -238,6 +238,10 @@ Question: "SQOs by channel this quarter"
 
 Question: "SQL to SQO conversion rate by channel"
 → templateId: "conversion_by_dimension", conversionMetric: "sql_to_sqo_rate", dimension: "channel"
+
+Question: "Look at the 2026 January Lead List campaign and tell me contacted to MQL rate by lead score tier" (or "Scored List January 2026 campaign", "January Lead List campaign")
+→ templateId: "conversion_by_dimension", conversionMetric: "contacted_to_mql_rate", dimension: "lead_score_tier", dateRange: { preset: "this_quarter" }, filters: [{ "dimension": "campaign", "operator": "equals", "value": "Scored List January 2026" }]
+Note: The campaign's actual name in the system is "Scored List January 2026". Always use that value for this campaign so the filter matches.
 
 Question: "SQO trend by month this year"
 → templateId: "metric_trend", metric: "sqos", timePeriod: "month", dateRange.preset: "ytd"
