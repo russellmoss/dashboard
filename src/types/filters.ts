@@ -35,6 +35,7 @@ export interface AdvancedFilters {
   sgms: MultiSelectFilter;
   experimentationTags: MultiSelectFilter;
   campaigns: MultiSelectFilter;
+  leadScoreTiers: MultiSelectFilter;
 }
 
 // Default/empty advanced filters state
@@ -75,6 +76,10 @@ export const DEFAULT_ADVANCED_FILTERS: AdvancedFilters = {
     selectAll: true,
     selected: [],
   },
+  leadScoreTiers: {
+    selectAll: true,
+    selected: [],
+  },
 };
 
 // Helper to check if any advanced filters are active
@@ -87,7 +92,8 @@ export function hasActiveAdvancedFilters(filters: AdvancedFilters): boolean {
     !filters.sgas.selectAll ||
     !filters.sgms.selectAll ||
     !filters.experimentationTags.selectAll ||
-    !filters.campaigns.selectAll
+    !filters.campaigns.selectAll ||
+    !filters.leadScoreTiers.selectAll
   );
 }
 
@@ -102,6 +108,7 @@ export function countActiveAdvancedFilters(filters: AdvancedFilters): number {
   if (!filters.sgms.selectAll) count++;
   if (!filters.experimentationTags.selectAll) count++;
   if (!filters.campaigns.selectAll) count++;
+  if (!filters.leadScoreTiers.selectAll) count++;
   return count;
 }
 
@@ -130,6 +137,7 @@ export interface FilterOptions {
   years: number[];
   experimentationTags: string[];
   campaigns: FilterOption[];
+  leadScoreTiers: FilterOption[];
 }
 
 // Add export for activity dashboard

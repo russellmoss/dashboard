@@ -54,6 +54,10 @@ export function buildAdvancedFilterClauses(
       ...DEFAULT_ADVANCED_FILTERS.campaigns,
       ...(filters.campaigns || {}),
     },
+    leadScoreTiers: {
+      ...DEFAULT_ADVANCED_FILTERS.leadScoreTiers,
+      ...(filters.leadScoreTiers || {}),
+    },
   };
 
   // Initial Call Scheduled Date filter
@@ -132,6 +136,26 @@ export function buildAdvancedFilterClauses(
     params[`${paramPrefix}_campaigns`] = safeFilters.campaigns.selected;
   }
 
+  // Lead Score Tier filter (multi-select)
+  // Handles special "__NO_TIER__" sentinel for NULL tiers
+  if (!safeFilters.leadScoreTiers.selectAll && safeFilters.leadScoreTiers.selected.length > 0) {
+    const realTiers = safeFilters.leadScoreTiers.selected.filter(t => t !== '__NO_TIER__');
+    const includeNoTier = safeFilters.leadScoreTiers.selected.includes('__NO_TIER__');
+
+    if (realTiers.length > 0 && includeNoTier) {
+      // Both real tiers AND "(No Tier)" selected
+      whereClauses.push(`(v.Lead_Score_Tier__c IN UNNEST(@${paramPrefix}_lead_score_tiers) OR v.Lead_Score_Tier__c IS NULL)`);
+      params[`${paramPrefix}_lead_score_tiers`] = realTiers;
+    } else if (realTiers.length > 0) {
+      // Only real tiers selected
+      whereClauses.push(`v.Lead_Score_Tier__c IN UNNEST(@${paramPrefix}_lead_score_tiers)`);
+      params[`${paramPrefix}_lead_score_tiers`] = realTiers;
+    } else if (includeNoTier) {
+      // Only "(No Tier)" selected
+      whereClauses.push(`v.Lead_Score_Tier__c IS NULL`);
+    }
+  }
+
   return { whereClauses, params };
 }
 
@@ -147,6 +171,7 @@ export function hasActiveFilters(filters: AdvancedFilters): boolean {
     !filters.sgas.selectAll ||
     !filters.sgms.selectAll ||
     !filters.experimentationTags.selectAll ||
-    !filters.campaigns.selectAll
+    !filters.campaigns.selectAll ||
+    !filters.leadScoreTiers.selectAll
   );
 }

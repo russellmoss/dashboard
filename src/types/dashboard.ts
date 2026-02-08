@@ -125,6 +125,7 @@ export interface DetailRecord {
   sgm: string | null;
   campaignId: string | null;
   campaignName: string | null;
+  leadScoreTier: string | null;
   aum: number;
   aumFormatted: string;
   salesforceUrl: string;

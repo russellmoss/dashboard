@@ -101,6 +101,7 @@ export const QUERY_TEMPLATES = {
       'Joined advisors by source YTD',
       'MQLs by SGA this month',
       'SQLs by experimentation tag',
+      'MQLs by lead score tier',
     ],
   },
 
@@ -140,6 +141,7 @@ export const QUERY_TEMPLATES = {
       'MQL to SQL rate by source',
       'Conversion rates by SGA',
       'Win rate by SGM',
+      'Contacted to MQL rate by lead score tier',
     ],
   },
 

@@ -62,6 +62,7 @@ export function AdvancedFilters({
   const [sgmSearch, setSgmSearch] = useState('');
   const [experimentationTagSearch, setExperimentationTagSearch] = useState('');
   const [campaignSearch, setCampaignSearch] = useState('');
+  const [leadScoreTierSearch, setLeadScoreTierSearch] = useState('');
 
   // Sync local filters when prop changes
   useEffect(() => {
@@ -105,9 +106,20 @@ export function AdvancedFilters({
     );
   }, [filterOptions, campaignSearch]);
 
+  const filteredLeadScoreTiers = useMemo(() => {
+    if (!filterOptions?.leadScoreTiers) return [];
+    const noTierOption = { value: '__NO_TIER__', label: '(No Tier)', isActive: true };
+    const realTiers = filterOptions.leadScoreTiers.filter(t =>
+      t.label.toLowerCase().includes(leadScoreTierSearch.toLowerCase())
+    );
+    const showNoTier = !leadScoreTierSearch ||
+      '(no tier)'.includes(leadScoreTierSearch.toLowerCase());
+    return showNoTier ? [noTierOption, ...realTiers] : realTiers;
+  }, [filterOptions, leadScoreTierSearch]);
+
   // Handlers
   const handleMultiSelectChange = (
-    filterKey: 'channels' | 'sources' | 'sgas' | 'sgms' | 'experimentationTags' | 'campaigns',
+    filterKey: 'channels' | 'sources' | 'sgas' | 'sgms' | 'experimentationTags' | 'campaigns' | 'leadScoreTiers',
     value: string,
     checked: boolean
   ) => {
@@ -131,7 +143,7 @@ export function AdvancedFilters({
     });
   };
 
-  const handleSelectAll = (filterKey: 'channels' | 'sources' | 'sgas' | 'sgms' | 'experimentationTags' | 'campaigns') => {
+  const handleSelectAll = (filterKey: 'channels' | 'sources' | 'sgas' | 'sgms' | 'experimentationTags' | 'campaigns' | 'leadScoreTiers') => {
     setLocalFilters(prev => {
       const current = prev[filterKey];
       // Toggle: if currently "All" is selected, uncheck it (set to false with empty selection)
@@ -268,6 +280,22 @@ export function AdvancedFilters({
                   onChange={(value, checked) => handleMultiSelectChange('campaigns', value, checked)}
                   searchValue={campaignSearch}
                   onSearchChange={setCampaignSearch}
+                  searchable
+                />
+
+                {/* Lead Score Tiers */}
+                <MultiSelectFilterControl
+                  label="Lead Score Tiers"
+                  options={filteredLeadScoreTiers.map(t => ({
+                    value: t.value,
+                    label: t.label,
+                    isActive: true
+                  }))}
+                  filter={localFilters.leadScoreTiers}
+                  onSelectAll={() => handleSelectAll('leadScoreTiers')}
+                  onChange={(value, checked) => handleMultiSelectChange('leadScoreTiers', value, checked)}
+                  searchValue={leadScoreTierSearch}
+                  onSearchChange={setLeadScoreTierSearch}
                   searchable
                 />
               </div>

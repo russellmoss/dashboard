@@ -9,7 +9,7 @@ import { ExportButton } from '@/components/ui/ExportButton';
 import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import { formatDate } from '@/lib/utils/format-helpers';
 
-type SortColumn = 'advisor' | 'source' | 'channel' | 'stage' | 'date' | 'sga' | 'sgm' | 'aum' | 'campaign' | null;
+type SortColumn = 'advisor' | 'source' | 'channel' | 'stage' | 'date' | 'sga' | 'sgm' | 'aum' | 'campaign' | 'tier' | null;
 type SortDirection = 'asc' | 'desc';
 type SearchField = 'advisor' | 'sga' | 'sgm' | 'source' | 'channel';
 
@@ -116,6 +116,9 @@ function sortRecords(records: DetailRecord[], sortColumn: SortColumn, sortDirect
         break;
       case 'campaign':
         comparison = (a.campaignName || '').toLowerCase().localeCompare((b.campaignName || '').toLowerCase());
+        break;
+      case 'tier':
+        comparison = (a.leadScoreTier || '').toLowerCase().localeCompare((b.leadScoreTier || '').toLowerCase());
         break;
       case 'stage':
         comparison = (a.stage || '').toLowerCase().localeCompare((b.stage || '').toLowerCase());
@@ -325,6 +328,9 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
         case 'campaign':
           comparison = (a.campaignName || '').toLowerCase().localeCompare((b.campaignName || '').toLowerCase());
           break;
+        case 'tier':
+          comparison = (a.leadScoreTier || '').toLowerCase().localeCompare((b.leadScoreTier || '').toLowerCase());
+          break;
         case 'stage':
           comparison = (a.stage || '').toLowerCase().localeCompare((b.stage || '').toLowerCase());
           break;
@@ -525,6 +531,7 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
                 <SortableHeader column="source">Source</SortableHeader>
                 <SortableHeader column="channel">Channel</SortableHeader>
                 <SortableHeader column="campaign">Campaign</SortableHeader>
+                <SortableHeader column="tier">Lead Score Tier</SortableHeader>
                 <SortableHeader column="stage">Stage</SortableHeader>
                 <SortableHeader column="date">
                   <div className="flex items-center gap-1">
@@ -549,7 +556,7 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
             <TableBody>
             {paginatedRecords.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10 + (showInitialCallColumn ? 1 : 0) + (showQualCallColumn ? 1 : 0)} className="text-center text-gray-500 dark:text-gray-400 py-8">
+                <TableCell colSpan={11 + (showInitialCallColumn ? 1 : 0) + (showQualCallColumn ? 1 : 0)} className="text-center text-gray-500 dark:text-gray-400 py-8">
                   {searchQuery ? 'No records found matching your search' : 'No records found'}
                 </TableCell>
               </TableRow>
@@ -564,6 +571,7 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
                   <TableCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">{record.source}</TableCell>
                   <TableCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">{record.channel}</TableCell>
                   <TableCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">{record.campaignName || '-'}</TableCell>
+                  <TableCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">{record.leadScoreTier || '-'}</TableCell>
                   <TableCell className="border-r border-gray-200 dark:border-gray-700">
                     <div className="flex items-center gap-2">
                       <span className="text-gray-700 dark:text-gray-300">{record.stage}</span>

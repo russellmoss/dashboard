@@ -50,6 +50,11 @@ interface CampaignResult {
   name: string | null;
 }
 
+interface LeadScoreTierResult {
+  value: string | null;
+  record_count: number | string;
+}
+
 // Processed result type
 export interface RawFilterOptions {
   channels: string[];
@@ -68,6 +73,7 @@ export interface RawFilterOptions {
   years: number[];
   experimentationTags: string[];
   campaigns: FilterOption[];
+  leadScoreTiers: Array<{ value: string; record_count: number }>;
 }
 
 /**
@@ -174,6 +180,17 @@ const _getRawFilterOptions = async (): Promise<RawFilterOptions> => {
     ORDER BY c.Name ASC
   `;
 
+  const leadScoreTiersQuery = `
+    SELECT 
+      Lead_Score_Tier__c AS value, 
+      COUNT(*) AS record_count
+    FROM \`${FULL_TABLE}\`
+    WHERE Lead_Score_Tier__c IS NOT NULL 
+      AND TRIM(Lead_Score_Tier__c) != ''
+    GROUP BY Lead_Score_Tier__c
+    ORDER BY record_count DESC
+  `;
+
   // Execute all queries in parallel
   const [
     channelsResult,
@@ -184,6 +201,7 @@ const _getRawFilterOptions = async (): Promise<RawFilterOptions> => {
     yearsResult,
     experimentationTagsResult,
     campaignsResult,
+    leadScoreTiersResult,
   ] = await Promise.all([
     runQuery<ChannelResult>(channelsQuery),
     runQuery<SourceResult>(sourcesQuery),
@@ -193,6 +211,7 @@ const _getRawFilterOptions = async (): Promise<RawFilterOptions> => {
     runQuery<YearResult>(yearsQuery),
     runQuery<ExperimentationTagResult>(experimentationTagsQuery),
     runQuery<CampaignResult>(campaignsQuery),
+    runQuery<LeadScoreTierResult>(leadScoreTiersQuery),
   ]);
 
   return {
@@ -228,6 +247,12 @@ const _getRawFilterOptions = async (): Promise<RawFilterOptions> => {
     campaigns: campaignsResult
       .filter(r => r.id && r.name)
       .map(r => ({ value: r.id!, label: r.name!, isActive: true })),
+    leadScoreTiers: leadScoreTiersResult
+      .filter(r => r.value && String(r.value).trim() !== '')
+      .map(r => ({
+        value: r.value!,
+        record_count: parseInt((r.record_count?.toString() || '0'), 10),
+      })),
   };
 };
 

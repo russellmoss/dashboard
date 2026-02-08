@@ -163,14 +163,16 @@ When responding, ALWAYS include:
    - Examples:
      - "SGM of Corey" → filters: [{ "dimension": "sgm", "operator": "equals", "value": "Corey" }]
      - "SGA named John" → filters: [{ "dimension": "sga", "operator": "equals", "value": "John" }]
-8. For "best/worst" questions, use the top_n template with appropriate sortDirection
-9. For conversion rate questions, always use the conversion metric templates (they enforce cohort mode automatically)
-9. For vague comparison questions like "How do we compare to last month?", default to SQOs metric:
+9. **For Salesforce campaign by name:** When users mention a specific marketing campaign by name (e.g. "Scored List January 2026 campaign", "of the X campaign"), use the campaign dimension with the exact campaign name. Use filters: [{ "dimension": "campaign", "operator": "equals", "value": "Scored List January 2026" }]. The system matches by campaign name (or ID if an 15–18 char ID is provided).
+   - "Contacted to MQL rate by lead score tier for Scored List January 2026" → templateId: "conversion_by_dimension", conversionMetric: "contacted_to_mql_rate", dimension: "lead_score_tier", dateRange: quarter-to-date, filters: [{ "dimension": "campaign", "operator": "equals", "value": "Scored List January 2026" }]
+10. For "best/worst" questions, use the top_n template with appropriate sortDirection
+11. For conversion rate questions, always use the conversion metric templates (they enforce cohort mode automatically)
+12. For vague comparison questions like "How do we compare to last month?", default to SQOs metric:
    - Question: "How do we compare to last month?" → templateId: "period_comparison", metric: "sqos", currentPeriod: "this_month", previousPeriod: "last_month"
    - Question: "What's our performance vs last quarter?" → templateId: "period_comparison", metric: "sqos", currentPeriod: "this_quarter", previousPeriod: "last_quarter"
-10. For single conversion rate questions (no dimension), use single_metric template with conversionMetric parameter:
+13. For single conversion rate questions (no dimension), use single_metric template with conversionMetric parameter:
     - Question: "What is our SQL to SQO rate?" → templateId: "single_metric", conversionMetric: "sql_to_sqo_rate", dateRange.preset: "this_quarter"
-11. **For "last N quarters" or "last N months" questions, calculate a custom date range:**
+14. **For "last N quarters" or "last N months" questions, calculate a custom date range:**
     - "last N quarters" means: start from N quarters ago (from current date), end at CURRENT_DATE (today)
     - **CRITICAL**: Always include the current quarter/month in the range
     - Calculate: If today is 2026-01-15 (in Q1 2026), "last 6 quarters" = from start of Q4 2024 to 2026-01-15 (today)

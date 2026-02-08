@@ -69,6 +69,7 @@ export interface RawDetailRecordResult {
   sgm: string | null;
   campaign_id?: string | null;
   campaign_name?: string | null;
+  lead_score_tier?: string | null;
   aum: number | null;
   salesforce_url: string | null;
   filter_date?: string | { value: string } | null;

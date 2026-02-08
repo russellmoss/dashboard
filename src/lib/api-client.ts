@@ -154,6 +154,10 @@ function cleanFilters(filters: DashboardFilters): DashboardFilters {
         ...DEFAULT_ADVANCED_FILTERS.campaigns,
         ...(filters.advancedFilters.campaigns || {}),
       },
+      leadScoreTiers: {
+        ...DEFAULT_ADVANCED_FILTERS.leadScoreTiers,
+        ...(filters.advancedFilters.leadScoreTiers || {}),
+      },
     };
   }
   

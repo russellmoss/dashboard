@@ -81,6 +81,12 @@ export async function GET() {
         label: c.label ?? c.value,
         isActive: true,
       })),
+      leadScoreTiers: (rawOptions.leadScoreTiers || []).map(t => ({
+        value: t.value,
+        label: t.value,
+        isActive: true,
+        count: t.record_count,
+      })),
     };
 
     return NextResponse.json(filterOptions);

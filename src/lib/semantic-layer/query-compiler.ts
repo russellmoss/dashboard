@@ -448,6 +448,32 @@ export function buildDimensionFilterSql(
       continue;
     }
 
+    // Handle campaign: support both ID (15–18 char) and name; match Campaign_Id__c/Campaign_Name__c or all_campaigns
+    if (filter.dimension === 'campaign') {
+      const values = Array.isArray(filter.value) ? filter.value : [filter.value];
+      const isId = (v: unknown) => /^[a-zA-Z0-9]{15,18}$/.test(String(v));
+      if (filter.operator === 'equals' || filter.operator === 'in') {
+        const conditions = values.map((v) => {
+          const escaped = String(v).replace(/'/g, "''");
+          if (isId(v)) {
+            return `(v.Campaign_Id__c = '${escaped}' OR EXISTS (SELECT 1 FROM UNNEST(IFNULL(v.all_campaigns, [])) AS camp WHERE camp.id = '${escaped}'))`;
+          }
+          return `(v.Campaign_Name__c = '${escaped}' OR EXISTS (SELECT 1 FROM UNNEST(IFNULL(v.all_campaigns, [])) AS camp WHERE camp.name = '${escaped}'))`;
+        });
+        clauses.push(`(${conditions.join(' OR ')})`);
+      } else if (filter.operator === 'not_equals' || filter.operator === 'not_in') {
+        const conditions = values.map((v) => {
+          const escaped = String(v).replace(/'/g, "''");
+          if (isId(v)) {
+            return `(v.Campaign_Id__c IS NULL OR v.Campaign_Id__c != '${escaped}') AND NOT EXISTS (SELECT 1 FROM UNNEST(IFNULL(v.all_campaigns, [])) AS camp WHERE camp.id = '${escaped}')`;
+          }
+          return `(v.Campaign_Name__c IS NULL OR v.Campaign_Name__c != '${escaped}') AND NOT EXISTS (SELECT 1 FROM UNNEST(IFNULL(v.all_campaigns, [])) AS camp WHERE camp.name = '${escaped}')`;
+        });
+        clauses.push(`(${conditions.join(' AND ')})`);
+      }
+      continue;
+    }
+
     // Handle SGA with special logic for opportunity-level metrics
     // For opportunity-level metrics, check both SGA_Owner_Name__c and Opp_SGA_Name__c
     // Opp_SGA_Name__c may contain a User ID, so we need User table join to resolve it

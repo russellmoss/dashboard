@@ -173,6 +173,10 @@ function filtersAreEqual(a: DashboardFilters, b: DashboardFilters): boolean {
       ...DEFAULT_ADVANCED_FILTERS.campaigns,
       ...(a.advancedFilters?.campaigns || {}),
     },
+    leadScoreTiers: {
+      ...DEFAULT_ADVANCED_FILTERS.leadScoreTiers,
+      ...(a.advancedFilters?.leadScoreTiers || {}),
+    },
   };
   
   const advB: typeof DEFAULT_ADVANCED_FILTERS = {
@@ -210,6 +214,10 @@ function filtersAreEqual(a: DashboardFilters, b: DashboardFilters): boolean {
       ...DEFAULT_ADVANCED_FILTERS.campaigns,
       ...(b.advancedFilters?.campaigns || {}),
     },
+    leadScoreTiers: {
+      ...DEFAULT_ADVANCED_FILTERS.leadScoreTiers,
+      ...(b.advancedFilters?.leadScoreTiers || {}),
+    },
   };
   
   // Compare date range filters
@@ -239,6 +247,7 @@ function filtersAreEqual(a: DashboardFilters, b: DashboardFilters): boolean {
   if (!compareMultiSelect(advA.sgms, advB.sgms)) return false;
   if (!compareMultiSelect(advA.experimentationTags, advB.experimentationTags)) return false;
   if (!compareMultiSelect(advA.campaigns, advB.campaigns)) return false;
+  if (!compareMultiSelect(advA.leadScoreTiers, advB.leadScoreTiers)) return false;
   
   return true;
 }
