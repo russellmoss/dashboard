@@ -1710,6 +1710,7 @@ export async function getActivityTotals(filters: SGAActivityFilters): Promise<{
   smsInbound: number;
   linkedInMessages: number;
   emailsManual: number;
+  emailsEngagement: number;
 }> {
   const range = getDateRange(
     filters.dateRangeType,
