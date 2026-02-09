@@ -14,9 +14,10 @@ interface ActivityBreakdownCardProps {
 const CHANNEL_COLORS: Record<ActivityChannel, string> = {
   'SMS': '#10b981',      // emerald-500
   'Call': '#3b82f6',     // blue-500
-  'Email': '#8b5cf6',     // violet-500
+  'Email': '#8b5cf6',    // violet-500
+  'Email (Engagement)': '#a78bfa',  // violet-400
   'LinkedIn': '#06b6d4',  // cyan-500
-  'Other': '#f59e0b',     // amber-500 (for debugging/monitoring)
+  'Other': '#f59e0b',    // amber-500 (for debugging/monitoring)
 };
 
 export default function ActivityBreakdownCard({
@@ -36,7 +37,7 @@ export default function ActivityBreakdownCard({
     }
 
     // Prepare data for donut chart - maintain consistent order for color mapping
-    const channelOrder: ActivityChannel[] = ['SMS', 'Call', 'Email', 'LinkedIn'];
+    const channelOrder: ActivityChannel[] = ['SMS', 'Call', 'Email', 'Email (Engagement)', 'LinkedIn', 'Other'];
     const sortedChannels = Array.from(channelMap.entries()).sort((a, b) => {
       // Sort by predefined order first, then by count
       const aIndex = channelOrder.indexOf(a[0] as ActivityChannel);
