@@ -49,7 +49,7 @@ export type ActivityType =
   | 'email_manual'
   | 'email_automated';
 
-export type ActivityChannel = 'Call' | 'SMS' | 'LinkedIn' | 'Email' | 'Other';
+export type ActivityChannel = 'Call' | 'SMS' | 'LinkedIn' | 'Email' | 'Email (Engagement)' | 'Other';
 
 // ============================================
 // SCHEDULED CALLS TYPES
@@ -174,6 +174,8 @@ export interface ActivityTotals {
   smsInbound: number;
   linkedInMessages: number;
   emailsManual: number;
+  /** Link-click / engagement alerts (e.g. [lemlist] Clicked on link); separate from outbound Email effort */
+  emailsEngagement: number;
 }
 
 // ============================================

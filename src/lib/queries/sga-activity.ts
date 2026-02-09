@@ -1173,10 +1173,13 @@ export async function getActivityBreakdown(
           ELSE FALSE 
         END as is_automated
       FROM classified_activities
-      -- Filter to only outbound for SMS and Calls to match scorecards
-      WHERE (corrected_channel_group = 'SMS' AND direction = 'Outbound')
-         OR (corrected_channel_group = 'Call' AND direction = 'Outbound')
-         OR corrected_channel_group NOT IN ('SMS', 'Call')
+      -- Exclude Email (Engagement) from rollup — rollup is "how much they are doing", not engagement alerts
+      WHERE corrected_channel_group != 'Email (Engagement)'
+        AND (
+          (corrected_channel_group = 'SMS' AND direction = 'Outbound')
+          OR (corrected_channel_group = 'Call' AND direction = 'Outbound')
+          OR corrected_channel_group NOT IN ('SMS', 'Call')
+        )
       GROUP BY channel, sub_type, is_automated
     ),
     totals AS (
@@ -1264,6 +1267,7 @@ export async function getActivityRecords(
       'sms_inbound': 'SMS',
       'linkedin_messages': 'LinkedIn',
       'emails_manual': 'Email',
+      'emails_engagement': 'Email (Engagement)',
     };
     targetChannel = activityTypeMap[activityType] || channel;
   } else if (channel) {
@@ -1366,6 +1370,7 @@ export async function getActivityRecords(
           -- Only use raw channel if subject doesn't give us clear signal
           WHEN v.activity_channel_group = 'SMS' THEN 'SMS'
           WHEN v.activity_channel_group = 'LinkedIn' THEN 'LinkedIn'
+          WHEN v.activity_channel_group = 'Email (Engagement)' THEN 'Email (Engagement)'
           WHEN v.activity_channel_group = 'Email' THEN 'Email'
           
           -- ============================================
@@ -1475,6 +1480,7 @@ export async function getActivityRecords(
       CASE
         WHEN corrected_channel_group = 'LinkedIn' THEN 'LinkedIn Message'
         WHEN corrected_channel_group = 'Email' THEN 'Email'
+        WHEN corrected_channel_group = 'Email (Engagement)' THEN 'Email (Engagement)'
         WHEN corrected_channel_group = 'Call' AND is_true_cold_call = 1 THEN 'Cold Call'
         WHEN corrected_channel_group = 'Call' AND direction = 'Inbound' THEN 'Inbound Call'
         WHEN corrected_channel_group = 'Call' THEN 'Outbound Call'
@@ -1562,6 +1568,7 @@ export async function getActivityRecords(
           -- Only use raw channel if subject doesn't give us clear signal
           WHEN v.activity_channel_group = 'SMS' THEN 'SMS'
           WHEN v.activity_channel_group = 'LinkedIn' THEN 'LinkedIn'
+          WHEN v.activity_channel_group = 'Email (Engagement)' THEN 'Email (Engagement)'
           WHEN v.activity_channel_group = 'Email' THEN 'Email'
           
           -- ============================================
@@ -1772,6 +1779,7 @@ export async function getActivityTotals(filters: SGAActivityFilters): Promise<{
           -- Only use raw channel if subject doesn't give us clear signal
           WHEN v.activity_channel_group = 'SMS' THEN 'SMS'
           WHEN v.activity_channel_group = 'LinkedIn' THEN 'LinkedIn'
+          WHEN v.activity_channel_group = 'Email (Engagement)' THEN 'Email (Engagement)'
           WHEN v.activity_channel_group = 'Email' THEN 'Email'
           
           -- ============================================
@@ -1828,7 +1836,8 @@ export async function getActivityTotals(filters: SGAActivityFilters): Promise<{
       COUNTIF(corrected_channel_group = 'SMS' AND direction = 'Outbound') as sms_outbound,
       COUNTIF(corrected_channel_group = 'SMS' AND direction = 'Inbound') as sms_inbound,
       COUNTIF(corrected_channel_group = 'LinkedIn') as linkedin_messages,
-      COUNTIF(corrected_channel_group = 'Email') as emails_manual
+      COUNTIF(corrected_channel_group = 'Email') as emails_manual,
+      COUNTIF(corrected_channel_group = 'Email (Engagement)') as emails_engagement
     FROM classified_records
   `;
   
@@ -1851,6 +1860,7 @@ export async function getActivityTotals(filters: SGAActivityFilters): Promise<{
     smsInbound: parseInt(String(row.sms_inbound || 0)) || 0,
     linkedInMessages: parseInt(String(row.linkedin_messages || 0)) || 0,
     emailsManual: parseInt(String(row.emails_manual || 0)) || 0,
+    emailsEngagement: parseInt(String(row.emails_engagement || 0)) || 0,
   };
 }
 

@@ -157,6 +157,8 @@ SELECT
       OR Subject LIKE 'missed:%'
     THEN 'Call'
     WHEN Subject LIKE 'Sent Savvy raised%' THEN 'Email (Blast)'
+    -- Lemlist link-click tracking: engagement alerts, not SGA outbound sends
+    WHEN Subject LIKE '%[lemlist]%Clicked on link%' OR Subject LIKE '%Clicked on link%' THEN 'Email (Engagement)'
     WHEN Subject LIKE '%[lemlist]%' 
       OR Subject LIKE '%List Email%'
       OR TaskSubtype = 'ListEmail'
@@ -184,6 +186,8 @@ SELECT
     WHEN Type LIKE '%SMS%' OR Subject LIKE '%SMS%' OR Subject LIKE '%Text%' THEN 'SMS'
     WHEN Subject LIKE '%LinkedIn%' OR TaskSubtype = 'LinkedIn' OR Subject LIKE '%LI %' THEN 'LinkedIn'
     WHEN Type = 'Call' OR TaskSubtype = 'Call' OR Subject LIKE '%Call%' OR Subject LIKE '%answered%' OR Subject LIKE '%Left VM%' OR Subject LIKE '%Voicemail%' OR Subject LIKE 'missed:%' THEN 'Call'
+    -- Lemlist link-click tracking: segment as Email (Engagement), not Email
+    WHEN Subject LIKE '%[lemlist]%Clicked on link%' OR Subject LIKE '%Clicked on link%' THEN 'Email (Engagement)'
     WHEN Subject LIKE '%[lemlist]%' 
       OR Subject LIKE '%List Email%'
       OR TaskSubtype = 'ListEmail'
@@ -196,6 +200,11 @@ SELECT
     WHEN TaskSubtype = 'Event' OR Subject LIKE '%Meeting%' OR Subject LIKE '%In Person%' OR Subject LIKE '%Zoom%' OR Subject LIKE '%Demo%' THEN 'Meeting'
     ELSE 'Other'
   END AS activity_channel_group,
+
+  -- ---------------------------------------------------------------------------
+  -- 4c. ENGAGEMENT TRACKING FLAG (link clicks, opens, etc. — not SGA outbound effort)
+  -- ---------------------------------------------------------------------------
+  CASE WHEN Subject LIKE '%Clicked on link%' THEN 1 ELSE 0 END AS is_engagement_tracking,
 
   -- ---------------------------------------------------------------------------
   -- 5. DIRECTION & QUALITY SIGNALS

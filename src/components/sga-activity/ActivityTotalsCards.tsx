@@ -12,6 +12,7 @@ interface ActivityTotalsCardsProps {
     smsInbound: number;
     linkedInMessages: number;
     emailsManual: number;
+    emailsEngagement: number;
   };
   onCardClick: (activityType: string) => void;
 }
@@ -72,6 +73,14 @@ export default function ActivityTotalsCards({ totals, onCardClick }: ActivityTot
       icon: Mail,
       color: 'text-purple-500',
       suffix: '',
+    },
+    {
+      key: 'emails_engagement',
+      label: 'Email (Engagement)',
+      value: totals.emailsEngagement,
+      icon: Mail,
+      color: 'text-slate-500',
+      suffix: ' link clicks',
     },
   ];
 
