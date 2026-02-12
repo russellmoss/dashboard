@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { FilterOptions, FilterOption } from '@/types/filters';
 import { getSessionPermissions } from '@/types/auth';
-import { forbidRecruiter } from '@/lib/api-authz';
+import { forbidRecruiter, forbidCapitalPartner } from '@/lib/api-authz';
 import { getRawFilterOptions } from '@/lib/queries/filter-options';
 
 export const dynamic = 'force-dynamic';
@@ -34,9 +34,12 @@ export async function GET() {
       return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
     }
 
-    // Block recruiters from main dashboard endpoints
+    // Block recruiters and capital partners from main dashboard endpoints
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
+
+    const cpForbidden = forbidCapitalPartner(permissions);
+    if (cpForbidden) return cpForbidden;
 
     // Get cached raw filter options (BigQuery queries)
     const rawOptions = await getRawFilterOptions();

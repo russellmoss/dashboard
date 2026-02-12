@@ -165,6 +165,7 @@ export function RecordDetailModal({
       'SQL': 'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-200',
       'MQL': 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200',
       'Contacted': 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200',
+      'Closed': 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200',
       'Prospect': 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200',
     };
     
@@ -225,6 +226,11 @@ export function RecordDetailModal({
                   {record.recordTypeName && (
                     <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200">
                       {record.recordTypeName}
+                    </span>
+                  )}
+                  {record.prospectSourceType === 'Re-Engagement' && (
+                    <span className="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-medium text-purple-800">
+                      Re-Engagement
                     </span>
                   )}
                 </div>
@@ -399,39 +405,69 @@ export function RecordDetailModal({
         {/* Footer - Fixed with Salesforce Links */}
         {!loading && record && (
           <div className="p-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
-            <div className="flex flex-wrap gap-3">
-              {record.leadUrl && (
-                <a
-                  href={record.leadUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  View Lead in Salesforce
-                </a>
-              )}
-              {record.opportunityUrl && (
-                <a
-                  href={record.opportunityUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-900/50 rounded-lg transition-colors"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  View Opportunity in Salesforce
-                </a>
-              )}
-              {!record.leadUrl && !record.opportunityUrl && record.salesforceUrl && (
-                <a
-                  href={record.salesforceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  View in Salesforce
-                </a>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              {record.prospectSourceType === 'Re-Engagement' ? (
+                <>
+                  {/* Re-Engagement: blue (left) = original opp, green (right) = re-engagement opp (same as lead → opportunity) */}
+                  {record.originOpportunityUrl && (
+                    <a
+                      href={record.originOpportunityUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      View Original Opportunity
+                    </a>
+                  )}
+                  {(record.opportunityUrl || record.salesforceUrl) && (
+                    <a
+                      href={record.opportunityUrl || record.salesforceUrl || '#'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-900/50 rounded-lg transition-colors"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      View Re-Engagement Opportunity
+                    </a>
+                  )}
+                </>
+              ) : (
+                <>
+                  {record.leadUrl && (
+                    <a
+                      href={record.leadUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      View Lead in Salesforce
+                    </a>
+                  )}
+                  {record.opportunityUrl && (
+                    <a
+                      href={record.opportunityUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-900/50 rounded-lg transition-colors"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      View Opportunity in Salesforce
+                    </a>
+                  )}
+                  {!record.leadUrl && !record.opportunityUrl && record.salesforceUrl && (
+                    <a
+                      href={record.salesforceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      View in Salesforce
+                    </a>
+                  )}
+                </>
               )}
             </div>
           </div>

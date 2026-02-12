@@ -250,7 +250,10 @@ const _getDetailRecords = async (
       v.is_joined_unique as is_joined,
       v.recordtypeid,
       v.is_primary_opp_record,
-      v.Full_Opportunity_ID__c as opportunity_id
+      v.Full_Opportunity_ID__c as opportunity_id,
+      v.lead_record_source AS prospect_source_type,
+      v.Previous_Recruiting_Opportunity_ID__c AS origin_recruiting_opp_id,
+      v.origin_opportunity_url
     FROM \`${FULL_TABLE}\` v
     ${userJoin}
     ${whereClause}
@@ -344,6 +347,9 @@ const _getDetailRecords = async (
       recordTypeId: r.recordtypeid ? toString(r.recordtypeid) : null,
       isPrimaryOppRecord: (r.is_primary_opp_record ?? 0) === 1,
       opportunityId: r.opportunity_id ? toString(r.opportunity_id) : null,
+      prospectSourceType: r.prospect_source_type ? toString(r.prospect_source_type) : null,
+      originRecruitingOppId: r.origin_recruiting_opp_id ? toString(r.origin_recruiting_opp_id) : null,
+      originOpportunityUrl: r.origin_opportunity_url ? toString(r.origin_opportunity_url) : null,
     };
   });
 };

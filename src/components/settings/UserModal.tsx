@@ -102,7 +102,7 @@ export function UserModal({ isOpen, onClose, onSaved, user }: UserModalProps) {
         role: formData.role,
         isActive: formData.isActive,
       };
-      if (formData.role === 'recruiter') {
+      if (formData.role === 'recruiter' || formData.role === 'capital_partner') {
         body.externalAgency = formData.externalAgency.trim();
       }
       if (formData.password) {
@@ -132,7 +132,7 @@ export function UserModal({ isOpen, onClose, onSaved, user }: UserModalProps) {
     setFormData((prev) => ({
       ...prev,
       role: newRole,
-      externalAgency: newRole === 'recruiter' ? prev.externalAgency : '',
+      externalAgency: (newRole === 'recruiter' || newRole === 'capital_partner') ? prev.externalAgency : '',
       externalAgencyIsOther: false,
     }));
   };
@@ -235,6 +235,7 @@ export function UserModal({ isOpen, onClose, onSaved, user }: UserModalProps) {
               <option value="sga">SGA - Own data only, pages 1-2 & 6</option>
               <option value="viewer">Viewer - Read-only, pages 1-2</option>
               <option value="recruiter">Recruiter - Recruiter Hub only, filtered by agency</option>
+              <option value="capital_partner">Capital Partner - GC Hub Only</option>
             </select>
           </div>
 
@@ -278,6 +279,25 @@ export function UserModal({ isOpen, onClose, onSaved, user }: UserModalProps) {
             </div>
           )}
 
+          {formData.role === 'capital_partner' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Capital Partner Company *
+              </label>
+              <input
+                type="text"
+                value={formData.externalAgency}
+                onChange={(e) => setFormData({ ...formData, externalAgency: e.target.value })}
+                required
+                placeholder="e.g., Gridiron Capital"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                This capital partner will see anonymized advisor data in GC Hub.
+              </p>
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
             <input
               type="checkbox"
@@ -301,7 +321,7 @@ export function UserModal({ isOpen, onClose, onSaved, user }: UserModalProps) {
             </button>
             <button
               type="submit"
-              disabled={loading || (formData.role === 'recruiter' && !formData.externalAgency.trim())}
+              disabled={loading || ((formData.role === 'recruiter' || formData.role === 'capital_partner') && !formData.externalAgency.trim())}
               className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? 'Saving...' : isEditing ? 'Save Changes' : 'Add User'}

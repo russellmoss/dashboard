@@ -101,7 +101,10 @@ const _getRecordDetail = async (
       -- URLs
       v.lead_url,
       v.opportunity_url,
-      v.salesforce_url
+      v.salesforce_url,
+      v.lead_record_source AS prospect_source_type,
+      v.Previous_Recruiting_Opportunity_ID__c AS origin_recruiting_opp_id,
+      v.origin_opportunity_url
       
     FROM \`${FULL_TABLE}\` v
     LEFT JOIN \`${MAPPING_TABLE}\` nm
@@ -247,6 +250,11 @@ function transformToRecordDetail(r: RecordDetailRaw): RecordDetailFull {
     isPrimaryOppRecord: r.is_primary_opp_record === 1,
     isSqoUnique: r.is_sqo_unique === 1,
     isJoinedUnique: r.is_joined_unique === 1,
+
+    // Re-Engagement (prospect source and origin link)
+    prospectSourceType: r.prospect_source_type ? toString(r.prospect_source_type) : null,
+    originRecruitingOppId: r.origin_recruiting_opp_id ? toString(r.origin_recruiting_opp_id) : null,
+    originOpportunityUrl: r.origin_opportunity_url ? toString(r.origin_opportunity_url) : null,
   };
 }
 

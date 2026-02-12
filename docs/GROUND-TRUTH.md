@@ -2,8 +2,10 @@
 
 > **Purpose**: This document contains verified values from BigQuery that all dashboard metrics MUST match. It includes cohort maturity guidance to ensure proper validation based on how "baked" each cohort is.
 >
-> **Last Updated**: January 13, 2026  
+> **Last Updated**: 2026-02-11  
 > **Verified Against**: `savvy-gtm-analytics.Tableau_Views.vw_funnel_master`
+>
+> **2026-02-11 — Re-Engagement baseline update**: Baselines were re-run against the view that now includes Re-Engagement opportunities as a parallel lead-like stream (see `re_engagement_funnel_implementation_plan_v3.md`). Q1 2025 (and optionally Q2 2025) values below were updated from fresh queries; previous values are kept commented for reference.
 >
 > **Contacted→MQL denominator**: The dashboard now uses `eligible_for_contacted_conversions_30d` (30-day effective resolution). Leads in Contacting for 30+ days without MQL or close are treated as resolved in the denominator (reporting only; no Salesforce change). Expected Contacted→MQL rates and denominators in this doc may differ from prior baselines; re-validate after deployment.
 
@@ -70,7 +72,8 @@ Rates **WILL change** as deals progress. Good for testing filters and UI, NOT fo
 
 **Period**: January 1, 2025 - March 31, 2025  
 **Days Since End**: 288 days  
-**Status**: ✅ FULLY BAKED - Use for strict validation
+**Status**: ✅ FULLY BAKED - Use for strict validation  
+**Baseline run**: 2026-02-11 (view includes Re-Engagement records)
 
 ### Volume Metrics
 
@@ -80,14 +83,18 @@ Rates **WILL change** as deals progress. Good for testing filters and UI, NOT fo
 | SQOs | **96** | ±0 |
 | Joined | **12** | ±0 |
 
+<!-- Pre Re-Engagement (Jan 2026): SQLs 123, SQOs 96, Joined 12 -->
+
 ### Conversion Rates (Cohort Mode)
 
 | Conversion | Rate | Numerator | Denominator | Tolerance |
 |------------|------|-----------|-------------|-----------|
-| Contacted→MQL | **4.94%** | 314 | 6,360 | ±0.1% |
-| MQL→SQL | **27.70%** | 123 | 444 | ±0.1% |
+| Contacted→MQL | **4.97%** | 310 | 6,235 | ±0.1% |
+| MQL→SQL | **27.83%** | 123 | 442 | ±0.1% |
 | SQL→SQO | **70.83%** | 85 | 120 | ±0.1% |
-| SQO→Joined | **12.20%** | 10 | 82 | ±0.1% |
+| SQO→Joined | **13.25%** | 11 | 83 | ±0.1% |
+
+<!-- Pre Re-Engagement (Jan 2026): Contacted→MQL 4.94% (314/6,360), MQL→SQL 27.70% (123/444), SQL→SQO 70.83% (85/120), SQO→Joined 12.20% (10/82) -->
 
 ---
 
@@ -95,7 +102,8 @@ Rates **WILL change** as deals progress. Good for testing filters and UI, NOT fo
 
 **Period**: April 1, 2025 - June 30, 2025  
 **Days Since End**: 197 days  
-**Status**: ✅ FULLY BAKED - Use for strict validation
+**Status**: ✅ FULLY BAKED - Use for strict validation  
+**Baseline run**: 2026-02-11 (view includes Re-Engagement records)
 
 ### Volume Metrics
 
@@ -105,14 +113,18 @@ Rates **WILL change** as deals progress. Good for testing filters and UI, NOT fo
 | SQOs | **110** | ±0 |
 | Joined | **13** | ±0 |
 
+<!-- Pre Re-Engagement (Jan 2026): SQLs 155, SQOs 110, Joined 13 -->
+
 ### Conversion Rates (Cohort Mode)
 
 | Conversion | Rate | Numerator | Denominator | Tolerance |
 |------------|------|-----------|-------------|-----------|
-| Contacted→MQL | **4.63%** | 315 | 6,809 | ±0.1% |
+| Contacted→MQL | **4.65%** | 313 | 6,728 | ±0.1% |
 | MQL→SQL | **37.93%** | 154 | 406 | ±0.1% |
 | SQL→SQO | **68.63%** | 105 | 153 | ±0.1% |
-| SQO→Joined | **13.79%** | 12 | 87 | ±0.1% |
+| SQO→Joined | **13.48%** | 12 | 89 | ±0.1% |
+
+<!-- Pre Re-Engagement (Jan 2026): Contacted→MQL 4.63% (315/6,809), MQL→SQL 37.93% (154/406), SQL→SQO 68.63% (105/153), SQO→Joined 13.79% (12/87) -->
 
 ---
 
@@ -205,7 +217,7 @@ Rates **WILL change** as deals progress. Good for testing filters and UI, NOT fo
 1. Set dashboard filters to Q1 2025 (Jan 1 - Mar 31, 2025)
 2. Verify: SQLs = 123, SQOs = 96, Joined = 12
 3. Verify: SQL→SQO = 70.83% (85/120)
-4. Verify: SQO→Joined = 12.20% (10/82)
+4. Verify: SQO→Joined = 13.25% (11/83)  [was 12.20% (10/82) pre Re-Engagement]
 5. If ANY value differs → STOP and investigate
 ```
 
@@ -375,6 +387,7 @@ AND ConvertedDate >= [START] AND ConvertedDate <= [END]
 | Date | Metric | Period | Expected | Actual | Root Cause | Resolution |
 |------|--------|--------|----------|--------|------------|------------|
 | 2026-01-13 | All | Q1-Q4 2025 | - | - | Initial verification | Baseline established |
+| 2026-02-11 | Q1/Q2 rates & denoms | Q1–Q2 2025 | Previous baselines | New values | Re-Engagement records added to vw_funnel_master | GROUND-TRUTH.md updated; old values kept in comments |
 
 ---
 

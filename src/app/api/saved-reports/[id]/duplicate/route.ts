@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
-import { forbidRecruiter } from '@/lib/api-authz';
+import { forbidRecruiter, forbidCapitalPartner } from '@/lib/api-authz';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
 
@@ -31,6 +31,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Block recruiters from saved reports
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
+
+    const cpForbidden = forbidCapitalPartner(permissions);
+    if (cpForbidden) return cpForbidden;
 
     const sourceReport = await prisma.savedReport.findUnique({
       where: { id: params.id },

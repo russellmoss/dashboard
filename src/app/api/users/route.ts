@@ -83,6 +83,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Validate externalAgency for capital_partner role
+    if (role === 'capital_partner') {
+      if (!externalAgency || String(externalAgency).trim() === '') {
+        return NextResponse.json(
+          { error: 'Capital Partner Company is required for Capital Partner role' },
+          { status: 400 }
+        );
+      }
+    }
+
     const user = await createUser(
       {
         email,
@@ -90,7 +100,7 @@ export async function POST(request: NextRequest) {
         password,
         role,
         isActive,
-        externalAgency: role === 'recruiter' ? String(externalAgency).trim() : null,
+        externalAgency: (role === 'recruiter' || role === 'capital_partner') ? String(externalAgency).trim() : null,
       },
       session.user.email
     );

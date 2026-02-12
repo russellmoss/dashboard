@@ -927,6 +927,9 @@ export function ExploreResults({ response, isLoading, error, streamingMessage, c
             recordTypeId: row.recordtypeid as string || null,
             isPrimaryOppRecord: (row.is_primary_opp_record as number ?? 0) === 1,
             opportunityId: (row.Full_Opportunity_ID__c as string) || null,
+            prospectSourceType: row.prospect_source_type ? String(row.prospect_source_type) : null,
+            originRecruitingOppId: row.origin_recruiting_opp_id ? String(row.origin_recruiting_opp_id) : null,
+            originOpportunityUrl: row.origin_opportunity_url ? String(row.origin_opportunity_url) : null,
           };
         });
 

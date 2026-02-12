@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getOpenPipelineRecords, getOpenPipelineSummary } from '@/lib/queries/open-pipeline';
 import { getSessionPermissions } from '@/types/auth';
-import { forbidRecruiter } from '@/lib/api-authz';
+import { forbidRecruiter, forbidCapitalPartner } from '@/lib/api-authz';
 import { DashboardFilters } from '@/types/filters';
 
 export const dynamic = 'force-dynamic';
@@ -27,6 +27,10 @@ export async function POST(request: NextRequest) {
     // Block recruiters from dashboard pipeline endpoints
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
+
+    const cpForbidden = forbidCapitalPartner(permissions);
+    if (cpForbidden) return cpForbidden;
+
     const pipelineFilters: {
       channel?: string;
       source?: string;

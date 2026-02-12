@@ -152,6 +152,9 @@ export interface DetailRecord {
   recordTypeId: string | null; // For filtering SQOs by recruiting record type
   isPrimaryOppRecord: boolean; // For deduplicating opportunities with multiple leads
   opportunityId: string | null; // For deduplicating opportunities with multiple leads
+  prospectSourceType?: string | null;    // 'Lead' | 'Re-Engagement' (optional for backward compat with ExploreResults/open-pipeline)
+  originRecruitingOppId?: string | null; // Previous_Recruiting_Opportunity_ID__c
+  originOpportunityUrl?: string | null;  // URL to original closed-lost opp
 }
 
 export interface ForecastData {

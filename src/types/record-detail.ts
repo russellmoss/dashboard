@@ -112,6 +112,11 @@ export interface RecordDetailFull {
   isPrimaryOppRecord: boolean;
   isSqoUnique: boolean;
   isJoinedUnique: boolean;
+
+  // Re-Engagement (prospect source and origin link)
+  prospectSourceType: string | null;
+  originRecruitingOppId: string | null;
+  originOpportunityUrl: string | null;
 }
 
 // Raw BigQuery response interface
@@ -197,6 +202,11 @@ export interface RecordDetailRaw {
   lead_url: string | null;
   opportunity_url: string | null;
   salesforce_url: string;
+
+  // Re-Engagement (prospect source and origin link)
+  prospect_source_type?: string | null;
+  origin_recruiting_opp_id?: string | null;
+  origin_opportunity_url?: string | null;
 }
 
 // API Response type

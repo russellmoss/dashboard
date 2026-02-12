@@ -4,7 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
 import { getSessionPermissions } from '@/types/auth';
-import { forbidRecruiter } from '@/lib/api-authz';
+import { forbidRecruiter, forbidCapitalPartner } from '@/lib/api-authz';
 
 /**
  * GET /api/saved-reports
@@ -27,6 +27,9 @@ export async function GET(request: NextRequest) {
     // Block recruiters from saved reports
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
+
+    const cpForbidden = forbidCapitalPartner(permissions);
+    if (cpForbidden) return cpForbidden;
 
     // Fetch user's reports
     const userReports = await prisma.savedReport.findMany({
@@ -95,6 +98,9 @@ export async function POST(request: NextRequest) {
     // Block recruiters from saved reports
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
+
+    const cpForbidden = forbidCapitalPartner(permissions);
+    if (cpForbidden) return cpForbidden;
 
     const body = await request.json();
     const { name, description, filters, featureSelection, viewMode, isDefault, reportType } = body;

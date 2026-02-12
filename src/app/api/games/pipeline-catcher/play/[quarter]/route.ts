@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions, getSessionUserId } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
-import { forbidRecruiter } from '@/lib/api-authz';
+import { forbidRecruiter, forbidCapitalPartner } from '@/lib/api-authz';
 import { getGameDataForQuarter } from '@/lib/queries/pipeline-catcher';
 import { GameDataApiResponse } from '@/types/game';
 
@@ -27,6 +27,9 @@ export async function GET(
     // Block recruiters from games
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
+
+    const cpForbidden = forbidCapitalPartner(permissions);
+    if (cpForbidden) return cpForbidden;
 
     // Next.js 14+ App Router: params may be a Promise
     const resolvedParams = await Promise.resolve(params);

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
-import { forbidRecruiter } from '@/lib/api-authz';
+import { forbidRecruiter, forbidCapitalPartner } from '@/lib/api-authz';
 import { DashboardFilters } from '@/types/filters';
 import { GoogleSheetsExporter } from '@/lib/sheets/google-sheets-exporter';
 import { SheetsExportData } from '@/lib/sheets/sheets-types';
@@ -39,7 +39,10 @@ export async function POST(request: NextRequest) {
     // Block recruiters from main dashboard endpoints (including exports)
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
-    
+
+    const cpForbidden = forbidCapitalPartner(permissions);
+    if (cpForbidden) return cpForbidden;
+
     // Check export permission
     if (!permissions.canExport) {
       return NextResponse.json(

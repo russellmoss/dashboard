@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions, getSessionUserId } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
-import { forbidRecruiter } from '@/lib/api-authz';
+import { forbidRecruiter, forbidCapitalPartner } from '@/lib/api-authz';
 import { getAvailableLevels } from '@/lib/queries/pipeline-catcher';
 import { getCurrentQuarter } from '@/config/game-constants';
 import prisma from '@/lib/prisma';
@@ -26,6 +26,9 @@ export async function GET(request: NextRequest) {
     // Block recruiters from games
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
+
+    const cpForbidden = forbidCapitalPartner(permissions);
+    if (cpForbidden) return cpForbidden;
 
     const levels = await getAvailableLevels();
     

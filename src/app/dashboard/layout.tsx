@@ -72,10 +72,33 @@ export default function DashboardLayout({
     }
   }, [permissions, permissionsLoading, pathname, router]);
 
+  // Client-side route protection for capital partners
+  useEffect(() => {
+    if (permissionsLoading) return;
+    if (!permissions) return;
+    if (permissions.role !== 'capital_partner') return;
+
+    const allowed =
+      pathname.startsWith('/dashboard/gc-hub') ||
+      pathname.startsWith('/dashboard/settings');
+
+    if (!allowed) {
+      router.replace('/dashboard/gc-hub');
+    }
+  }, [permissions, permissionsLoading, pathname, router]);
+
   // Avoid rendering restricted pages for recruiters (prevents UI flash)
   if (!permissionsLoading && permissions?.role === 'recruiter') {
     const allowed =
       pathname.startsWith('/dashboard/recruiter-hub') ||
+      pathname.startsWith('/dashboard/settings');
+    if (!allowed) return null;
+  }
+
+  // Avoid rendering restricted pages for capital partners (prevents UI flash)
+  if (!permissionsLoading && permissions?.role === 'capital_partner') {
+    const allowed =
+      pathname.startsWith('/dashboard/gc-hub') ||
       pathname.startsWith('/dashboard/settings');
     if (!allowed) return null;
   }

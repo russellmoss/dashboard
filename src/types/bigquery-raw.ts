@@ -95,6 +95,9 @@ export interface RawDetailRecordResult {
   recordtypeid?: string | null;
   is_primary_opp_record?: number | null;
   opportunity_id?: string | null;
+  prospect_source_type?: string | null;
+  origin_recruiting_opp_id?: string | null;
+  origin_opportunity_url?: string | null;
 }
 
 // Forecast Goals Raw Results

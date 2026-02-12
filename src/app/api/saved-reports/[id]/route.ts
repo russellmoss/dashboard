@@ -4,7 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
 import { getSessionPermissions } from '@/types/auth';
-import { forbidRecruiter } from '@/lib/api-authz';
+import { forbidRecruiter, forbidCapitalPartner } from '@/lib/api-authz';
 
 interface RouteParams {
   params: { id: string };
@@ -31,6 +31,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // Block recruiters from saved reports
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
+
+    const cpForbidden = forbidCapitalPartner(permissions);
+    if (cpForbidden) return cpForbidden;
 
     const report = await prisma.savedReport.findUnique({
       where: { id: params.id },
@@ -83,6 +86,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // Block recruiters from saved reports
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
+
+    const cpForbidden = forbidCapitalPartner(permissions);
+    if (cpForbidden) return cpForbidden;
 
     const existingReport = await prisma.savedReport.findUnique({
       where: { id: params.id },
@@ -180,6 +186,9 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // Block recruiters from saved reports
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
+
+    const cpForbidden = forbidCapitalPartner(permissions);
+    if (cpForbidden) return cpForbidden;
 
     const existingReport = await prisma.savedReport.findUnique({
       where: { id: params.id },

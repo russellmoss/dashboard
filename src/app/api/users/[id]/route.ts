@@ -100,8 +100,20 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       body.externalAgency = String(body.externalAgency).trim();
     }
 
-    // Clear externalAgency when role changes from recruiter to something else
-    if (body.role && body.role !== 'recruiter' && existingUser.role === 'recruiter') {
+    // Validate externalAgency for capital_partner role
+    if (body.role === 'capital_partner') {
+      if (!body.externalAgency || String(body.externalAgency).trim() === '') {
+        return NextResponse.json(
+          { error: 'Capital Partner Company is required for Capital Partner role' },
+          { status: 400 }
+        );
+      }
+      body.externalAgency = String(body.externalAgency).trim();
+    }
+
+    // Clear externalAgency when role changes FROM recruiter/capital_partner to something else
+    if (body.role && body.role !== 'recruiter' && body.role !== 'capital_partner' &&
+        (existingUser.role === 'recruiter' || existingUser.role === 'capital_partner')) {
       body.externalAgency = null;
     }
 

@@ -35,6 +35,7 @@ export function FunnelProgressStepper({ flags, tofStage }: FunnelProgressStepper
       'SQL': 2,
       'SQO': 3,
       'Joined': 4,
+      'Closed': -1,  // Re-Engagement Closed Lost; no current stage (terminal)
     };
     return stageMap[tofStage] ?? -1;
   };

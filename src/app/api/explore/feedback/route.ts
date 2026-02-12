@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
-import { forbidRecruiter } from '@/lib/api-authz';
+import { forbidRecruiter, forbidCapitalPartner } from '@/lib/api-authz';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
 
@@ -29,6 +29,9 @@ export async function POST(request: NextRequest) {
     // Block recruiters - they can't access Explore so shouldn't submit feedback
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
+
+    const cpForbidden = forbidCapitalPartner(permissions);
+    if (cpForbidden) return cpForbidden;
 
     // 2. Parse request body
     const body = await request.json();

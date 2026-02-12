@@ -12,7 +12,7 @@ import { logger } from '@/lib/logger';
 import { runQuery } from '@/lib/bigquery';
 import Anthropic from '@anthropic-ai/sdk';
 import { getSessionPermissions } from '@/types/auth';
-import { forbidRecruiter } from '@/lib/api-authz';
+import { forbidRecruiter, forbidCapitalPartner } from '@/lib/api-authz';
 
 export const dynamic = 'force-dynamic';
 
@@ -126,6 +126,9 @@ export async function POST(request: NextRequest) {
     // Block recruiters from Explore/agent queries
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
+
+    const cpForbidden = forbidCapitalPartner(permissions);
+    if (cpForbidden) return cpForbidden;
 
     // 2. Parse request
     const body: AgentRequest = await request.json();

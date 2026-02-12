@@ -2591,7 +2591,10 @@ function compileGenericDetailList(params: TemplateSelection['parameters']): Comp
       v.StageName as stage,
       ARRAY_TO_STRING(v.Experimentation_Tag_List, ', ') as experimentation_tag,
       v.lead_url,
-      v.opportunity_url
+      v.opportunity_url,
+      v.lead_record_source as prospect_source_type,
+      v.Previous_Recruiting_Opportunity_ID__c as origin_recruiting_opp_id,
+      v.origin_opportunity_url
     FROM \`${CONSTANTS.FULL_TABLE}\` v
     ${userJoin}
     WHERE ${metricFilter}${dateFilterSql}

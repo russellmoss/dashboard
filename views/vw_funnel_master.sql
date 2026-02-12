@@ -23,6 +23,13 @@ WITH Lead_Base AS (
     Next_Steps__c AS Lead_Next_Steps__c,
     Initial_Call_Scheduled_Date__c,
     Stage_Entered_Closed__c AS lead_closed_date,  -- WHEN the lead was closed (timestamp for period-resolved)
+    CAST(NULL AS STRING) AS Previous_Recruiting_Opportunity_ID__c,
+    CAST(NULL AS STRING) AS ContactId,
+    'Lead' AS lead_record_source,
+    CAST(NULL AS STRING) AS lead_StageName,  -- Re-Engagement-only: use Re-Engagement opp StageName via COALESCE in Combined
+    CAST(NULL AS STRING) AS lead_Closed_Lost_Reason__c,
+    CAST(NULL AS STRING) AS lead_Closed_Lost_Details__c,
+
     --##TODO## Talk to Kenji on how we get campaigns in here (if we want) or if we should bring in UTM Parameters
 
     -- FilterDate: Handles recycled leads by taking the most recent of creation or stage entry
@@ -35,10 +42,8 @@ WITH Lead_Base AS (
   FROM `savvy-gtm-analytics.SavvyGTMData.Lead`
 ),
 
--- All campaign memberships per lead (from CampaignMember). Every campaign a lead belongs to
--- is included so the dashboard can filter by ANY campaign.
--- CampaignMember synced to SavvyGTMData as of 2026-02-07.
-Campaign_Member_Agg AS (
+-- Campaign memberships by Lead (unchanged behavior for Lead-based prospects)
+Campaign_Member_Agg_By_Lead AS (
   SELECT
     LeadId,
     ARRAY_AGG(STRUCT(CampaignId AS id, CampaignName AS name) ORDER BY CampaignId) AS all_campaigns
@@ -55,6 +60,113 @@ Campaign_Member_Agg AS (
       AND cm.CampaignId IS NOT NULL
   )
   GROUP BY LeadId
+),
+
+-- Campaign memberships by Contact (for Re-Engagement opps; no Lead in funnel row)
+Campaign_Member_Agg_By_Contact AS (
+  SELECT
+    ContactId,
+    ARRAY_AGG(STRUCT(CampaignId AS id, CampaignName AS name) ORDER BY CampaignId) AS all_campaigns
+  FROM (
+    SELECT DISTINCT
+      cm.ContactId,
+      cm.CampaignId,
+      c.Name AS CampaignName
+    FROM `savvy-gtm-analytics.SavvyGTMData.CampaignMember` cm
+    LEFT JOIN `savvy-gtm-analytics.SavvyGTMData.Campaign` c
+      ON c.Id = cm.CampaignId AND c.IsDeleted = FALSE
+    WHERE cm.IsDeleted = FALSE
+      AND cm.ContactId IS NOT NULL
+      AND cm.CampaignId IS NOT NULL
+  )
+  GROUP BY ContactId
+),
+
+ReEngagement_As_Lead AS (
+  SELECT
+    -- 1. Full_prospect_id__c
+    Full_Opportunity_ID__c AS Full_prospect_id__c,
+    -- 2. Prospect_Name
+    Name AS Prospect_Name,
+    -- 3. converted_oppty_id (NEW Recruiting opp created on conversion)
+    Created_Recruiting_Opportunity_ID__c AS converted_oppty_id,
+    -- 4. CreatedDate
+    CreatedDate,
+    -- 5. Lead_OwnerId
+    OwnerId AS Lead_OwnerId,
+    -- 6. Lead_Original_Source
+    Final_Source__c AS Lead_Original_Source,
+    -- 7. Final_Source
+    Final_Source__c AS Final_Source,
+    -- 8. Lead_Finance_View__c
+    Finance_View__c AS Lead_Finance_View__c,
+
+    -- ════════════════════════════════════════════════════════════════
+    -- STAGE MAPPING: Re-Engagement stages → Lead funnel date fields
+    -- ════════════════════════════════════════════════════════════════
+    -- 9. stage_entered_contacting__c (Outreach → Contacted)
+    Stage_Entered_Outreach__c AS stage_entered_contacting__c,
+    -- 10. mql_stage_entered_ts (Call Scheduled → MQL)
+    Stage_Entered_Call_Scheduled__c AS mql_stage_entered_ts,
+    -- 11. converted_date_raw (Re-Engaged → SQL); cast to DATE to match Lead.ConvertedDate in UNION
+    DATE(Stage_Entered_Re_Engaged__c) AS converted_date_raw,
+    -- 12. IsConverted (TRUE when conversion link to new Recruiting opp exists)
+    CASE
+      WHEN Created_Recruiting_Opportunity_ID__c IS NOT NULL THEN TRUE
+      ELSE FALSE
+    END AS IsConverted,
+
+    -- 13. Disposition__c (not applicable)
+    CAST(NULL AS STRING) AS Disposition__c,
+    -- 14. DoNotCall (not applicable)
+    FALSE AS DoNotCall,
+    -- 15. stage_entered_new__c (Planned Nurture or CreatedDate)
+    COALESCE(Stage_Entered_Planned_Nurture__c, CreatedDate) AS stage_entered_new__c,
+
+    -- 16. Lead_Experimentation_Tag__c
+    Experimentation_Tag__c AS Lead_Experimentation_Tag__c,
+    -- 17. Lead_Campaign_Id__c
+    CampaignId AS Lead_Campaign_Id__c,
+    -- 18. Lead_Score_Tier__c (not applicable)
+    CAST(NULL AS STRING) AS Lead_Score_Tier__c,
+    -- 19. Lead_External_Agency__c
+    External_Agency__c AS Lead_External_Agency__c,
+    -- 20. Lead_SGA_Owner_Name__c
+    Opportunity_Owner_Name__c AS Lead_SGA_Owner_Name__c,
+    -- 21. Lead_Next_Steps__c (not applicable)
+    CAST(NULL AS STRING) AS Lead_Next_Steps__c,
+    -- 22. Initial_Call_Scheduled_Date__c (not applicable)
+    CAST(NULL AS DATE) AS Initial_Call_Scheduled_Date__c,
+    -- 23. lead_closed_date
+    Stage_Entered_Closed__c AS lead_closed_date,
+
+    -- 24. Previous_Recruiting_Opportunity_ID__c (origin link for drilldown)
+    Previous_Recruiting_Opportunity_ID__c,
+    -- 25. ContactId (for campaign membership join)
+    ContactId,
+    -- 26. lead_record_source (marker for Re-Engagement vs Lead)
+    'Re-Engagement' AS lead_record_source,
+    -- 26b. lead_StageName (Re-Engagement opp's own StageName for Conversion_Status/TOF_Stage when no Recruiting opp joined)
+    StageName AS lead_StageName,
+    Closed_Lost_Reason__c AS lead_Closed_Lost_Reason__c,
+    Closed_Lost_Details__c AS lead_Closed_Lost_Details__c,
+
+    -- 27. Lead_FilterDate
+    GREATEST(
+      IFNULL(CreatedDate, TIMESTAMP('1900-01-01')),
+      IFNULL(Stage_Entered_Planned_Nurture__c, TIMESTAMP('1900-01-01')),
+      IFNULL(Stage_Entered_Outreach__c, TIMESTAMP('1900-01-01'))
+    ) AS Lead_FilterDate
+
+  FROM `savvy-gtm-analytics.SavvyGTMData.Opportunity`
+  WHERE RecordTypeId = '012VS000009VoxrYAC'
+    AND (IsDeleted IS NULL OR IsDeleted = FALSE)
+),
+
+All_Leads AS (
+  SELECT * FROM Lead_Base
+  UNION ALL
+  SELECT * FROM ReEngagement_As_Lead
 ),
 
 Opp_Base AS (
@@ -90,7 +202,7 @@ Opp_Base AS (
     NextStep AS Opp_NextStep
 
   FROM `savvy-gtm-analytics.SavvyGTMData.Opportunity`
-  WHERE RecordTypeId IN ('012Dn000000mrO3IAI', '012VS000009VoxrYAC')
+  WHERE RecordTypeId = '012Dn000000mrO3IAI'  -- Recruiting only
 ),
 
 -- Join leads and opportunities
@@ -168,13 +280,13 @@ Combined AS (
     CASE WHEN LOWER(o.SQO_raw) = 'yes' THEN 1 ELSE 0 END AS is_sqo,
     CASE WHEN o.advisor_join_date__c IS NOT NULL OR o.StageName = 'Joined' THEN 1 ELSE 0 END AS is_joined,
     
-    -- Stage Info
-    o.StageName,
+    -- Stage Info (Re-Engagement-only: use lead_StageName when no Recruiting opp joined so Closed Lost / close date is reflected)
+    COALESCE(o.StageName, l.lead_StageName) AS StageName,
     o.SQO_raw,
     l.Disposition__c,
     l.DoNotCall,
-    o.Closed_Lost_Reason__c,
-    o.Closed_Lost_Details__c,
+    COALESCE(o.Closed_Lost_Reason__c, l.lead_Closed_Lost_Reason__c) AS Closed_Lost_Reason__c,
+    COALESCE(o.Closed_Lost_Details__c, l.lead_Closed_Lost_Details__c) AS Closed_Lost_Details__c,
     
     -- AUM
     COALESCE(o.Underwritten_AUM__c, o.Amount) AS Opportunity_AUM,
@@ -189,19 +301,37 @@ Combined AS (
     l.Lead_Campaign_Id__c,
     o.Opp_Campaign_Id__c,
     -- All campaigns this lead is a member of (from CampaignMember); filter by ANY campaign
-    cma.all_campaigns AS all_campaigns,
+    COALESCE(cma_lead.all_campaigns, cma_contact.all_campaigns) AS all_campaigns,
     
     -- Record Classification
     o.RecordTypeId AS recordtypeid,
-    l.Lead_Score_Tier__c
-    
-  FROM Lead_Base l
+    l.Lead_Score_Tier__c,
+
+    -- Re-Engagement origin link (for drilldown)
+    l.Previous_Recruiting_Opportunity_ID__c,
+
+    -- Source type marker (Lead vs Re-Engagement)
+    l.lead_record_source,
+
+    -- Origin opportunity URL for drilldown
+    CASE
+      WHEN l.Previous_Recruiting_Opportunity_ID__c IS NOT NULL
+      THEN CONCAT(
+        'https://savvywealth.lightning.force.com/lightning/r/Opportunity/',
+        l.Previous_Recruiting_Opportunity_ID__c,
+        '/view'
+      )
+      ELSE NULL
+    END AS origin_opportunity_url,
+
+  FROM All_Leads l
   FULL OUTER JOIN Opp_Base o
     ON l.converted_oppty_id = o.Full_Opportunity_ID__c
-  LEFT JOIN Campaign_Member_Agg cma
-    ON cma.LeadId = l.Full_prospect_id__c
-    --##TODO## In the future we may need to create a view of re-engagement opportunities and have them look like
-    -- 'leads' where they 'convert' into Recruiting Type Opportunities.
+  LEFT JOIN Campaign_Member_Agg_By_Lead cma_lead
+    ON cma_lead.LeadId = l.Full_prospect_id__c
+  LEFT JOIN Campaign_Member_Agg_By_Contact cma_contact
+    ON cma_contact.ContactId = l.ContactId
+    AND l.lead_record_source = 'Re-Engagement'
 ),
 
 -- Add Channel Mapping (using Finance_View__c directly from Salesforce records)
@@ -300,9 +430,10 @@ Final AS (
       ELSE 'Open'
     END AS Conversion_Status,
     
-    -- TOF Stage (highest stage reached)
+    -- TOF Stage (highest stage reached; Re-Engagement Closed Lost reflected as Closed)
     CASE
       WHEN advisor_join_date__c IS NOT NULL OR StageName = 'Joined' THEN 'Joined'
+      WHEN StageName = 'Closed Lost' THEN 'Closed'
       WHEN LOWER(SQO_raw) = 'yes' THEN 'SQO'
       WHEN is_sql = 1 THEN 'SQL'
       WHEN is_mql = 1 THEN 'MQL'
@@ -320,16 +451,18 @@ Final AS (
       WHEN StageName = 'On Hold' THEN 6
       WHEN StageName = 'Closed Lost' THEN 7
       WHEN StageName = 'Joined' THEN 8
-      WHEN StageName = 'Planned Nurture' THEN 9
       ELSE NULL
     END AS StageName_code,
     
-    -- Record Type Name
-    CASE 
+    -- Record Type Name (Re-Engagement-only rows have recordtypeid NULL; use lead_record_source)
+    CASE
+      WHEN wsl.lead_record_source = 'Re-Engagement' THEN 'Re-Engagement'
       WHEN recordtypeid = '012Dn000000mrO3IAI' THEN 'Recruiting'
-      WHEN recordtypeid = '012VS000009VoxrYAC' THEN 'Re-Engagement'
       ELSE 'Unknown'
     END AS record_type_name,
+
+    -- Source pathway: Lead or Re-Engagement (use wsl. — Final reads from With_Campaign_Name)
+    wsl.lead_record_source AS prospect_source_type,
     
     -- Experiment Tag Array (for unnesting in specialized views)
     ARRAY(

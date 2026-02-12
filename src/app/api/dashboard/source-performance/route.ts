@@ -4,7 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { getChannelPerformance, getSourcePerformance } from '@/lib/queries/source-performance';
 import { getChannelForecastGoals, getSourceForecastGoals } from '@/lib/queries/forecast-goals';
 import { getSessionPermissions } from '@/types/auth';
-import { forbidRecruiter } from '@/lib/api-authz';
+import { forbidRecruiter, forbidCapitalPartner } from '@/lib/api-authz';
 import { DashboardFilters } from '@/types/filters';
 import { 
   ChannelPerformance, 
@@ -57,7 +57,10 @@ export async function POST(request: NextRequest) {
     // Block recruiters from main dashboard endpoints
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
-    
+
+    const cpForbidden = forbidCapitalPartner(permissions);
+    if (cpForbidden) return cpForbidden;
+
     const body = await request.json();
     const filters: DashboardFilters = body.filters;
     const groupBy: 'channel' | 'source' = body.groupBy || 'source';

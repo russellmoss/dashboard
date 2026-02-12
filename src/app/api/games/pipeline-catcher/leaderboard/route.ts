@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions, getSessionUserId } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
-import { forbidRecruiter } from '@/lib/api-authz';
+import { forbidRecruiter, forbidCapitalPartner } from '@/lib/api-authz';
 import prisma from '@/lib/prisma';
 import { LeaderboardApiResponse, SubmitScoreRequest, SubmitScoreResponse, LeaderboardEntry } from '@/types/game';
 
@@ -31,6 +31,9 @@ export async function GET(request: NextRequest) {
     // Block recruiters from games
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
+
+    const cpForbidden = forbidCapitalPartner(permissions);
+    if (cpForbidden) return cpForbidden;
 
     const quarter = new URL(request.url).searchParams.get('quarter');
     if (!quarter) {
@@ -88,6 +91,9 @@ export async function POST(request: NextRequest) {
     // Block recruiters from games
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
+
+    const cpForbidden = forbidCapitalPartner(permissions);
+    if (cpForbidden) return cpForbidden;
 
     const body: SubmitScoreRequest = await request.json();
     const { quarter, score, advisorsCaught, joinedCaught, ghostsHit, gameDuration, message } = body;
@@ -162,6 +168,9 @@ export async function PATCH(request: NextRequest) {
     // Block recruiters from games
     const forbidden = forbidRecruiter(permissions);
     if (forbidden) return forbidden;
+
+    const cpForbidden = forbidCapitalPartner(permissions);
+    if (cpForbidden) return cpForbidden;
 
     const body = await request.json();
     const { scoreId, message } = body as { scoreId: string; message?: string };
