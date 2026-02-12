@@ -2,12 +2,13 @@ import bcrypt from 'bcryptjs';
 import type { Prisma } from '@prisma/client';
 import prisma from './prisma';
 import { logger } from './logger';
+import type { UserRole } from '@/types/user';
 
 export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'admin' | 'manager' | 'sgm' | 'sga' | 'viewer' | 'recruiter';
+  role: UserRole;
   isActive?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
