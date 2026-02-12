@@ -1,5 +1,5 @@
 // Role type used across all user interfaces
-export type UserRole = 'admin' | 'manager' | 'sgm' | 'sga' | 'viewer' | 'recruiter' | 'revops_admin';
+export type UserRole = 'admin' | 'manager' | 'sgm' | 'sga' | 'viewer' | 'recruiter' | 'revops_admin' | 'capital_partner';
 
 export interface User {
   id: string;
@@ -20,6 +20,7 @@ export interface UserPermissions {
   sgaFilter: string | null;  // If SGA, filter to their records
   sgmFilter: string | null;  // If SGM, filter to their team
   recruiterFilter: string | null;  // If recruiter, filter to their agency
+  capitalPartnerFilter?: string | null;  // If capital_partner, filter to their company (stored in externalAgency)
   canExport: boolean;
   canManageUsers: boolean;
   canManageRequests: boolean;  // RevOps Admin only - manage Dashboard Requests

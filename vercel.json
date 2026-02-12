@@ -4,9 +4,15 @@
     "src/app/api/agent/query/route.ts": { "maxDuration": 60 },
     "src/app/api/admin/trigger-transfer/route.ts": { "maxDuration": 60 },
     "src/app/api/cron/trigger-transfer/route.ts": { "maxDuration": 60 },
-    "src/app/api/cron/geocode-advisors/route.ts": { "maxDuration": 60 }
+    "src/app/api/cron/geocode-advisors/route.ts": { "maxDuration": 60 },
+    "src/app/api/cron/gc-hub-sync/route.ts": { "maxDuration": 60 },
+    "src/app/api/gc-hub/manual-sync/route.ts": { "maxDuration": 60 }
   },
   "crons": [
+    {
+      "path": "/api/cron/gc-hub-sync",
+      "schedule": "30 6 * * *"
+    },
     {
       "path": "/api/cron/geocode-advisors",
       "schedule": "0 5 * * *"

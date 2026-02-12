@@ -67,6 +67,48 @@ export class ApiError extends Error {
   }
 }
 
+// GC Hub types (client-side mirror of server types)
+export interface GcPeriodSummary {
+  period: string;
+  periodStart: string;
+  totalRevenue: number;
+  totalCommissions: number;
+  totalAmountEarned: number;
+  activeAdvisorCount: number;
+  revenuePerAdvisor: number;
+}
+
+export interface GcAdvisorRow {
+  advisorName: string;
+  accountName: string | null;
+  orionRepresentativeId: string | null;
+  period: string;
+  periodStart: string;
+  grossRevenue: number | null;
+  commissionsPaid: number | null;
+  amountEarned: number | null;
+  billingFrequency: string | null;
+  billingStyle: string | null;
+  dataSource: string;
+  isManuallyOverridden: boolean;
+}
+
+export interface GcAdvisorDetail {
+  advisorName: string;
+  accountName: string | null;
+  orionRepresentativeId: string | null;
+  billingFrequency: string | null;
+  billingStyle: string | null;
+  periods: {
+    period: string;
+    periodStart: string;
+    grossRevenue: number | null;
+    commissionsPaid: number | null;
+    amountEarned: number | null;
+    dataSource: string;
+  }[];
+}
+
 /**
  * Get the base URL for API requests.
  * Returns empty string for client-side (browser) to use relative URLs.
@@ -810,6 +852,84 @@ export const recruiterHubApi = {
 
   getSgmOptions: () =>
     apiFetch<{ sgms: string[] }>('/api/recruiter-hub/opportunities'),
+};
+
+/**
+ * GC Hub API client
+ */
+export const gcHubApi = {
+  getSummary: (filters: {
+    startDate?: string;
+    endDate?: string;
+    accountNames?: string[];
+    advisorNames?: string[];
+    billingFrequency?: string;
+  }) =>
+    apiFetch<{ summary: GcPeriodSummary[] }>('/api/gc-hub/summary', {
+      method: 'POST',
+      body: JSON.stringify(filters),
+    }),
+
+  getAdvisors: (filters: {
+    startDate?: string;
+    endDate?: string;
+    accountNames?: string[];
+    advisorNames?: string[];
+    billingFrequency?: string;
+    sortBy?: string;
+    sortDir?: 'asc' | 'desc';
+    search?: string;
+  }) =>
+    apiFetch<{ records: GcAdvisorRow[]; count: number; isAnonymized: boolean }>(
+      '/api/gc-hub/advisors',
+      {
+        method: 'POST',
+        body: JSON.stringify(filters),
+      }
+    ),
+
+  getAdvisorDetail: (advisorName: string) =>
+    apiFetch<{ advisor: GcAdvisorDetail }>('/api/gc-hub/advisor-detail', {
+      method: 'POST',
+      body: JSON.stringify({ advisorName }),
+    }),
+
+  getFilterOptions: () =>
+    apiFetch<{
+      accountNames: string[];
+      advisorNames: string[];
+      advisorsByAccount: Record<string, string[]>;
+      periods: string[];
+      billingFrequencies: string[];
+    }>('/api/gc-hub/filters', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  getSyncStatus: () =>
+    apiFetch<{
+      lastSync: string | null;
+      lastSyncType: string | null;
+      lastSyncStatus: string | null;
+      totalRecords: number;
+    }>('/api/gc-hub/sync-status'),
+
+  overrideValue: (data: {
+    recordId: string;
+    grossRevenue?: number;
+    commissionsPaid?: number;
+    reason: string;
+  }) =>
+    apiFetch<{ success: boolean; record: any }>('/api/gc-hub/override', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  triggerSync: () =>
+    apiFetch<{ success: boolean; message: string }>('/api/gc-hub/manual-sync', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
 };
 
 /**

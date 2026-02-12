@@ -10,17 +10,17 @@ export interface TokenUserData {
   externalAgency?: string | null;
 }
 
-const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmFilter' | 'recruiterFilter' | 'userId'>> = {
+export const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmFilter' | 'recruiterFilter' | 'capitalPartnerFilter' | 'userId'>> = {
   revops_admin: {
     role: 'revops_admin',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15],  // All pages + 14 = Chart Builder, 15 = Advisor Map
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],  // All pages + 14 = Chart Builder, 15 = Advisor Map, 16 = GC Hub
     canExport: true,
     canManageUsers: true,
     canManageRequests: true,  // Only role that can manage requests
   },
   admin: {
     role: 'admin',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15],  // 15 = Advisor Map (Chart Builder restricted to revops_admin)
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 16],  // 15 = Advisor Map, 16 = GC Hub (Chart Builder restricted to revops_admin)
     canExport: true,
     canManageUsers: true,
     canManageRequests: false,
@@ -60,6 +60,13 @@ const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmF
     canManageUsers: false,
     canManageRequests: false,
   },
+  capital_partner: {
+    role: 'capital_partner',
+    allowedPages: [7, 16],  // Settings (7) + GC Hub (16) only
+    canExport: true,         // Can export anonymized CSV
+    canManageUsers: false,
+    canManageRequests: false,
+  },
 };
 
 /**
@@ -75,6 +82,7 @@ export function getPermissionsFromToken(tokenData: TokenUserData): UserPermissio
     sgaFilter: tokenData.role === 'sga' ? tokenData.name : null,
     sgmFilter: tokenData.role === 'sgm' ? tokenData.name : null,
     recruiterFilter: tokenData.role === 'recruiter' ? (tokenData.externalAgency ?? null) : null,
+    capitalPartnerFilter: tokenData.role === 'capital_partner' ? (tokenData.externalAgency ?? null) : null,
     userId: tokenData.id,
   };
 }
@@ -94,6 +102,7 @@ export async function getUserPermissions(email: string): Promise<UserPermissions
       sgaFilter: null,
       sgmFilter: null,
       recruiterFilter: null,
+      capitalPartnerFilter: null,
       canExport: false,
       canManageUsers: false,
       canManageRequests: false,
@@ -108,6 +117,7 @@ export async function getUserPermissions(email: string): Promise<UserPermissions
     sgaFilter: user.role === 'sga' ? user.name : null,
     sgmFilter: user.role === 'sgm' ? user.name : null,
     recruiterFilter: user.role === 'recruiter' ? (user.externalAgency ?? null) : null,
+    capitalPartnerFilter: user.role === 'capital_partner' ? (user.externalAgency ?? null) : null,
     userId: user.id,
   };
 }

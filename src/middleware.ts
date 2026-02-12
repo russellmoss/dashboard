@@ -55,6 +55,20 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(redirectUrl);
       }
     }
+
+    // Default-deny for capital partners: they may only access GC Hub + Settings in dashboard.
+    if (role === 'capital_partner') {
+      const allowed =
+        pathname.startsWith('/dashboard/gc-hub') ||
+        pathname.startsWith('/dashboard/settings');
+
+      if (!allowed) {
+        const redirectUrl = request.nextUrl.clone();
+        redirectUrl.pathname = '/dashboard/gc-hub';
+        redirectUrl.search = '';
+        return NextResponse.redirect(redirectUrl);
+      }
+    }
   }
 
   // If no token and trying to access API routes, return 401
@@ -78,6 +92,18 @@ export async function middleware(request: NextRequest) {
       pathname === '/api/dashboard/data-freshness';
 
     if (role === 'recruiter' && !allowlisted) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // Capital partners are blocked from ALL /api/* by default,
+    // except explicit allowlist required for GC Hub + Settings + approved shared endpoints.
+    const capitalPartnerAllowlisted =
+      pathname.startsWith('/api/auth') ||
+      pathname.startsWith('/api/gc-hub') ||
+      pathname === '/api/users/me/change-password' ||
+      pathname === '/api/dashboard/data-freshness';
+
+    if (role === 'capital_partner' && !capitalPartnerAllowlisted) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
   }
