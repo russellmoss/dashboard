@@ -15,6 +15,10 @@ interface GCHubFilterBarProps {
   isAdmin: boolean;
   isCapitalPartner?: boolean;
   isLoading?: boolean;
+  /** When set (e.g. for Capital Partner), the From date cannot be earlier than this. */
+  minStartDate?: string;
+  /** When set (e.g. for Capital Partner), Clear resets start date to this instead of GC default. */
+  defaultStartDate?: string;
 }
 
 export function GCHubFilterBar({
@@ -24,19 +28,22 @@ export function GCHubFilterBar({
   isAdmin,
   isCapitalPartner = false,
   isLoading = false,
+  minStartDate,
+  defaultStartDate,
 }: GCHubFilterBarProps) {
   const [expanded, setExpanded] = useState(false);
 
   const defaultEnd = getDefaultEndDate();
+  const effectiveDefaultStart = defaultStartDate ?? GC_DEFAULT_DATE_RANGE.startDate;
   const hasActiveFilters =
     filters.accountNames.length > 0 ||
     filters.advisorNames.length > 0 ||
-    filters.startDate !== GC_DEFAULT_DATE_RANGE.startDate ||
+    filters.startDate !== effectiveDefaultStart ||
     filters.endDate !== defaultEnd;
 
   const clearFilters = () => {
     onFilterChange({
-      startDate: GC_DEFAULT_DATE_RANGE.startDate,
+      startDate: effectiveDefaultStart,
       endDate: getDefaultEndDate(),
       accountNames: [],
       advisorNames: [],
@@ -48,7 +55,7 @@ export function GCHubFilterBar({
   const activeFilterCount = [
     filters.accountNames.length > 0,
     filters.advisorNames.length > 0,
-    filters.startDate !== GC_DEFAULT_DATE_RANGE.startDate || filters.endDate !== defaultEnd,
+    filters.startDate !== effectiveDefaultStart || filters.endDate !== defaultEnd,
   ].filter(Boolean).length;
 
   return (
@@ -60,6 +67,7 @@ export function GCHubFilterBar({
           <input
             id="gc-filter-start-date"
             type="date"
+            min={minStartDate}
             value={filters.startDate}
             onChange={(e) => onFilterChange({ ...filters, startDate: e.target.value })}
             className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"

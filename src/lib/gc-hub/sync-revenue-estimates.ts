@@ -11,7 +11,16 @@ import {
 } from '@/lib/gc-hub/data-utils';
 import { logger } from '@/lib/logger';
 
-const REVENUE_ESTIMATES_ID = process.env.GC_REVENUE_ESTIMATES_SHEET_ID!;
+/** Throws if GC_REVENUE_ESTIMATES_SHEET_ID is not set (e.g. on Vercel). Call at start of sync. */
+function getRevenueEstimatesSheetId(): string {
+  const id = process.env.GC_REVENUE_ESTIMATES_SHEET_ID;
+  if (!id || !id.trim()) {
+    throw new Error(
+      'GC_REVENUE_ESTIMATES_SHEET_ID is not set. Add it in Vercel (Project Settings → Environment Variables) to enable GC Hub live sync.'
+    );
+  }
+  return id.trim();
+}
 
 const MONTH_NAMES = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -57,7 +66,8 @@ function findColumnByHeader(
 export async function discoverAvailableMonths(): Promise<
   { month: string; year: number; tabName: string }[]
 > {
-  const meta = await getMetadata(REVENUE_ESTIMATES_ID);
+  const spreadsheetId = getRevenueEstimatesSheetId();
+  const meta = await getMetadata(spreadsheetId);
   const results: { month: string; year: number; tabName: string }[] = [];
 
   for (const sheet of meta.sheets) {
@@ -97,8 +107,9 @@ export async function syncMonth(
     errors: [],
   };
 
+  const spreadsheetId = getRevenueEstimatesSheetId();
   const rows = await getValues(
-    REVENUE_ESTIMATES_ID,
+    spreadsheetId,
     `'${tabName}'!A1:Z120`,
     'UNFORMATTED_VALUE'
   );
@@ -231,7 +242,7 @@ export async function syncMonth(
             grossRevenue,
             commissionsPaid,
             amountEarned,
-            sourceWorkbookId: REVENUE_ESTIMATES_ID,
+            sourceWorkbookId: spreadsheetId,
             sourceTab: tabName,
             dataSource: 'live_sync',
             lastSyncedAt: new Date(),
@@ -249,7 +260,7 @@ export async function syncMonth(
             grossRevenue,
             commissionsPaid,
             amountEarned,
-            sourceWorkbookId: REVENUE_ESTIMATES_ID,
+            sourceWorkbookId: spreadsheetId,
             sourceTab: tabName,
             dataSource: 'live_sync',
           },

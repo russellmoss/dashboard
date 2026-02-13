@@ -156,7 +156,7 @@ export function GCHubOverrideModal({
     } finally {
       setSubmitting(false);
     }
-  }, [periodId, advisorName, periodLabel, periodMonth, periodYear, revenue, commissions, reason, isAddMode, onSuccess, onClose]);
+  }, [periodId, advisorName, periodLabel, period, revenue, commissions, reason, isAddMode, onSuccess, onClose]);
 
   const modalTitleId = 'gc-override-modal-title';
   const isDeleteConfirmReady = deleteConfirmText.trim().toLowerCase() === 'delete';

@@ -25,6 +25,12 @@ export const GC_DEFAULT_DATE_RANGE = {
   startDate: '2022-10-01',
 } as const;
 
+/** Capital Partner: earliest date they can access (no 2022/2023 data). */
+export const GC_CP_MIN_START_DATE = '2024-01-01';
+
+/** Capital Partner: default filter start date. */
+export const GC_CP_DEFAULT_START_DATE = '2025-01-01';
+
 /**
  * Returns today's date in ISO date string form (YYYY-MM-DD).
  * Use when initializing filter state: endDate: getDefaultEndDate()

@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import type { UserPermissions } from '@/types/user';
+import { GC_CP_MIN_START_DATE } from '@/config/gc-hub-theme';
 
 // ============================================================
 // TYPES
@@ -100,6 +101,13 @@ function isCapitalPartner(permissions: UserPermissions): boolean {
   return permissions.role === 'capital_partner';
 }
 
+/** For Capital Partners, startDate cannot be before 2024-01-01. Admin/RevOps unchanged. */
+function effectiveStartDate(permissions: UserPermissions, startDate: string | undefined): string | undefined {
+  if (!startDate) return startDate;
+  if (!isCapitalPartner(permissions)) return startDate;
+  return startDate < GC_CP_MIN_START_DATE ? GC_CP_MIN_START_DATE : startDate;
+}
+
 /**
  * Gets a map from advisorNormalizedName -> accountName for advisors on multi-member teams.
  * Returns null for solo advisors. Uses GcAdvisorMapping as source of truth since
@@ -139,10 +147,11 @@ export async function getGcPeriodSummary(
 ): Promise<GcPeriodSummary[]> {
   const where: any = {};
 
-  // Date range filter
-  if (filters.startDate || filters.endDate) {
+  // Date range filter (Capital Partner: startDate clamped to 2024-01-01 minimum)
+  const start = effectiveStartDate(permissions, filters.startDate);
+  if (start || filters.endDate) {
     where.periodStart = {};
-    if (filters.startDate) where.periodStart.gte = new Date(filters.startDate);
+    if (start) where.periodStart.gte = new Date(start);
     if (filters.endDate) where.periodStart.lte = new Date(filters.endDate);
   }
 
@@ -241,10 +250,11 @@ export async function getGcAdvisorTable(
 ): Promise<GcAdvisorRow[]> {
   const where: any = {};
 
-  // Date range
-  if (filters.startDate || filters.endDate) {
+  // Date range (Capital Partner: startDate clamped to 2024-01-01 minimum)
+  const start = effectiveStartDate(permissions, filters.startDate);
+  if (start || filters.endDate) {
     where.periodStart = {};
-    if (filters.startDate) where.periodStart.gte = new Date(filters.startDate);
+    if (start) where.periodStart.gte = new Date(start);
     if (filters.endDate) where.periodStart.lte = new Date(filters.endDate);
   }
 
@@ -394,10 +404,16 @@ export async function getGcAdvisorDetail(
     realAdvisorName = mapping.advisorNormalizedName;
   }
 
-  const records = await prisma.gcAdvisorPeriodData.findMany({
+  let records = await prisma.gcAdvisorPeriodData.findMany({
     where: { advisorNormalizedName: realAdvisorName },
     orderBy: { periodStart: 'asc' },
   });
+
+  // Capital Partner: only periods from 2024-01-01 onward (no 2022/2023)
+  if (isCapitalPartner(permissions)) {
+    const minDate = new Date(GC_CP_MIN_START_DATE);
+    records = records.filter((r) => r.periodStart >= minDate);
+  }
 
   if (records.length === 0) return null;
 
@@ -505,9 +521,13 @@ export async function getGcFilterOptions(
     .filter(([_, advisorList]) => advisorList.length > 1)
     .sort((a, b) => a[0].localeCompare(b[0]));
 
-  // Get distinct periods
+  // Get distinct periods (Capital Partner: only 2024-01-01 onward)
+  const periodWhere: any = { advisorNormalizedName: { notIn: excluded } };
+  if (isCapitalPartner(permissions)) {
+    periodWhere.periodStart = { gte: new Date(GC_CP_MIN_START_DATE) };
+  }
   const periods = await prisma.gcAdvisorPeriodData.findMany({
-    where: { advisorNormalizedName: { notIn: excluded } },
+    where: periodWhere,
     select: { period: true, periodStart: true },
     distinct: ['period'],
     orderBy: { periodStart: 'asc' },

@@ -77,9 +77,17 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     logger.error('[GC Hub] Manual sync failed:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    // Missing env on Vercel (or elsewhere) — return 503 so UI can show "not configured"
+    const isNotConfigured =
+      message.includes('GC_REVENUE_ESTIMATES_SHEET_ID') ||
+      message.includes('Missing required parameters: spreadsheetId');
     return NextResponse.json(
-      { error: 'Sync failed', details: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
+      {
+        error: isNotConfigured ? 'GC Hub live sync is not configured' : 'Sync failed',
+        details: message,
+      },
+      { status: isNotConfigured ? 503 : 500 }
     );
   }
 }

@@ -8,7 +8,7 @@ import { Title, Text, Card } from '@tremor/react';
 import { RefreshCw } from 'lucide-react';
 import type { UserPermissions } from '@/types/user';
 import type { GcHubTab, GcHubFilterState, GcHubFilterOptions, GcSyncStatus } from '@/types/gc-hub';
-import { GC_DEFAULT_DATE_RANGE, getDefaultEndDate } from '@/config/gc-hub-theme';
+import { GC_DEFAULT_DATE_RANGE, getDefaultEndDate, GC_CP_MIN_START_DATE, GC_CP_DEFAULT_START_DATE } from '@/config/gc-hub-theme';
 import { GCHubTabs } from '@/components/gc-hub/GCHubTabs';
 import { gcHubApi, type GcPeriodSummary, type GcAdvisorRow } from '@/lib/api-client';
 import { formatRelativeTime } from '@/lib/gc-hub/formatters';
@@ -66,6 +66,15 @@ export function GCHubContent() {
 
   // ── Selected Advisor (for drill-down modal) ──
   const [selectedAdvisor, setSelectedAdvisor] = useState<string | null>(null);
+
+  // Capital Partner: default start date 2025-01-01 and cannot go before 2024-01-01
+  useEffect(() => {
+    if (!permissions || !isCapitalPartner) return;
+    setFilters((prev) => {
+      if (prev.startDate >= GC_CP_MIN_START_DATE) return prev;
+      return { ...prev, startDate: prev.startDate === GC_DEFAULT_DATE_RANGE.startDate ? GC_CP_DEFAULT_START_DATE : GC_CP_MIN_START_DATE };
+    });
+  }, [permissions, isCapitalPartner]);
 
   // ── Fetch filter options (once) ──
   useEffect(() => {
@@ -228,11 +237,18 @@ export function GCHubContent() {
       {/* ── FilterBar ── */}
       <GCHubFilterBar
         filters={filters}
-        onFilterChange={setFilters}
+        onFilterChange={(newFilters) => {
+          if (isCapitalPartner && newFilters.startDate < GC_CP_MIN_START_DATE) {
+            newFilters = { ...newFilters, startDate: GC_CP_MIN_START_DATE };
+          }
+          setFilters(newFilters);
+        }}
         filterOptions={filterOptions}
         isAdmin={isAdmin}
         isCapitalPartner={isCapitalPartner}
         isLoading={loadingSummary}
+        minStartDate={isCapitalPartner ? GC_CP_MIN_START_DATE : undefined}
+        defaultStartDate={isCapitalPartner ? GC_CP_DEFAULT_START_DATE : undefined}
       />
 
       {/* ── AdminBar (admin only) ── */}
