@@ -100,12 +100,19 @@ export interface GcAdvisorDetail {
   billingFrequency: string | null;
   billingStyle: string | null;
   periods: {
+    id?: string;
     period: string;
     periodStart: string;
     grossRevenue: number | null;
     commissionsPaid: number | null;
     amountEarned: number | null;
     dataSource: string;
+    isManuallyOverridden?: boolean;
+    originalGrossRevenue?: number | null;
+    originalCommissionsPaid?: number | null;
+    overrideReason?: string | null;
+    overriddenBy?: string | null;
+    overriddenAt?: string | null;
   }[];
 }
 

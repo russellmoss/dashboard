@@ -435,12 +435,19 @@ export async function getGcAdvisorDetail(
     billingFrequency: first.billingFrequency,
     billingStyle: first.billingStyle,
     periods: records.map(r => ({
+      id: r.id,
       period: r.period,
       periodStart: r.periodStart.toISOString().split('T')[0],
       grossRevenue: r.grossRevenue,
       commissionsPaid: r.commissionsPaid,
       amountEarned: r.amountEarned,
       dataSource: r.dataSource,
+      isManuallyOverridden: r.isManuallyOverridden,
+      originalGrossRevenue: r.originalGrossRevenue,
+      originalCommissionsPaid: r.originalCommissionsPaid,
+      overrideReason: r.overrideReason,
+      overriddenBy: r.overriddenBy,
+      overriddenAt: r.overriddenAt?.toISOString() ?? null,
     })),
   };
 }

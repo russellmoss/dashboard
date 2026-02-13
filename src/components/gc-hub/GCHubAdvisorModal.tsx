@@ -2,14 +2,15 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, Title, Text, Metric } from '@tremor/react';
-import { X, Loader2, Download } from 'lucide-react';
+import { X, Loader2, Download, Pencil } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { CHART_COLORS } from '@/config/theme';
 import { GC_CHART_COLORS } from '@/config/gc-hub-theme';
 import { formatCurrency, formatPeriodLabel } from '@/lib/gc-hub/formatters';
 import { gcHubApi } from '@/lib/api-client';
+import { GCHubOverrideModal } from '@/components/gc-hub/GCHubOverrideModal';
 import {
   LineChart,
   Line,
@@ -24,14 +25,21 @@ import {
 interface GCHubAdvisorModalProps {
   advisorName: string;
   onClose: () => void;
+  canEdit?: boolean;
 }
 
-export function GCHubAdvisorModal({ advisorName, onClose }: GCHubAdvisorModalProps) {
+export function GCHubAdvisorModal({ advisorName, onClose, canEdit = false }: GCHubAdvisorModalProps) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
   const [detail, setDetail] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [overridePeriod, setOverridePeriod] = useState<{
+    id: string;
+    period: string;
+    grossRevenue: number | null;
+    commissionsPaid: number | null;
+  } | null>(null);
 
   useEffect(() => {
     async function fetchDetail() {
@@ -49,14 +57,20 @@ export function GCHubAdvisorModal({ advisorName, onClose }: GCHubAdvisorModalPro
     fetchDetail();
   }, [advisorName]);
 
-  // Close on Escape
+  // Close on Escape (override-aware: close override modal first, then drilldown)
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        if (overridePeriod) {
+          setOverridePeriod(null);
+        } else {
+          onClose();
+        }
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [onClose]);
+  }, [onClose, overridePeriod]);
 
   // Chart data from detail periods
   const chartData = detail?.periods
@@ -119,7 +133,23 @@ export function GCHubAdvisorModal({ advisorName, onClose }: GCHubAdvisorModalPro
 
   const modalTitleId = 'gc-advisor-modal-title';
 
+  const handleOverrideSuccess = useCallback(() => {
+    setOverridePeriod(null);
+    gcHubApi.getAdvisorDetail(advisorName).then((data) => setDetail(data.advisor)).catch(() => {});
+  }, [advisorName]);
+
   return (
+    <>
+      {overridePeriod && (
+        <GCHubOverrideModal
+          periodId={overridePeriod.id}
+          periodLabel={overridePeriod.period}
+          currentRevenue={overridePeriod.grossRevenue}
+          currentCommissions={overridePeriod.commissionsPaid}
+          onClose={() => setOverridePeriod(null)}
+          onSuccess={handleOverrideSuccess}
+        />
+      )}
     <div
       className="fixed inset-0 z-50 overflow-y-auto"
       role="dialog"
@@ -248,18 +278,48 @@ export function GCHubAdvisorModal({ advisorName, onClose }: GCHubAdvisorModalPro
                           <th scope="col" className="px-4 py-2 text-xs font-medium text-gray-600 dark:text-gray-400 text-right">Commissions</th>
                           <th scope="col" className="px-4 py-2 text-xs font-medium text-gray-600 dark:text-gray-400 text-right">Amount Earned</th>
                           <th scope="col" className="px-4 py-2 text-xs font-medium text-gray-600 dark:text-gray-400 text-left">Source</th>
+                          {canEdit && (
+                            <th scope="col" className="px-4 py-2 text-xs font-medium text-gray-600 dark:text-gray-400 text-right">Actions</th>
+                          )}
                         </tr>
                       </thead>
                       <tbody>
                         {detail.periods
                           .sort((a: any, b: any) => new Date(b.periodStart).getTime() - new Date(a.periodStart).getTime())
                           .map((p: any) => (
-                            <tr key={p.period} className="border-b border-gray-100 dark:border-gray-800">
-                              <td className="px-4 py-2 text-sm text-gray-900 dark:text-white">{formatPeriodLabel(p.period)}</td>
+                            <tr key={p.id ?? p.period} className="border-b border-gray-100 dark:border-gray-800">
+                              <td className="px-4 py-2 text-sm text-gray-900 dark:text-white">
+                                <span className="inline-flex items-center gap-1.5">
+                                  {formatPeriodLabel(p.period)}
+                                  {p.isManuallyOverridden && (
+                                    <span
+                                      className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400"
+                                      title={[p.overriddenBy, p.overriddenAt ? new Date(p.overriddenAt).toLocaleString() : null, p.overrideReason].filter(Boolean).join(' — ')}
+                                    >
+                                      Overridden
+                                    </span>
+                                  )}
+                                </span>
+                              </td>
                               <td className="px-4 py-2 text-sm text-gray-900 dark:text-white text-right font-mono">{formatCurrency(p.grossRevenue)}</td>
                               <td className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 text-right font-mono">{formatCurrency(p.commissionsPaid)}</td>
                               <td className="px-4 py-2 text-sm text-emerald-700 dark:text-emerald-400 text-right font-mono">{formatCurrency(p.amountEarned)}</td>
                               <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{p.dataSource}</td>
+                              {canEdit && (
+                                <td className="px-4 py-2 text-right">
+                                  {p.id ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setOverridePeriod({ id: p.id, period: p.period, grossRevenue: p.grossRevenue ?? null, commissionsPaid: p.commissionsPaid ?? null })}
+                                      className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                      title="Edit values"
+                                      aria-label="Edit values"
+                                    >
+                                      <Pencil className="w-4 h-4" />
+                                    </button>
+                                  ) : null}
+                                </td>
+                              )}
                             </tr>
                           ))}
                       </tbody>
@@ -272,5 +332,6 @@ export function GCHubAdvisorModal({ advisorName, onClose }: GCHubAdvisorModalPro
         </div>
       </div>
     </div>
+    </>
   );
 }

@@ -304,6 +304,7 @@ export function GCHubContent() {
         <GCHubAdvisorModal
           advisorName={selectedAdvisor}
           onClose={() => setSelectedAdvisor(null)}
+          canEdit={isAdmin}
         />
       )}
     </div>
