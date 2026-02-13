@@ -21,41 +21,69 @@ async function rateLimit(): Promise<void> {
   requestTimestamps.push(Date.now());
 }
 
+/**
+ * Try to fix GOOGLE_SHEETS_CREDENTIALS_JSON that was pasted with real newlines
+ * inside the private_key string (invalid JSON). Replaces literal newlines in the
+ * private_key value with the escaped sequence \n so JSON.parse can succeed.
+ */
+function tryFixCredentialsJson(raw: string): string {
+  // Match "private_key" : "..." — value may contain \", \\, or real newlines
+  const keyRegex = /"private_key"\s*:\s*"((?:[^"\\]|\\.)*)"/;
+  const match = raw.match(keyRegex);
+  if (!match) return raw;
+  const keyValue = match[1];
+  if (!/\n|\r/.test(keyValue)) return raw;
+  const fixed = keyValue
+    .replace(/\r\n?/g, '\\n')
+    .replace(/\n/g, '\\n')
+    .replace(/"/g, '\\"');
+  return raw.replace(match[0], `"private_key":"${fixed}"`);
+}
+
 function getAuthClient() {
   let credentials: any;
 
-  // Try environment variable first (Vercel deployment)
-  if (process.env.GOOGLE_SHEETS_CREDENTIALS_JSON) {
+  // Prefer file when set and present (local dev). Avoids broken GOOGLE_SHEETS_CREDENTIALS_JSON in .env.
+  const credPath = process.env.GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH
+    ? path.resolve(process.cwd(), process.env.GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH)
+    : null;
+  if (credPath && fs.existsSync(credPath)) {
     try {
-      credentials = JSON.parse(process.env.GOOGLE_SHEETS_CREDENTIALS_JSON);
+      credentials = JSON.parse(fs.readFileSync(credPath, 'utf-8'));
     } catch (error) {
       throw new Error(
-        'Failed to parse GOOGLE_SHEETS_CREDENTIALS_JSON: ' +
+        `Failed to read credentials from ${credPath}: ` +
           (error instanceof Error ? error.message : 'Unknown error')
       );
     }
   }
-  // Fall back to file (local development)
-  else if (process.env.GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH) {
-    const credPath = path.resolve(
-      process.cwd(),
-      process.env.GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH
-    );
-    if (fs.existsSync(credPath)) {
-      try {
-        credentials = JSON.parse(fs.readFileSync(credPath, 'utf-8'));
-      } catch (error) {
-        throw new Error(
-          `Failed to read credentials from ${credPath}: ` +
-            (error instanceof Error ? error.message : 'Unknown error')
-        );
+  // Else use environment variable (Vercel or when no file path)
+  else if (process.env.GOOGLE_SHEETS_CREDENTIALS_JSON) {
+    const raw = process.env.GOOGLE_SHEETS_CREDENTIALS_JSON;
+    try {
+      credentials = JSON.parse(raw);
+    } catch (firstError) {
+      const msg = firstError instanceof Error ? firstError.message : 'Unknown error';
+      const isControlChar = /control character|Unexpected token/.test(msg);
+      if (isControlChar) {
+        try {
+          credentials = JSON.parse(tryFixCredentialsJson(raw));
+        } catch (secondError) {
+          throw new Error(
+            'Failed to parse GOOGLE_SHEETS_CREDENTIALS_JSON (invalid JSON, often from pasting the key with real newlines). ' +
+              'Fix: use single-line JSON where the private_key uses \\n for line breaks, or set GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH to a .json file path instead. ' +
+              'Original error: ' + msg
+          );
+        }
+      } else {
+        throw new Error('Failed to parse GOOGLE_SHEETS_CREDENTIALS_JSON: ' + msg);
       }
-    } else {
-      throw new Error(`Credentials file not found at: ${credPath}`);
     }
-  } else {
+  } else if (credPath && !fs.existsSync(credPath)) {
+    throw new Error(`Credentials file not found at: ${credPath}`);
+  } else if (!credentials) {
     throw new Error(
-      'Google Sheets credentials not found. Set GOOGLE_SHEETS_CREDENTIALS_JSON (Vercel) or GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH (local)'
+      'Google Sheets credentials not found. Set GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH (local, path to .json file) or GOOGLE_SHEETS_CREDENTIALS_JSON (Vercel, single-line JSON)'
     );
   }
 
