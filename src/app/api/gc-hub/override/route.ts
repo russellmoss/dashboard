@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
+import { periodToStartDate } from '@/lib/gc-hub/data-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,14 +26,14 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { recordId, grossRevenue, commissionsPaid, reason } = body;
+    const { recordId, period: periodInput, grossRevenue, commissionsPaid, reason } = body;
 
     if (!recordId) {
       return NextResponse.json({ error: 'recordId is required' }, { status: 400 });
     }
 
-    if (grossRevenue === undefined && commissionsPaid === undefined) {
-      return NextResponse.json({ error: 'At least one value (grossRevenue or commissionsPaid) must be provided' }, { status: 400 });
+    if (grossRevenue === undefined && commissionsPaid === undefined && !periodInput) {
+      return NextResponse.json({ error: 'At least one value (period, grossRevenue, or commissionsPaid) must be provided' }, { status: 400 });
     }
 
     if (!reason || reason.trim() === '') {
@@ -55,6 +56,29 @@ export async function PUT(request: NextRequest) {
       overriddenBy: session.user.email,
       overriddenAt: new Date(),
     };
+
+    // Optional: update period (and periodStart)
+    if (periodInput != null && String(periodInput).trim() !== '') {
+      const newPeriod = String(periodInput).trim();
+      try {
+        const periodStartDate = periodToStartDate(newPeriod);
+        // Unique constraint is (advisorNormalizedName, period) — ensure no other record has this period for this advisor
+        const conflict = await prisma.gcAdvisorPeriodData.findFirst({
+          where: {
+            advisorNormalizedName: existing.advisorNormalizedName,
+            period: newPeriod,
+            id: { not: recordId },
+          },
+        });
+        if (conflict) {
+          return NextResponse.json({ error: `Another record already exists for period "${newPeriod}"` }, { status: 400 });
+        }
+        updateData.period = newPeriod;
+        updateData.periodStart = periodStartDate;
+      } catch {
+        return NextResponse.json({ error: 'Invalid period format. Use "Q1 2024" or "Jan 2026".' }, { status: 400 });
+      }
+    }
 
     // Store originals (only on first override — don't overwrite previous originals)
     if (!existing.isManuallyOverridden) {

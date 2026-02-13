@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Card, Title, Text, Metric } from '@tremor/react';
-import { X, Loader2, Download, Pencil } from 'lucide-react';
+import { X, Loader2, Download, Pencil, Plus } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { CHART_COLORS } from '@/config/theme';
 import { GC_CHART_COLORS } from '@/config/gc-hub-theme';
@@ -35,7 +35,7 @@ export function GCHubAdvisorModal({ advisorName, onClose, canEdit = false }: GCH
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [overridePeriod, setOverridePeriod] = useState<{
-    id: string;
+    id: string | null;
     period: string;
     grossRevenue: number | null;
     commissionsPaid: number | null;
@@ -143,6 +143,7 @@ export function GCHubAdvisorModal({ advisorName, onClose, canEdit = false }: GCH
       {overridePeriod && (
         <GCHubOverrideModal
           periodId={overridePeriod.id}
+          advisorName={detail?.advisorName ?? advisorName}
           periodLabel={overridePeriod.period}
           currentRevenue={overridePeriod.grossRevenue}
           currentCommissions={overridePeriod.commissionsPaid}
@@ -261,13 +262,27 @@ export function GCHubAdvisorModal({ advisorName, onClose, canEdit = false }: GCH
                 <Card className="dark:bg-gray-900 dark:border-gray-700 overflow-hidden">
                   <div className="flex items-center justify-between p-4">
                     <Title className="dark:text-white">Period Detail</Title>
-                    <button
-                      onClick={handleExportPeriodsCsv}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      <Download className="w-4 h-4" />
-                      Export ({detail.periods?.length || 0})
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => setOverridePeriod({ id: null, period: '', grossRevenue: null, commissionsPaid: null })}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-blue-600 dark:border-blue-500 rounded-lg text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                          title="Add period"
+                          aria-label="Add period"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Add period
+                        </button>
+                      )}
+                      <button
+                        onClick={handleExportPeriodsCsv}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                      >
+                        <Download className="w-4 h-4" />
+                        Export ({detail.periods?.length || 0})
+                      </button>
+                    </div>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full" aria-label="Period detail for advisor">

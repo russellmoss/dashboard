@@ -923,12 +923,25 @@ export const gcHubApi = {
 
   overrideValue: (data: {
     recordId: string;
+    period?: string;
     grossRevenue?: number;
     commissionsPaid?: number;
     reason: string;
   }) =>
     apiFetch<{ success: boolean; record: any }>('/api/gc-hub/override', {
       method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  createPeriod: (data: {
+    advisorName: string;
+    period: string;
+    grossRevenue?: number;
+    commissionsPaid?: number;
+    reason: string;
+  }) =>
+    apiFetch<{ success: boolean; record: any }>('/api/gc-hub/period', {
+      method: 'POST',
       body: JSON.stringify(data),
     }),
 
