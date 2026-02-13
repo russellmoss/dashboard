@@ -945,6 +945,12 @@ export const gcHubApi = {
       body: JSON.stringify(data),
     }),
 
+  deletePeriod: (recordId: string) =>
+    apiFetch<{ success: boolean }>('/api/gc-hub/period', {
+      method: 'DELETE',
+      body: JSON.stringify({ recordId }),
+    }),
+
   triggerSync: () =>
     apiFetch<{ success: boolean; message: string }>('/api/gc-hub/manual-sync', {
       method: 'POST',

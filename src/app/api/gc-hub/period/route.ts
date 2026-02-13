@@ -127,3 +127,63 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+/**
+ * DELETE /api/gc-hub/period — Delete a period row by recordId.
+ * Admin/RevOps only. Body: recordId.
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const permissions = getSessionPermissions(session);
+    if (!permissions) {
+      return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
+    }
+
+    if (permissions.role !== 'admin' && permissions.role !== 'revops_admin') {
+      return NextResponse.json({ error: 'Forbidden — only Admin and RevOps can delete periods' }, { status: 403 });
+    }
+
+    if (!permissions.allowedPages.includes(16)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const { recordId } = body;
+
+    if (!recordId || typeof recordId !== 'string' || recordId.trim() === '') {
+      return NextResponse.json({ error: 'recordId is required' }, { status: 400 });
+    }
+
+    const existing = await prisma.gcAdvisorPeriodData.findUnique({
+      where: { id: recordId.trim() },
+    });
+
+    if (!existing) {
+      return NextResponse.json({ error: 'Record not found' }, { status: 404 });
+    }
+
+    await prisma.gcAdvisorPeriodData.delete({
+      where: { id: recordId.trim() },
+    });
+
+    logger.info('[GC Hub] Period deleted', {
+      recordId: recordId.trim(),
+      advisorName: existing.advisorNormalizedName,
+      period: existing.period,
+      deletedBy: session.user.email,
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    logger.error('Error in GC Hub delete period:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete period' },
+      { status: 500 }
+    );
+  }
+}

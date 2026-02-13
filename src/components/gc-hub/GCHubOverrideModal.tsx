@@ -80,6 +80,25 @@ export function GCHubOverrideModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (deleteConfirmText.trim().toLowerCase() !== 'delete' || !periodId || deleting) return;
+    setError(null);
+    setDeleting(true);
+    try {
+      await gcHubApi.deletePeriod(periodId);
+      onSuccess();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete period.');
+    } finally {
+      setDeleting(false);
+    }
+  }, [periodId, deleteConfirmText, deleting, onSuccess, onClose]);
+
   const handleSubmit = useCallback(async () => {
     const trimmedReason = reason.trim();
     if (!trimmedReason) {
@@ -140,6 +159,86 @@ export function GCHubOverrideModal({
   }, [periodId, advisorName, periodLabel, periodMonth, periodYear, revenue, commissions, reason, isAddMode, onSuccess, onClose]);
 
   const modalTitleId = 'gc-override-modal-title';
+  const isDeleteConfirmReady = deleteConfirmText.trim().toLowerCase() === 'delete';
+
+  // Delete confirmation step (edit mode only)
+  if (!isAddMode && showDeleteConfirm) {
+    return (
+      <div
+        className="fixed inset-0 z-[60] overflow-y-auto"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={modalTitleId}
+      >
+        <div className="fixed inset-0 bg-black/60" onClick={onClose} aria-hidden="true" />
+        <div className="relative min-h-screen flex items-center justify-center p-4">
+          <Card
+            className="relative w-full max-w-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <Title id={modalTitleId} className="dark:text-white">
+                Delete period?
+              </Title>
+              <button
+                type="button"
+                onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(''); setError(null); }}
+                aria-label="Close"
+                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                <Text className="text-sm text-red-800 dark:text-red-200">
+                  You are about to permanently delete the period <strong>{periodLabel}</strong>. This cannot be undone.
+                </Text>
+              </div>
+              <div>
+                <label htmlFor="delete-confirm-input" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Type <strong>delete</strong> to confirm
+                </label>
+                <input
+                  id="delete-confirm-input"
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="delete"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                  disabled={deleting}
+                  autoComplete="off"
+                />
+              </div>
+              {error && (
+                <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
+                  <Text className="text-sm text-red-700 dark:text-red-300">{error}</Text>
+                </div>
+              )}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(''); setError(null); }}
+                  disabled={deleting}
+                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteConfirm}
+                  disabled={!isDeleteConfirmReady || deleting}
+                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed text-white rounded-lg font-medium focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 dark:focus:ring-offset-gray-800"
+                >
+                  {deleting ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -282,6 +381,19 @@ export function GCHubOverrideModal({
                 {submitting ? 'Saving…' : 'Submit'}
               </button>
             </div>
+
+            {!isAddMode && (
+              <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  type="button"
+                  onClick={() => { setShowDeleteConfirm(true); setError(null); }}
+                  disabled={submitting}
+                  className="text-sm text-red-600 dark:text-red-400 hover:underline disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-red-500 rounded"
+                >
+                  Delete this period…
+                </button>
+              </div>
+            )}
           </div>
         </Card>
       </div>
