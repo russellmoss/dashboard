@@ -2,9 +2,8 @@
 
 'use client';
 
-import { useState } from 'react';
-import { Card, Text } from '@tremor/react';
-import { Filter, X } from 'lucide-react';
+import { Card } from '@tremor/react';
+import { X } from 'lucide-react';
 import type { GcHubFilterState, GcHubFilterOptions } from '@/types/gc-hub';
 import { GC_DEFAULT_DATE_RANGE, getDefaultEndDate } from '@/config/gc-hub-theme';
 
@@ -31,8 +30,6 @@ export function GCHubFilterBar({
   minStartDate,
   defaultStartDate,
 }: GCHubFilterBarProps) {
-  const [expanded, setExpanded] = useState(false);
-
   const defaultEnd = getDefaultEndDate();
   const effectiveDefaultStart = defaultStartDate ?? GC_DEFAULT_DATE_RANGE.startDate;
   const hasActiveFilters =
@@ -51,12 +48,6 @@ export function GCHubFilterBar({
       search: '',
     });
   };
-
-  const activeFilterCount = [
-    filters.accountNames.length > 0,
-    filters.advisorNames.length > 0,
-    filters.startDate !== effectiveDefaultStart || filters.endDate !== defaultEnd,
-  ].filter(Boolean).length;
 
   return (
     <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
@@ -82,41 +73,21 @@ export function GCHubFilterBar({
           />
         </div>
 
-        {/* Filter Toggle + Clear */}
-        <div className="flex items-center gap-2">
+        {/* Clear */}
+        {hasActiveFilters && (
           <button
-            onClick={() => setExpanded(!expanded)}
-            aria-expanded={expanded}
-            aria-controls="gc-hub-expanded-filters"
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              expanded || hasActiveFilters
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20'
-                : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
-            }`}
+            onClick={clearFilters}
+            aria-label="Clear all filters"
+            className="flex items-center gap-1 px-2 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <Filter className="w-4 h-4" aria-hidden="true" />
-            Filters
-            {activeFilterCount > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 text-xs bg-blue-500 text-white rounded-full" aria-label={`${activeFilterCount} active filters`}>
-                {activeFilterCount}
-              </span>
-            )}
+            <X className="w-3.5 h-3.5" aria-hidden="true" />
+            Clear
           </button>
-          {hasActiveFilters && (
-            <button
-              onClick={clearFilters}
-              aria-label="Clear all filters"
-              className="flex items-center gap-1 px-2 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <X className="w-3.5 h-3.5" aria-hidden="true" />
-              Clear
-            </button>
-          )}
-        </div>
+        )}
       </div>
 
-      {/* Expanded Filters */}
-      {expanded && filterOptions && (
+      {/* Filters (always visible when options loaded) */}
+      {filterOptions && (
         <div id="gc-hub-expanded-filters" className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Team / Account Filter */}
           <div>
