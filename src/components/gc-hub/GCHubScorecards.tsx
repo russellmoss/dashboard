@@ -79,7 +79,7 @@ export function GCHubScorecards({ summary, isLoading = false }: GCHubScorecardsP
       change: advisorChange,
     },
     {
-      label: 'Revenue Per Advisor',
+      label: 'Avg. Monthly Revenue/Advisor',
       value: formatCurrency(latestRevenuePerAdvisor, true),
       subtext: latest ? `Latest: ${latest.period}` : '—',
       icon: <BarChart3 className="w-5 h-5 text-cyan-500 dark:text-cyan-400" aria-hidden="true" />,
