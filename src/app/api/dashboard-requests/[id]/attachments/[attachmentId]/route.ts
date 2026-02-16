@@ -45,10 +45,15 @@ export async function GET(
     // If we have local data, return it
     if (attachment.data) {
       const buffer = Buffer.from(attachment.data, 'base64');
+      // Sanitize filename for Content-Disposition header (ASCII only)
+      // Replace non-ASCII chars with underscores for basic filename
+      const safeFilename = attachment.filename.replace(/[^\x20-\x7E]/g, '_');
+      // Also provide UTF-8 encoded filename for modern browsers
+      const encodedFilename = encodeURIComponent(attachment.filename);
       return new NextResponse(buffer, {
         headers: {
           'Content-Type': attachment.mimeType,
-          'Content-Disposition': `inline; filename="${attachment.filename}"`,
+          'Content-Disposition': `inline; filename="${safeFilename}"; filename*=UTF-8''${encodedFilename}`,
           'Content-Length': buffer.length.toString(),
         },
       });
