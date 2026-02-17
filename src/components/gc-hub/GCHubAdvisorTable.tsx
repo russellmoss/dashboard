@@ -33,6 +33,7 @@ interface GCHubAdvisorTableProps {
   onSearchChange: (search: string) => void;
   onAdvisorClick?: (advisorName: string) => void;
   onExportCsv?: () => void;
+  onExportDetailsCsv?: () => void;
 }
 
 // ── SortableTh ──
@@ -127,6 +128,7 @@ export function GCHubAdvisorTable({
   onSearchChange,
   onAdvisorClick,
   onExportCsv,
+  onExportDetailsCsv,
 }: GCHubAdvisorTableProps) {
   // Allow drill-down for both admin and capital partner
   const canDrillDown = isAdmin || isCapitalPartner;
@@ -235,7 +237,7 @@ export function GCHubAdvisorTable({
                 className="pl-10 pr-4 py-2 text-base border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 outline-none w-64"
               />
             </div>
-            {/* Export */}
+            {/* Export Summary */}
             {onExportCsv && (
               <button
                 onClick={onExportCsv}
@@ -244,6 +246,17 @@ export function GCHubAdvisorTable({
               >
                 <Download className="w-5 h-5" />
                 Export ({sorted.length})
+              </button>
+            )}
+            {/* Export Details — all period-level rows */}
+            {onExportDetailsCsv && (
+              <button
+                onClick={onExportDetailsCsv}
+                disabled={sorted.length === 0}
+                className="flex items-center gap-2 px-4 py-2 text-base border border-gray-300 dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
+              >
+                <Download className="w-5 h-5" />
+                Export Details
               </button>
             )}
           </div>

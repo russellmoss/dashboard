@@ -196,6 +196,83 @@ export function GCHubContent() {
     URL.revokeObjectURL(url);
   }, [advisors]);
 
+  // ── CSV Export (Detail — all periods per advisor) ──
+  const handleExportDetailsCsv = useCallback(() => {
+    function escapeCsvCell(value: string | null | undefined): string {
+      const s = String(value ?? '');
+      if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+        return `"${s.replace(/"/g, '""')}"`;
+      }
+      return s;
+    }
+
+    // Columns differ by role:
+    // Admin/RevOps: include Orion Rep ID, Manually Overridden
+    // Capital Partner: exclude those fields (they're always null/false from API)
+    // Both get Data Source (it's the real value for all roles)
+    const baseHeaders = [
+      'Advisor',
+      'Team',
+      'Period',
+      'Period Start',
+      'Revenue',
+      'Commissions',
+      'Amount Earned',
+      'Billing Frequency',
+      'Billing Style',
+      'Data Source',
+    ];
+
+    // Admin/RevOps get additional columns
+    const adminHeaders = [
+      ...baseHeaders,
+      'Orion Rep ID',
+      'Manually Overridden',
+    ];
+
+    const headers = isAnonymized ? baseHeaders : adminHeaders;
+
+    // Sort: by advisor name ASC, then periodStart DESC within each advisor
+    const sorted = [...advisors].sort((a, b) => {
+      const nameCompare = a.advisorName.localeCompare(b.advisorName);
+      if (nameCompare !== 0) return nameCompare;
+      return new Date(b.periodStart).getTime() - new Date(a.periodStart).getTime();
+    });
+
+    const rows = sorted.map((r) => {
+      const baseRow = [
+        escapeCsvCell(r.advisorName),
+        escapeCsvCell(r.accountName),
+        escapeCsvCell(r.period),
+        escapeCsvCell(r.periodStart),
+        (r.grossRevenue ?? 0).toFixed(2),
+        (r.commissionsPaid ?? 0).toFixed(2),
+        (r.amountEarned ?? 0).toFixed(2),
+        escapeCsvCell(r.billingFrequency),
+        escapeCsvCell(r.billingStyle),
+        escapeCsvCell(r.dataSource),
+      ];
+
+      if (!isAnonymized) {
+        baseRow.push(
+          escapeCsvCell(r.orionRepresentativeId),
+          r.isManuallyOverridden ? 'Yes' : 'No',
+        );
+      }
+
+      return baseRow.join(',');
+    });
+
+    const csv = [headers.join(','), ...rows].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gc-hub-advisor-details-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [advisors, isAnonymized]);
+
   // ── Loading guard ──
   if (!permissions) {
     return (
@@ -311,6 +388,7 @@ export function GCHubContent() {
             onSearchChange={(s) => setFilters((f) => ({ ...f, search: s }))}
             onAdvisorClick={(name) => setSelectedAdvisor(name)}
             onExportCsv={handleExportCsv}
+            onExportDetailsCsv={handleExportDetailsCsv}
           />
         </div>
       )}
