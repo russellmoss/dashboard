@@ -1,19 +1,20 @@
 import { DashboardFilters, FilterOptions, DEFAULT_ADVANCED_FILTERS } from '@/types/filters';
-import { 
-  FunnelMetrics, 
+import {
+  FunnelMetrics,
   FunnelMetricsWithGoals,
-  ConversionRates, 
-  ConversionRatesResponse, 
-  ChannelPerformance, 
+  ConversionRates,
+  ConversionRatesResponse,
+  ChannelPerformance,
   ChannelPerformanceWithGoals,
-  SourcePerformance, 
+  SourcePerformance,
   SourcePerformanceWithGoals,
-  DetailRecord, 
+  DetailRecord,
   TrendDataPoint,
   ViewMode,
   DataFreshness,
   OpenPipelineSummary,
-  SgmOption
+  SgmOption,
+  SgmPipelineChartData
 } from '@/types/dashboard';
 import { RecordDetailFull } from '@/types/record-detail';
 import { 
@@ -369,12 +370,52 @@ export const dashboardApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ stage, filters: cleanFiltersObj, sgms }),
     });
-    
+
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.error || 'Failed to fetch pipeline drilldown');
     }
-    
+
+    return response.json();
+  },
+
+  /**
+   * Get open pipeline data grouped by SGM (revops_admin only)
+   */
+  getPipelineBySgm: async (stages?: string[], sgms?: string[]): Promise<{ data: SgmPipelineChartData[] }> => {
+    const response = await fetch('/api/dashboard/pipeline-by-sgm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stages, sgms }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to fetch pipeline by SGM data');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Get pipeline records for a specific SGM (drill-down)
+   */
+  getPipelineDrilldownBySgm: async (
+    sgm: string,
+    stages?: string[],
+    sgms?: string[]
+  ): Promise<{ records: DetailRecord[]; sgm: string }> => {
+    const response = await fetch('/api/dashboard/pipeline-drilldown-sgm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sgm, stages, sgms }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to fetch SGM drill-down data');
+    }
+
     return response.json();
   },
 

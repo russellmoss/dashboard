@@ -5,10 +5,30 @@
 // Excludes: Closed Lost, Joined, On Hold, Signed
 export const OPEN_PIPELINE_STAGES: readonly string[] = [
   'Qualifying',
-  'Discovery', 
+  'Discovery',
   'Sales Process',
   'Negotiating'
 ];
+
+export const STAGE_STACK_ORDER: readonly string[] = [
+  'Planned Nurture',
+  'Qualifying',
+  'Discovery',
+  'Sales Process',
+  'Negotiating',
+  'Signed',
+  'On Hold',
+];
+
+export const STAGE_COLORS: Record<string, string> = {
+  'Planned Nurture': '#94a3b8',
+  'Qualifying':      '#60a5fa',
+  'Discovery':       '#34d399',
+  'Sales Process':   '#fbbf24',
+  'Negotiating':     '#f97316',
+  'Signed':          '#a78bfa',
+  'On Hold':         '#f87171',
+};
 
 export const RECRUITING_RECORD_TYPE = '012Dn000000mrO3IAI';
 export const RE_ENGAGEMENT_RECORD_TYPE = '012VS000009VoxrYAC';

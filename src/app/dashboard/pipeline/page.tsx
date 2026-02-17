@@ -13,16 +13,18 @@ import { OpenPipelineSummary, DetailRecord } from '@/types/dashboard';
 
 import { PipelineScorecard } from '@/components/dashboard/PipelineScorecard';
 import { PipelineByStageChart } from '@/components/dashboard/PipelineByStageChart';
+import { PipelineBySgmChart } from '@/components/dashboard/PipelineBySgmChart';
 import { PipelineFilters } from '@/components/dashboard/PipelineFilters';
 import { PipelineExportPng } from '@/components/dashboard/PipelineExportPng';
 import { VolumeDrillDownModal } from '@/components/dashboard/VolumeDrillDownModal';
 import { RecordDetailModal } from '@/components/dashboard/RecordDetailModal';
-import { SgmOption } from '@/types/dashboard';
+import { SgmOption, SgmPipelineChartData } from '@/types/dashboard';
 
 export default function PipelinePage() {
   const { data: session, status } = useSession();
   const permissions = getSessionPermissions(session);
-  
+  const isRevOpsAdmin = permissions?.role === 'revops_admin';
+
   // Data state
   const [summary, setSummary] = useState<OpenPipelineSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,7 +70,17 @@ export default function PipelinePage() {
   
   // Record detail modal state
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
-  
+
+  // Tab state (By Stage vs By SGM) — revops_admin only feature
+  const [activeTab, setActiveTab] = useState<'byStage' | 'bySgm'>('byStage');
+
+  // By SGM data
+  const [bySgmData, setBySgmData] = useState<SgmPipelineChartData[]>([]);
+  const [bySgmLoading, setBySgmLoading] = useState(false);
+
+  // SGM drill-down tracking
+  const [drillDownSgm, setDrillDownSgm] = useState<string | null>(null);
+
   // Dark mode detection (for chart component - chart uses useTheme internally)
   const { resolvedTheme } = useTheme();
   
@@ -98,7 +110,33 @@ export default function PipelinePage() {
       fetchData();
     }
   }, [status, fetchData]);
-  
+
+  // Fetch By SGM data
+  const fetchBySgmData = useCallback(async () => {
+    if (activeTab !== 'bySgm') return;
+    setBySgmLoading(true);
+    try {
+      const sgmsToSend = selectedSgms.length === sgmOptions.length ? undefined :
+        selectedSgms.length === 0 ? undefined : selectedSgms;
+      const result = await dashboardApi.getPipelineBySgm(
+        selectedStages.length > 0 ? selectedStages : undefined,
+        sgmsToSend
+      );
+      setBySgmData(result.data);
+    } catch (err) {
+      console.error('Error fetching by-SGM data:', err);
+      setBySgmData([]);
+    } finally {
+      setBySgmLoading(false);
+    }
+  }, [activeTab, selectedStages, selectedSgms, sgmOptions.length]);
+
+  useEffect(() => {
+    if (activeTab === 'bySgm' && isRevOpsAdmin) {
+      fetchBySgmData();
+    }
+  }, [activeTab, isRevOpsAdmin, fetchBySgmData]);
+
   // Handle bar click for drill-down
   const handleBarClick = async (stage: string, metric: 'aum' | 'count') => {
     setDrillDownStage(stage);
@@ -212,13 +250,58 @@ export default function PipelinePage() {
     setSelectedRecordId(null);
     setDrillDownOpen(true);
   };
-  
+
+  // Handle segment click in By SGM chart (drill down to specific SGM + stage)
+  const handleSegmentClick = async (sgm: string, stage: string) => {
+    setDrillDownStage(stage);
+    setDrillDownSgm(sgm);
+    setDrillDownMetric('aum');
+    setDrillDownOpen(true);
+    setDrillDownLoading(true);
+
+    try {
+      const sgmsToSend = selectedSgms.length === sgmOptions.length ? undefined : selectedSgms;
+      const result = await dashboardApi.getPipelineDrilldown(stage, { sgm }, sgmsToSend);
+      setDrillDownRecords(result.records);
+    } catch (err) {
+      console.error('Error fetching segment drill-down:', err);
+      setDrillDownRecords([]);
+    } finally {
+      setDrillDownLoading(false);
+    }
+  };
+
+  // Handle SGM name click (drill down to all stages for one SGM)
+  const handleSgmClick = async (sgm: string) => {
+    setDrillDownStage(null);
+    setDrillDownSgm(sgm);
+    setDrillDownMetric(null);
+    setDrillDownOpen(true);
+    setDrillDownLoading(true);
+
+    try {
+      const sgmsToSend = selectedSgms.length === sgmOptions.length ? undefined : selectedSgms;
+      const result = await dashboardApi.getPipelineDrilldownBySgm(
+        sgm,
+        selectedStages.length > 0 ? selectedStages : undefined,
+        sgmsToSend
+      );
+      setDrillDownRecords(result.records);
+    } catch (err) {
+      console.error('Error fetching SGM drill-down:', err);
+      setDrillDownRecords([]);
+    } finally {
+      setDrillDownLoading(false);
+    }
+  };
+
   // Close drill-down modal
   const handleCloseDrillDown = () => {
     setDrillDownOpen(false);
     setDrillDownRecords([]);
     setDrillDownStage(null);
     setDrillDownMetric(null);
+    setDrillDownSgm(null);
   };
   
   // Note: Stage and SGM filter changes are handled directly via setSelectedStages and setSelectedSgms
@@ -284,36 +367,84 @@ export default function PipelinePage() {
           disabled={loading}
         />
       </div>
-      
+
+      {/* Tab Toggle — revops_admin only */}
+      {isRevOpsAdmin && (
+        <div className="flex gap-1 mb-4">
+          <button
+            onClick={() => setActiveTab('byStage')}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              activeTab === 'byStage'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+            }`}
+          >
+            By Stage
+          </button>
+          <button
+            onClick={() => setActiveTab('bySgm')}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              activeTab === 'bySgm'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+            }`}
+          >
+            By SGM
+          </button>
+        </div>
+      )}
+
       {/* Bar Chart with Export */}
       <Card className="mb-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <Text className="font-semibold text-lg">Pipeline by Stage</Text>
+            <Text className="font-semibold text-lg">
+              {activeTab === 'byStage' ? 'Pipeline by Stage' : 'Pipeline by SGM'}
+            </Text>
             <Text className="text-base text-gray-500 dark:text-gray-400">
-              Click any bar to see the advisors in that stage
+              {activeTab === 'byStage'
+                ? 'Click any bar to see the advisors in that stage'
+                : 'Click a segment or SGM name to drill down'}
             </Text>
           </div>
           <PipelineExportPng
-            chartElementId="pipeline-by-stage-chart"
-            filename="open-pipeline-chart"
-            disabled={loading || !summary?.byStage?.length}
+            chartElementId={activeTab === 'byStage' ? 'pipeline-by-stage-chart' : 'pipeline-by-sgm-chart'}
+            filename={activeTab === 'byStage' ? 'open-pipeline-chart' : 'pipeline-by-sgm-chart'}
+            disabled={activeTab === 'byStage' ? (loading || !summary?.byStage?.length) : (bySgmLoading || !bySgmData.length)}
           />
         </div>
-        {/* Wrap chart in div with ID for PNG export */}
-        <div 
-          id="pipeline-by-stage-chart" 
-          className="bg-white dark:bg-gray-800 p-4 rounded-lg"
-          style={{ 
-            backgroundColor: resolvedTheme === 'dark' ? '#1f2937' : '#ffffff' 
-          }}
-        >
-          <PipelineByStageChart
-            data={summary?.byStage || []}
-            onBarClick={handleBarClick}
-            loading={loading}
-          />
-        </div>
+        {/* Conditional chart rendering */}
+        {activeTab === 'byStage' ? (
+          <div
+            id="pipeline-by-stage-chart"
+            className="bg-white dark:bg-gray-800 p-4 rounded-lg"
+            style={{
+              backgroundColor: resolvedTheme === 'dark' ? '#1f2937' : '#ffffff'
+            }}
+          >
+            <PipelineByStageChart
+              data={summary?.byStage || []}
+              onBarClick={handleBarClick}
+              loading={loading}
+            />
+          </div>
+        ) : (
+          <div
+            id="pipeline-by-sgm-chart"
+            className="bg-white dark:bg-gray-800 p-4 rounded-lg"
+            style={{
+              backgroundColor: resolvedTheme === 'dark' ? '#1f2937' : '#ffffff'
+            }}
+          >
+            <PipelineBySgmChart
+              data={bySgmData}
+              selectedStages={selectedStages}
+              onSegmentClick={handleSegmentClick}
+              onSgmClick={handleSgmClick}
+              loading={bySgmLoading}
+            />
+          </div>
+        )}
       </Card>
       
       {/* Drill-Down Modal - Reuse existing VolumeDrillDownModal component */}
@@ -322,12 +453,16 @@ export default function PipelinePage() {
         onClose={handleCloseDrillDown}
         records={drillDownRecords}
         title={
-          drillDownStage 
-            ? `${drillDownStage} Stage` 
-            : selectedStages.length === OPEN_PIPELINE_STAGES.length && 
-              OPEN_PIPELINE_STAGES.every(s => selectedStages.includes(s))
-              ? 'Open Pipeline - All Stages'
-              : `Open Pipeline - ${selectedStages.length} Stage${selectedStages.length > 1 ? 's' : ''}`
+          drillDownSgm
+            ? drillDownStage
+              ? `${drillDownSgm} — ${drillDownStage}`
+              : `${drillDownSgm} — All Open Pipeline`
+            : drillDownStage
+              ? `${drillDownStage} Stage`
+              : selectedStages.length === OPEN_PIPELINE_STAGES.length &&
+                OPEN_PIPELINE_STAGES.every(s => selectedStages.includes(s))
+                ? 'Open Pipeline - All Stages'
+                : `Open Pipeline - ${selectedStages.length} Stage${selectedStages.length > 1 ? 's' : ''}`
         }
         loading={drillDownLoading}
         error={null}
@@ -343,7 +478,7 @@ export default function PipelinePage() {
         recordId={selectedRecordId}
         showBackButton={drillDownRecords.length > 0}
         onBack={handleBackToDrillDown}
-        backButtonLabel={`← Back to ${drillDownStage || 'list'}`}
+        backButtonLabel={`← Back to ${drillDownSgm ? drillDownSgm + (drillDownStage ? ' — ' + drillDownStage : '') : drillDownStage || 'list'}`}
       />
     </div>
   );

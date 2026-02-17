@@ -409,3 +409,225 @@ export const getOpenPipelineRecordsByStage = cachedQuery(
   'getOpenPipelineRecordsByStage',
   CACHE_TAGS.DASHBOARD
 );
+
+const _getOpenPipelineBySgm = async (
+  filters?: { stages?: string[]; sgms?: string[] }
+): Promise<{ sgm: string; stage: string; count: number; aum: number }[]> => {
+  const conditions: string[] = [];
+  const params: Record<string, any> = {
+    recruitingRecordType: RECRUITING_RECORD_TYPE,
+  };
+
+  conditions.push('v.recordtypeid = @recruitingRecordType');
+
+  // Use custom stages if provided, otherwise default to OPEN_PIPELINE_STAGES
+  const stagesToUse = filters?.stages && filters.stages.length > 0
+    ? filters.stages
+    : [...OPEN_PIPELINE_STAGES];
+
+  const stageParams = stagesToUse.map((_, i) => `@stage${i}`);
+  conditions.push(`v.StageName IN (${stageParams.join(', ')})`);
+  stagesToUse.forEach((stage, i) => {
+    params[`stage${i}`] = stage;
+  });
+
+  // Add SGM filter if provided
+  if (filters?.sgms && filters.sgms.length > 0) {
+    const sgmParams = filters.sgms.map((_, i) => `@sgm${i}`);
+    conditions.push(`v.SGM_Owner_Name__c IN (${sgmParams.join(', ')})`);
+    filters.sgms.forEach((sgm, i) => {
+      params[`sgm${i}`] = sgm;
+    });
+  }
+
+  conditions.push('v.is_sqo_unique = 1');
+  conditions.push('v.SGM_Owner_Name__c IS NOT NULL');
+
+  const whereClause = conditions.length > 0
+    ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const query = `
+    SELECT
+      v.SGM_Owner_Name__c as sgm,
+      v.StageName as stage,
+      COUNT(DISTINCT v.Full_Opportunity_ID__c) as count,
+      SUM(CASE WHEN v.is_primary_opp_record = 1 THEN COALESCE(v.Opportunity_AUM, 0) ELSE 0 END) as aum
+    FROM \`${FULL_TABLE}\` v
+    ${whereClause}
+    GROUP BY v.SGM_Owner_Name__c, v.StageName
+  `;
+
+  const results = await runQuery<{
+    sgm: string | null;
+    stage: string | null;
+    count: number | null;
+    aum: number | null;
+  }>(query, params);
+
+  return results.map(r => ({
+    sgm: toString(r.sgm),
+    stage: toString(r.stage),
+    count: toNumber(r.count),
+    aum: toNumber(r.aum),
+  }));
+};
+
+export const getOpenPipelineBySgm = cachedQuery(
+  _getOpenPipelineBySgm,
+  'getOpenPipelineBySgm',
+  CACHE_TAGS.DASHBOARD
+);
+
+const _getOpenPipelineRecordsBySgm = async (
+  sgm: string,
+  stages?: string[],
+  sgms?: string[]
+): Promise<DetailRecord[]> => {
+  const conditions: string[] = [];
+  const params: Record<string, any> = {
+    recruitingRecordType: RECRUITING_RECORD_TYPE,
+    targetSgm: sgm,
+  };
+
+  conditions.push('v.recordtypeid = @recruitingRecordType');
+  conditions.push('v.SGM_Owner_Name__c = @targetSgm');
+
+  // Use custom stages if provided, otherwise default to OPEN_PIPELINE_STAGES
+  const stagesToUse = stages && stages.length > 0 ? stages : [...OPEN_PIPELINE_STAGES];
+  const stageParams = stagesToUse.map((_, i) => `@stage${i}`);
+  conditions.push(`v.StageName IN (${stageParams.join(', ')})`);
+  stagesToUse.forEach((stage, i) => {
+    params[`stage${i}`] = stage;
+  });
+
+  conditions.push('v.is_sqo_unique = 1');
+
+  // Handle SGM multi-select filter (for consistency with page filters)
+  // Note: This is in addition to the targetSgm filter - it ensures the targetSgm
+  // is within the allowed SGM list if one is provided
+  if (sgms && sgms.length > 0) {
+    const sgmParams = sgms.map((_, i) => `@sgmFilter${i}`);
+    conditions.push(`v.SGM_Owner_Name__c IN (${sgmParams.join(', ')})`);
+    sgms.forEach((s, i) => {
+      params[`sgmFilter${i}`] = s;
+    });
+  }
+
+  const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+  // EXACT same SELECT columns as _getOpenPipelineRecordsByStage
+  const query = `
+    SELECT
+      v.primary_key as id,
+      v.Full_Opportunity_ID__c as opportunity_id,
+      v.advisor_name,
+      v.Original_source as source,
+      IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
+      v.StageName as stage,
+      v.SGA_Owner_Name__c as sga,
+      v.SGM_Owner_Name__c as sgm,
+      v.Campaign_Id__c as campaign_id,
+      v.Campaign_Name__c as campaign_name,
+      v.Lead_Score_Tier__c as lead_score_tier,
+      v.Opportunity_AUM as aum,
+      v.salesforce_url,
+      v.FilterDate as filter_date,
+      v.stage_entered_contacting__c as contacted_date,
+      v.mql_stage_entered_ts as mql_date,
+      v.converted_date_raw as sql_date,
+      v.Date_Became_SQO__c as sqo_date,
+      v.advisor_join_date__c as joined_date,
+      v.Initial_Call_Scheduled_Date__c as initial_call_scheduled_date,
+      v.Qualification_Call_Date__c as qualification_call_date,
+      v.is_contacted,
+      v.is_mql,
+      v.recordtypeid,
+      v.is_primary_opp_record
+    FROM \`${FULL_TABLE}\` v
+    ${whereClause}
+    ORDER BY v.Opportunity_AUM DESC NULLS LAST
+    LIMIT 1000
+  `;
+
+  const results = await runQuery<RawDetailRecordResult>(query, params);
+
+  // EXACT same result mapping as _getOpenPipelineRecordsByStage
+  return results.map(r => {
+    const extractDate = (field: any): string | null => {
+      if (!field) return null;
+      if (typeof field === 'string') return field;
+      if (typeof field === 'object' && field.value) return field.value;
+      return null;
+    };
+
+    const filterDate = extractDate(r.filter_date) || '';
+    const contactedDate = extractDate(r.contacted_date);
+    const mqlDate = extractDate(r.mql_date);
+    const sqlDate = extractDate(r.sql_date);
+    const sqoDate = extractDate(r.sqo_date);
+    const joinedDate = extractDate(r.joined_date);
+
+    let initialCallDate: string | null = null;
+    if (r.initial_call_scheduled_date) {
+      if (typeof r.initial_call_scheduled_date === 'string') {
+        initialCallDate = r.initial_call_scheduled_date;
+      } else if (typeof r.initial_call_scheduled_date === 'object' && r.initial_call_scheduled_date.value) {
+        initialCallDate = r.initial_call_scheduled_date.value;
+      }
+    }
+
+    let qualCallDate: string | null = null;
+    if (r.qualification_call_date) {
+      if (typeof r.qualification_call_date === 'string') {
+        qualCallDate = r.qualification_call_date;
+      } else if (typeof r.qualification_call_date === 'object' && r.qualification_call_date.value) {
+        qualCallDate = r.qualification_call_date.value;
+      }
+    }
+
+    return {
+      id: toString(r.id),
+      advisorName: toString(r.advisor_name) || 'Unknown',
+      source: toString(r.source) || 'Unknown',
+      channel: toString(r.channel) || 'Unknown',
+      stage: toString(r.stage) || 'Unknown',
+      sga: r.sga ? toString(r.sga) : null,
+      sgm: r.sgm ? toString(r.sgm) : null,
+      campaignId: r.campaign_id ? toString(r.campaign_id) : null,
+      campaignName: r.campaign_name ? toString(r.campaign_name) : null,
+      leadScoreTier: r.lead_score_tier ? toString(r.lead_score_tier) : null,
+      aum: toNumber(r.aum),
+      aumFormatted: formatCurrency(r.aum),
+      salesforceUrl: toString(r.salesforce_url) || '',
+      relevantDate: filterDate,
+      contactedDate,
+      mqlDate,
+      sqlDate,
+      sqoDate,
+      joinedDate,
+      signedDate: null,
+      discoveryDate: null,
+      salesProcessDate: null,
+      negotiatingDate: null,
+      onHoldDate: null,
+      closedDate: null,
+      initialCallScheduledDate: initialCallDate,
+      qualificationCallDate: qualCallDate,
+      isContacted: r.is_contacted === 1,
+      isMql: r.is_mql === 1,
+      isSql: true,
+      isSqo: true,
+      isJoined: false,
+      isOpenPipeline: OPEN_PIPELINE_STAGES.includes(toString(r.stage)),
+      recordTypeId: r.recordtypeid ? toString(r.recordtypeid) : null,
+      isPrimaryOppRecord: (r.is_primary_opp_record ?? 0) === 1,
+      opportunityId: r.opportunity_id ? toString(r.opportunity_id) : null,
+    };
+  });
+};
+
+export const getOpenPipelineRecordsBySgm = cachedQuery(
+  _getOpenPipelineRecordsBySgm,
+  'getOpenPipelineRecordsBySgm',
+  CACHE_TAGS.DASHBOARD
+);

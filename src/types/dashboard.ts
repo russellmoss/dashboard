@@ -223,6 +223,32 @@ export interface OpenPipelineSummary {
   byStage: OpenPipelineByStage[];
 }
 
+export interface SgmPipelineChartData {
+  sgm: string;
+  totalAum: number;
+  totalCount: number;
+  // Per-stage AUM values (camelCase keys for Recharts dataKey)
+  plannedNurture: number;
+  qualifying: number;
+  discovery: number;
+  salesProcess: number;
+  negotiating: number;
+  signed: number;
+  onHold: number;
+  // Per-stage counts (for tooltip display)
+  plannedNurtureCount: number;
+  qualifyingCount: number;
+  discoveryCount: number;
+  salesProcessCount: number;
+  negotiatingCount: number;
+  signedCount: number;
+  onHoldCount: number;
+}
+
+export interface OpenPipelineBySgmResponse {
+  data: SgmPipelineChartData[];
+}
+
 /**
  * Available stages for filtering
  */
