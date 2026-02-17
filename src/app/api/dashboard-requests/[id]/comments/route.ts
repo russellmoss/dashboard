@@ -5,7 +5,7 @@ import { getSessionPermissions } from '@/types/auth';
 import { prisma } from '@/lib/prisma';
 import { RequestStatus } from '@prisma/client';
 import { syncCommentToWrike } from '@/lib/wrike';
-import { notifyNewComment } from '@/lib/notifications';
+import { notifyNewComment, notifyMentionedUsers } from '@/lib/notifications';
 
 export const dynamic = 'force-dynamic';
 
@@ -103,6 +103,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Notify request submitter of new comment in background
     notifyNewComment(id, userId, content.trim()).catch((err) => {
       console.error('[API] Background comment notification failed:', err);
+    });
+
+    // Notify @mentioned users in background
+    notifyMentionedUsers(id, userId, content.trim()).catch((err) => {
+      console.error('[API] Background mention notification failed:', err);
     });
 
     return NextResponse.json({ comment }, { status: 201 });

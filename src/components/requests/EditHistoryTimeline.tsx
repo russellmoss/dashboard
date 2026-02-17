@@ -2,6 +2,7 @@
 
 import { Clock, ArrowRight, MessageSquare } from 'lucide-react';
 import { EditHistoryEntry, RequestCommentWithAuthor } from '@/types/dashboard-request';
+import { MentionText } from './MentionText';
 
 interface EditHistoryTimelineProps {
   history: EditHistoryEntry[];
@@ -191,10 +192,8 @@ function CommentEntryContent({ comment }: { comment: RequestCommentWithAuthor })
         <span className="text-blue-600 dark:text-blue-400 text-xs font-medium">
           Added a comment
         </span>
-        <p className="mt-1 text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-          {comment.content.length > 150
-            ? comment.content.substring(0, 150) + '...'
-            : comment.content}
+        <p className="mt-1 text-gray-700 dark:text-gray-300">
+          <MentionText content={comment.content} maxLength={150} />
         </p>
       </div>
     </div>

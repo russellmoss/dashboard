@@ -1075,6 +1075,12 @@ export const dashboardRequestsApi = {
   // Get attachment URL for display
   getAttachmentUrl: (requestId: string, attachmentId: string) =>
     `/api/dashboard-requests/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(attachmentId)}`,
+
+  // Get taggable users for @mention autocomplete
+  getTaggableUsers: () =>
+    apiFetch<{ users: Array<{ id: string; name: string; email: string; role: string }> }>(
+      '/api/users/taggable'
+    ).then(res => res.users),
 };
 
 /**
