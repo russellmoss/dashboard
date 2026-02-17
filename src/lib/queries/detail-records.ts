@@ -206,7 +206,59 @@ const _getDetailRecords = async (
         conditions.push('DATE(converted_date_raw) <= DATE(@endDate)');
       }
   }
-  
+
+  // Disposition filtering (Open/Lost/Converted sub-filter for MQL/SQL/SQO)
+  if (filters.metricDisposition && filters.metricDisposition !== 'all') {
+    switch (filters.metricFilter) {
+      case 'mql':
+        switch (filters.metricDisposition) {
+          case 'open':
+            conditions.push('is_sql = 0');
+            conditions.push('lead_closed_date IS NULL');
+            break;
+          case 'lost':
+            conditions.push('is_sql = 0');
+            conditions.push('lead_closed_date IS NOT NULL');
+            break;
+          case 'converted':
+            conditions.push('is_sql = 1');
+            break;
+        }
+        break;
+      case 'sql':
+        switch (filters.metricDisposition) {
+          case 'open':
+            conditions.push("(LOWER(COALESCE(SQO_raw, '')) != 'yes')");
+            conditions.push("(StageName IS NULL OR StageName != 'Closed Lost')");
+            break;
+          case 'lost':
+            conditions.push("(LOWER(COALESCE(SQO_raw, '')) != 'yes')");
+            conditions.push("StageName = 'Closed Lost'");
+            break;
+          case 'converted':
+            conditions.push("LOWER(SQO_raw) = 'yes'");
+            break;
+        }
+        break;
+      case 'sqo':
+        switch (filters.metricDisposition) {
+          case 'open':
+            conditions.push("StageName NOT IN ('Closed Lost', 'Joined', 'Signed')");
+            conditions.push('advisor_join_date__c IS NULL');
+            break;
+          case 'lost':
+            conditions.push("StageName = 'Closed Lost'");
+            conditions.push('advisor_join_date__c IS NULL');
+            break;
+          case 'converted':
+            conditions.push("(advisor_join_date__c IS NOT NULL OR StageName IN ('Joined', 'Signed'))");
+            break;
+        }
+        break;
+      // No disposition filtering for other metrics (prospect, contacted, joined, etc.)
+    }
+  }
+
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   
   // Add User table join for opportunity-level metrics when SGA filter is present

@@ -2,14 +2,16 @@
 
 import { Card, Metric, Text } from '@tremor/react';
 import { FunnelMetricsWithGoals } from '@/types/dashboard';
+import { MetricDisposition } from '@/types/filters';
 import { formatNumber } from '@/lib/utils/date-helpers';
-import { 
-  calculateVariance, 
-  formatDifference, 
+import {
+  calculateVariance,
+  formatDifference,
   formatPercentVariance,
   getVarianceColorClass,
 } from '@/lib/utils/goal-helpers';
 import { Users, MessageSquare, Calendar } from 'lucide-react';
+import { DispositionToggle } from './DispositionToggle';
 
 interface FullFunnelScorecardsProps {
   metrics: FunnelMetricsWithGoals | null;
@@ -21,6 +23,9 @@ interface FullFunnelScorecardsProps {
     contacted: boolean;
     mqls: boolean;
   };
+  // Disposition toggle state
+  mqlDisposition?: MetricDisposition;
+  onMqlDispositionChange?: (value: MetricDisposition) => void;
 }
 
 /**
@@ -68,10 +73,23 @@ export function FullFunnelScorecards({
   onMetricClick,
   loading = false,
   visibleMetrics = { prospects: true, contacted: true, mqls: true },
+  mqlDisposition,
+  onMqlDispositionChange,
 }: FullFunnelScorecardsProps) {
   if (!metrics) return null;
-  
+
   const goals = metrics.goals;
+
+  // Resolve MQL count based on disposition toggle
+  const getMqlCount = (): number => {
+    if (!metrics) return 0;
+    switch (mqlDisposition || 'all') {
+      case 'open': return metrics.mqls_open ?? 0;
+      case 'lost': return metrics.mqls_lost ?? 0;
+      case 'converted': return metrics.mqls_converted ?? 0;
+      default: return metrics.mqls;
+    }
+  };
   
   // Don't render if no metrics are visible
   if (!visibleMetrics.prospects && !visibleMetrics.contacted && !visibleMetrics.mqls) {
@@ -132,10 +150,10 @@ export function FullFunnelScorecards({
 
       {/* MQLs Card */}
       {visibleMetrics.mqls && (
-      <Card 
+      <Card
         className={`p-4 dark:bg-gray-800 dark:border-gray-700 ${
-          onMetricClick 
-            ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md' 
+          onMetricClick
+            ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md'
             : ''
         }`}
         onClick={() => onMetricClick?.('mql')}
@@ -145,12 +163,18 @@ export function FullFunnelScorecards({
           <Calendar className="w-5 h-5 text-blue-500 dark:text-blue-400" />
         </div>
         <Metric className="text-2xl font-bold text-gray-900 dark:text-white">
-          {loading ? '...' : formatNumber(metrics.mqls)}
+          {loading ? '...' : formatNumber(getMqlCount())}
         </Metric>
         <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">
           Marketing Qualified Leads
         </Text>
-        {goals && goals.mqls > 0 && (
+        {onMqlDispositionChange && (
+          <DispositionToggle
+            value={mqlDisposition || 'all'}
+            onChange={onMqlDispositionChange}
+          />
+        )}
+        {(mqlDisposition || 'all') === 'all' && goals && goals.mqls > 0 && (
           <GoalDisplay actual={metrics.mqls} goal={goals.mqls} label="MQL" />
         )}
       </Card>

@@ -11,6 +11,18 @@ export interface RawFunnelMetricsResult {
   joined: number | null;
   pipeline_aum: number | null;
   joined_aum: number | null;
+  // MQL disposition counts
+  mqls_open?: number | null;
+  mqls_lost?: number | null;
+  mqls_converted?: number | null;
+  // SQL disposition counts
+  sqls_open?: number | null;
+  sqls_lost?: number | null;
+  sqls_converted?: number | null;
+  // SQO disposition counts
+  sqos_open?: number | null;
+  sqos_lost?: number | null;
+  sqos_converted?: number | null;
 }
 
 export interface RawOpenPipelineResult {

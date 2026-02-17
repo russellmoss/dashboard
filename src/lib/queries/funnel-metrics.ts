@@ -174,16 +174,136 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
       -- Pipeline AUM removed - we only show Open Pipeline AUM (current state, not filtered by date)
       0 as pipeline_aum,
       SUM(
-        CASE 
+        CASE
           WHEN v.advisor_join_date__c IS NOT NULL
-            AND DATE(v.advisor_join_date__c) >= DATE(@startDate) 
+            AND DATE(v.advisor_join_date__c) >= DATE(@startDate)
             AND DATE(v.advisor_join_date__c) <= DATE(@endDate)
             AND v.is_joined_unique = 1
             ${sgaFilterForOpp}
           THEN COALESCE(v.Underwritten_AUM__c, v.Amount, 0)
-          ELSE 0 
+          ELSE 0
         END
-      ) as joined_aum
+      ) as joined_aum,
+
+      -- ═══════════════════════════════════════
+      -- MQL DISPOSITION COUNTS
+      -- ═══════════════════════════════════════
+      SUM(
+        CASE
+          WHEN mql_stage_entered_ts IS NOT NULL
+            AND TIMESTAMP(mql_stage_entered_ts) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(mql_stage_entered_ts) <= TIMESTAMP(@endDate)
+            AND is_mql = 1
+            AND is_sql = 1
+            ${sgaFilterForLead}
+          THEN 1 ELSE 0
+        END
+      ) as mqls_converted,
+      SUM(
+        CASE
+          WHEN mql_stage_entered_ts IS NOT NULL
+            AND TIMESTAMP(mql_stage_entered_ts) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(mql_stage_entered_ts) <= TIMESTAMP(@endDate)
+            AND is_mql = 1
+            AND is_sql = 0
+            AND lead_closed_date IS NOT NULL
+            ${sgaFilterForLead}
+          THEN 1 ELSE 0
+        END
+      ) as mqls_lost,
+      SUM(
+        CASE
+          WHEN mql_stage_entered_ts IS NOT NULL
+            AND TIMESTAMP(mql_stage_entered_ts) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(mql_stage_entered_ts) <= TIMESTAMP(@endDate)
+            AND is_mql = 1
+            AND is_sql = 0
+            AND lead_closed_date IS NULL
+            ${sgaFilterForLead}
+          THEN 1 ELSE 0
+        END
+      ) as mqls_open,
+
+      -- ═══════════════════════════════════════
+      -- SQL DISPOSITION COUNTS
+      -- ═══════════════════════════════════════
+      SUM(
+        CASE
+          WHEN converted_date_raw IS NOT NULL
+            AND DATE(converted_date_raw) >= DATE(@startDate)
+            AND DATE(converted_date_raw) <= DATE(@endDate)
+            AND is_sql = 1
+            AND LOWER(SQO_raw) = 'yes'
+            ${sgaFilterForLead}
+          THEN 1 ELSE 0
+        END
+      ) as sqls_converted,
+      SUM(
+        CASE
+          WHEN converted_date_raw IS NOT NULL
+            AND DATE(converted_date_raw) >= DATE(@startDate)
+            AND DATE(converted_date_raw) <= DATE(@endDate)
+            AND is_sql = 1
+            AND LOWER(COALESCE(SQO_raw, '')) != 'yes'
+            AND StageName = 'Closed Lost'
+            ${sgaFilterForLead}
+          THEN 1 ELSE 0
+        END
+      ) as sqls_lost,
+      SUM(
+        CASE
+          WHEN converted_date_raw IS NOT NULL
+            AND DATE(converted_date_raw) >= DATE(@startDate)
+            AND DATE(converted_date_raw) <= DATE(@endDate)
+            AND is_sql = 1
+            AND LOWER(COALESCE(SQO_raw, '')) != 'yes'
+            AND (StageName IS NULL OR StageName != 'Closed Lost')
+            ${sgaFilterForLead}
+          THEN 1 ELSE 0
+        END
+      ) as sqls_open,
+
+      -- ═══════════════════════════════════════
+      -- SQO DISPOSITION COUNTS
+      -- ═══════════════════════════════════════
+      SUM(
+        CASE
+          WHEN Date_Became_SQO__c IS NOT NULL
+            AND TIMESTAMP(Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+            AND recordtypeid = @recruitingRecordType
+            AND is_sqo_unique = 1
+            AND (advisor_join_date__c IS NOT NULL OR StageName IN ('Joined', 'Signed'))
+            ${sgaFilterForOpp}
+          THEN 1 ELSE 0
+        END
+      ) as sqos_converted,
+      SUM(
+        CASE
+          WHEN Date_Became_SQO__c IS NOT NULL
+            AND TIMESTAMP(Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+            AND recordtypeid = @recruitingRecordType
+            AND is_sqo_unique = 1
+            AND StageName = 'Closed Lost'
+            AND advisor_join_date__c IS NULL
+            ${sgaFilterForOpp}
+          THEN 1 ELSE 0
+        END
+      ) as sqos_lost,
+      SUM(
+        CASE
+          WHEN Date_Became_SQO__c IS NOT NULL
+            AND TIMESTAMP(Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+            AND recordtypeid = @recruitingRecordType
+            AND is_sqo_unique = 1
+            AND StageName NOT IN ('Closed Lost', 'Joined', 'Signed')
+            AND advisor_join_date__c IS NULL
+            ${sgaFilterForOpp}
+          THEN 1 ELSE 0
+        END
+      ) as sqos_open
     FROM \`${FULL_TABLE}\` v
     LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user
       ON v.Opp_SGA_Name__c = sga_user.Id
@@ -233,6 +353,18 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
     pipelineAum: toNumber(metrics.pipeline_aum),
     joinedAum: toNumber(metrics.joined_aum),
     openPipelineAum: toNumber(openPipeline.open_pipeline_aum),
+    // MQL disposition counts
+    mqls_open: toNumber(metrics.mqls_open),
+    mqls_lost: toNumber(metrics.mqls_lost),
+    mqls_converted: toNumber(metrics.mqls_converted),
+    // SQL disposition counts
+    sqls_open: toNumber(metrics.sqls_open),
+    sqls_lost: toNumber(metrics.sqls_lost),
+    sqls_converted: toNumber(metrics.sqls_converted),
+    // SQO disposition counts
+    sqos_open: toNumber(metrics.sqos_open),
+    sqos_lost: toNumber(metrics.sqos_lost),
+    sqos_converted: toNumber(metrics.sqos_converted),
   };
 };
 

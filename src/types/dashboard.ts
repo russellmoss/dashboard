@@ -16,6 +16,18 @@ export interface FunnelMetrics {
   joinedAum: number;  // Sum of Opportunity_AUM for joined records
   pipelineAum: number;
   openPipelineAum: number;
+  // MQL disposition counts
+  mqls_open: number;
+  mqls_lost: number;
+  mqls_converted: number;
+  // SQL disposition counts
+  sqls_open: number;
+  sqls_lost: number;
+  sqls_converted: number;
+  // SQO disposition counts
+  sqos_open: number;
+  sqos_lost: number;
+  sqos_converted: number;
 }
 
 // Forecast goals for any metric level

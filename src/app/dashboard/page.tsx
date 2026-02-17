@@ -66,7 +66,7 @@ import { RecordDetailModal } from '@/components/dashboard/RecordDetailModal';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ChartErrorBoundary, TableErrorBoundary, CardErrorBoundary, FilterErrorBoundary } from '@/components/ui';
 import { dashboardApi, handleApiError } from '@/lib/api-client';
-import { DashboardFilters, FilterOptions, DEFAULT_ADVANCED_FILTERS, countActiveAdvancedFilters } from '@/types/filters';
+import { DashboardFilters, FilterOptions, DEFAULT_ADVANCED_FILTERS, countActiveAdvancedFilters, MetricDisposition } from '@/types/filters';
 import { 
   FunnelMetrics, 
   FunnelMetricsWithGoals,  // Changed from FunnelMetrics
@@ -281,7 +281,12 @@ export default function DashboardPage() {
   const [trendMode, setTrendMode] = useState<ConversionTrendMode>('cohort');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
-  
+
+  // Disposition toggle state for MQL/SQL/SQO cards
+  const [mqlDisposition, setMqlDisposition] = useState<MetricDisposition>('all');
+  const [sqlDisposition, setSqlDisposition] = useState<MetricDisposition>('all');
+  const [sqoDisposition, setSqoDisposition] = useState<MetricDisposition>('all');
+
   // Volume drill-down modal state
   const [volumeDrillDownOpen, setVolumeDrillDownOpen] = useState(false);
   const [volumeDrillDownRecords, setVolumeDrillDownRecords] = useState<DetailRecord[]>([]);
@@ -677,14 +682,18 @@ export default function DashboardPage() {
   const handleApplyFilters = useCallback((updatedAdvancedFilters?: typeof filters.advancedFilters) => {
     if (updatedAdvancedFilters !== undefined) {
       // AdvancedFilters is applying - use the provided advancedFilters and current global filters
-      setAppliedFilters({ 
-        ...filters, 
-        advancedFilters: updatedAdvancedFilters 
+      setAppliedFilters({
+        ...filters,
+        advancedFilters: updatedAdvancedFilters,
       });
     } else {
       // GlobalFilters is applying - use current filters state (which includes any pending advanced filter changes)
       setAppliedFilters({ ...filters });
     }
+    // Reset disposition toggles when global filters change
+    setMqlDisposition('all');
+    setSqlDisposition('all');
+    setSqoDisposition('all');
   }, [filters]);
 
   // Fetch dashboard data when applied filters change (not on every dropdown change)
@@ -856,17 +865,32 @@ export default function DashboardPage() {
     };
     
     const dateRange = buildDateRangeFromFilters(appliedFilters);
-    const dateRangeText = appliedFilters.datePreset === 'custom' 
+    const dateRangeText = appliedFilters.datePreset === 'custom'
       ? `${dateRange.startDate} to ${dateRange.endDate}`
       : appliedFilters.datePreset?.toUpperCase() || 'Selected Period';
-    
-    setVolumeDrillDownTitle(`${metricLabels[metricFilter]} - ${dateRangeText}`);
-    
+
+    // Determine active disposition for the clicked metric
+    let activeDisposition: MetricDisposition = 'all';
+    if (metricFilter === 'mql') activeDisposition = mqlDisposition;
+    else if (metricFilter === 'sql') activeDisposition = sqlDisposition;
+    else if (metricFilter === 'sqo') activeDisposition = sqoDisposition;
+
+    // Build title with disposition prefix
+    const dispositionLabels: Record<MetricDisposition, string> = {
+      all: '',
+      open: 'Open ',
+      lost: 'Lost ',
+      converted: 'Converted ',
+    };
+    const dispositionPrefix = dispositionLabels[activeDisposition];
+    setVolumeDrillDownTitle(`${dispositionPrefix}${metricLabels[metricFilter]} - ${dateRangeText}`);
+
     try {
       // Build filters for the drill-down query (use applied filters)
       const drillDownFilters: DashboardFilters = {
         ...appliedFilters,
         metricFilter: metricFilter,
+        metricDisposition: activeDisposition,
       };
       
       // Fetch records for the selected metric
@@ -888,6 +912,10 @@ export default function DashboardPage() {
       setSelectedMetric(null);
       setFilters(prev => ({ ...prev, metricFilter: 'all' }));
     }
+    // Reset disposition toggles when switching view modes
+    setMqlDisposition('all');
+    setSqlDisposition('all');
+    setSqoDisposition('all');
   };
   
   // Handle channel row click - update filters directly and immediately apply
@@ -1043,6 +1071,10 @@ export default function DashboardPage() {
                 setAppliedFilters(DEFAULT_FILTERS);
                 setActiveReportId(null);
                 setFeatureSelection(DEFAULT_FEATURE_SELECTION);
+                // Reset disposition toggles
+                setMqlDisposition('all');
+                setSqlDisposition('all');
+                setSqoDisposition('all');
               }}
               savedReports={savedReports}
               activeReportId={activeReportId}
@@ -1093,6 +1125,8 @@ export default function DashboardPage() {
                     contacted: featureSelection.scorecards.contacted,
                     mqls: featureSelection.scorecards.mqls,
                   }}
+                  mqlDisposition={mqlDisposition}
+                  onMqlDispositionChange={setMqlDisposition}
                 />
               </CardErrorBoundary>
             )
@@ -1121,6 +1155,10 @@ export default function DashboardPage() {
                     joinedAum: featureSelection.scorecards.joinedAum,
                     openPipeline: featureSelection.scorecards.openPipeline,
                   }}
+                  sqlDisposition={sqlDisposition}
+                  onSqlDispositionChange={setSqlDisposition}
+                  sqoDisposition={sqoDisposition}
+                  onSqoDispositionChange={setSqoDisposition}
                 />
               </CardErrorBoundary>
             )

@@ -126,6 +126,7 @@ export interface DashboardFilters {
   campaignId: string | null;
   metricFilter: 'all' | 'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'signed' | 'joined' | 'openPipeline';
   advancedFilters?: AdvancedFilters;  // Optional for backward compatibility
+  metricDisposition?: 'all' | 'open' | 'lost' | 'converted';
 }
 
 export interface FilterOptions {
@@ -139,6 +140,9 @@ export interface FilterOptions {
   campaigns: FilterOption[];
   leadScoreTiers: FilterOption[];
 }
+
+// Disposition filter type for MQL/SQL/SQO drill-down
+export type MetricDisposition = 'all' | 'open' | 'lost' | 'converted';
 
 // Add export for activity dashboard
 export type { SGAActivityFilters } from './sga-activity';

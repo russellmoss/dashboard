@@ -2,16 +2,18 @@
 
 import { Card, Metric, Text, Badge } from '@tremor/react';
 import { FunnelMetricsWithGoals, ForecastGoals } from '@/types/dashboard';
+import { MetricDisposition } from '@/types/filters';
 import { formatCurrency, formatNumber, formatAumCompact } from '@/lib/utils/date-helpers';
-import { 
-  calculateVariance, 
-  formatDifference, 
+import {
+  calculateVariance,
+  formatDifference,
   formatPercentVariance,
   getVarianceColorClass,
-  getVarianceBadgeColor 
+  getVarianceBadgeColor,
 } from '@/lib/utils/goal-helpers';
 import { TrendingUp, Users, DollarSign, Package, FileCheck } from 'lucide-react';
 import { OpenPipelineAumTooltip } from './OpenPipelineAumTooltip';
+import { DispositionToggle } from './DispositionToggle';
 
 interface ScorecardsProps {
   metrics: FunnelMetricsWithGoals;
@@ -26,6 +28,11 @@ interface ScorecardsProps {
     joinedAum: boolean;
     openPipeline: boolean;
   };
+  // Disposition toggle state
+  sqlDisposition?: MetricDisposition;
+  onSqlDispositionChange?: (value: MetricDisposition) => void;
+  sqoDisposition?: MetricDisposition;
+  onSqoDispositionChange?: (value: MetricDisposition) => void;
 }
 
 // Sub-component for displaying goal variance
@@ -55,13 +62,37 @@ function GoalDisplay({
   );
 }
 
-export function Scorecards({ 
-  metrics, 
-  selectedMetric, 
+export function Scorecards({
+  metrics,
+  selectedMetric,
   onMetricClick,
   visibleMetrics = { sqls: true, sqos: true, signed: true, signedAum: true, joined: true, joinedAum: true, openPipeline: true },
+  sqlDisposition,
+  onSqlDispositionChange,
+  sqoDisposition,
+  onSqoDispositionChange,
 }: ScorecardsProps) {
   const goals = metrics.goals;
+
+  // Resolve SQL count based on disposition toggle
+  const getSqlCount = (): number => {
+    switch (sqlDisposition || 'all') {
+      case 'open': return metrics.sqls_open ?? 0;
+      case 'lost': return metrics.sqls_lost ?? 0;
+      case 'converted': return metrics.sqls_converted ?? 0;
+      default: return metrics.sqls;
+    }
+  };
+
+  // Resolve SQO count based on disposition toggle
+  const getSqoCount = (): number => {
+    switch (sqoDisposition || 'all') {
+      case 'open': return metrics.sqos_open ?? 0;
+      case 'lost': return metrics.sqos_lost ?? 0;
+      case 'converted': return metrics.sqos_converted ?? 0;
+      default: return metrics.sqos;
+    }
+  };
   
   // Don't render if no metrics are visible
   if (!visibleMetrics.sqls && !visibleMetrics.sqos && !visibleMetrics.signed && !visibleMetrics.signedAum &&
@@ -73,10 +104,10 @@ export function Scorecards({
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
       {/* SQLs Card */}
       {visibleMetrics.sqls && (
-      <Card 
+      <Card
         className={`p-4 dark:bg-gray-800 dark:border-gray-700 ${
-          onMetricClick 
-            ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md' 
+          onMetricClick
+            ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md'
             : ''
         }`}
         onClick={() => onMetricClick?.('sql')}
@@ -86,12 +117,18 @@ export function Scorecards({
           <Users className="w-5 h-5 text-blue-500 dark:text-blue-400" />
         </div>
         <Metric className="text-2xl font-bold text-gray-900 dark:text-white">
-          {formatNumber(metrics.sqls)}
+          {formatNumber(getSqlCount())}
         </Metric>
         <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">
           Sales Qualified Leads
         </Text>
-        {goals && goals.sqls > 0 && (
+        {onSqlDispositionChange && (
+          <DispositionToggle
+            value={sqlDisposition || 'all'}
+            onChange={onSqlDispositionChange}
+          />
+        )}
+        {(sqlDisposition || 'all') === 'all' && goals && goals.sqls > 0 && (
           <GoalDisplay actual={metrics.sqls} goal={goals.sqls} label="SQL" />
         )}
       </Card>
@@ -99,10 +136,10 @@ export function Scorecards({
 
       {/* SQOs Card */}
       {visibleMetrics.sqos && (
-      <Card 
+      <Card
         className={`p-4 dark:bg-gray-800 dark:border-gray-700 ${
-          onMetricClick 
-            ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md' 
+          onMetricClick
+            ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md'
             : ''
         }`}
         onClick={() => onMetricClick?.('sqo')}
@@ -112,12 +149,18 @@ export function Scorecards({
           <TrendingUp className="w-5 h-5 text-green-500 dark:text-green-400" />
         </div>
         <Metric className="text-2xl font-bold text-gray-900 dark:text-white">
-          {formatNumber(metrics.sqos)}
+          {formatNumber(getSqoCount())}
         </Metric>
         <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">
           Sales Qualified Opportunities
         </Text>
-        {goals && goals.sqos > 0 && (
+        {onSqoDispositionChange && (
+          <DispositionToggle
+            value={sqoDisposition || 'all'}
+            onChange={onSqoDispositionChange}
+          />
+        )}
+        {(sqoDisposition || 'all') === 'all' && goals && goals.sqos > 0 && (
           <GoalDisplay actual={metrics.sqos} goal={goals.sqos} label="SQO" />
         )}
       </Card>

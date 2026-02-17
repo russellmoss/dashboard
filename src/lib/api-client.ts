@@ -166,6 +166,7 @@ function cleanFilters(filters: DashboardFilters): DashboardFilters {
     experimentationTag: filters.experimentationTag,
     campaignId: filters.campaignId,
     metricFilter: filters.metricFilter,
+    metricDisposition: filters.metricDisposition,
   };
   
   // Safely merge advancedFilters with defaults to ensure all nested properties exist
