@@ -1,3 +1,5 @@
+CREATE OR REPLACE VIEW `savvy-gtm-analytics.Tableau_Views.vw_funnel_master` AS
+
 WITH Lead_Base AS (
   SELECT
     Id AS Full_prospect_id__c,
@@ -101,14 +103,14 @@ ReEngagement_As_Lead AS (
     -- 8. Lead_Finance_View__c
     Finance_View__c AS Lead_Finance_View__c,
 
-    -- ════════════════════════════════════════════════════════════════
-    -- STAGE MAPPING: Re-Engagement stages → Lead funnel date fields
-    -- ════════════════════════════════════════════════════════════════
-    -- 9. stage_entered_contacting__c (Outreach → Contacted)
+    -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    -- STAGE MAPPING: Re-Engagement stages â†’ Lead funnel date fields
+    -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    -- 9. stage_entered_contacting__c (Outreach â†’ Contacted)
     Stage_Entered_Outreach__c AS stage_entered_contacting__c,
-    -- 10. mql_stage_entered_ts (Call Scheduled → MQL)
+    -- 10. mql_stage_entered_ts (Call Scheduled â†’ MQL)
     Stage_Entered_Call_Scheduled__c AS mql_stage_entered_ts,
-    -- 11. converted_date_raw (Re-Engaged → SQL); cast to DATE to match Lead.ConvertedDate in UNION
+    -- 11. converted_date_raw (Re-Engaged â†’ SQL); cast to DATE to match Lead.ConvertedDate in UNION
     DATE(Stage_Entered_Re_Engaged__c) AS converted_date_raw,
     -- 12. IsConverted (TRUE when conversion link to new Recruiting opp exists)
     CASE
@@ -245,9 +247,9 @@ Combined AS (
     COALESCE(o.Opp_Finance_View__c, l.Lead_Finance_View__c, 'Other') AS Finance_View__c,
     COALESCE(o.Opp_External_Agency__c, l.Lead_External_Agency__c) AS External_Agency__c,
     
-    -- ═══════════════════════════════════════════════════════════════════════
+    -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     -- SGA/SGM ATTRIBUTION (Simplified - direct name fields, no User lookup)
-    -- ═══════════════════════════════════════════════════════════════════════
+    -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     l.Lead_SGA_Owner_Name__c AS SGA_Owner_Name__c,  -- SGA who owns/worked the lead
     o.Opp_SGA_Name AS Opp_SGA_Name__c,              -- SGA associated with the opportunity
     o.Opp_SGM_Name AS SGM_Owner_Name__c,            -- SGM who owns the opportunity
@@ -382,11 +384,11 @@ Final AS (
     -- This handles opportunities created directly (not from leads)
     COALESCE(wsl.SGA_Owner_Name__c, wsl.Opp_SGA_User_Name) AS SGA_Owner_Name__c,
     
-    -- ═══════════════════════════════════════════════════════════════════════
+    -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     -- OPPORTUNITY DEDUPLICATION FLAGS
     -- Ensures opportunity-level metrics (SQO, Joined, AUM) count once per opportunity
     -- even when multiple leads convert to the same opportunity
-    -- ═══════════════════════════════════════════════════════════════════════
+    -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     
     -- Flag: Is this the primary row for this opportunity?
     -- TRUE for: first lead per opportunity, OR opportunity-only records
@@ -471,7 +473,7 @@ Final AS (
       ELSE 'Unknown'
     END AS record_type_name,
 
-    -- Source pathway: Lead or Re-Engagement (use wsl. — Final reads from With_Campaign_Name)
+    -- Source pathway: Lead or Re-Engagement (use wsl. â€” Final reads from With_Campaign_Name)
     wsl.lead_record_source AS prospect_source_type,
     
     -- Experiment Tag Array (for unnesting in specialized views)
@@ -481,16 +483,16 @@ Final AS (
       WHERE TRIM(tag) != ''
     ) AS Experimentation_Tag_List,
     
-    -- ═══════════════════════════════════════════════════════════════════════
+    -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     -- CONVERSION ELIGIBILITY FLAGS (Denominators)
     -- Only records with final outcomes are included
-    -- ═══════════════════════════════════════════════════════════════════════
+    -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     
-    -- ═══════════════════════════════════════════════════════════════════════
+    -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     -- CONVERSION ELIGIBILITY FLAGS (Denominators) - COHORT MODE
     -- Only records with final outcomes are included (resolved anytime)
     -- Lead-level uses lead_closed_date, Opportunity-level uses opp_closed_date/StageName
-    -- ═══════════════════════════════════════════════════════════════════════
+    -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     
     -- Contacted Eligibility (Cohort): Contacted that became MQL or closed as lead
     CASE 
@@ -498,7 +500,7 @@ Final AS (
       THEN 1 ELSE 0 
     END AS eligible_for_contacted_conversions,
     
-    -- 30-day effective resolution for Contacted→MQL denominator (reporting only)
+    -- 30-day effective resolution for Contactedâ†’MQL denominator (reporting only)
     CASE
       WHEN is_contacted = 1 AND (
         is_mql = 1
@@ -541,10 +543,10 @@ Final AS (
       THEN 1 ELSE 0 
     END AS eligible_for_sqo_conversions,
     
-    -- ═══════════════════════════════════════════════════════════════════════
+    -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     -- CONVERSION PROGRESSION FLAGS (Numerators)
     -- Records that actually progressed to the next stage
-    -- ═══════════════════════════════════════════════════════════════════════
+    -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     
     -- Contacted to MQL
     -- Note: Only count as progression if MQL date is ON or AFTER FilterDate
