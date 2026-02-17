@@ -445,7 +445,7 @@ export function GlobalFilters({
         <div className="flex items-center justify-center gap-2 shrink-0">
           <button
             type="button"
-            onClick={onApply}
+            onClick={() => onApply()}
             disabled={!hasPendingChanges}
             className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600 rounded transition-colors"
           >
