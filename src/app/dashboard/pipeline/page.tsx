@@ -23,6 +23,15 @@ import { SgmOption, SgmPipelineChartData } from '@/types/dashboard';
 export default function PipelinePage() {
   const { data: session, status } = useSession();
   const permissions = getSessionPermissions(session);
+
+  // Debug logging for Vercel
+  useEffect(() => {
+    console.log('[Pipeline] Session status:', status);
+    console.log('[Pipeline] Session data:', session);
+    console.log('[Pipeline] Permissions:', permissions);
+    console.log('[Pipeline] Role:', permissions?.role);
+  }, [session, status, permissions]);
+
   const isRevOpsAdmin = permissions?.role === 'revops_admin';
 
   // Data state
