@@ -92,6 +92,51 @@ function deleteSessionContext() {
   }
 }
 
+// ── HTML formatting (Wrike renders HTML in descriptions) ─────────────────────
+
+function escHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Convert **bold** and `code` inline markers to HTML. */
+function inlineFmt(text) {
+  return escHtml(text)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+/**
+ * Convert Claude's markdown-style output (## headers, - bullets) to Wrike HTML.
+ * Wrike displays the description as HTML, so raw newlines produce no line breaks.
+ */
+function toWrikeHtml(text) {
+  const lines = text.split('\n');
+  const parts = [];
+  let inList = false;
+
+  for (const line of lines) {
+    if (line.startsWith('## ')) {
+      if (inList) { parts.push('</ul>'); inList = false; }
+      parts.push('<p><strong>' + escHtml(line.slice(3).trim()) + '</strong></p>');
+    } else if (line.startsWith('- ')) {
+      if (!inList) { parts.push('<ul>'); inList = true; }
+      parts.push('<li>' + inlineFmt(line.slice(2)) + '</li>');
+    } else if (line.trim() === '---') {
+      if (inList) { parts.push('</ul>'); inList = false; }
+      parts.push('<hr/>');
+    } else if (line.trim() === '') {
+      if (inList) { parts.push('</ul>'); inList = false; }
+      // skip blank lines — HTML doesn't need them
+    } else {
+      if (inList) { parts.push('</ul>'); inList = false; }
+      parts.push('<p>' + inlineFmt(line) + '</p>');
+    }
+  }
+
+  if (inList) parts.push('</ul>');
+  return parts.join('\n');
+}
+
 // ── Claude API prompts ────────────────────────────────────────────────────────
 
 function buildRichPrompt(sessionContext, git) {
@@ -275,25 +320,31 @@ async function main() {
   let description = await callClaude(prompt);
 
   if (!description) {
-    description = git.message + '\n\nFiles changed:\n' + git.filesChanged;
+    // Fallback: build a simple markdown-compatible string that toWrikeHtml can convert
+    const fileLines = git.filesChanged.split('\n').filter(Boolean).map(f => '- ' + f);
+    description = '## Summary\n' + git.message + '\n\n## Files Changed\n' + fileLines.join('\n');
     log('\u26A0 Claude API unavailable \u2014 using fallback description');
   }
 
-  // Append metadata footer
+  // Convert to HTML (Wrike renders description as HTML; plain text loses all formatting)
+  const htmlBody = toWrikeHtml(description);
+
+  // HTML metadata footer
   const footer = [
-    '',
-    '---',
-    'Commit: ' + git.hash + ' | Branch: ' + git.branch,
-    'Context: ' + contextSource + ' | ' + new Date().toISOString().split('T')[0],
+    '<hr/>',
+    '<p style="color: #888; font-size: 0.9em;">',
+    'Commit: <code>' + git.hash + '</code> &nbsp;|&nbsp; Branch: <code>' + escHtml(git.branch) + '</code><br/>',
+    'Context: ' + contextSource + ' &nbsp;|&nbsp; ' + new Date().toISOString().split('T')[0],
+    '</p>',
   ].join('\n');
 
-  description += footer;
+  const description_html = htmlBody + '\n' + footer;
 
   // Build task title: [branch] first line of commit message
   const title = '[' + git.branch + '] ' + git.message.split('\n')[0];
 
   // Create Wrike task
-  const task = await createWrikeTask(title, description, git);
+  const task = await createWrikeTask(title, description_html, git);
 
   if (task) {
     log('\u2713 Wrike task created: ' + title.slice(0, 80));
