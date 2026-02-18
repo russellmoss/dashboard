@@ -2167,3 +2167,38 @@ These routes use `forbidRecruiter()` for defense-in-depth:
 3. **Test data filtering**: Verify recruiter only sees their agency's data
 4. **Test route-level blocks**: Verify `forbidRecruiter()` returns 403
 5. **Test bypasses**: Try accessing other agencies via query params (should fail)
+
+## Git Commit Protocol — Wrike Session Context
+
+**Before every `git commit`, you MUST write a session context file to `.ai-session-context.md`.**
+
+A post-commit hook reads this file and auto-creates a Wrike task card in the Dashboards kanban (Backlog column). This is how all development work is tracked.
+
+**Write this file BEFORE running `git add` / `git commit`. The hook reads it from the working directory, then deletes it.**
+
+Required structure:
+
+```
+### Session Summary
+One paragraph: what was built, fixed, or changed this session.
+
+### Business Context
+Why this work was needed — the problem, who requested it, what it enables.
+
+### Technical Approach
+Key decisions made, tradeoffs considered, alternatives rejected.
+
+### What Changed
+Brief list of meaningful changes (focus on important files, not every file).
+
+### Verification
+What was tested and how — TypeScript compilation, manual UI testing, data validation, etc.
+```
+
+**Rules:**
+- ALWAYS write this file before committing — never skip this step.
+- Keep it concise: 10–20 lines total.
+- Focus on the WHY — the git diff already captures what files changed.
+- Do NOT stage `.ai-session-context.md` — it is in .gitignore.
+- The post-commit hook deletes it after reading.
+- If you make multiple commits in one session, write a fresh context file before each commit.
