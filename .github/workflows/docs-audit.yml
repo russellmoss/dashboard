@@ -1,0 +1,140 @@
+name: Documentation Drift Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/app/api/**'
+      - 'src/app/*/page.tsx'
+      - 'src/app/dashboard/*/page.tsx'
+      - 'prisma/schema.prisma'
+      - '.env.example'
+      - 'src/lib/permissions.ts'
+      - 'src/lib/semantic-layer/**'
+      - 'src/config/constants.ts'
+      - 'src/app/api/auth/**'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  audit-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Regenerate inventories from current code
+        run: npm run gen:all
+
+      - name: Check for inventory drift
+        id: check-drift
+        run: |
+          DRIFT_FOUND=false
+          DRIFT_DETAILS=""
+
+          if ! git diff --quiet docs/_generated/api-routes.md 2>/dev/null; then
+            DRIFT_FOUND=true
+            DRIFT_DETAILS="${DRIFT_DETAILS}### API Routes Drift\n\`\`\`diff\n$(git diff docs/_generated/api-routes.md | head -80)\n\`\`\`\n\n"
+          fi
+
+          if ! git diff --quiet docs/_generated/prisma-models.md 2>/dev/null; then
+            DRIFT_FOUND=true
+            DRIFT_DETAILS="${DRIFT_DETAILS}### Prisma Models Drift\n\`\`\`diff\n$(git diff docs/_generated/prisma-models.md | head -80)\n\`\`\`\n\n"
+          fi
+
+          if ! git diff --quiet docs/_generated/env-vars.md 2>/dev/null; then
+            DRIFT_FOUND=true
+            DRIFT_DETAILS="${DRIFT_DETAILS}### Environment Variables Drift\n\`\`\`diff\n$(git diff docs/_generated/env-vars.md | head -80)\n\`\`\`\n\n"
+          fi
+
+          echo "drift_found=$DRIFT_FOUND" >> $GITHUB_OUTPUT
+
+          if [ "$DRIFT_FOUND" = "true" ]; then
+            printf "%b" "$DRIFT_DETAILS" > /tmp/drift-details.md
+          fi
+
+      - name: Count current inventory totals
+        if: steps.check-drift.outputs.drift_found == 'true'
+        id: counts
+        run: |
+          API_COUNT=$(grep -c "^|" docs/_generated/api-routes.md || echo "0")
+          MODEL_COUNT=$(grep -c "^## " docs/_generated/prisma-models.md || echo "0")
+          ENV_COUNT=$(grep -c "^|" docs/_generated/env-vars.md || echo "0")
+          echo "api_count=$API_COUNT" >> $GITHUB_OUTPUT
+          echo "model_count=$MODEL_COUNT" >> $GITHUB_OUTPUT
+          echo "env_count=$ENV_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Create drift issue
+        if: steps.check-drift.outputs.drift_found == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const driftDetails = fs.readFileSync('/tmp/drift-details.md', 'utf8');
+            const actor = context.actor;
+            const sha = context.sha.substring(0, 7);
+
+            const issueBody = [
+              '## \uD83D\uDCCB Documentation Drift Detected',
+              '',
+              'The generated inventory files no longer match the committed code.',
+              'This means code was pushed to main without regenerating the inventories.',
+              '',
+              '**Triggered by**: Push to `main` by @' + actor,
+              '**Commit**: ' + sha,
+              '',
+              '---',
+              '',
+              '## Drift Details',
+              '',
+              driftDetails,
+              '',
+              '---',
+              '',
+              '## How to Fix',
+              '',
+              '### Option A: Run inventory scripts (quick fix)',
+              '```bash',
+              'npm run gen:all',
+              'git add docs/_generated/',
+              'git commit -m "docs: regenerate inventories"',
+              'git push',
+              '```',
+              '',
+              '### Option B: Claude Code prompt (if ARCHITECTURE.md also needs updating)',
+              '```',
+              'Documentation drift was detected after a push to main.',
+              '',
+              '1. Run: npm run gen:all',
+              '2. Read the regenerated files in docs/_generated/ to understand what changed',
+              '3. Update docs/ARCHITECTURE.md to reflect the new routes/models/env vars',
+              '4. Follow the Documentation Maintenance standing instructions in .cursorrules',
+              '',
+              'Rules:',
+              '- Read each changed file BEFORE updating docs',
+              '- Match the existing format in ARCHITECTURE.md',
+              '- Do NOT modify any source code files',
+              '```',
+              '',
+              '---',
+              '_This issue was created automatically by the Documentation Drift Audit workflow._'
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '\uD83D\uDCCB Documentation drift detected \u2014 inventories out of sync',
+              body: issueBody,
+              labels: ['documentation', 'automated-audit']
+            });
