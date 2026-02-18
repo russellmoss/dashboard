@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   BarChart,
   Bar,
@@ -64,22 +64,28 @@ interface CustomXAxisTickProps {
   payload?: { value: string };
   onClick: (sgm: string) => void;
   isDark: boolean;
+  fontSize: number;
+  angle: number;
 }
 
-const CustomXAxisTick = ({ x, y, payload, onClick, isDark }: CustomXAxisTickProps) => {
+const CustomXAxisTick = ({ x, y, payload, onClick, isDark, fontSize, angle }: CustomXAxisTickProps) => {
   const name = payload?.value || '';
-  // Truncate long names to 15 chars with ellipsis
-  const displayName = name.length > 15 ? name.substring(0, 14) + '…' : name;
+  const isRotated = angle !== 0;
+  // Allow more characters when rotated since labels run along diagonal
+  const maxChars = isRotated ? 20 : 12;
+  const displayName = name.length > maxChars ? name.substring(0, maxChars - 1) + '…' : name;
+  const textAnchor = isRotated ? 'end' : 'middle';
   return (
     <g transform={`translate(${x},${y})`}>
       <text
         x={0}
         y={0}
-        dy={16}
-        textAnchor="middle"
+        dy={isRotated ? 4 : 16}
+        textAnchor={textAnchor}
         fill={isDark ? '#60a5fa' : '#2563eb'}
-        fontSize={20}
+        fontSize={fontSize}
         fontWeight={600}
+        transform={isRotated ? `rotate(${angle})` : undefined}
         style={{ cursor: 'pointer', textDecoration: 'underline' }}
         onClick={(e) => {
           e.stopPropagation();
@@ -169,6 +175,21 @@ export function PipelineBySgmChart({
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
 
+  // Track container width for responsive sizing
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(800);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (w) setContainerWidth(w);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   if (loading) {
     return (
       <div className="h-[75vh] min-h-[600px] flex items-center justify-center">
@@ -188,11 +209,39 @@ export function PipelineBySgmChart({
   const gridColor = isDark ? '#4B5563' : '#D1D5DB';
   const textColor = isDark ? '#9CA3AF' : '#6B7280';
 
+  // Responsive font sizes
+  const tickFontSize =
+    containerWidth < 480 ? 10 : containerWidth < 640 ? 12 : containerWidth < 800 ? 14 : 16;
+  const valueLabelFontSize =
+    containerWidth < 480 ? 10 : containerWidth < 640 ? 12 : containerWidth < 800 ? 14 : 16;
+  const axisFontSize =
+    containerWidth < 480 ? 10 : containerWidth < 640 ? 12 : containerWidth < 800 ? 14 : 16;
+  const axisLabelFontSize =
+    containerWidth < 480 ? 12 : containerWidth < 640 ? 14 : containerWidth < 800 ? 16 : 18;
+
+  // Rotate x-axis labels when too crowded (< 80px per SGM)
+  const pixelsPerSgm = containerWidth / Math.max(data.length, 1);
+  const shouldRotate = pixelsPerSgm < 90 || containerWidth < 600;
+  const tickAngle = shouldRotate ? -45 : 0;
+  const xAxisHeight = shouldRotate ? 110 : 50;
+  const bottomMargin = shouldRotate ? 20 : 20;
+
+  // Y-axis margins shrink on small screens
+  const leftMargin = containerWidth < 480 ? 50 : 80;
+  const rightMargin = containerWidth < 480 ? 50 : 80;
+
+  // Only show bar-top labels when there's enough horizontal space.
+  // Each SGM group has two bar clusters (AUM + count) whose labels sit side-by-side
+  // at nearly the same y when both stacks peak near the same height.
+  // Below ~70 px/SGM the labels collide; at that point rely on the tooltip instead.
+  const showValueLabels = pixelsPerSgm >= 70;
+
   // Filter stages to only those selected
   const stagesToRender = STAGE_STACK_ORDER.filter(stage => selectedStages.includes(stage));
 
   // Custom label renderer for total AUM above each stacked bar
   const renderTotalAumLabel = (props: any) => {
+    if (!showValueLabels) return null;
     const { x = 0, y = 0, width = 0, index } = props;
     if (index === undefined || !data[index]) return null;
     const entry = data[index];
@@ -204,8 +253,8 @@ export function PipelineBySgmChart({
         x={x + width / 2}
         y={y - 8}
         fill={isDark ? '#f9fafb' : '#111827'}
-        textAnchor="middle"
-        fontSize={20}
+        textAnchor="end"
+        fontSize={valueLabelFontSize}
         fontWeight={700}
         style={{
           textShadow: isDark
@@ -220,6 +269,7 @@ export function PipelineBySgmChart({
 
   // Custom label renderer for total count above each stacked count bar
   const renderTotalCountLabel = (props: any) => {
+    if (!showValueLabels) return null;
     const { x = 0, y = 0, width = 0, index } = props;
     if (index === undefined || !data[index]) return null;
     const entry = data[index];
@@ -230,8 +280,8 @@ export function PipelineBySgmChart({
         x={x + width / 2}
         y={y - 8}
         fill={isDark ? '#f9fafb' : '#111827'}
-        textAnchor="middle"
-        fontSize={20}
+        textAnchor="start"
+        fontSize={valueLabelFontSize}
         fontWeight={700}
         style={{
           textShadow: isDark
@@ -246,21 +296,20 @@ export function PipelineBySgmChart({
 
   // Legend formatter - show stage names only once (not duplicated for AUM/Count)
   const legendFormatter = (value: string) => {
-    // Find the stage name that matches this camelCase key
     for (const stage of STAGE_STACK_ORDER) {
       if (stageToKey(stage) === value) {
-        return <span style={{ color: textColor, fontSize: 20 }}>{stage}</span>;
+        return <span style={{ color: textColor, fontSize: axisFontSize }}>{stage}</span>;
       }
     }
-    return <span style={{ color: textColor, fontSize: 20 }}>{value}</span>;
+    return <span style={{ color: textColor, fontSize: axisFontSize }}>{value}</span>;
   };
 
   return (
-    <div className="h-[75vh] min-h-[600px]">
+    <div ref={containerRef} className="h-[75vh] min-h-[600px]">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart
           data={data}
-          margin={{ top: 40, right: 80, left: 80, bottom: 20 }}
+          margin={{ top: 40, right: rightMargin, left: leftMargin, bottom: bottomMargin }}
           barCategoryGap="20%"
           barGap={2}
         >
@@ -273,17 +322,24 @@ export function PipelineBySgmChart({
           <XAxis
             dataKey="sgm"
             tick={(props: any) => (
-              <CustomXAxisTick {...props} onClick={onSgmClick} isDark={isDark} />
+              <CustomXAxisTick
+                {...props}
+                onClick={onSgmClick}
+                isDark={isDark}
+                fontSize={tickFontSize}
+                angle={tickAngle}
+              />
             )}
             axisLine={{ stroke: gridColor }}
             interval={0}
+            height={xAxisHeight}
           />
           {/* Left Y-Axis for AUM */}
           <YAxis
             yAxisId="aum"
             orientation="left"
             tickFormatter={formatAumAxis}
-            tick={{ fill: isDark ? '#f9fafb' : '#111827', fontSize: 21, fontWeight: 500 }}
+            tick={{ fill: isDark ? '#f9fafb' : '#111827', fontSize: axisFontSize, fontWeight: 500 }}
             axisLine={{ stroke: gridColor }}
             tickLine={{ stroke: gridColor }}
             domain={[0, 'dataMax']}
@@ -293,14 +349,14 @@ export function PipelineBySgmChart({
               angle: -90,
               position: 'insideLeft',
               dx: -35,
-              style: { fill: BAR_COLORS.aum, fontSize: 21, fontWeight: 600 },
+              style: { fill: BAR_COLORS.aum, fontSize: axisLabelFontSize, fontWeight: 600 },
             }}
           />
           {/* Right Y-Axis for Advisor Count */}
           <YAxis
             yAxisId="count"
             orientation="right"
-            tick={{ fill: isDark ? '#f9fafb' : '#111827', fontSize: 21, fontWeight: 500 }}
+            tick={{ fill: isDark ? '#f9fafb' : '#111827', fontSize: axisFontSize, fontWeight: 500 }}
             tickFormatter={(value) => value.toLocaleString()}
             axisLine={{ stroke: gridColor }}
             tickLine={{ stroke: gridColor }}
@@ -311,7 +367,7 @@ export function PipelineBySgmChart({
               angle: 90,
               position: 'insideRight',
               dx: 35,
-              style: { fill: BAR_COLORS.count, fontSize: 21, fontWeight: 600 },
+              style: { fill: BAR_COLORS.count, fontSize: axisLabelFontSize, fontWeight: 600 },
             }}
           />
           <Tooltip
