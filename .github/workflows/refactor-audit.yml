@@ -130,6 +130,60 @@ jobs:
               current > baseline ? '\u26A0\uFE0F NEW (' + current + ' vs baseline ' + baseline + ')' :
                                    '\u2705 Baseline (' + current + ')';
 
+            // Build dynamic remediation prompt sections based on what exceeded baselines
+            const p1 = highCount > baselineV
+              ? 'PRIORITY 1 \u2014 New high-severity npm vulnerabilities (' + highCount + ' vs baseline ' + baselineV + '):\n\n' +
+                (auditSummary || 'See npm audit output above') + '\n\n' +
+                'Action: Run npm audit fix and report what was fixed. If npm audit fix does not resolve them, report which packages are affected and whether npm audit fix --force would introduce breaking changes.'
+              : 'PRIORITY 1 \u2014 npm vulnerabilities: None new \u2014 at baseline (' + baselineV + ' high-severity). Skip this section.';
+
+            const p2 = todoCount > baselineT
+              ? 'PRIORITY 2 \u2014 New TODO/HACK/FIXME comments (' + todoCount + ' found, baseline is ' + baselineT + '):\n\n' +
+                todosContent + '\n\n' +
+                'Action: For each new TODO, either implement it (if small and safe) or add a comment documenting why it exists and when it should be addressed.'
+              : 'PRIORITY 2 \u2014 TODO/HACK/FIXME comments: None new \u2014 at baseline (' + baselineT + '). Skip this section.';
+
+            const p3 = largeCount > baselineL
+              ? 'PRIORITY 3 \u2014 Files newly exceeding 500 lines (' + largeCount + ' found, baseline is ' + baselineL + '):\n\n' +
+                largeFilesContent + '\n\n' +
+                'Action: For each newly large file, read it and assess: can a section be extracted into a separate utility or component? Are there duplicated patterns that could be consolidated? Report your assessment but only refactor if the extraction is clean and safe.'
+              : 'PRIORITY 3 \u2014 Large files: None new \u2014 at baseline (' + baselineL + ' files over 500 lines). Skip this section.';
+
+            const p4 = deadCount > baselineD
+              ? 'PRIORITY 4 \u2014 Dead exports increased (' + deadCount + ' found, baseline is ' + baselineD + '):\n\n' +
+                (deadExports || 'See dead exports section above') + '\n\n' +
+                'Action: For any NEW dead exports only, verify zero consumers (check dynamic imports, barrel re-exports, test files) before removing. The baseline of ' + baselineD + ' includes many false positives from type exports and barrel re-exports.'
+              : 'PRIORITY 4 \u2014 Dead exports: At baseline (' + baselineD + '). Skip this section.';
+
+            const remediationPrompt = [
+              'You are performing the weekly refactoring audit remediation for the Savvy Dashboard.',
+              'Date: ' + date,
+              '',
+              'Read this entire prompt before starting. Work through each section in priority order.',
+              'Only make changes you are confident are safe. If unsure, report the finding but do NOT change code.',
+              '',
+              '\u26A0\uFE0F RULES:',
+              '- Read each file BEFORE making any changes',
+              '- Run npx tsc --noEmit after each change to verify no type errors introduced',
+              '- Do NOT remove exports unless you verify zero consumers (dynamic imports, barrel re-exports, test files)',
+              '- For npm vulnerabilities: prefer npm audit fix over npm audit fix --force',
+              '- After all changes, run: npm run gen:all to regenerate inventories',
+              '',
+              p1,
+              '',
+              p2,
+              '',
+              p3,
+              '',
+              p4,
+              '',
+              'After completing all priorities, report:',
+              '- What changes were made',
+              '- What was flagged but intentionally left unchanged (and why)',
+              '- Results of npx tsc --noEmit',
+              '- Results of npm run gen:all',
+            ].join('\n');
+
             const lines = [
               '## \uD83D\uDD27 Weekly Refactoring Audit \u2014 ' + date,
               '',
@@ -175,23 +229,14 @@ jobs:
               '',
               '---',
               '',
-              '## \uD83D\uDD0D Claude Code Remediation Prompt',
+              '## \uD83E\uDD16 Claude Code Prompt (copy-paste into Claude Code)',
               '',
-              'Use this prompt to address the most actionable NEW findings:',
+              'The following prompt is ready to paste directly into Claude Code:',
+              '',
+              '---',
               '',
               '```',
-              'Review the weekly refactoring audit findings for the Savvy Dashboard.',
-              '',
-              'Priority order:',
-              '1. Any NEW high-severity npm vulnerabilities \u2014 check if fixable without breaking changes',
-              '2. Any new TODO/HACK comments \u2014 review and either implement or create a ticket',
-              '3. Files newly exceeding 500 lines \u2014 assess if extraction is practical',
-              '4. Verify dead exports before removing \u2014 check for dynamic usage patterns',
-              '',
-              'Rules:',
-              '- Read each flagged file before making changes',
-              '- Do NOT modify source code without understanding the change impact',
-              '- For npm vulnerabilities: prefer npm audit fix over npm audit fix --force',
+              remediationPrompt,
               '```',
               '',
               '---',
