@@ -18,6 +18,13 @@
 8. [SGA Hub & Management](#8-sga-hub--management)
 9. [Self-Serve Analytics (Explore)](#9-self-serve-analytics-explore)
 10. [Deployment & Operations](#10-deployment--operations)
+11. [GC Hub](#11-gc-hub)
+12. [Dashboard Requests](#12-dashboard-requests)
+13. [Recruiter Hub](#13-recruiter-hub)
+14. [Advisor Map](#14-advisor-map)
+15. [Pipeline Catcher Game](#15-pipeline-catcher-game)
+16. [SGA Activity](#16-sga-activity)
+17. [Saved Reports](#17-saved-reports)
 
 ---
 
@@ -1187,6 +1194,380 @@ Query results support drill-down to underlying records:
 
 ---
 
+## 11. GC Hub
+
+### Overview
+
+GC Hub displays Gross Commission (GC) data for financial advisors, sourced from the Orion revenue estimates Google Sheet. Accessible only to users with **Page 16** permission. Capital Partners receive anonymized data (advisor and firm names replaced with `"Hidden"`).
+
+| Role | Access Level |
+|------|-------------|
+| admin, revops_admin | Full access including write operations |
+| manager, sgm, sga | Read-only |
+| capital_partner | Anonymized read-only |
+| recruiter | Blocked |
+
+### Data Source & Sync
+
+Data is synchronized from Orion into two Prisma models:
+
+- **`GcAdvisorPeriodData`** — Per-advisor, per-period revenue records. Key fields: `grossRevenue`, `commissionsPaid`, `amountEarned`, `advisorNormalizedName`, `period`, plus override tracking (`isOverridden`, `originalGrossRevenue`, `originalCommissionsPaid`, `overrideReason`).
+- **`GcSyncLog`** — Sync audit log recording `monthsSynced`, `totalInserted`, `totalUpdated`, `totalSkipped`, and errors per sync run.
+
+`POST /api/gc-hub/manual-sync` (admin/revops_admin only) triggers `syncAllMonths()`, which pulls all data from Orion and upserts into `GcAdvisorPeriodData`. A `GcSyncLog` entry is created on completion.
+
+### Override System
+
+`PUT /api/gc-hub/override` (admin/revops_admin only) corrects `grossRevenue` and `commissionsPaid` for a specific record. On the first override, original values are preserved in `originalGrossRevenue`/`originalCommissionsPaid`. `amountEarned` is recalculated after every override.
+
+### Period Management
+
+`POST /api/gc-hub/period` creates a new period record; `DELETE /api/gc-hub/period` removes one. Both require admin/revops_admin. Uniqueness is enforced by `@@unique([advisorNormalizedName, period])`.
+
+### API Routes
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| POST | `/api/gc-hub/advisors` | page_16 | List advisors with filters (dates, accounts, billing frequency, sort, search) |
+| POST | `/api/gc-hub/advisor-detail` | page_16 | Single advisor detail (accepts `advisorName`) |
+| POST | `/api/gc-hub/filters` | page_16 | Filter options (accounts, advisors, billing frequencies) |
+| POST | `/api/gc-hub/summary` | page_16 | Period summary with date + advisor/account/billing filters |
+| POST | `/api/gc-hub/manual-sync` | admin/revops_admin | Trigger full Orion sync; returns sync stats |
+| PUT | `/api/gc-hub/override` | admin/revops_admin | Override grossRevenue/commissionsPaid; preserves originals |
+| POST | `/api/gc-hub/period` | admin/revops_admin | Create a new period record |
+| DELETE | `/api/gc-hub/period` | admin/revops_admin | Delete a period record |
+| GET | `/api/gc-hub/sync-status` | page_16 | Latest sync status from `getGcSyncStatus()` |
+
+---
+
+## 12. Dashboard Requests
+
+### Overview
+
+Dashboard Requests is an internal ticketing system for submitting and tracking analytics feature requests. It integrates with **Wrike** for project management and sends **email notifications** on status changes.
+
+| Feature | Detail |
+|---------|--------|
+| Statuses | SUBMITTED → PLANNED → IN_PROGRESS → DONE → ARCHIVED |
+| Wrike sync | Background (non-blocking); syncs creates, status changes, and comments |
+| Attachments | Images only (PNG, JPEG, GIF, WebP); max 5 MB; stored as base64 in DB |
+| Edit history | All field changes recorded in `RequestEditHistory` |
+| Kanban view | 4 columns: SUBMITTED, PLANNED, IN_PROGRESS, DONE |
+
+### Visibility Rules
+
+| User Type | What They See |
+|-----------|---------------|
+| RevOps Admin (`canManageRequests`) | All requests |
+| Everyone else | Own requests + non-private requests with status ≠ SUBMITTED |
+
+Archived requests are excluded from all list and kanban views.
+
+### Access Control
+
+All non-recruiter users can submit requests. `canManageRequests` (RevOps Admin) is required for:
+
+- Status changes via `/[id]/status` (also sends email notification)
+- Archive (`/[id]/archive`) and unarchive (`/[id]/unarchive`)
+- Analytics endpoint
+- Unarchiving restores status to **DONE** (not the prior status)
+
+### Comments & Notifications
+
+`POST /api/dashboard-requests/[id]/comments` adds a comment, syncs it to the linked Wrike task, and sends `@mention` notifications to tagged users.
+
+### Duplicate Detection
+
+`GET /api/dashboard-requests/recent?search=<query>` searches titles and descriptions from the **last 30 days** (minimum 3 characters, returns up to 10 results). Used by the submission form to surface potential duplicates.
+
+### Prisma Models
+
+- **`DashboardRequest`** — Core record: `title`, `description`, `requestType`, `priority`, `status`, `isPrivate`, `submitterId`, `wrikeTaskId`, `statusChangedAt`.
+- **`RequestEditHistory`** — Change log: `fieldName`, `oldValue`, `newValue`, `editedById`, `createdAt`.
+- **`RequestComment`** — `content`, `authorId`, `wrikeCommentId`.
+- **`RequestAttachment`** — `filename`, `mimeType`, `size`, base64 `data`, `uploadedById`.
+
+### API Routes
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| GET | `/api/dashboard-requests` | Non-recruiter | List requests (visibility rules applied) |
+| POST | `/api/dashboard-requests` | Non-recruiter | Create request; Wrike sync in background |
+| GET | `/api/dashboard-requests/[id]` | Non-recruiter | Get single request with full detail |
+| PATCH | `/api/dashboard-requests/[id]` | Owner or canManageRequests | Update fields; records edit history; Wrike sync |
+| DELETE | `/api/dashboard-requests/[id]` | Owner or canManageRequests | Delete request |
+| PATCH | `/api/dashboard-requests/[id]/status` | canManageRequests | Change status; email notification; Wrike sync |
+| GET | `/api/dashboard-requests/[id]/comments` | Non-recruiter | List comments |
+| POST | `/api/dashboard-requests/[id]/comments` | Non-recruiter | Add comment; Wrike sync; @mention notifications |
+| GET | `/api/dashboard-requests/analytics` | canManageRequests | Counts by status/type/priority, avg resolution time, top submitters |
+| POST | `/api/dashboard-requests/kanban` | Non-recruiter | Kanban view (4 columns; search/type/priority/submitter/date filters) |
+| GET | `/api/dashboard-requests/recent` | Non-recruiter | Recent requests for duplicate detection (last 30 days, min 3 chars, max 10) |
+| POST | `/api/dashboard-requests/[id]/archive` | canManageRequests | Archive request; records history; Wrike sync |
+| POST | `/api/dashboard-requests/[id]/unarchive` | canManageRequests | Unarchive to DONE; records history; Wrike sync |
+| GET | `/api/dashboard-requests/[id]/attachments` | Non-recruiter | List attachments (metadata only, no binary data) |
+| POST | `/api/dashboard-requests/[id]/attachments` | Non-recruiter | Upload image (PNG/JPEG/GIF/WebP, max 5 MB, stored as base64) |
+
+---
+
+## 13. Recruiter Hub
+
+### Overview
+
+Recruiter Hub (Page 12) gives recruiters and managers a view of prospect and opportunity data. Users with the **recruiter role** have their data automatically scoped to their own records via the `recruiterFilter` permission — they cannot see other recruiters' data.
+
+| Feature | Detail |
+|---------|--------|
+| Page | 12 (`page_12` permission required) |
+| Auto-filter | `recruiterFilter` applied automatically for recruiter role |
+| External agencies | Recruiter role → own agency only; others → full list |
+| SGM filter | Available in opportunities view |
+
+### Access Control
+
+| Operation | Requirement |
+|-----------|-------------|
+| All routes | `page_12` permission |
+| Full agency list | Non-recruiter role |
+| SGMs list | GET `/api/recruiter-hub/opportunities` |
+
+### API Routes
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| POST | `/api/recruiter-hub/prospects` | page_12 | Prospect list; filters: stages, openOnly, closedOnly, externalAgencies; auto-applies recruiterFilter |
+| POST | `/api/recruiter-hub/opportunities` | page_12 | Opportunities with SGM filter; auto-applies recruiterFilter |
+| GET | `/api/recruiter-hub/opportunities` | page_12 | Returns available SGMs list |
+| GET | `/api/recruiter-hub/external-agencies` | page_12 | External agencies (recruiter → own agency only) |
+
+---
+
+## 14. Advisor Map
+
+### Overview
+
+Advisor Map visualizes financial advisor locations on a Google Maps interface. Administrators can create overrides when Google Maps geocoding returns incorrect coordinates for an advisor's address.
+
+| Feature | Detail |
+|---------|--------|
+| Geocoding | Google Maps API (`GOOGLE_MAPS_API_KEY` env var) |
+| Override model | `AdvisorAddressOverride` Prisma model |
+| Access | Blocks recruiter and capital_partner |
+
+### Address Override Flow
+
+1. Admin fetches advisor locations from `POST /api/advisor-map/locations`.
+2. If a location is incorrect, admin `POST`s to `/api/advisor-map/overrides` with corrected address.
+3. API auto-geocodes the new address via Google Maps and stores `latitude`/`longitude` in `AdvisorAddressOverride`.
+4. Subsequent location requests use override coordinates when an override exists for that advisor.
+
+### Prisma Model
+
+```prisma
+model AdvisorAddressOverride {
+  id          String   @id @default(cuid())
+  advisorName String   @unique
+  address     String
+  latitude    Float
+  longitude   Float
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String?  // Admin email
+}
+```
+
+### Location Filters
+
+Both `POST` and `GET` for `/api/advisor-map/locations` accept `AdvisorLocationFilters`:
+
+| Filter | Description |
+|--------|-------------|
+| `startDate` / `endDate` | Date range |
+| `sga` | SGA name filter |
+| `sgm` | SGM name filter |
+| `channel` | Prospect channel |
+| `source` | Lead source |
+| `coordSourceFilter` | Filter by coordinate source (geocoded vs overridden) |
+
+### API Routes
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| POST | `/api/advisor-map/locations` | Non-recruiter, non-capital_partner | Advisor locations with filters |
+| GET | `/api/advisor-map/locations` | Non-recruiter, non-capital_partner | Same as POST (alternate method) |
+| GET | `/api/advisor-map/overrides` | admin/revops_admin/manager | List all address overrides |
+| POST | `/api/advisor-map/overrides` | Non-recruiter, non-capital_partner | Create or update override with auto-geocoding |
+| DELETE | `/api/advisor-map/overrides` | admin/revops_admin | Delete an address override |
+
+---
+
+## 15. Pipeline Catcher Game
+
+### Overview
+
+Pipeline Catcher is a gamified browser game where users catch pipeline items. Scores are tracked per quarter with a public leaderboard. Players can optionally attach a message to their leaderboard entry.
+
+| Feature | Detail |
+|---------|--------|
+| Score model | `GameScore` Prisma model |
+| Quarter format | `YYYY-Q[1-4]` (validated by regex `^\d{4}-Q[1-4]$`) |
+| Leaderboard | Top 10 scores per quarter |
+| Access | Blocks recruiter and capital_partner |
+
+### Prisma Model
+
+```prisma
+model GameScore {
+  id        String   @id @default(cuid())
+  userId    String
+  quarter   String   // Format: "2025-Q4"
+  score     Int
+  level     Int
+  message   String?  // Optional player message
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+}
+```
+
+### Score Submission Flow
+
+1. User plays the game at `/games/pipeline-catcher/play/[quarter]`.
+2. Client `POST`s score + level to `/api/games/pipeline-catcher/leaderboard`.
+3. A `GameScore` record is created; response includes updated top-10.
+4. User may `PATCH` their entry to add/update a message (same user only).
+
+### API Routes
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| GET | `/api/games/pipeline-catcher/leaderboard` | Non-recruiter, non-capital_partner | Top-10 leaderboard for a quarter (`?quarter=YYYY-QN` required) |
+| POST | `/api/games/pipeline-catcher/leaderboard` | Non-recruiter, non-capital_partner | Submit new score; creates `GameScore` |
+| PATCH | `/api/games/pipeline-catcher/leaderboard` | Same user only | Update message on own leaderboard entry |
+| GET | `/api/games/pipeline-catcher/levels` | Non-recruiter, non-capital_partner | Available levels with per-quarter high score |
+| GET | `/api/games/pipeline-catcher/play/[quarter]` | Non-recruiter, non-capital_partner | Game data for specified quarter from `getGameDataForQuarter()` |
+
+---
+
+## 16. SGA Activity
+
+### Overview
+
+SGA Activity provides detailed call and activity analytics for SGA performance management. It supports period-over-period (A/B) comparison and drill-down views into individual records.
+
+| Feature | Detail |
+|---------|--------|
+| Access | admin, manager, sga, sgm, revops_admin |
+| SGA auto-filter | SGA role automatically scoped to own name |
+| Period comparison | Period A vs Period B supported on dashboard endpoint |
+| Data source | BigQuery (7 queries run in parallel) |
+
+### Dashboard Parallel Queries
+
+`POST /api/sga-activity/dashboard` fetches 7 data sources simultaneously:
+
+| Source | Description |
+|--------|-------------|
+| `initialCalls` | Initial call counts by date/SGA |
+| `qualificationCalls` | Qualification call counts |
+| `activityDistribution` | Activity distribution by type |
+| `smsResponseRate` | SMS response rate metrics |
+| `callAnswerRate` | Call answer rate metrics |
+| `activityBreakdown` | Detailed activity breakdown |
+| `totals` | Aggregate totals for the period |
+
+Period A/B comparison is achieved by passing two filter sets in the request body; both are queried in the same parallel batch.
+
+### Drill-Down Views
+
+Two endpoints provide paginated record-level detail:
+
+- **`/api/sga-activity/activity-records`** — Individual activity records (page/pageSize, default 100). Accepts `channel`, `subType`, `dayOfWeek`, `activityType` + standard filters.
+- **`/api/sga-activity/scheduled-calls`** — Scheduled call records. Accepts `callType`, `weekType`, `dayOfWeek`, `sgaName` + filters object.
+
+### Filter Options
+
+`GET /api/sga-activity/filters` returns available filter values. When the requesting user has the **sga role**, the `sgas` list in the response contains only their own name — preventing cross-SGA visibility.
+
+### API Routes
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| POST | `/api/sga-activity/dashboard` | admin/manager/sga/sgm/revops_admin | Dashboard metrics (7 parallel BigQuery queries); Period A/B comparison |
+| GET | `/api/sga-activity/filters` | admin/manager/sga/sgm/revops_admin | Filter options (sga role sees only own name in sgas list) |
+| POST | `/api/sga-activity/activity-records` | admin/manager/sga/sgm/revops_admin | Paginated activity record drill-down |
+| POST | `/api/sga-activity/scheduled-calls` | admin/manager/sga/sgm/revops_admin | Scheduled call drill-down |
+
+---
+
+## 17. Saved Reports
+
+### Overview
+
+Saved Reports lets users persist named filter configurations for the **Funnel Performance** dashboard. Administrators can create shared **admin templates** visible to all eligible users.
+
+| Feature | Detail |
+|---------|--------|
+| Dashboard scope | `funnel_performance` only |
+| Report types | `user` (personal) and `admin_template` (shared) |
+| Soft delete | `isActive: false` — records are never hard-deleted |
+| Default report | One default per user; enforced in application logic |
+| Access | Blocks recruiter and capital_partner |
+
+### Report Type Permission Matrix
+
+| Action | user report | admin_template |
+|--------|-------------|----------------|
+| Create | Any non-recruiter/non-CP | admin or manager only |
+| Read | Owner | All non-recruiter/non-CP |
+| Update | Owner | admin or manager |
+| Delete (soft) | Owner | admin or manager |
+| Set as default | Owner | Not allowed |
+| Duplicate | Owner | Any non-recruiter/non-CP (duplicate always becomes `user` type) |
+
+### Default Report Flow
+
+1. `POST /api/saved-reports/[id]/set-default` — Unsets all existing defaults for the user (via `updateMany`), then sets the target report as default. Admin templates cannot be set as default.
+2. `GET /api/saved-reports/default` — Returns the user's current default report (or `{ report: null }`). Queries by `userId + isDefault: true + isActive: true + dashboard: 'funnel_performance'`.
+
+### Prisma Model
+
+```prisma
+model SavedReport {
+  id               String   @id @default(cuid())
+  userId           String
+  name             String   @db.VarChar(255)
+  description      String?
+  filters          Json     // DashboardFilters object
+  featureSelection Json?    // Optional feature panel selection
+  viewMode         String?
+  dashboard        String   // 'funnel_performance'
+  reportType       String   // 'user' | 'admin_template'
+  isDefault        Boolean  @default(false)
+  isActive         Boolean  @default(true)  // false = soft-deleted
+  createdBy        String?  // Email of creator
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+}
+```
+
+### API Routes
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| GET | `/api/saved-reports` | Non-recruiter, non-capital_partner | List user's own reports + all admin templates |
+| POST | `/api/saved-reports` | Non-recruiter, non-capital_partner | Create report (`admin_template` requires admin/manager) |
+| GET | `/api/saved-reports/default` | Authenticated | Get user's default report (`null` if none) |
+| GET | `/api/saved-reports/[id]` | Owner or admin/manager | Get single report |
+| PUT | `/api/saved-reports/[id]` | Owner or admin/manager | Update report fields |
+| DELETE | `/api/saved-reports/[id]` | Owner or admin/manager | Soft-delete (`isActive: false`) |
+| POST | `/api/saved-reports/[id]/duplicate` | Owner, or any eligible user for admin_template | Duplicate; result is always `reportType: 'user'` |
+| POST | `/api/saved-reports/[id]/set-default` | Owner (user reports only) | Set as default; unsets previous default first |
+
+---
+
 ## Appendix A: Validated Reference Values
 
 **Q4 2025 (Oct 1 - Dec 31, 2025)**:
@@ -1480,6 +1861,6 @@ Use these values to validate any query changes.
 
 ---
 
-*Last Updated: January 18, 2026*  
-*Validated Against Codebase: Yes*  
-*Last Review: January 18, 2026 (architecture_answers.md updates applied, DATE/TIMESTAMP bug fix completed, parameter type conflict fix documented)*
+*Last Updated: February 18, 2026*
+*Validated Against Codebase: Yes*
+*Last Review: February 18, 2026 (Sections 11–17 added: GC Hub, Dashboard Requests, Recruiter Hub, Advisor Map, Pipeline Catcher Game, SGA Activity, Saved Reports)*
