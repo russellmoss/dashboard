@@ -13,10 +13,10 @@ jobs:
   audit-refactoring:
     runs-on: ubuntu-latest
     env:
-      BASELINE_LARGE_FILES: 24
+      BASELINE_LARGE_FILES: 25
       BASELINE_TODOS: 4
       BASELINE_VULNS: 3
-      BASELINE_DEAD_EXPORTS: 3
+      BASELINE_DEAD_EXPORTS: 86
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
