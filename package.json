@@ -14,7 +14,12 @@
     "verify:game": "node scripts/verify-pipeline-catcher.js",
     "verify:game:api": "node scripts/verify-pipeline-catcher.js --api",
     "verify:recruiter-security": "node scripts/verify-recruiter-security.js",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "gen:api-routes": "node scripts/generate-api-inventory.cjs",
+    "gen:models": "node scripts/generate-model-inventory.cjs",
+    "gen:env": "node scripts/generate-env-inventory.cjs",
+    "gen:all": "node scripts/generate-api-inventory.cjs && node scripts/generate-model-inventory.cjs && node scripts/generate-env-inventory.cjs",
+    "prepare": "husky"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
@@ -61,6 +66,7 @@
     "dotenv-cli": "^11.0.0",
     "eslint": "^8.57.1",
     "eslint-config-next": "^14.2.35",
+    "husky": "^9.1.7",
     "postcss": "^8.5.6",
     "prisma": "6.19.0",
     "tailwindcss": "^3.4.19",
