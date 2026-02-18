@@ -81,9 +81,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { stages, sgms } = body;
+    const { stages, sgms, dateRange } = body;
 
-    const rows = await getOpenPipelineBySgm({ stages, sgms });
+    const rows = await getOpenPipelineBySgm({ stages, sgms, dateRange });
     const pivotedData = pivotBySgm(rows);
 
     return NextResponse.json({ data: pivotedData });

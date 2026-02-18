@@ -29,21 +29,24 @@ export async function POST(request: NextRequest) {
     if (cpForbidden) return cpForbidden;
 
     const body = await request.json();
-    const { stage, filters, sgms } = body;
-    
+    const { stage, filters, sgms, dateRange } = body;
+
     if (!stage) {
       return NextResponse.json(
         { error: 'Stage parameter is required' },
         { status: 400 }
       );
     }
-    
+
     // Apply user's SGM filter selection if provided
     const pipelineFilters = { ...filters };
     if (sgms && sgms.length > 0) {
       pipelineFilters.sgms = sgms;
     }
-    
+    if (dateRange) {
+      pipelineFilters.dateRange = dateRange;
+    }
+
     const records = await getOpenPipelineRecordsByStage(stage, pipelineFilters);
     
     return NextResponse.json({ records, stage });

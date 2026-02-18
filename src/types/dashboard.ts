@@ -250,6 +250,34 @@ export interface OpenPipelineBySgmResponse {
 }
 
 /**
+ * SGM Conversion data for the conversion table on the By SGM tab.
+ * Returned by /api/dashboard/sgm-conversions endpoint.
+ */
+export interface SgmConversionData {
+  sgm: string;
+  sqlsReceived: number;
+  sqlToSqoRate: number;
+  sqosCount: number;
+  sqoToJoinedRate: number;
+  joinedCount: number;
+  sqlToSqoNumer?: number;
+  sqlToSqoDenom?: number;
+  sqoToJoinedNumer?: number;
+  sqoToJoinedDenom?: number;
+}
+
+/**
+ * Date range state for the SQL Date Filter component.
+ * null = "All Time" (no date filtering).
+ */
+export interface SqlDateRange {
+  preset: 'alltime' | 'q1' | 'q2' | 'q3' | 'q4' | 'ytd' | 'qtd' | 'custom';
+  year: number;
+  startDate: string | null;
+  endDate: string | null;
+}
+
+/**
  * Available stages for filtering
  */
 export interface PipelineStageOption {

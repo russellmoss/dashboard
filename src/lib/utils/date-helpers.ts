@@ -1,4 +1,5 @@
 import { DashboardFilters } from '@/types/filters';
+import { SqlDateRange } from '@/types/dashboard';
 
 export function buildDateRangeFromFilters(filters: DashboardFilters): {
   startDate: string;
@@ -232,4 +233,40 @@ export function parsePeriodToDateRange(period: string): { startDate: string; end
     startDate: `${currentYear}-${String(quarterStartMonth).padStart(2, '0')}-01`,
     endDate: `${currentYear}-${String(quarterEndMonth).padStart(2, '0')}-${getDaysInMonth(currentYear, quarterEndMonth)}`,
   };
+}
+
+/**
+ * Converts a SqlDateRange filter state into start/end date strings for API calls.
+ * Returns null for "All Time" (no date filtering).
+ */
+export function buildDateRangeFromSqlFilter(filter: SqlDateRange): { startDate: string; endDate: string } | null {
+  const today = new Date().toISOString().split('T')[0];
+  const year = filter.year;
+
+  switch (filter.preset) {
+    case 'alltime':
+      return null;
+    case 'ytd':
+      return { startDate: `${year}-01-01`, endDate: today };
+    case 'qtd': {
+      const currentMonth = new Date().getMonth();
+      const quarterStart = new Date(year, Math.floor(currentMonth / 3) * 3, 1);
+      return { startDate: quarterStart.toISOString().split('T')[0], endDate: today };
+    }
+    case 'q1':
+      return { startDate: `${year}-01-01`, endDate: `${year}-03-31` };
+    case 'q2':
+      return { startDate: `${year}-04-01`, endDate: `${year}-06-30` };
+    case 'q3':
+      return { startDate: `${year}-07-01`, endDate: `${year}-09-30` };
+    case 'q4':
+      return { startDate: `${year}-10-01`, endDate: `${year}-12-31` };
+    case 'custom':
+      if (filter.startDate && filter.endDate) {
+        return { startDate: filter.startDate, endDate: filter.endDate };
+      }
+      return null;
+    default:
+      return null;
+  }
 }

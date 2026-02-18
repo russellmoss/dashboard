@@ -14,7 +14,8 @@ import {
   DataFreshness,
   OpenPipelineSummary,
   SgmOption,
-  SgmPipelineChartData
+  SgmPipelineChartData,
+  SgmConversionData
 } from '@/types/dashboard';
 import { RecordDetailFull } from '@/types/record-detail';
 import { 
@@ -356,7 +357,8 @@ export const dashboardApi = {
   getPipelineDrilldown: async (
     stage: string,
     filters?: { channel?: string; source?: string; sga?: string; sgm?: string },
-    sgms?: string[]
+    sgms?: string[],
+    dateRange?: { startDate: string; endDate: string } | null
   ): Promise<{ records: DetailRecord[]; stage: string }> => {
     // Clean filters to remove any non-serializable properties
     const cleanFiltersObj = filters ? {
@@ -368,7 +370,7 @@ export const dashboardApi = {
     const response = await fetch('/api/dashboard/pipeline-drilldown', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stage, filters: cleanFiltersObj, sgms }),
+      body: JSON.stringify({ stage, filters: cleanFiltersObj, sgms, dateRange }),
     });
 
     if (!response.ok) {
@@ -382,11 +384,15 @@ export const dashboardApi = {
   /**
    * Get open pipeline data grouped by SGM (revops_admin only)
    */
-  getPipelineBySgm: async (stages?: string[], sgms?: string[]): Promise<{ data: SgmPipelineChartData[] }> => {
+  getPipelineBySgm: async (
+    stages?: string[],
+    sgms?: string[],
+    dateRange?: { startDate: string; endDate: string } | null
+  ): Promise<{ data: SgmPipelineChartData[] }> => {
     const response = await fetch('/api/dashboard/pipeline-by-sgm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stages, sgms }),
+      body: JSON.stringify({ stages, sgms, dateRange }),
     });
 
     if (!response.ok) {
@@ -398,17 +404,62 @@ export const dashboardApi = {
   },
 
   /**
+   * Get SGM conversion data for the conversion table (revops_admin only)
+   */
+  getSgmConversions: async (
+    sgms?: string[],
+    dateRange?: { startDate: string; endDate: string } | null
+  ): Promise<{ data: SgmConversionData[] }> => {
+    const response = await fetch('/api/dashboard/sgm-conversions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sgms, dateRange }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to fetch SGM conversions');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Get drill-down records for SGM conversion table (SQLs, SQO'd, or Joined for one SGM)
+   */
+  getSgmConversionDrilldown: async (
+    sgm: string,
+    metric: 'sql' | 'sqo' | 'joined',
+    sgms?: string[],
+    dateRange?: { startDate: string; endDate: string } | null
+  ): Promise<{ records: DetailRecord[] }> => {
+    const response = await fetch('/api/dashboard/sgm-conversion-drilldown', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sgm, metric, sgms, dateRange }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to fetch conversion drill-down records');
+    }
+
+    return response.json();
+  },
+
+  /**
    * Get pipeline records for a specific SGM (drill-down)
    */
   getPipelineDrilldownBySgm: async (
     sgm: string,
     stages?: string[],
-    sgms?: string[]
+    sgms?: string[],
+    dateRange?: { startDate: string; endDate: string } | null
   ): Promise<{ records: DetailRecord[]; sgm: string }> => {
     const response = await fetch('/api/dashboard/pipeline-drilldown-sgm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sgm, stages, sgms }),
+      body: JSON.stringify({ sgm, stages, sgms, dateRange }),
     });
 
     if (!response.ok) {

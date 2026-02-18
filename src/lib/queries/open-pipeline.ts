@@ -1,5 +1,5 @@
 import { runQuery, buildQueryParams } from '../bigquery';
-import { DetailRecord } from '@/types/dashboard';
+import { DetailRecord, SgmConversionData } from '@/types/dashboard';
 import { formatCurrency } from '../utils/date-helpers';
 import { RawDetailRecordResult, RawOpenPipelineResult, toNumber, toString } from '@/types/bigquery-raw';
 import { FULL_TABLE, OPEN_PIPELINE_STAGES, RECRUITING_RECORD_TYPE } from '@/config/constants';
@@ -252,7 +252,7 @@ export const getOpenPipelineSummary = cachedQuery(
  */
 const _getOpenPipelineRecordsByStage = async (
   stage: string,
-  filters?: { channel?: string; source?: string; sga?: string; sgm?: string; sgms?: string[] }
+  filters?: { channel?: string; source?: string; sga?: string; sgm?: string; sgms?: string[]; dateRange?: { startDate: string; endDate: string } | null }
 ): Promise<DetailRecord[]> => {
   const conditions: string[] = [];
   const params: Record<string, any> = {
@@ -285,7 +285,16 @@ const _getOpenPipelineRecordsByStage = async (
       params[`sgmFilter${i}`] = sgm;
     });
   }
-  
+
+  // Date filter on converted_date_raw (SQL creation date)
+  if (filters?.dateRange?.startDate && filters?.dateRange?.endDate) {
+    conditions.push('v.converted_date_raw IS NOT NULL');
+    conditions.push('DATE(v.converted_date_raw) >= DATE(@startDate)');
+    conditions.push('DATE(v.converted_date_raw) <= DATE(@endDate)');
+    params.startDate = filters.dateRange.startDate;
+    params.endDate = filters.dateRange.endDate;
+  }
+
   conditions.push(`v.recordtypeid = @recruitingRecordType`);
   conditions.push(`v.StageName = @targetStage`);
   conditions.push('v.is_sqo_unique = 1');
@@ -411,7 +420,7 @@ export const getOpenPipelineRecordsByStage = cachedQuery(
 );
 
 const _getOpenPipelineBySgm = async (
-  filters?: { stages?: string[]; sgms?: string[] }
+  filters?: { stages?: string[]; sgms?: string[]; dateRange?: { startDate: string; endDate: string } | null }
 ): Promise<{ sgm: string; stage: string; count: number; aum: number }[]> => {
   const conditions: string[] = [];
   const params: Record<string, any> = {
@@ -440,12 +449,22 @@ const _getOpenPipelineBySgm = async (
     });
   }
 
+  // Date filter on converted_date_raw (SQL creation date)
+  if (filters?.dateRange?.startDate && filters?.dateRange?.endDate) {
+    conditions.push('v.converted_date_raw IS NOT NULL');
+    conditions.push('DATE(v.converted_date_raw) >= DATE(@startDate)');
+    conditions.push('DATE(v.converted_date_raw) <= DATE(@endDate)');
+    params.startDate = filters.dateRange.startDate;
+    params.endDate = filters.dateRange.endDate;
+  }
+
   conditions.push('v.is_sqo_unique = 1');
   conditions.push('v.SGM_Owner_Name__c IS NOT NULL');
 
   const whereClause = conditions.length > 0
     ? `WHERE ${conditions.join(' AND ')}` : '';
 
+  // Restrict to bonafide active SGMs only (exclude SGAs): join User with Is_SGM__c = TRUE and IsActive = TRUE
   const query = `
     SELECT
       v.SGM_Owner_Name__c as sgm,
@@ -453,6 +472,10 @@ const _getOpenPipelineBySgm = async (
       COUNT(DISTINCT v.Full_Opportunity_ID__c) as count,
       SUM(CASE WHEN v.is_primary_opp_record = 1 THEN COALESCE(v.Opportunity_AUM, 0) ELSE 0 END) as aum
     FROM \`${FULL_TABLE}\` v
+    INNER JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` u
+      ON v.SGM_Owner_Name__c = u.Name
+      AND u.Is_SGM__c = TRUE
+      AND u.IsActive = TRUE
     ${whereClause}
     GROUP BY v.SGM_Owner_Name__c, v.StageName
   `;
@@ -481,7 +504,8 @@ export const getOpenPipelineBySgm = cachedQuery(
 const _getOpenPipelineRecordsBySgm = async (
   sgm: string,
   stages?: string[],
-  sgms?: string[]
+  sgms?: string[],
+  dateRange?: { startDate: string; endDate: string } | null
 ): Promise<DetailRecord[]> => {
   const conditions: string[] = [];
   const params: Record<string, any> = {
@@ -511,6 +535,15 @@ const _getOpenPipelineRecordsBySgm = async (
     sgms.forEach((s, i) => {
       params[`sgmFilter${i}`] = s;
     });
+  }
+
+  // Date filter on converted_date_raw (SQL creation date)
+  if (dateRange?.startDate && dateRange?.endDate) {
+    conditions.push('v.converted_date_raw IS NOT NULL');
+    conditions.push('DATE(v.converted_date_raw) >= DATE(@startDate)');
+    conditions.push('DATE(v.converted_date_raw) <= DATE(@endDate)');
+    params.startDate = dateRange.startDate;
+    params.endDate = dateRange.endDate;
   }
 
   const whereClause = `WHERE ${conditions.join(' AND ')}`;
@@ -629,5 +662,274 @@ const _getOpenPipelineRecordsBySgm = async (
 export const getOpenPipelineRecordsBySgm = cachedQuery(
   _getOpenPipelineRecordsBySgm,
   'getOpenPipelineRecordsBySgm',
+  CACHE_TAGS.DASHBOARD
+);
+
+interface SgmConversionFilters {
+  sgms?: string[];
+  dateRange?: { startDate: string; endDate: string } | null;
+}
+
+const _getSgmConversionData = async (
+  filters?: SgmConversionFilters
+): Promise<SgmConversionData[]> => {
+  const conditions: string[] = [];
+  const params: Record<string, any> = {
+    recruitingRecordType: RECRUITING_RECORD_TYPE,
+  };
+
+  conditions.push('v.recordtypeid = @recruitingRecordType');
+  conditions.push('v.SGM_Owner_Name__c IS NOT NULL');
+
+  // Date filter on converted_date_raw (SQL date)
+  if (filters?.dateRange?.startDate && filters?.dateRange?.endDate) {
+    conditions.push('v.converted_date_raw IS NOT NULL');
+    conditions.push('DATE(v.converted_date_raw) >= DATE(@startDate)');
+    conditions.push('DATE(v.converted_date_raw) <= DATE(@endDate)');
+    params.startDate = filters.dateRange.startDate;
+    params.endDate = filters.dateRange.endDate;
+  }
+
+  // SGM filter
+  if (filters?.sgms && filters.sgms.length > 0) {
+    const sgmParams = filters.sgms.map((_, i) => `@sgm${i}`);
+    conditions.push(`v.SGM_Owner_Name__c IN (${sgmParams.join(', ')})`);
+    filters.sgms.forEach((sgm, i) => {
+      params[`sgm${i}`] = sgm;
+    });
+  }
+
+  const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+  // Restrict to bonafide active SGMs only (exclude SGAs): join User with Is_SGM__c = TRUE and IsActive = TRUE
+  const query = `
+    SELECT
+      v.SGM_Owner_Name__c as sgm,
+      COUNT(CASE WHEN v.is_sql = 1 AND v.is_primary_opp_record = 1 THEN 1 END) as sqls_received,
+      SUM(v.sql_to_sqo_progression) as sql_to_sqo_numer,
+      SUM(v.eligible_for_sql_conversions) as sql_to_sqo_denom,
+      SUM(v.is_sqo_unique) as sqos_count,
+      SUM(v.sqo_to_joined_progression) as sqo_to_joined_numer,
+      SUM(v.eligible_for_sqo_conversions) as sqo_to_joined_denom,
+      SUM(v.is_joined_unique) as joined_count
+    FROM \`${FULL_TABLE}\` v
+    INNER JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` u
+      ON v.SGM_Owner_Name__c = u.Name
+      AND u.Is_SGM__c = TRUE
+      AND u.IsActive = TRUE
+    ${whereClause}
+    GROUP BY v.SGM_Owner_Name__c
+    ORDER BY sqls_received DESC
+  `;
+
+  const results = await runQuery<{
+    sgm: string | null;
+    sqls_received: number | null;
+    sql_to_sqo_numer: number | null;
+    sql_to_sqo_denom: number | null;
+    sqos_count: number | null;
+    sqo_to_joined_numer: number | null;
+    sqo_to_joined_denom: number | null;
+    joined_count: number | null;
+  }>(query, params);
+
+  const safeDiv = (n: number, d: number) => d === 0 ? 0 : n / d;
+
+  return results.map(r => ({
+    sgm: toString(r.sgm),
+    sqlsReceived: toNumber(r.sqls_received),
+    sqlToSqoNumer: toNumber(r.sql_to_sqo_numer),
+    sqlToSqoDenom: toNumber(r.sql_to_sqo_denom),
+    sqlToSqoRate: safeDiv(toNumber(r.sql_to_sqo_numer), toNumber(r.sql_to_sqo_denom)),
+    sqosCount: toNumber(r.sqos_count),
+    sqoToJoinedNumer: toNumber(r.sqo_to_joined_numer),
+    sqoToJoinedDenom: toNumber(r.sqo_to_joined_denom),
+    sqoToJoinedRate: safeDiv(toNumber(r.sqo_to_joined_numer), toNumber(r.sqo_to_joined_denom)),
+    joinedCount: toNumber(r.joined_count),
+  }));
+};
+
+export const getSgmConversionData = cachedQuery(
+  _getSgmConversionData,
+  'getSgmConversionData',
+  CACHE_TAGS.DASHBOARD
+);
+
+/** Metric type for SGM conversion table drill-down (SQLs, SQO'd, Joined) */
+export type SgmConversionDrilldownMetric = 'sql' | 'sqo' | 'joined';
+
+interface SgmConversionDrilldownFilters {
+  sgms?: string[];
+  dateRange?: { startDate: string; endDate: string } | null;
+}
+
+const _getSgmConversionDrilldownRecords = async (
+  sgm: string,
+  metric: SgmConversionDrilldownMetric,
+  filters?: SgmConversionDrilldownFilters
+): Promise<DetailRecord[]> => {
+  const conditions: string[] = [];
+  const params: Record<string, any> = {
+    recruitingRecordType: RECRUITING_RECORD_TYPE,
+    targetSgm: sgm,
+  };
+
+  conditions.push('v.recordtypeid = @recruitingRecordType');
+  conditions.push('v.SGM_Owner_Name__c = @targetSgm');
+
+  // Restrict to bonafide active SGMs only
+  conditions.push('u.Is_SGM__c = TRUE');
+  conditions.push('u.IsActive = TRUE');
+
+  switch (metric) {
+    case 'sql':
+      conditions.push('v.is_sql = 1');
+      conditions.push('v.is_primary_opp_record = 1');
+      break;
+    case 'sqo':
+      conditions.push('v.is_sqo_unique = 1');
+      break;
+    case 'joined':
+      conditions.push('v.is_joined_unique = 1');
+      break;
+  }
+
+  // Date filter on converted_date_raw (SQL date) — scopes to same period as conversion table
+  if (filters?.dateRange?.startDate && filters?.dateRange?.endDate) {
+    conditions.push('v.converted_date_raw IS NOT NULL');
+    conditions.push('DATE(v.converted_date_raw) >= DATE(@startDate)');
+    conditions.push('DATE(v.converted_date_raw) <= DATE(@endDate)');
+    params.startDate = filters.dateRange.startDate;
+    params.endDate = filters.dateRange.endDate;
+  }
+
+  if (filters?.sgms && filters.sgms.length > 0) {
+    const sgmParams = filters.sgms.map((_, i) => `@sgmFilter${i}`);
+    conditions.push(`v.SGM_Owner_Name__c IN (${sgmParams.join(', ')})`);
+    filters.sgms.forEach((s, i) => {
+      params[`sgmFilter${i}`] = s;
+    });
+  }
+
+  const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+  const query = `
+    SELECT
+      v.primary_key as id,
+      v.Full_Opportunity_ID__c as opportunity_id,
+      v.advisor_name,
+      v.Original_source as source,
+      IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
+      v.StageName as stage,
+      v.SGA_Owner_Name__c as sga,
+      v.SGM_Owner_Name__c as sgm,
+      v.Campaign_Id__c as campaign_id,
+      v.Campaign_Name__c as campaign_name,
+      v.Lead_Score_Tier__c as lead_score_tier,
+      v.Opportunity_AUM as aum,
+      v.salesforce_url,
+      v.FilterDate as filter_date,
+      v.stage_entered_contacting__c as contacted_date,
+      v.mql_stage_entered_ts as mql_date,
+      v.converted_date_raw as sql_date,
+      v.Date_Became_SQO__c as sqo_date,
+      v.advisor_join_date__c as joined_date,
+      v.Initial_Call_Scheduled_Date__c as initial_call_scheduled_date,
+      v.Qualification_Call_Date__c as qualification_call_date,
+      v.is_contacted,
+      v.is_mql,
+      v.recordtypeid,
+      v.is_primary_opp_record
+    FROM \`${FULL_TABLE}\` v
+    INNER JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` u
+      ON v.SGM_Owner_Name__c = u.Name
+      AND u.Is_SGM__c = TRUE
+      AND u.IsActive = TRUE
+    ${whereClause}
+    ORDER BY v.Opportunity_AUM DESC NULLS LAST
+    LIMIT 1000
+  `;
+
+  const results = await runQuery<RawDetailRecordResult>(query, params);
+
+  return results.map(r => {
+    const extractDate = (field: any): string | null => {
+      if (!field) return null;
+      if (typeof field === 'string') return field;
+      if (typeof field === 'object' && field.value) return field.value;
+      return null;
+    };
+
+    const filterDate = extractDate(r.filter_date) || '';
+    const contactedDate = extractDate(r.contacted_date);
+    const mqlDate = extractDate(r.mql_date);
+    const sqlDate = extractDate(r.sql_date);
+    const sqoDate = extractDate(r.sqo_date);
+    const joinedDate = extractDate(r.joined_date);
+
+    let initialCallDate: string | null = null;
+    if (r.initial_call_scheduled_date) {
+      if (typeof r.initial_call_scheduled_date === 'string') {
+        initialCallDate = r.initial_call_scheduled_date;
+      } else if (typeof r.initial_call_scheduled_date === 'object' && r.initial_call_scheduled_date.value) {
+        initialCallDate = r.initial_call_scheduled_date.value;
+      }
+    }
+
+    let qualCallDate: string | null = null;
+    if (r.qualification_call_date) {
+      if (typeof r.qualification_call_date === 'string') {
+        qualCallDate = r.qualification_call_date;
+      } else if (typeof r.qualification_call_date === 'object' && r.qualification_call_date.value) {
+        qualCallDate = r.qualification_call_date.value;
+      }
+    }
+
+    const stage = toString(r.stage);
+
+    return {
+      id: toString(r.id),
+      advisorName: toString(r.advisor_name) || 'Unknown',
+      source: toString(r.source) || 'Unknown',
+      channel: toString(r.channel) || 'Unknown',
+      stage,
+      sga: r.sga ? toString(r.sga) : null,
+      sgm: r.sgm ? toString(r.sgm) : null,
+      campaignId: r.campaign_id ? toString(r.campaign_id) : null,
+      campaignName: r.campaign_name ? toString(r.campaign_name) : null,
+      leadScoreTier: r.lead_score_tier ? toString(r.lead_score_tier) : null,
+      aum: toNumber(r.aum),
+      aumFormatted: formatCurrency(r.aum),
+      salesforceUrl: toString(r.salesforce_url) || '',
+      relevantDate: filterDate,
+      contactedDate,
+      mqlDate,
+      sqlDate,
+      sqoDate,
+      joinedDate,
+      signedDate: null,
+      discoveryDate: null,
+      salesProcessDate: null,
+      negotiatingDate: null,
+      onHoldDate: null,
+      closedDate: null,
+      initialCallScheduledDate: initialCallDate,
+      qualificationCallDate: qualCallDate,
+      isContacted: r.is_contacted === 1,
+      isMql: r.is_mql === 1,
+      isSql: true,
+      isSqo: metric === 'sqo' || metric === 'joined',
+      isJoined: metric === 'joined',
+      isOpenPipeline: OPEN_PIPELINE_STAGES.includes(stage),
+      recordTypeId: r.recordtypeid ? toString(r.recordtypeid) : null,
+      isPrimaryOppRecord: (r.is_primary_opp_record ?? 0) === 1,
+      opportunityId: r.opportunity_id ? toString(r.opportunity_id) : null,
+    };
+  });
+};
+
+export const getSgmConversionDrilldownRecords = cachedQuery(
+  _getSgmConversionDrilldownRecords,
+  'getSgmConversionDrilldownRecords',
   CACHE_TAGS.DASHBOARD
 );

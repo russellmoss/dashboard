@@ -44,17 +44,17 @@ export async function GET(request: NextRequest) {
       params[`stage${i}`] = stage;
     });
     
-    // Query distinct SGMs from open pipeline opportunities
-    // Join with User table to get isActive status
-    // Note: We check IsActive for any matching user by name, not just those with Is_SGM__c = TRUE
-    // This ensures SGMs who appear in the data but aren't marked as SGM in User table still get correct status
+    // Query distinct SGMs from open pipeline opportunities — only bonafide active SGMs
+    // INNER JOIN User so we only include users with Is_SGM__c = TRUE (excludes SGAs) and IsActive = TRUE
     const query = `
       SELECT DISTINCT 
         v.SGM_Owner_Name__c as sgm,
-        COALESCE(u.IsActive, TRUE) as isActive
+        TRUE as isActive
       FROM \`${FULL_TABLE}\` v
-      LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` u 
+      INNER JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` u 
         ON v.SGM_Owner_Name__c = u.Name
+        AND u.Is_SGM__c = TRUE
+        AND u.IsActive = TRUE
       WHERE v.SGM_Owner_Name__c IS NOT NULL
         AND v.recordtypeid = @recruitingRecordType
         AND v.StageName IN (${stageParams.join(', ')})
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
       .map(r => ({
         value: r.sgm as string,
         label: r.sgm as string,
-        isActive: r.isActive === true || r.isActive === 1,
+        isActive: true,
       }));
     
     return NextResponse.json({ sgmOptions });

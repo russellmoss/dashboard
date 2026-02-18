@@ -9,7 +9,8 @@ import { Loader2 } from 'lucide-react';
 import { dashboardApi } from '@/lib/api-client';
 import { getSessionPermissions } from '@/types/auth';
 import { OPEN_PIPELINE_STAGES } from '@/config/constants';
-import { OpenPipelineSummary, DetailRecord } from '@/types/dashboard';
+import { OpenPipelineSummary, DetailRecord, SqlDateRange, SgmConversionData } from '@/types/dashboard';
+import { buildDateRangeFromSqlFilter } from '@/lib/utils/date-helpers';
 
 import { PipelineScorecard } from '@/components/dashboard/PipelineScorecard';
 import { PipelineByStageChart } from '@/components/dashboard/PipelineByStageChart';
@@ -18,6 +19,8 @@ import { PipelineFilters } from '@/components/dashboard/PipelineFilters';
 import { PipelineExportPng } from '@/components/dashboard/PipelineExportPng';
 import { VolumeDrillDownModal } from '@/components/dashboard/VolumeDrillDownModal';
 import { RecordDetailModal } from '@/components/dashboard/RecordDetailModal';
+import { SqlDateFilter } from '@/components/dashboard/SqlDateFilter';
+import { SgmConversionTable } from '@/components/dashboard/SgmConversionTable';
 import { SgmOption, SgmPipelineChartData } from '@/types/dashboard';
 
 export default function PipelinePage() {
@@ -89,6 +92,15 @@ export default function PipelinePage() {
 
   // SGM drill-down tracking
   const [drillDownSgm, setDrillDownSgm] = useState<string | null>(null);
+  /** When set, drill-down was opened from conversion table (SQLs / SQO'd / Joined click) */
+  const [drillDownConversionMetric, setDrillDownConversionMetric] = useState<'sql' | 'sqo' | 'joined' | null>(null);
+
+  // SQL Date Filter state (null = "All Time")
+  const [sqlDateRange, setSqlDateRange] = useState<SqlDateRange | null>(null);
+
+  // Conversion Table state
+  const [conversionData, setConversionData] = useState<SgmConversionData[]>([]);
+  const [conversionLoading, setConversionLoading] = useState(false);
 
   // Dark mode detection (for chart component - chart uses useTheme internally)
   const { resolvedTheme } = useTheme();
@@ -127,9 +139,11 @@ export default function PipelinePage() {
     try {
       const sgmsToSend = selectedSgms.length === sgmOptions.length ? undefined :
         selectedSgms.length === 0 ? undefined : selectedSgms;
+      const dateRange = sqlDateRange ? buildDateRangeFromSqlFilter(sqlDateRange) : null;
       const result = await dashboardApi.getPipelineBySgm(
         selectedStages.length > 0 ? selectedStages : undefined,
-        sgmsToSend
+        sgmsToSend,
+        dateRange
       );
       setBySgmData(result.data);
     } catch (err) {
@@ -138,13 +152,31 @@ export default function PipelinePage() {
     } finally {
       setBySgmLoading(false);
     }
-  }, [activeTab, selectedStages, selectedSgms, sgmOptions.length]);
+  }, [activeTab, selectedStages, selectedSgms, sgmOptions.length, sqlDateRange]);
+
+  // Fetch Conversion Table data
+  const fetchConversionData = useCallback(async () => {
+    if (activeTab !== 'bySgm') return;
+    setConversionLoading(true);
+    try {
+      const sgmsToSend = selectedSgms.length === sgmOptions.length ? undefined : selectedSgms;
+      const dateRange = sqlDateRange ? buildDateRangeFromSqlFilter(sqlDateRange) : null;
+      const result = await dashboardApi.getSgmConversions(sgmsToSend, dateRange);
+      setConversionData(result.data);
+    } catch (err) {
+      console.error('Error fetching conversion data:', err);
+      setConversionData([]);
+    } finally {
+      setConversionLoading(false);
+    }
+  }, [activeTab, selectedSgms, sgmOptions.length, sqlDateRange]);
 
   useEffect(() => {
     if (activeTab === 'bySgm' && isRevOpsAdmin) {
       fetchBySgmData();
+      fetchConversionData();
     }
-  }, [activeTab, isRevOpsAdmin, fetchBySgmData]);
+  }, [activeTab, isRevOpsAdmin, fetchBySgmData, fetchConversionData]);
 
   // Handle bar click for drill-down
   const handleBarClick = async (stage: string, metric: 'aum' | 'count') => {
@@ -270,7 +302,8 @@ export default function PipelinePage() {
 
     try {
       const sgmsToSend = selectedSgms.length === sgmOptions.length ? undefined : selectedSgms;
-      const result = await dashboardApi.getPipelineDrilldown(stage, { sgm }, sgmsToSend);
+      const dateRange = sqlDateRange ? buildDateRangeFromSqlFilter(sqlDateRange) : null;
+      const result = await dashboardApi.getPipelineDrilldown(stage, { sgm }, sgmsToSend, dateRange);
       setDrillDownRecords(result.records);
     } catch (err) {
       console.error('Error fetching segment drill-down:', err);
@@ -290,10 +323,12 @@ export default function PipelinePage() {
 
     try {
       const sgmsToSend = selectedSgms.length === sgmOptions.length ? undefined : selectedSgms;
+      const dateRange = sqlDateRange ? buildDateRangeFromSqlFilter(sqlDateRange) : null;
       const result = await dashboardApi.getPipelineDrilldownBySgm(
         sgm,
         selectedStages.length > 0 ? selectedStages : undefined,
-        sgmsToSend
+        sgmsToSend,
+        dateRange
       );
       setDrillDownRecords(result.records);
     } catch (err) {
@@ -311,7 +346,29 @@ export default function PipelinePage() {
     setDrillDownStage(null);
     setDrillDownMetric(null);
     setDrillDownSgm(null);
+    setDrillDownConversionMetric(null);
   };
+
+  // Handle conversion table metric click (SQLs, SQO'd, or Joined) — open drill-down with those records
+  const handleConversionMetricClick = useCallback(async (sgm: string, metric: 'sql' | 'sqo' | 'joined') => {
+    setDrillDownSgm(sgm);
+    setDrillDownStage(null);
+    setDrillDownConversionMetric(metric);
+    setDrillDownOpen(true);
+    setDrillDownLoading(true);
+
+    try {
+      const sgmsToSend = selectedSgms.length === sgmOptions.length ? undefined : selectedSgms;
+      const dateRange = sqlDateRange ? buildDateRangeFromSqlFilter(sqlDateRange) : null;
+      const result = await dashboardApi.getSgmConversionDrilldown(sgm, metric, sgmsToSend, dateRange);
+      setDrillDownRecords(result.records);
+    } catch (err) {
+      console.error('Error fetching conversion drill-down:', err);
+      setDrillDownRecords([]);
+    } finally {
+      setDrillDownLoading(false);
+    }
+  }, [selectedSgms, sgmOptions.length, sqlDateRange]);
   
   // Note: Stage and SGM filter changes are handled directly via setSelectedStages and setSelectedSgms
   // The fetchData callback will automatically trigger when these change
@@ -403,6 +460,15 @@ export default function PipelinePage() {
         </div>
       )}
 
+      {/* SQL Date Filter — only shown on By SGM tab */}
+      {activeTab === 'bySgm' && isRevOpsAdmin && (
+        <SqlDateFilter
+          value={sqlDateRange}
+          onChange={setSqlDateRange}
+          disabled={bySgmLoading || conversionLoading}
+        />
+      )}
+
       {/* Bar Chart with Export */}
       <Card className="mb-6">
         <div className="flex items-center justify-between mb-4">
@@ -455,28 +521,39 @@ export default function PipelinePage() {
           </div>
         )}
       </Card>
-      
+
+      {/* Conversion Table — only shown on By SGM tab */}
+      {activeTab === 'bySgm' && isRevOpsAdmin && (
+        <SgmConversionTable
+          data={conversionData}
+          loading={conversionLoading}
+          onMetricClick={handleConversionMetricClick}
+        />
+      )}
+
       {/* Drill-Down Modal - Reuse existing VolumeDrillDownModal component */}
       <VolumeDrillDownModal
         isOpen={drillDownOpen}
         onClose={handleCloseDrillDown}
         records={drillDownRecords}
         title={
-          drillDownSgm
-            ? drillDownStage
-              ? `${drillDownSgm} — ${drillDownStage}`
-              : `${drillDownSgm} — All Open Pipeline`
-            : drillDownStage
-              ? `${drillDownStage} Stage`
-              : selectedStages.length === OPEN_PIPELINE_STAGES.length &&
-                OPEN_PIPELINE_STAGES.every(s => selectedStages.includes(s))
-                ? 'Open Pipeline - All Stages'
-                : `Open Pipeline - ${selectedStages.length} Stage${selectedStages.length > 1 ? 's' : ''}`
+          drillDownConversionMetric
+            ? `${drillDownSgm ?? ''} — ${drillDownConversionMetric === 'sql' ? 'SQLs' : drillDownConversionMetric === 'sqo' ? "SQO's" : 'Joined'}`
+            : drillDownSgm
+              ? drillDownStage
+                ? `${drillDownSgm} — ${drillDownStage}`
+                : `${drillDownSgm} — All Open Pipeline`
+              : drillDownStage
+                ? `${drillDownStage} Stage`
+                : selectedStages.length === OPEN_PIPELINE_STAGES.length &&
+                  OPEN_PIPELINE_STAGES.every(s => selectedStages.includes(s))
+                  ? 'Open Pipeline - All Stages'
+                  : `Open Pipeline - ${selectedStages.length} Stage${selectedStages.length > 1 ? 's' : ''}`
         }
         loading={drillDownLoading}
         error={null}
         onRecordClick={handleRecordClick}
-        metricFilter="openPipeline"
+        metricFilter={drillDownConversionMetric ?? 'openPipeline'}
         canExport={permissions?.canExport || false}
       />
       
@@ -487,7 +564,7 @@ export default function PipelinePage() {
         recordId={selectedRecordId}
         showBackButton={drillDownRecords.length > 0}
         onBack={handleBackToDrillDown}
-        backButtonLabel={`← Back to ${drillDownSgm ? drillDownSgm + (drillDownStage ? ' — ' + drillDownStage : '') : drillDownStage || 'list'}`}
+        backButtonLabel={`← Back to ${drillDownConversionMetric ? drillDownSgm + (drillDownConversionMetric === 'sql' ? ' — SQLs' : drillDownConversionMetric === 'sqo' ? " — SQO's" : ' — Joined') : drillDownSgm ? drillDownSgm + (drillDownStage ? ' — ' + drillDownStage : '') : drillDownStage || 'list'}`}
       />
     </div>
   );
