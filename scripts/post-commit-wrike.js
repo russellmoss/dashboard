@@ -24,7 +24,7 @@ const fs = require('fs');
 // ── Config (hardcoded — same as DASHBOARDS_WRIKE_CONFIG in src/types/wrike.ts) ──
 
 const FOLDER_ID = 'MQAAAAEEBpOb';          // Dashboards project
-const BACKLOG_STATUS_ID = 'IEAGT6KAJMAAAAAA'; // Requested (Active) — new tasks land here
+const COMMIT_STATUS_ID = 'IEAGT6KAJMAAAAAB'; // Completed — commit tasks are done by definition
 
 // ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -245,7 +245,7 @@ async function createWrikeTask(title, description, git) {
   const taskData = {
     title: title.slice(0, 250),
     description: description,
-    customStatus: BACKLOG_STATUS_ID,
+    customStatus: COMMIT_STATUS_ID,
     metadata: [
       { key: 'source', value: 'git-commit-hook' },
       { key: 'commit_hash', value: git.fullHash },
