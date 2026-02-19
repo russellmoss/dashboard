@@ -20,9 +20,10 @@ jobs:
       # See tech_debt_exploration.md Phase 3 for full advisory breakdown.
       BASELINE_VULNS: 7
       # Updated 2026-02-18: replaced grep-based detection (86 false positives) with knip AST analysis.
-      # knip reports 92 genuinely unused value exports across src/. See knip.json for config.
+      # Updated 2026-02-19: dead code cleanup removed DEFAULT_YEAR + 7 unused files (92→91).
+      # knip reports 91 genuinely unused value exports across src/. See knip.json for config.
       # See tech_debt_exploration.md PRE-IMPLEMENTATION VERIFICATION Q1 for breakdown.
-      BASELINE_DEAD_EXPORTS: 92
+      BASELINE_DEAD_EXPORTS: 91
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
