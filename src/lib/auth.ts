@@ -109,16 +109,21 @@ export const authOptions: NextAuthOptions = {
         if (!email.endsWith('@savvywealth.com')) {
           return '/login?error=InvalidDomain';
         }
-        const dbUser = await getUserByEmail(email);
-        if (!dbUser) {
-          return '/login?error=NotProvisioned';
+        try {
+          const dbUser = await getUserByEmail(email);
+          if (!dbUser) {
+            return '/login?error=NotProvisioned';
+          }
+          if (dbUser.isActive === false) {
+            return '/login?error=AccountDisabled';
+          }
+          // Store dbUser data on user object for jwt callback to use
+          // This avoids another DB query in jwt callback
+          (user as any)._dbUser = dbUser;
+        } catch (error) {
+          console.error('[Auth] signIn callback: database error during Google OAuth user lookup:', error);
+          return '/login?error=DatabaseError';
         }
-        if (dbUser.isActive === false) {
-          return '/login?error=AccountDisabled';
-        }
-        // Store dbUser data on user object for jwt callback to use
-        // This avoids another DB query in jwt callback
-        (user as any)._dbUser = dbUser;
       }
       return true;
     },
@@ -165,13 +170,17 @@ export const authOptions: NextAuthOptions = {
 
           // For credentials, we need to get externalAgency from DB
           // This only happens once at sign-in, not on every request
-          const dbUser = await getUserByEmail(user.email.toLowerCase());
-          if (dbUser) {
-            token.externalAgency = dbUser.externalAgency ?? null;
-            // Ensure we have the latest data
-            token.id = dbUser.id;
-            token.name = dbUser.name;
-            token.role = dbUser.role;
+          try {
+            const dbUser = await getUserByEmail(user.email.toLowerCase());
+            if (dbUser) {
+              token.externalAgency = dbUser.externalAgency ?? null;
+              // Ensure we have the latest data
+              token.id = dbUser.id;
+              token.name = dbUser.name;
+              token.role = dbUser.role;
+            }
+          } catch (error) {
+            console.error('[Auth] jwt callback: failed to fetch user for credentials sign-in, continuing with token data:', error);
           }
         } else {
           token.id = user.id;
@@ -185,12 +194,16 @@ export const authOptions: NextAuthOptions = {
       const needsBackfill = email && (!token.role || token.externalAgency === undefined);
 
       if (needsBackfill) {
-        const dbUser = await getUserByEmail(email);
-        if (dbUser) {
-          token.id = token.id ?? dbUser.id;
-          token.name = token.name ?? dbUser.name;
-          token.role = token.role ?? dbUser.role;
-          token.externalAgency = token.externalAgency ?? dbUser.externalAgency ?? null;
+        try {
+          const dbUser = await getUserByEmail(email);
+          if (dbUser) {
+            token.id = token.id ?? dbUser.id;
+            token.name = token.name ?? dbUser.name;
+            token.role = token.role ?? dbUser.role;
+            token.externalAgency = token.externalAgency ?? dbUser.externalAgency ?? null;
+          }
+        } catch (error) {
+          console.error('[Auth] jwt callback: failed to backfill user data, continuing with existing token:', error);
         }
       }
 

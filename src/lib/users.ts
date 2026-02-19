@@ -30,12 +30,21 @@ async function retryDatabaseOperation<T>(
     } catch (error: any) {
       lastError = error;
       
+      // EPERM (filesystem permission error) should never be retried — the
+      // filesystem won't become writable between attempts. This prevents
+      // 4-6 second delays on Vercel cold starts if the Prisma engine
+      // fails to initialize for non-transient reasons.
+      const isEperm = error?.code === 'EPERM' ||
+        error?.message?.includes('EPERM') ||
+        error?.message?.includes('operation not permitted');
+
       // Check if it's a connection error that might be retryable
-      const isConnectionError = 
+      const isConnectionError = !isEperm && (
         error?.message?.includes('Can\'t reach database server') ||
         error?.message?.includes('connection') ||
         error?.code === 'P1001' || // Prisma connection error code
-        error?.name === 'PrismaClientInitializationError';
+        error?.name === 'PrismaClientInitializationError'
+      );
       
       if (isConnectionError && attempt < maxRetries) {
         logger.warn(`[retryDatabaseOperation] Connection error (attempt ${attempt}/${maxRetries}), retrying...`, {
