@@ -15,8 +15,14 @@ jobs:
     env:
       BASELINE_LARGE_FILES: 25
       BASELINE_TODOS: 4
-      BASELINE_VULNS: 3
-      BASELINE_DEAD_EXPORTS: 86
+      # Updated 2026-02-18: actual production high-severity count after npm audit fix (axios resolved).
+      # Remaining 7 are unfixable without major upgrades: 5x @sentry/nextjs cascade + 2x next.js.
+      # See tech_debt_exploration.md Phase 3 for full advisory breakdown.
+      BASELINE_VULNS: 7
+      # Updated 2026-02-18: replaced grep-based detection (86 false positives) with knip AST analysis.
+      # knip reports 92 genuinely unused value exports across src/. See knip.json for config.
+      # See tech_debt_exploration.md PRE-IMPLEMENTATION VERIFICATION Q1 for breakdown.
+      BASELINE_DEAD_EXPORTS: 92
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -51,7 +57,8 @@ jobs:
       - name: Run npm audit
         id: npm-audit
         run: |
-          npm audit --production --json 2>/dev/null > /tmp/npm-audit.json || true
+          # --omit=dev replaces deprecated --production flag (forward-compatible with npm 11+)
+          npm audit --omit=dev --json 2>/dev/null > /tmp/npm-audit.json || true
           HIGH_COUNT=$(node -e "
             try {
               const d = JSON.parse(require('fs').readFileSync('/tmp/npm-audit.json', 'utf8'));
@@ -60,30 +67,51 @@ jobs:
             } catch(e) { console.log(0); }
           ")
           echo "high_count=$HIGH_COUNT" >> $GITHUB_OUTPUT
-          npm audit --production 2>/dev/null | tail -5 > /tmp/npm-audit-summary.txt || true
+          npm audit --omit=dev 2>/dev/null | tail -5 > /tmp/npm-audit-summary.txt || true
 
-      - name: Scan for potential dead exports
+      - name: Scan for unused exports (knip)
         id: dead-exports
         run: |
-          grep -rh "^export " src/config/ src/lib/ --include="*.ts" 2>/dev/null | \
-            grep -oP "(?:const|function|class|type|interface|enum)\s+\K\w+" | \
-            sort -u > /tmp/all-exports.txt
+          # knip exits 1 when unused exports are found (expected linting behavior).
+          # || true prevents non-zero exit from killing the step — mirrors npm audit pattern.
+          npx knip --reporter json 2>/dev/null > /tmp/knip-output.json || true
 
-          DEAD_EXPORTS_LIST=""
-          DEAD_COUNT=0
-
-          while IFS= read -r name; do
-            if [ -z "$name" ]; then continue; fi
-            IMPORT_COUNT=$(grep -rw "$name" src/ --include="*.ts" --include="*.tsx" \
-              2>/dev/null -l | wc -l | tr -d ' ')
-            if [ "${IMPORT_COUNT}" -le 1 ]; then
-              DEAD_EXPORTS_LIST="${DEAD_EXPORTS_LIST}\n- \`${name}\`"
-              DEAD_COUNT=$((DEAD_COUNT + 1))
-            fi
-          done < /tmp/all-exports.txt
-
+          # Extract unused value export count from knip JSON output.
+          # knip JSON schema: { issues: [{ file, exports: [{ name, ... }] }], files: [...] }
+          # We count individual exports across all files, NOT unused files.
+          DEAD_COUNT=$(node -e "
+            try {
+              const d = JSON.parse(require('fs').readFileSync('/tmp/knip-output.json', 'utf8'));
+              const issues = d.issues || [];
+              let count = 0;
+              issues.forEach(i => { count += (i.exports || []).length; });
+              console.log(count);
+            } catch(e) { console.log(0); }
+          ")
           echo "dead_count=$DEAD_COUNT" >> $GITHUB_OUTPUT
-          printf "%b" "$DEAD_EXPORTS_LIST" > /tmp/dead-exports.txt
+
+          # Build a human-readable list for the issue body
+          node -e "
+            try {
+              const d = JSON.parse(require('fs').readFileSync('/tmp/knip-output.json', 'utf8'));
+              const issues = d.issues || [];
+              const lines = [];
+              issues.forEach(i => {
+                (i.exports || []).forEach(e => {
+                  lines.push('- \`' + e.name + '\` in ' + i.file);
+                });
+              });
+              const files = (d.files || []).map(f => typeof f === 'string' ? f : f.file || f);
+              if (files.length) {
+                lines.push('');
+                lines.push('**Entirely unused files:**');
+                files.forEach(f => lines.push('- ' + f));
+              }
+              require('fs').writeFileSync('/tmp/dead-exports.txt', lines.join('\n'));
+            } catch(e) {
+              require('fs').writeFileSync('/tmp/dead-exports.txt', 'knip analysis unavailable');
+            }
+          " 2>/dev/null || true
 
       - name: Determine if issue is needed
         id: should-create-issue
@@ -152,7 +180,7 @@ jobs:
             const p4 = deadCount > baselineD
               ? 'PRIORITY 4 \u2014 Dead exports increased (' + deadCount + ' found, baseline is ' + baselineD + '):\n\n' +
                 (deadExports || 'See dead exports section above') + '\n\n' +
-                'Action: For any NEW dead exports only, verify zero consumers (check dynamic imports, barrel re-exports, test files) before removing. The baseline of ' + baselineD + ' includes many false positives from type exports and barrel re-exports.'
+                'Action: Unused exports flagged by knip \u2014 verify before removing (check dynamic imports, barrel re-exports, external consumers). knip AST analysis is accurate; the baseline of ' + baselineD + ' reflects the known state as of 2026-02-18.'
               : 'PRIORITY 4 \u2014 Dead exports: At baseline (' + baselineD + '). Skip this section.';
 
             const remediationPrompt = [
@@ -218,10 +246,10 @@ jobs:
               '',
               '---',
               '',
-              '## \u267B\uFE0F Potential Dead Exports',
+              '## \u267B\uFE0F Unused Exports (knip)',
               '',
-              '> \u26A0\uFE0F These may be false positives \u2014 verify before removing.',
-              '> Dynamic imports, re-exports, and external consumers are not detected.',
+              '> Detected by knip AST analysis \u2014 significantly more accurate than grep.',
+              '> Ignores scripts/ and test files. See knip.json for configuration.',
               '',
               flag(deadCount, baselineD),
               '',
