@@ -35,6 +35,7 @@ export function SGAHubContent() {
   const { data: session } = useSession();
   const permissions = getSessionPermissions(session);
   const isAdmin = permissions?.role === 'admin' || permissions?.role === 'manager' || permissions?.role === 'revops_admin';
+  const isAdminOrSGAForClosedLost = isAdmin || permissions?.role === 'sga';
   const sgaName = session?.user?.name || 'Unknown';
   
   const [activeTab, setActiveTab] = useState<SGAHubTab>('leaderboard');
@@ -146,8 +147,8 @@ export function SGAHubContent() {
       setReEngagementLoading(true);
       setReEngagementError(null);
       
-      // Admins always see all records (showAll=true), SGAs see their own (showAll=false/undefined)
-      const showAll = isAdmin;
+      // Admins and SGAs always see all records (showAll=true), others see their own
+      const showAll = isAdminOrSGAForClosedLost;
       const response = await dashboardApi.getReEngagementOpportunities(showAll);
       setReEngagementOpportunities(response.opportunities);
     } catch (err) {
@@ -271,7 +272,7 @@ export function SGAHubContent() {
     if (activeTab === 'weekly-goals') {
       fetchWeeklyData();
     } else if (activeTab === 'closed-lost') {
-      fetchClosedLostRecords(isAdmin ? true : showAllClosedLost);
+      fetchClosedLostRecords(isAdminOrSGAForClosedLost ? true : showAllClosedLost);
       fetchReEngagementOpportunities();
     } else if (activeTab === 'quarterly-progress') {
       fetchQuarterlyProgress();
@@ -772,8 +773,8 @@ export function SGAHubContent() {
             reEngagementLoading={reEngagementLoading}
             onClosedLostRecordClick={handleClosedLostRecordClick}
             onReEngagementClick={handleReEngagementClick}
-            showAllRecords={isAdmin ? true : showAllClosedLost}
-            onToggleShowAll={isAdmin ? undefined : handleToggleShowAllClosedLost}
+            showAllRecords={isAdminOrSGAForClosedLost ? true : showAllClosedLost}
+            onToggleShowAll={isAdminOrSGAForClosedLost ? undefined : handleToggleShowAllClosedLost}
           />
         </>
       )}

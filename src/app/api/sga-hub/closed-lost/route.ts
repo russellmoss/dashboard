@@ -50,8 +50,8 @@ export async function GET(request: NextRequest) {
       // Show all records - pass null to query to skip SGA filter
       sgaName = null;
     } else if (targetUserEmail) {
-      // Only admin/manager/revops_admin can view other users' records
-      if (!['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
+      // Only admin/manager/revops_admin/sga can view other users' records
+      if (!['admin', 'manager', 'revops_admin', 'sga'].includes(permissions.role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
       const targetUser = await prisma.user.findUnique({

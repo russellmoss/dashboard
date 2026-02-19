@@ -62,10 +62,7 @@ export async function GET() {
     }));
 
     // Apply permission-based filtering (not cached - user-specific)
-    // SGA users should only see their own name in the dropdown
-    if (permissions.sgaFilter) {
-      processedSgas = processedSgas.filter(sga => sga.value === permissions.sgaFilter);
-    }
+    // Note: SGA users see all SGAs in the dropdown (same as admins on funnel performance page)
     // SGM users should only see their own name in the dropdown
     if (permissions.sgmFilter) {
       processedSgms = processedSgms.filter(sgm => sgm.value === permissions.sgmFilter);
