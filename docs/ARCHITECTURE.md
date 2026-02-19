@@ -416,17 +416,19 @@ interface UserPermissions {
 
 ### Automatic Data Filtering
 
-When user has `sgaFilter` or `sgmFilter` set, all queries automatically apply that filter:
+Some API routes enforce `sgaFilter`/`sgmFilter` by overriding the frontend-supplied filter with the user's own name:
 
 ```typescript
-// In API routes
-const permissions = await getUserPermissions(session.user.email);
-const filters = {
-  ...requestFilters,
-  sga: permissions.sgaFilter || requestFilters.sga,
-  sgm: permissions.sgmFilter || requestFilters.sgm,
-};
+// Pattern used in open-pipeline, forecast, export-sheets
+if (permissions.sgaFilter) {
+  filters.sga = permissions.sgaFilter; // Override — user can only see their own data
+}
 ```
+
+**Exceptions** — the following routes pass the frontend-selected filter through directly (no override), allowing SGA users to see full-team data on the funnel performance page:
+- `GET /api/dashboard/filters` — SGA users see **all SGAs** in the dropdown (not filtered to their own name)
+- `POST /api/dashboard/funnel-metrics` — respects the SGA selected in the UI
+- `POST /api/dashboard/source-performance` — respects the SGA selected in the UI
 
 ### Middleware Protection
 
@@ -792,7 +794,9 @@ Shows opportunities that closed lost and have **not yet been re-engaged**. These
 - **30-179 days**: Recent closed lost, higher priority for re-engagement
 - **180+ days**: Older closed lost, lower priority
 
-**Filter**: By `sga_name` field (exact match to user's name)
+**Visibility**:
+- **Admins / Managers / SGAs**: See all records across all SGAs (`showAll=true` passed to API; `sga` role is explicitly allowed by the route guard)
+- **Other roles**: See only their own records (filtered by `sga_name` to the logged-in user's name)
 
 **Next Step**: If SGA decides to re-engage, a Re-engagement opportunity is created (see Re-Engagement Tab).
 
@@ -817,6 +821,10 @@ Shows active re-engagement opportunities that SGAs are currently working.
 |-----|-------|---------|
 | **Closed Lost** | Opportunities we closed lost but haven't re-engaged yet | Find candidates for re-engagement |
 | **Re-Engagement** | Active re-engagement opportunities being worked | Track current re-engagement efforts |
+
+**Visibility**:
+- **Admins / Managers / SGAs**: See all re-engagement opportunities across all SGAs (`showAll=true`; `sga` role explicitly allowed by the route's `showAll` guard)
+- **Other roles**: See only their own re-engagement opportunities
 
 **Data Source**: Re-engagement opportunities from BigQuery
 **API Route**: `/api/sga-hub/re-engagement`
