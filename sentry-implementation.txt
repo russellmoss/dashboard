@@ -1,0 +1,153 @@
+# Sentry Client Config Migration — Implementation
+
+## Context
+Based on exploration at `docs/explorations/sentry-migration-exploration.md`:
+- @sentry/nextjs@10.34.0 (supports `instrumentation-client.ts`)
+- `sentry.client.config.ts` exists at project root — standard Replay + console logging, no custom logic
+- `src/instrumentation.ts` already exists (server/edge already migrated)
+- `instrumentation-client.ts` does NOT exist yet
+- No explicit imports — loaded by @sentry/nextjs convention
+- `next.config.mjs` uses `withSentryConfig` wrapper (no changes needed)
+
+---
+
+## Phase 1: Verify Sentry SDK Supports instrumentation-client.ts
+
+Before making any file changes, confirm compatibility.
+
+Run:
+```bash
+grep -r "instrumentation-client" node_modules/@sentry/nextjs/ --include="*.js" --include="*.ts" -l | head -5
+```
+
+**STOP-GATE:** If no results are found, STOP and report back. Do not proceed.
+If results are found, this confirms @sentry/nextjs@10.34.0 looks for `instrumentation-client.ts`.
+Record the filenames found, then proceed.
+
+---
+
+## Phase 2: Rename the File
+
+This is the core change. The file stays at the project root — just a rename.
+
+**Step 2a:** Rename the file:
+```bash
+git mv sentry.client.config.ts instrumentation-client.ts
+```
+
+**Step 2b:** Update the comments at the top of `instrumentation-client.ts` to reflect its new location.
+Replace the ENTIRE comment block at the top of the file (lines 1-5) with:
+
+```typescript
+// Client-side Sentry initialization via Next.js instrumentation-client convention.
+// Server and edge configs are in src/instrumentation.ts.
+// https://docs.sentry.io/platforms/javascript/guides/nextjs/manual-setup/
+```
+
+**IMPORTANT:** Do NOT change any of the Sentry.init() configuration or imports. Only the comments change.
+
+**Step 2c:** Verify the file contents are correct:
+```bash
+cat instrumentation-client.ts
+```
+
+The file should now read:
+```typescript
+// Client-side Sentry initialization via Next.js instrumentation-client convention.
+// Server and edge configs are in src/instrumentation.ts.
+// https://docs.sentry.io/platforms/javascript/guides/nextjs/manual-setup/
+
+import * as Sentry from "@sentry/nextjs";
+
+Sentry.init({
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN || process.env.SENTRY_DSN,
+
+  // Enable logging
+  enableLogs: true,
+
+  // Setting this option to true will print useful information to the console while you're setting up Sentry.
+  debug: false,
+
+  replaysOnErrorSampleRate: 1.0,
+
+  // This sets the sample rate to be 10%. You may want this to be 100% while
+  // in development and sample at a lower rate in production
+  replaysSessionSampleRate: 0.1,
+
+  // Integrations
+  integrations: [
+    Sentry.replayIntegration({
+      // Additional Replay configuration goes in here, for example:
+      maskAllText: true,
+      blockAllMedia: true,
+    }),
+    // Send console.log, console.warn, and console.error calls as logs to Sentry
+    Sentry.consoleLoggingIntegration({ levels: ["log", "warn", "error"] }),
+  ],
+});
+```
+
+**STOP-GATE:** If the file contents do not match the above exactly (excluding whitespace), STOP and report the diff.
+
+---
+
+## Phase 3: Verify Build
+
+Run:
+```bash
+npx next build 2>&1 | head -80
+```
+
+**Check for:**
+1. No errors mentioning `sentry.client.config.ts` (file not found)
+2. No errors mentioning `instrumentation-client.ts` (parse/import errors)
+3. The Sentry deprecation warning about `sentry.client.config.ts` should be GONE
+4. Build completes successfully
+
+**STOP-GATE:** If the build fails with any Sentry-related error, STOP and report the full error output. Do not attempt to fix it.
+
+---
+
+## Phase 4: Verify No Stale References
+
+Run:
+```bash
+grep -rn "sentry.client.config" --include="*.ts" --include="*.tsx" --include="*.js" --include="*.mjs" --include="*.json" --include="*.md" -not -path "./node_modules/*" -not -path "./.next/*"
+```
+
+If any files reference the old filename, update those references to `instrumentation-client.ts`.
+The exploration showed no explicit imports, so this should return only documentation files if anything.
+
+---
+
+## Phase 5: Commit
+
+```bash
+git add -A
+git status
+```
+
+Review the staged changes. There should be exactly:
+- 1 file renamed: `sentry.client.config.ts` → `instrumentation-client.ts`
+- Comment updates within that file
+- Possibly doc reference updates from Phase 4
+
+If that looks correct:
+```bash
+git commit -m "chore: migrate sentry.client.config.ts to instrumentation-client.ts
+
+Renames client-side Sentry config to use the Next.js instrumentation-client
+convention. This resolves the Vercel build deprecation warning and ensures
+Turbopack compatibility.
+
+Server and edge configs were already migrated to src/instrumentation.ts.
+No functional changes to Sentry initialization."
+```
+
+---
+
+## ⛔ DONE — Report back with:
+1. Phase 1 result (SDK support confirmed?)
+2. Phase 3 result (build output — first 80 lines)
+3. Phase 4 result (any stale references?)
+4. Final `git status` and `git log --oneline -1`
