@@ -1,0 +1,4 @@
+{
+  "$schema": "https://unpkg.com/knip/schema.json",
+  "ignore": ["scripts/**", "src/**/__tests__/**", "src/**/*.test.{ts,tsx}"]
+}

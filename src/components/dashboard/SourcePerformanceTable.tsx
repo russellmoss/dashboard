@@ -121,9 +121,12 @@ export function SourcePerformanceTable({
   const [sortColumn, setSortColumn] = useState<SortColumn>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   
-  const filteredSources = channelFilter 
-    ? sources.filter(s => s.channel === channelFilter)
-    : sources;
+  const filteredSources = useMemo(() =>
+    channelFilter
+      ? sources.filter(s => s.channel === channelFilter)
+      : sources,
+    [sources, channelFilter]
+  );
   
   // Check if any source has goals
   const hasGoals = filteredSources.some(s => s.goals && (s.goals.mqls > 0 || s.goals.sqls > 0 || s.goals.sqos > 0));
@@ -289,7 +292,7 @@ export function SourcePerformanceTable({
               
               return (
                 <TableRow
-                  key={source.source}
+                  key={`${source.source}::${source.channel}`}
                   className={`
                     cursor-pointer transition-colors
                     ${isSelected 

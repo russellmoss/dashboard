@@ -40,8 +40,12 @@ next-env.d.ts
 !package.json
 !package-lock.json
 !tsconfig.json
+<<<<<<< HEAD
 !agent-docs.config.json
 !agent-docs.schema.json
+=======
+!knip.json
+>>>>>>> main
 service-account-key.json
 savvy-gtm-analytics-*.json
 
@@ -70,3 +74,6 @@ data/
 
 /src/generated/prisma
 nul
+
+# AI session context (transient — consumed by post-commit hook)
+.ai-session-context.md

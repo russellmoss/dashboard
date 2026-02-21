@@ -168,3 +168,20 @@ export interface WrikeError {
   error: string;
   errorDescription: string;
 }
+
+// Dashboards Project Configuration (for dev commit tracking)
+// Workflow: Default Workflow (IEAGT6KAK77ZMBWA) — same workflow the Dashboards folder uses
+// Status IDs discovered via scripts/discover-dashboards-workflow-v2.ts (real IDs, not placeholders)
+// Commit tasks are auto-created by scripts/post-commit-wrike.js
+export const DASHBOARDS_WRIKE_CONFIG = {
+  FOLDER_ID: 'MQAAAAEEBpOb',        // Dashboards project
+  WORKFLOW_ID: 'IEAGT6KAK77ZMBWA',  // Default Workflow
+
+  STATUS_IDS: {
+    BACKLOG:     'IEAGT6KAJMAAAAAA', // Requested (Active) — new commit tasks land here
+    PLANNED:     'IEAGT6KAJMGFKCLS', // In Design (Active)
+    IN_PROGRESS: 'IEAGT6KAJMF7ZXTO', // In Progress (Active)
+    DONE:        'IEAGT6KAJMAAAAAB', // Completed (Completed)
+    CANCELLED:   'IEAGT6KAJMAAAAAD', // Cancelled (Cancelled)
+  },
+} as const;

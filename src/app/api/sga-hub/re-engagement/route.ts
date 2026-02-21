@@ -37,8 +37,8 @@ export async function GET(request: NextRequest) {
     const targetUserEmail = searchParams.get('userEmail'); // Admin/manager only
     const showAll = searchParams.get('showAll') === 'true';
     
-    // Only admins/managers/revops_admin can use showAll
-    if (showAll && !['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
+    // Only admins/managers/revops_admin/sga can use showAll
+    if (showAll && !['admin', 'manager', 'revops_admin', 'sga'].includes(permissions.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     
