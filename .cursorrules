@@ -130,37 +130,14 @@ SELECT COUNT(Id) FROM Lead WHERE IsConverted = true AND ConvertedDate >= [START]
 
 ---
 
-## Documentation Maintenance — Standing Instructions
+## Documentation Maintenance
 
-### Rule: Update Docs When You Change Code
+Documentation integrity is managed by `@mossrussell/agent-guard`. See `agent-docs.config.json` for detection categories, scan paths, and automation rules. The pre-commit hook and CI workflow handle drift detection automatically.
 
-When you add, rename, remove, or significantly modify any of the following, you MUST update the relevant documentation **in the same session** — do not defer to a later task:
-
-| If You Changed... | Update This |
-|---|---|
-| API routes (`src/app/api/*/route.ts`) | Run `npm run gen:api-routes` AND update the relevant feature section in `docs/ARCHITECTURE.md` |
-| Page routes (`src/app/*/page.tsx`) | Update Section 5 (Page Access Control) in `docs/ARCHITECTURE.md` |
-| Prisma models (`prisma/schema.prisma`) | Run `npm run gen:models` AND update the relevant section in `docs/ARCHITECTURE.md` |
-| Environment variables (`.env.example`) | Run `npm run gen:env` AND update the env vars section in `docs/ARCHITECTURE.md` |
-| Permissions/roles (`src/lib/permissions.ts`) | Update Section 5 (Role Hierarchy / Permission Properties) in `docs/ARCHITECTURE.md` |
-| Auth logic (`src/app/api/auth/`) | Update Section 5 (Authentication) in `docs/ARCHITECTURE.md` |
-| Semantic layer (`src/lib/semantic-layer/`) | Update Section 7 (Semantic Layer) in `docs/ARCHITECTURE.md` |
-| Config constants (`src/config/constants.ts`) | Update the relevant section referencing those constants |
-
-### Generated Inventories
-
-Three auto-generated inventory files exist at `docs/_generated/`:
-- `api-routes.md` — regenerate with `npm run gen:api-routes`
-- `prisma-models.md` — regenerate with `npm run gen:models`
-- `env-vars.md` — regenerate with `npm run gen:env`
-- Run all three: `npm run gen:all`
-
-These are committed to the repo. Always regenerate after changing routes, models, or env vars.
-
-### What NOT to Do
-- Do NOT edit files in `docs/_generated/` manually — they are overwritten by scripts
-- Do NOT skip documentation updates because "it's a small change" — small changes accumulate into drift
-- Do NOT update `docs/ARCHITECTURE.md` without reading the existing section first — match the format
+**Quick reference:**
+- Run `npm run gen:all` to regenerate all inventories
+- See `docs/ARCHITECTURE.md` for narrative documentation
+- See `docs/_generated/` for auto-generated inventories
 
 ---
 

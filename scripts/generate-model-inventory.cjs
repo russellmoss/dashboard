@@ -1,16 +1,38 @@
 'use strict';
 /**
  * generate-model-inventory.cjs
- * Parses prisma/schema.prisma and produces docs/_generated/prisma-models.md
- * Run with: node scripts/generate-model-inventory.cjs
+ * Parses the configured Prisma schema and produces a markdown inventory.
+ *
+ * Config-driven: reads scanPaths.prismaSchema and generatedDir from agent-docs.config.json
+ * Run with: npm run gen:models
  */
 
 const fs = require('fs');
 const path = require('path');
+const { loadConfig, resolvePath } = require('./_config-reader.cjs');
 
-const PROJECT_ROOT = path.join(__dirname, '..');
-const SCHEMA_FILE = path.join(PROJECT_ROOT, 'prisma', 'schema.prisma');
-const OUTPUT_FILE = path.join(PROJECT_ROOT, 'docs', '_generated', 'prisma-models.md');
+const config = loadConfig();
+const schemaPath = config.scanPaths?.prismaSchema;
+
+// Graceful skip if Prisma not configured
+if (!schemaPath) {
+  console.log('⚠ Prisma not configured (scanPaths.prismaSchema is null) — skipping.');
+  process.exit(0);
+}
+
+const SCHEMA_FILE = resolvePath(schemaPath);
+const OUTPUT_FILE = path.join(
+  resolvePath(config.generatedDir || 'docs/_generated/'),
+  'prisma-models.md'
+);
+
+// Check schema file exists
+if (!fs.existsSync(SCHEMA_FILE)) {
+  console.log(`⚠ Prisma schema not found: ${SCHEMA_FILE} — skipping.`);
+  process.exit(0);
+}
+
+// ── Prisma schema parsing ──────────────────────────────────────────────────
 
 /** Parse all model blocks from a Prisma schema string */
 function parseModels(schemaContent) {

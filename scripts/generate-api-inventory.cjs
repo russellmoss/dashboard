@@ -1,16 +1,25 @@
 'use strict';
 /**
  * generate-api-inventory.cjs
- * Scans all route.ts files under src/app/api/ and produces docs/_generated/api-routes.md
- * Run with: node scripts/generate-api-inventory.cjs
+ * Scans all route.ts files under the configured API routes directory
+ * and produces a markdown inventory.
+ *
+ * Config-driven: reads scanPaths.apiRoutes and generatedDir from agent-docs.config.json
+ * Run with: npm run gen:api-routes
  */
 
 const fs = require('fs');
 const path = require('path');
+const { loadConfig, resolvePath, PROJECT_ROOT } = require('./_config-reader.cjs');
 
-const PROJECT_ROOT = path.join(__dirname, '..');
-const API_DIR = path.join(PROJECT_ROOT, 'src', 'app', 'api');
-const OUTPUT_FILE = path.join(PROJECT_ROOT, 'docs', '_generated', 'api-routes.md');
+const config = loadConfig();
+const API_DIR = resolvePath(config.scanPaths?.apiRoutes || 'src/app/api/');
+const OUTPUT_FILE = path.join(
+  resolvePath(config.generatedDir || 'docs/_generated/'),
+  'api-routes.md'
+);
+
+// ── Core scanning logic ────────────────────────────────────────────────────
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
@@ -20,7 +29,7 @@ function findRouteFiles(dir) {
   let items;
   try {
     items = fs.readdirSync(dir, { withFileTypes: true });
-  } catch (e) {
+  } catch { /* skip unreadable */
     return results;
   }
   for (const item of items) {
@@ -67,6 +76,11 @@ function relativeFilePath(filePath) {
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────
+
+if (!fs.existsSync(API_DIR)) {
+  console.log(`⚠ API routes directory not found: ${API_DIR} — skipping.`);
+  process.exit(0);
+}
 
 const routeFiles = findRouteFiles(API_DIR);
 routeFiles.sort();

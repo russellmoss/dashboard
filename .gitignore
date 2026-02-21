@@ -40,6 +40,8 @@ next-env.d.ts
 !package.json
 !package-lock.json
 !tsconfig.json
+!agent-docs.config.json
+!agent-docs.schema.json
 service-account-key.json
 savvy-gtm-analytics-*.json
 
@@ -48,6 +50,9 @@ savvy-gtm-analytics-*.json
 
 # Cursor IDE
 .cursor/
+
+# agent-guard audit logs
+.agent-guard/
 
 # IDE
 .vscode/

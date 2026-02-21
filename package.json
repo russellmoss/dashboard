@@ -15,11 +15,11 @@
     "verify:game:api": "node scripts/verify-pipeline-catcher.js --api",
     "verify:recruiter-security": "node scripts/verify-recruiter-security.js",
     "postinstall": "prisma generate",
+    "prepare": "husky",
     "gen:api-routes": "node scripts/generate-api-inventory.cjs",
-    "gen:models": "node scripts/generate-model-inventory.cjs",
     "gen:env": "node scripts/generate-env-inventory.cjs",
-    "gen:all": "node scripts/generate-api-inventory.cjs && node scripts/generate-model-inventory.cjs && node scripts/generate-env-inventory.cjs",
-    "prepare": "husky"
+    "gen:all": "npm run gen:api-routes && npm run gen:models && npm run gen:env",
+    "gen:models": "node scripts/generate-model-inventory.cjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
@@ -55,6 +55,7 @@
     "recharts": "^3.6.0"
   },
   "devDependencies": {
+    "@mossrussell/agent-guard": "^0.3.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/leaflet": "^1.9.21",

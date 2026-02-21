@@ -1851,13 +1851,19 @@ Use these values to validate any query changes.
 
 ## Document Maintenance
 
-**When to update**:
-- New feature added → Add section
-- Pattern changed → Update relevant section
-- Bug fix revealed incorrect pattern → Correct and note
+This documentation is maintained by [`@mossrussell/agent-guard`](https://www.npmjs.com/package/@mossrussell/agent-guard), a four-layer documentation integrity system:
 
-**Validation instruction for Cursor**:
-> Review this ARCHITECTURE.md against the actual codebase. Update all file paths, function names, and code examples to reflect what's actually implemented. Flag any sections that describe features differently than how they're built.
+1. **Standing Instructions** — AI agents receive context about docs and update them alongside code changes
+2. **Generated Inventories** — Deterministic scripts regenerate `docs/_generated/*.md` from source code
+3. **Pre-commit Hook** — Detects doc-relevant changes, auto-runs generators, and invokes Claude Code for narrative updates
+4. **CI/CD Audit** — GitHub Actions catch drift on push to main and create issues with remediation steps
+
+**To manually regenerate inventories:**
+```bash
+npm run gen:all
+```
+
+**Configuration:** See `agent-docs.config.json` for all detection categories, scan paths, and automation settings.
 
 ---
 
