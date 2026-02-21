@@ -1184,9 +1184,8 @@ Query results support drill-down to underlying records:
 - **Edge**: Middleware errors
 
 **Configuration Files**:
-- `sentry.client.config.ts` - Client-side error tracking (browser)
-- `sentry.server.config.ts` - Server-side error tracking (API routes, server components)
-- `sentry.edge.config.ts` - Edge runtime error tracking (middleware)
+- `instrumentation-client.ts` - Client-side error tracking (browser)
+- `src/instrumentation.ts` - Server-side and edge runtime error tracking (API routes, server components, middleware)
 
 **Features Enabled**:
 - Automatic error capture

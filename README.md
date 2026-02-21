@@ -416,9 +416,8 @@ The dashboard uses **Sentry** for comprehensive error monitoring and logging:
 
 Sentry is configured across three runtime environments:
 
-- **Client** (`sentry.client.config.ts`): Browser-side error tracking and session replay
-- **Server** (`sentry.server.config.ts`): Server-side API route and component error tracking
-- **Edge** (`sentry.edge.config.ts`): Middleware and edge function error tracking
+- **Client** (`instrumentation-client.ts`): Browser-side error tracking and session replay
+- **Server/Edge** (`src/instrumentation.ts`): Server-side API route, component, middleware, and edge function error tracking
 
 ### Current Status
 
