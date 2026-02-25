@@ -59,3 +59,49 @@ Key commands:
 - `npm run gen:models` — regenerate Prisma model inventory
 - `npm run gen:env` — regenerate env var inventory
 - `npm run gen:all` — regenerate all inventories
+
+## Feature Development Workflow
+
+### Exploration Phase
+Use `/new-feature` skill to spawn parallel agent team (code-inspector,
+data-verifier, pattern-finder). Each saves findings to project root.
+Lead synthesizes into exploration-results.md.
+
+### Guide Building Phase
+Use `/build-guide` skill to create agentic_implementation_guide.md from
+exploration results + actual source code inspection.
+
+### Cross-LLM Validation
+Before executing: take the guide + exploration results to another LLM
+(Gemini, GPT, DeepSeek) for adversarial review. Fix any gaps found.
+
+### Execution Phase
+Single Claude Code agent executes the guide phase-by-phase with
+validation gates and stop-and-report checkpoints. Phase 3 (types)
+intentionally breaks build as checklist. Never skip validation gates.
+
+### Critical Rule
+Every code path that constructs a DetailRecord or DrillDownRecord must
+include ALL required fields. Missing even one construction site causes
+build failure. The code-inspector subagent should find all of them
+during exploration.
+
+### BigQuery
+- Multiple views and tables exist in the `savvy-gtm-analytics` project
+- The primary analytics view is `vw_funnel_master` but features may
+  require other views or view modifications
+- The data-verifier subagent has MCP access to BigQuery — use it to
+  discover schema, not assumptions
+- Never use string interpolation in queries — always @paramName syntax
+
+### Documentation
+- This project uses `agent-guard` for documentation sync
+- After completing code changes, always run `npx agent-guard sync`
+  before committing
+- Generated docs in `docs/_generated/` are auto-maintained — never
+  edit them manually
+- The pre-commit hook runs generators automatically, but explicit
+  sync ensures narrative docs (ARCHITECTURE.md, README.md) are
+  updated too
+- Every implementation guide must include a doc sync phase (7.5)
+  after code changes pass build and before UI validation
