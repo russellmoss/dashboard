@@ -1112,6 +1112,8 @@ export const MAPPING_TABLE = 'savvy-gtm-analytics.SavvyGTMData.new_mapping';
 export const RECRUITING_RECORD_TYPE = '012Dn000000mrO3IAI';
 export const RE_ENGAGEMENT_RECORD_TYPE = '012VS000009VoxrYAC';
 export const OPEN_PIPELINE_STAGES = ['Qualifying', 'Discovery', 'Sales Process', 'Negotiating'];
+export const ON_HOLD_STAGE = 'On Hold';                        // Separate from OPEN_PIPELINE_STAGES
+export const STALE_PIPELINE_THRESHOLDS = { warning: 30, stale: 60, critical: 90 }; // Days-in-stage thresholds
 
 // From src/lib/semantic-layer/definitions.ts (CONSTANTS object)
 export const CONSTANTS = {
@@ -1636,6 +1638,8 @@ Use these values to validate any query changes.
 | **Query Template** | Pre-defined SQL pattern that the query compiler fills in based on parameters |
 | **RBAC** | Role-Based Access Control — Automatic data filtering based on user permissions |
 | **Open Pipeline** | Active opportunities in stages: Qualifying, Discovery, Sales Process, Negotiating |
+| **Stale Pipeline Alerts** | UI section on Pipeline tab showing records grouped by stage with aging badges. Days-in-stage thresholds: 30d (yellow), 60d (orange), 90d (red). On Hold records shown in a separate sub-section. |
+| **Days in Stage** | `DetailRecord.daysInCurrentStage` — calculated at app layer in `date-helpers.ts:calculateDaysInStage()`. Uses per-stage entry date fields from `vw_funnel_master`. Qualifying uses `Opp_CreatedDate` as proxy. |
 
 ---
 

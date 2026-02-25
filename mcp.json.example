@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "bigquery": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-bigquery"],
+      "env": {
+        "GOOGLE_APPLICATION_CREDENTIALS": "C:/path/to/your/service-account-key.json",
+        "PROJECT_ID": "savvy-gtm-analytics",
+        "DATASETS": "Tableau_Views,SavvyGTMData"
+      }
+    },
+    "google-sheets": {
+      "command": "npx",
+      "args": ["-y", "mcp-gsheets", "--credentials-path", "C:/path/to/your/service-account-key.json"],
+      "env": {
+        "GOOGLE_APPLICATION_CREDENTIALS": "C:/path/to/your/service-account-key.json"
+      }
+    }
+  }
+}

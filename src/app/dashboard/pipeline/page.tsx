@@ -8,7 +8,7 @@ import { Loader2 } from 'lucide-react';
 
 import { dashboardApi } from '@/lib/api-client';
 import { getSessionPermissions } from '@/types/auth';
-import { OPEN_PIPELINE_STAGES } from '@/config/constants';
+import { OPEN_PIPELINE_STAGES, ON_HOLD_STAGE } from '@/config/constants';
 import { OpenPipelineSummary, DetailRecord, SqlDateRange, SgmConversionData } from '@/types/dashboard';
 import { buildDateRangeFromSqlFilter } from '@/lib/utils/date-helpers';
 
@@ -21,6 +21,7 @@ import { VolumeDrillDownModal } from '@/components/dashboard/VolumeDrillDownModa
 import { RecordDetailModal } from '@/components/dashboard/RecordDetailModal';
 import { SqlDateFilter } from '@/components/dashboard/SqlDateFilter';
 import { SgmConversionTable } from '@/components/dashboard/SgmConversionTable';
+import { StalePipelineAlerts } from '@/components/dashboard/StalePipelineAlerts';
 import { SgmOption, SgmPipelineChartData } from '@/types/dashboard';
 
 export default function PipelinePage() {
@@ -94,6 +95,10 @@ export default function PipelinePage() {
   const [drillDownSgm, setDrillDownSgm] = useState<string | null>(null);
   /** When set, drill-down was opened from conversion table (SQLs / SQO'd / Joined click) */
   const [drillDownConversionMetric, setDrillDownConversionMetric] = useState<'sql' | 'sqo' | 'joined' | null>(null);
+
+  // Stale pipeline alerts
+  const [staleRecords, setStaleRecords] = useState<DetailRecord[]>([]);
+  const [staleLoading, setStaleLoading] = useState(false);
 
   // SQL Date Filter state (null = "All Time")
   const [sqlDateRange, setSqlDateRange] = useState<SqlDateRange | null>(null);
@@ -177,6 +182,48 @@ export default function PipelinePage() {
       fetchConversionData();
     }
   }, [activeTab, isRevOpsAdmin, fetchBySgmData, fetchConversionData]);
+
+  // Fetch all open pipeline records for stale alerts (both active stages and On Hold)
+  const fetchStaleRecords = useCallback(async () => {
+    if (sgmOptionsLoading || selectedSgms.length === 0) return;
+    setStaleLoading(true);
+
+    try {
+      const sgmsToSend = selectedSgms.length === sgmOptions.length ? undefined : selectedSgms;
+      const allRecords: DetailRecord[] = [];
+      const recordIds = new Set<string>();
+
+      // Include all selected active stages plus On Hold (always relevant for staleness)
+      const stagesToFetch = [...selectedStages, ON_HOLD_STAGE];
+
+      for (const stage of stagesToFetch) {
+        try {
+          const result = await dashboardApi.getPipelineDrilldown(stage, undefined, sgmsToSend);
+          for (const record of result.records) {
+            if (!recordIds.has(record.id)) {
+              recordIds.add(record.id);
+              allRecords.push(record);
+            }
+          }
+        } catch (err) {
+          console.error(`[StaleAlerts] Error fetching stage ${stage}:`, err);
+        }
+      }
+
+      setStaleRecords(allRecords);
+    } catch (err) {
+      console.error('[StaleAlerts] Error:', err);
+      setStaleRecords([]);
+    } finally {
+      setStaleLoading(false);
+    }
+  }, [selectedStages, selectedSgms, sgmOptions.length, sgmOptionsLoading]);
+
+  useEffect(() => {
+    if (status === 'authenticated') {
+      fetchStaleRecords();
+    }
+  }, [status, fetchStaleRecords]);
 
   // Handle bar click for drill-down
   const handleBarClick = async (stage: string, metric: 'aum' | 'count') => {
@@ -347,6 +394,16 @@ export default function PipelinePage() {
     setDrillDownMetric(null);
     setDrillDownSgm(null);
     setDrillDownConversionMetric(null);
+  };
+
+  // Handle stale alert stage click — opens drill-down pre-filtered to that stage's records
+  const handleStaleStageClick = (stage: string, stageRecords: DetailRecord[]) => {
+    setDrillDownRecords(stageRecords);
+    setDrillDownStage(stage);
+    setDrillDownMetric(null);
+    setDrillDownSgm(null);
+    setDrillDownConversionMetric(null);
+    setDrillDownOpen(true);
   };
 
   // Handle conversion table metric click (SQLs, SQO'd, or Joined) — open drill-down with those records
@@ -521,6 +578,16 @@ export default function PipelinePage() {
           </div>
         )}
       </Card>
+
+      {/* Stale Pipeline Alerts — By Stage tab only */}
+      {activeTab === 'byStage' && (
+        <StalePipelineAlerts
+          records={staleRecords}
+          loading={staleLoading}
+          onStageClick={handleStaleStageClick}
+          onRecordClick={handleRecordClick}
+        />
+      )}
 
       {/* Conversion Table — only shown on By SGM tab */}
       {activeTab === 'bySgm' && isRevOpsAdmin && (

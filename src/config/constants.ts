@@ -39,3 +39,13 @@ export const MAPPING_TABLE = 'savvy-gtm-analytics.SavvyGTMData.new_mapping';
 export const DAILY_FORECAST_VIEW = 'savvy-gtm-analytics.Tableau_Views.vw_daily_forecast';
 
 export const DEFAULT_DATE_PRESET = 'q4' as const;
+
+export const STALE_PIPELINE_THRESHOLDS = {
+  warning: 30,   // yellow badge: >= 30 days
+  stale: 60,     // orange badge: >= 60 days
+  critical: 90,  // red badge: >= 90 days
+} as const;
+
+// On Hold is excluded from OPEN_PIPELINE_STAGES (not actively progressing)
+// but is included in stale alerts as a separate "Deliberate Hold" section
+export const ON_HOLD_STAGE = 'On Hold' as const;
