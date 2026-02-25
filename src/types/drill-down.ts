@@ -16,6 +16,9 @@ export interface DrillDownRecordBase {
   tofStage: string;
   leadUrl: string | null;
   opportunityUrl: string | null;
+  nextSteps: string | null;
+  opportunityNextStep: string | null;
+  daysInCurrentStage: number | null;
 }
 
 // Initial Call Record
@@ -80,6 +83,10 @@ export interface RawInitialCallRecord {
   TOF_Stage: string;
   lead_url: string | null;
   opportunity_url: string | null;
+  Next_Steps__c: string | null;
+  NextStep: string | null;
+  stage_entered_contacting__c: { value: string } | string | null;
+  mql_stage_entered_ts: { value: string } | string | null;
 }
 
 export interface RawQualificationCallRecord {
@@ -94,6 +101,16 @@ export interface RawQualificationCallRecord {
   aum_tier: string | null;
   lead_url: string | null;
   opportunity_url: string | null;
+  Next_Steps__c: string | null;
+  NextStep: string | null;
+  StageName: string | null;
+  mql_stage_entered_ts: { value: string } | string | null;
+  converted_date_raw: string | { value: string } | null;
+  Date_Became_SQO__c: { value: string } | string | null;
+  Opp_CreatedDate: { value: string } | string | null;
+  Stage_Entered_Discovery__c: { value: string } | string | null;
+  Stage_Entered_Sales_Process__c: { value: string } | string | null;
+  Stage_Entered_Negotiating__c: { value: string } | string | null;
 }
 
 export interface RawSQODrillDownRecord {
@@ -110,6 +127,15 @@ export interface RawSQODrillDownRecord {
   StageName: string | null;
   lead_url: string | null;
   opportunity_url: string | null;
+  Next_Steps__c: string | null;
+  NextStep: string | null;
+  Opp_CreatedDate: { value: string } | string | null;
+  Stage_Entered_Discovery__c: { value: string } | string | null;
+  Stage_Entered_Sales_Process__c: { value: string } | string | null;
+  Stage_Entered_Negotiating__c: { value: string } | string | null;
+  Stage_Entered_Signed__c: { value: string } | string | null;
+  Stage_Entered_On_Hold__c: { value: string } | string | null;
+  Stage_Entered_Closed__c: { value: string } | string | null;
 }
 
 // Drill-down context for "Back" button functionality

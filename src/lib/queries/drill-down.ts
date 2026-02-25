@@ -10,7 +10,7 @@ import {
   RawQualificationCallRecord,
   RawSQODrillDownRecord
 } from '@/types/drill-down';
-import { formatCurrency } from '@/lib/utils/date-helpers';
+import { formatCurrency, calculateDaysInStage } from '@/lib/utils/date-helpers';
 import { toString, toNumber } from '@/types/bigquery-raw';
 import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
@@ -54,6 +54,14 @@ function transformInitialCallRecord(raw: RawInitialCallRecord): InitialCallRecor
     tofStage: toString(raw.TOF_Stage) || 'Unknown',
     leadUrl: raw.lead_url ? toString(raw.lead_url) : null,
     opportunityUrl: raw.opportunity_url ? toString(raw.opportunity_url) : null,
+    nextSteps: raw.Next_Steps__c ? toString(raw.Next_Steps__c) : null,
+    opportunityNextStep: raw.NextStep ? toString(raw.NextStep) : null,
+    daysInCurrentStage: calculateDaysInStage({
+      stage: 'Unknown', // Initial call records are lead-level — no StageName
+      tofStage: toString(raw.TOF_Stage) || 'Unknown',
+      contactedDate: extractDateValue(raw.stage_entered_contacting__c),
+      mqlDate: extractDateValue(raw.mql_stage_entered_ts),
+    }),
   };
 }
 
@@ -76,6 +84,19 @@ function transformQualificationCallRecord(raw: RawQualificationCallRecord): Qual
     aumTier: raw.aum_tier ? toString(raw.aum_tier) : null,
     leadUrl: raw.lead_url ? toString(raw.lead_url) : null,
     opportunityUrl: raw.opportunity_url ? toString(raw.opportunity_url) : null,
+    nextSteps: raw.Next_Steps__c ? toString(raw.Next_Steps__c) : null,
+    opportunityNextStep: raw.NextStep ? toString(raw.NextStep) : null,
+    daysInCurrentStage: calculateDaysInStage({
+      stage: raw.StageName ? toString(raw.StageName) : 'Unknown',
+      tofStage: toString(raw.TOF_Stage) || 'Unknown',
+      mqlDate: extractDateValue(raw.mql_stage_entered_ts),
+      sqlDate: extractDateValue(raw.converted_date_raw),
+      sqoDate: extractDateValue(raw.Date_Became_SQO__c),
+      oppCreatedDate: extractDateValue(raw.Opp_CreatedDate),
+      discoveryDate: extractDateValue(raw.Stage_Entered_Discovery__c),
+      salesProcessDate: extractDateValue(raw.Stage_Entered_Sales_Process__c),
+      negotiatingDate: extractDateValue(raw.Stage_Entered_Negotiating__c),
+    }),
   };
 }
 
@@ -102,6 +123,20 @@ function transformSQODrillDownRecord(raw: RawSQODrillDownRecord): SQODrillDownRe
     stageName: raw.StageName ? toString(raw.StageName) : null,
     leadUrl: raw.lead_url ? toString(raw.lead_url) : null,
     opportunityUrl: raw.opportunity_url ? toString(raw.opportunity_url) : null,
+    nextSteps: raw.Next_Steps__c ? toString(raw.Next_Steps__c) : null,
+    opportunityNextStep: raw.NextStep ? toString(raw.NextStep) : null,
+    daysInCurrentStage: calculateDaysInStage({
+      stage: raw.StageName ? toString(raw.StageName) : 'Unknown',
+      tofStage: toString(raw.TOF_Stage) || 'Unknown',
+      sqoDate: extractDateValue(raw.Date_Became_SQO__c),
+      oppCreatedDate: extractDateValue(raw.Opp_CreatedDate),
+      discoveryDate: extractDateValue(raw.Stage_Entered_Discovery__c),
+      salesProcessDate: extractDateValue(raw.Stage_Entered_Sales_Process__c),
+      negotiatingDate: extractDateValue(raw.Stage_Entered_Negotiating__c),
+      signedDate: extractDateValue(raw.Stage_Entered_Signed__c),
+      onHoldDate: extractDateValue(raw.Stage_Entered_On_Hold__c),
+      closedDate: extractDateValue(raw.Stage_Entered_Closed__c),
+    }),
   };
 }
 
@@ -123,9 +158,13 @@ const _getInitialCallsDrillDown = async (
       v.Lead_Score_Tier__c,
       v.TOF_Stage,
       v.lead_url,
-      v.opportunity_url
+      v.opportunity_url,
+      v.Next_Steps__c,
+      v.NextStep,
+      v.stage_entered_contacting__c,
+      v.mql_stage_entered_ts
     FROM \`${FULL_TABLE}\` v
-    LEFT JOIN \`${MAPPING_TABLE}\` nm 
+    LEFT JOIN \`${MAPPING_TABLE}\` nm
       ON v.Original_source = nm.original_source
     WHERE v.SGA_Owner_Name__c = @sgaName
       AND v.Initial_Call_Scheduled_Date__c IS NOT NULL
@@ -170,9 +209,19 @@ const _getQualificationCallsDrillDown = async (
       v.Opportunity_AUM,
       v.aum_tier,
       v.lead_url,
-      v.opportunity_url
+      v.opportunity_url,
+      v.Next_Steps__c,
+      v.NextStep,
+      v.StageName,
+      v.mql_stage_entered_ts,
+      v.converted_date_raw,
+      v.Date_Became_SQO__c,
+      v.Opp_CreatedDate,
+      v.Stage_Entered_Discovery__c,
+      v.Stage_Entered_Sales_Process__c,
+      v.Stage_Entered_Negotiating__c
     FROM \`${FULL_TABLE}\` v
-    LEFT JOIN \`${MAPPING_TABLE}\` nm 
+    LEFT JOIN \`${MAPPING_TABLE}\` nm
       ON v.Original_source = nm.original_source
     WHERE v.SGA_Owner_Name__c = @sgaName
       AND v.Qualification_Call_Date__c IS NOT NULL
@@ -249,7 +298,16 @@ const _getSQODrillDown = async (
       v.TOF_Stage,
       v.StageName,
       v.lead_url,
-      v.opportunity_url
+      v.opportunity_url,
+      v.Next_Steps__c,
+      v.NextStep,
+      v.Opp_CreatedDate,
+      v.Stage_Entered_Discovery__c,
+      v.Stage_Entered_Sales_Process__c,
+      v.Stage_Entered_Negotiating__c,
+      v.Stage_Entered_Signed__c,
+      v.Stage_Entered_On_Hold__c,
+      v.Stage_Entered_Closed__c
     FROM \`${FULL_TABLE}\` v
     ${useMappingTable ? `LEFT JOIN \`${MAPPING_TABLE}\` nm ON v.Original_source = nm.original_source` : ''}
     LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user

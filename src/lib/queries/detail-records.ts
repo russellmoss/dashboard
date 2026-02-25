@@ -2,7 +2,7 @@ import { runQuery } from '../bigquery';
 import { DetailRecord } from '@/types/dashboard';
 import { DashboardFilters, DEFAULT_ADVANCED_FILTERS } from '@/types/filters';
 import { buildAdvancedFilterClauses } from '../utils/filter-helpers';
-import { buildDateRangeFromFilters, formatCurrency } from '../utils/date-helpers';
+import { buildDateRangeFromFilters, formatCurrency, calculateDaysInStage } from '../utils/date-helpers';
 import { RawDetailRecordResult, toNumber, toString } from '@/types/bigquery-raw';
 import { FULL_TABLE, OPEN_PIPELINE_STAGES, RECRUITING_RECORD_TYPE } from '@/config/constants';
 
@@ -305,7 +305,11 @@ const _getDetailRecords = async (
       v.Full_Opportunity_ID__c as opportunity_id,
       v.lead_record_source AS prospect_source_type,
       v.Previous_Recruiting_Opportunity_ID__c AS origin_recruiting_opp_id,
-      v.origin_opportunity_url
+      v.origin_opportunity_url,
+      v.Next_Steps__c as next_steps,
+      v.NextStep as opportunity_next_step,
+      v.TOF_Stage as tof_stage,
+      v.Opp_CreatedDate as opp_created_date
     FROM \`${FULL_TABLE}\` v
     ${userJoin}
     ${whereClause}
@@ -341,7 +345,8 @@ const _getDetailRecords = async (
     const negotiatingDate = extractDate(r.negotiating_date);
     const onHoldDate = extractDate(r.on_hold_date);
     const closedDate = extractDate(r.closed_date);
-    
+    const oppCreatedDate = extractDate(r.opp_created_date);
+
     // Extract Initial Call Scheduled Date (DATE field - direct string)
     let initialCallDate: string | null = null;
     if (r.initial_call_scheduled_date) {
@@ -362,12 +367,32 @@ const _getDetailRecords = async (
       }
     }
     
+    const stageForCalc = toString(r.stage) || 'Unknown';
+    const tofStageForCalc = toString(r.tof_stage) || 'Prospect';
+    const daysInCurrentStage = calculateDaysInStage({
+      stage: stageForCalc,
+      tofStage: tofStageForCalc,
+      oppCreatedDate,
+      discoveryDate,
+      salesProcessDate,
+      negotiatingDate,
+      signedDate,
+      onHoldDate,
+      closedDate,
+      joinedDate,
+      contactedDate,
+      mqlDate,
+      sqlDate,
+      sqoDate,
+    });
+
     return {
       id: toString(r.id),
       advisorName: toString(r.advisor_name) || 'Unknown',
       source: toString(r.source) || 'Unknown',
       channel: toString(r.channel) || 'Unknown',
-      stage: toString(r.stage) || 'Unknown',
+      stage: stageForCalc,
+      tofStage: tofStageForCalc,
       sga: r.sga ? toString(r.sga) : null,
       sgm: r.sgm ? toString(r.sgm) : null,
       campaignId: r.campaign_id ? toString(r.campaign_id) : null,
@@ -388,6 +413,8 @@ const _getDetailRecords = async (
       negotiatingDate: negotiatingDate,
       onHoldDate: onHoldDate,
       closedDate: closedDate,
+      oppCreatedDate,
+      daysInCurrentStage,
       initialCallScheduledDate: initialCallDate,
       qualificationCallDate: qualCallDate,
       isContacted: r.is_contacted === 1,
@@ -402,6 +429,8 @@ const _getDetailRecords = async (
       prospectSourceType: r.prospect_source_type ? toString(r.prospect_source_type) : null,
       originRecruitingOppId: r.origin_recruiting_opp_id ? toString(r.origin_recruiting_opp_id) : null,
       originOpportunityUrl: r.origin_opportunity_url ? toString(r.origin_opportunity_url) : null,
+      nextSteps: r.next_steps ? toString(r.next_steps) : null,
+      opportunityNextStep: r.opportunity_next_step ? toString(r.opportunity_next_step) : null,
     };
   });
 };

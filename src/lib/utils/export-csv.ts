@@ -15,7 +15,7 @@ export function exportToCSV<T extends CSVRow>(
         const value = row[header];
         // Escape quotes and wrap in quotes if contains comma
         const stringValue = String(value ?? '');
-        if (stringValue.includes(',') || stringValue.includes('"')) {
+        if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n') || stringValue.includes('\r')) {
           return `"${stringValue.replace(/"/g, '""')}"`;
         }
         return stringValue;

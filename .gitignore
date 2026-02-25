@@ -54,6 +54,8 @@ savvy-gtm-analytics-*.json
 
 # Cursor IDE
 .cursor/
+.cursor/service-account-key.json
+.cursor/**/service-account-key.json
 
 # agent-guard audit logs
 .agent-guard/

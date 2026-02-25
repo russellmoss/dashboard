@@ -110,6 +110,10 @@ export interface RawDetailRecordResult {
   prospect_source_type?: string | null;
   origin_recruiting_opp_id?: string | null;
   origin_opportunity_url?: string | null;
+  next_steps?: string | null;
+  opportunity_next_step?: string | null;
+  tof_stage?: string;
+  opp_created_date?: string | { value: string } | null;
 }
 
 // Forecast Goals Raw Results

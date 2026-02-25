@@ -930,6 +930,11 @@ export function ExploreResults({ response, isLoading, error, streamingMessage, c
             prospectSourceType: row.prospect_source_type ? String(row.prospect_source_type) : null,
             originRecruitingOppId: row.origin_recruiting_opp_id ? String(row.origin_recruiting_opp_id) : null,
             originOpportunityUrl: row.origin_opportunity_url ? String(row.origin_opportunity_url) : null,
+            nextSteps: (row.next_steps as string) || (row.Next_Steps__c as string) || null,
+            opportunityNextStep: (row.opportunity_next_step as string) || (row.NextStep as string) || null,
+            tofStage: (row.tof_stage as string) || (row.TOF_Stage as string) || 'Prospect',
+            oppCreatedDate: null,
+            daysInCurrentStage: null,
           };
         });
 
@@ -1300,6 +1305,10 @@ export function ExploreResults({ response, isLoading, error, streamingMessage, c
                         'SGM': r.sgm || '',
                         'AUM': r.aum,
                         'AUM Formatted': r.aumFormatted,
+                        'Lead Next Steps': r.nextSteps || '',
+                        'Opportunity Next Step': r.opportunityNextStep || '',
+                        'Current Stage': (r.stage && r.stage !== 'Unknown') ? r.stage : r.tofStage,
+                        'Days in Current Stage': r.daysInCurrentStage ?? '',
                       })),
                       columns: [
                         { name: 'Advisor Name', displayName: 'Advisor Name', type: 'string' },
@@ -1311,6 +1320,10 @@ export function ExploreResults({ response, isLoading, error, streamingMessage, c
                         { name: 'SGM', displayName: 'SGM', type: 'string' },
                         { name: 'AUM', displayName: 'AUM', type: 'number' },
                         { name: 'AUM Formatted', displayName: 'AUM Formatted', type: 'string' },
+                        { name: 'Lead Next Steps', displayName: 'Lead Next Steps', type: 'string' },
+                        { name: 'Opportunity Next Step', displayName: 'Opportunity Next Step', type: 'string' },
+                        { name: 'Current Stage', displayName: 'Current Stage', type: 'string' },
+                        { name: 'Days in Current Stage', displayName: 'Days in Current Stage', type: 'number' },
                       ],
                       metadata: {
                         rowCount: drillDownRecords.length,

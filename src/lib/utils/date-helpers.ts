@@ -236,6 +236,89 @@ export function parsePeriodToDateRange(period: string): { startDate: string; end
 }
 
 /**
+ * Calculate how many days a record has been in its current stage.
+ * Uses StageName (opportunity stage) when available, falls back to TOF_Stage (lead stage).
+ * Returns null when the stage entry date cannot be determined.
+ *
+ * Stage-to-date mapping:
+ *   Opportunity stages (StageName):
+ *     Qualifying    → oppCreatedDate (proxy — no Stage_Entered_Qualifying__c exists)
+ *     Discovery     → discoveryDate
+ *     Sales Process → salesProcessDate
+ *     Negotiating   → negotiatingDate
+ *     Signed        → signedDate
+ *     On Hold       → onHoldDate
+ *     Closed Lost   → closedDate
+ *     Joined        → joinedDate
+ *   Lead stages (TOF_Stage, used when StageName is null/Unknown):
+ *     Contacted     → contactedDate
+ *     MQL           → mqlDate
+ *     SQL           → sqlDate
+ *     SQO           → sqoDate
+ *     Joined        → joinedDate
+ *     Prospect/Closed → null (no meaningful entry date)
+ */
+export function calculateDaysInStage(record: {
+  stage: string;           // StageName — may be 'Unknown' for lead-only records
+  tofStage?: string;       // TOF_Stage — always populated
+  oppCreatedDate?: string | null;
+  discoveryDate?: string | null;
+  salesProcessDate?: string | null;
+  negotiatingDate?: string | null;
+  signedDate?: string | null;
+  onHoldDate?: string | null;
+  closedDate?: string | null;
+  joinedDate?: string | null;
+  contactedDate?: string | null;
+  mqlDate?: string | null;
+  sqlDate?: string | null;
+  sqoDate?: string | null;
+}): number | null {
+  let entryDateStr: string | null = null;
+
+  const stageName = record.stage;
+  const tofStage = record.tofStage;
+
+  // Opportunity stages take priority when StageName is meaningful
+  if (stageName && stageName !== 'Unknown') {
+    switch (stageName) {
+      case 'Qualifying':    entryDateStr = record.oppCreatedDate ?? null; break;
+      case 'Discovery':     entryDateStr = record.discoveryDate ?? null; break;
+      case 'Sales Process': entryDateStr = record.salesProcessDate ?? null; break;
+      case 'Negotiating':   entryDateStr = record.negotiatingDate ?? null; break;
+      case 'Signed':        entryDateStr = record.signedDate ?? null; break;
+      case 'On Hold':       entryDateStr = record.onHoldDate ?? null; break;
+      case 'Closed Lost':   entryDateStr = record.closedDate ?? null; break;
+      case 'Joined':        entryDateStr = record.joinedDate ?? null; break;
+    }
+  } else if (tofStage) {
+    // Lead-only record: use TOF_Stage
+    switch (tofStage) {
+      case 'Contacted': entryDateStr = record.contactedDate ?? null; break;
+      case 'MQL':       entryDateStr = record.mqlDate ?? null; break;
+      case 'SQL':       entryDateStr = record.sqlDate ?? null; break;
+      case 'SQO':       entryDateStr = record.sqoDate ?? null; break;
+      case 'Joined':    entryDateStr = record.joinedDate ?? null; break;
+      // 'Prospect' and 'Closed' have no meaningful entry date
+    }
+  }
+
+  if (!entryDateStr) return null;
+
+  // Parse the date — handle both "YYYY-MM-DD" and "YYYY-MM-DDTHH:mm:ss" formats
+  const entryDate = new Date(entryDateStr);
+  if (isNaN(entryDate.getTime())) return null;
+
+  const today = new Date();
+  // Zero out the time portion for accurate day diff
+  today.setHours(0, 0, 0, 0);
+  const entryDay = new Date(entryDate.getFullYear(), entryDate.getMonth(), entryDate.getDate());
+
+  const diffMs = today.getTime() - entryDay.getTime();
+  return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+}
+
+/**
  * Converts a SqlDateRange filter state into start/end date strings for API calls.
  * Returns null for "All Time" (no date filtering).
  */

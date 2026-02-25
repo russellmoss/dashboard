@@ -122,6 +122,9 @@ export function MetricDrillDownModal({
         'Lead Score': record.leadScoreTier || '',
         'Stage': record.tofStage,
         'Salesforce URL': record.leadUrl || record.opportunityUrl || '',
+        'Lead Next Steps': record.nextSteps || '',
+        'Opportunity Next Step': record.opportunityNextStep || '',
+        'Days in Current Stage': record.daysInCurrentStage ?? '',
       }));
     } else if (metricType === 'qualification-calls') {
       return (records as QualificationCallRecord[]).map(record => ({
@@ -132,6 +135,9 @@ export function MetricDrillDownModal({
         'AUM': record.aumFormatted,
         'Stage': record.tofStage,
         'Salesforce URL': record.leadUrl || record.opportunityUrl || '',
+        'Lead Next Steps': record.nextSteps || '',
+        'Opportunity Next Step': record.opportunityNextStep || '',
+        'Days in Current Stage': record.daysInCurrentStage ?? '',
       }));
     } else {
       return (records as SQODrillDownRecord[]).map(record => {
@@ -144,6 +150,9 @@ export function MetricDrillDownModal({
           'Tier': record.aumTier || '',
           'Stage': record.stageName || record.tofStage,
           'Salesforce URL': record.opportunityUrl || record.leadUrl || '',
+          'Lead Next Steps': record.nextSteps || '',
+          'Opportunity Next Step': record.opportunityNextStep || '',
+          'Days in Current Stage': record.daysInCurrentStage ?? '',
         };
         // Include SGA Name if available (for team-level drill-downs)
         if (record.sgaName) {

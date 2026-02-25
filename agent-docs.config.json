@@ -1,6 +1,6 @@
 {
   "$schema": "./agent-docs.schema.json",
-  "projectName": "Savvy Funnel Analytics Dashboard",
+  "projectName": "Dashboard",
   "techStack": {
     "framework": "Next.js 14 (App Router)",
     "language": "TypeScript"
@@ -9,23 +9,27 @@
   "generatedDir": "docs/_generated/",
   "architectureFile": "docs/ARCHITECTURE.md",
   "agentConfigFile": ".cursorrules",
-  "additionalAgentConfigs": [],
+  "additionalAgentConfigs": [
+    "CLAUDE.md"
+  ],
   "autoFix": {
     "generators": true,
     "narrative": {
       "enabled": true,
-      "engine": "claude-code",
-      "review": true,
+      "engine": "api",
+      "review": false,
       "narrativeTriggers": [
         "api-routes",
         "prisma",
-        "env",
-        "auth",
-        "permissions"
+        "env"
       ],
       "additionalNarrativeTargets": [
         "README.md"
-      ]
+      ],
+      "model": "claude-sonnet-4-20250514",
+      "apiKeyEnv": "ANTHROPIC_API_KEY",
+      "maxTokens": 32000,
+      "timeout": 300000
     }
   },
   "scanPaths": {
@@ -42,7 +46,7 @@
       "emoji": "🗄️",
       "filePattern": "prisma/schema.prisma",
       "patternType": "exact",
-      "docTarget": "Section 2 (Data Layer / Database Models)",
+      "docTarget": "Database Models section",
       "genCommand": "npm run gen:models"
     },
     {
@@ -51,44 +55,8 @@
       "emoji": "🔑",
       "filePattern": ".env.example",
       "patternType": "exact",
-      "docTarget": "Section 10 (Deployment & Operations / env vars)",
+      "docTarget": "Environment Variables section",
       "genCommand": "npm run gen:env"
-    },
-    {
-      "id": "permissions",
-      "name": "Permissions / Roles",
-      "emoji": "🔐",
-      "filePattern": "src/lib/permissions.ts",
-      "patternType": "exact",
-      "docTarget": "Section 5 (Authentication & Permissions / Role Hierarchy)",
-      "genCommand": null
-    },
-    {
-      "id": "config",
-      "name": "Config Constants",
-      "emoji": "⚙️",
-      "filePattern": "src/config/constants.ts",
-      "patternType": "exact",
-      "docTarget": "Relevant section referencing these constants",
-      "genCommand": null
-    },
-    {
-      "id": "semantic-layer",
-      "name": "Semantic Layer",
-      "emoji": "🧠",
-      "filePattern": "src/lib/semantic-layer/",
-      "patternType": "startsWith",
-      "docTarget": "Section 9 (Self-Serve Analytics / Semantic Layer)",
-      "genCommand": null
-    },
-    {
-      "id": "auth",
-      "name": "Auth Logic",
-      "emoji": "🔒",
-      "filePattern": "src/app/api/auth/",
-      "patternType": "startsWith",
-      "docTarget": "Section 5 (Authentication)",
-      "genCommand": "npm run gen:api-routes"
     },
     {
       "id": "api-routes",
@@ -96,7 +64,7 @@
       "emoji": "📡",
       "filePattern": "^src/app/api/.+/route\\.ts$",
       "patternType": "regex",
-      "docTarget": "Relevant feature section in docs/ARCHITECTURE.md",
+      "docTarget": "API Routes section",
       "genCommand": "npm run gen:api-routes"
     },
     {
@@ -105,16 +73,16 @@
       "emoji": "📄",
       "filePattern": "^src/app/.+/page\\.tsx$",
       "patternType": "regex",
-      "docTarget": "Section 5 (Page Access Control)",
+      "docTarget": "Page Routes section",
       "genCommand": null
     }
   ],
   "baselines": {
     "largeFileThreshold": 500,
-    "largeFileCount": 26,
-    "todoCount": 4,
-    "highVulnCount": 8,
-    "deadExportCount": 91
+    "largeFileCount": null,
+    "todoCount": null,
+    "highVulnCount": null,
+    "deadExportCount": null
   },
   "workflows": {
     "docsAudit": {
@@ -122,17 +90,17 @@
       "triggerPaths": [
         "src/app/api/**",
         "src/app/*/page.tsx",
-        "src/app/dashboard/*/page.tsx",
-        "prisma/schema.prisma",
         ".env.example",
-        "src/lib/permissions.ts",
-        "src/lib/semantic-layer/**",
-        "src/config/constants.ts",
-        "src/app/api/auth/**"
+        "prisma/schema.prisma"
       ]
     },
     "refactorAudit": {
-      "enabled": false
+      "enabled": true,
+      "schedule": "0 8 * * 0",
+      "labels": [
+        "refactoring",
+        "automated-audit"
+      ]
     }
   },
   "integrations": {
@@ -155,68 +123,8 @@
       "category": "Auth (NextAuth)"
     },
     {
-      "prefix": "GOOGLE_CLIENT_",
-      "category": "Auth (Google OAuth)"
-    },
-    {
       "prefix": "DATABASE_",
       "category": "Database"
-    },
-    {
-      "prefix": "GCP_",
-      "category": "BigQuery / GCP"
-    },
-    {
-      "prefix": "GOOGLE_APPLICATION_",
-      "category": "BigQuery / GCP"
-    },
-    {
-      "prefix": "GOOGLE_SHEETS_",
-      "category": "Google Sheets Export"
-    },
-    {
-      "prefix": "GC_",
-      "category": "GC Hub (Google Sheets IDs)"
-    },
-    {
-      "prefix": "ANTHROPIC_",
-      "category": "AI (Anthropic)"
-    },
-    {
-      "prefix": "CRON_",
-      "category": "Cron Jobs"
-    },
-    {
-      "prefix": "SENDGRID_",
-      "category": "Email (SendGrid)"
-    },
-    {
-      "prefix": "EMAIL_",
-      "category": "Email (SendGrid)"
-    },
-    {
-      "prefix": "UPSTASH_",
-      "category": "Rate Limiting (Upstash)"
-    },
-    {
-      "prefix": "SENTRY_",
-      "category": "Error Monitoring (Sentry)"
-    },
-    {
-      "prefix": "NEXT_PUBLIC_SENTRY_",
-      "category": "Error Monitoring (Sentry)"
-    },
-    {
-      "prefix": "WRIKE_",
-      "category": "Wrike Integration"
-    },
-    {
-      "prefix": "METABASE_",
-      "category": "Metabase (Chart Builder)"
-    },
-    {
-      "prefix": "NEXT_PUBLIC_METABASE_",
-      "category": "Metabase (Chart Builder)"
     },
     {
       "prefix": "NEXT_PUBLIC_",

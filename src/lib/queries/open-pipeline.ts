@@ -1,6 +1,6 @@
 import { runQuery, buildQueryParams } from '../bigquery';
 import { DetailRecord, SgmConversionData } from '@/types/dashboard';
-import { formatCurrency } from '../utils/date-helpers';
+import { formatCurrency, calculateDaysInStage } from '../utils/date-helpers';
 import { RawDetailRecordResult, RawOpenPipelineResult, toNumber, toString } from '@/types/bigquery-raw';
 import { FULL_TABLE, OPEN_PIPELINE_STAGES, RECRUITING_RECORD_TYPE } from '@/config/constants';
 import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
@@ -64,7 +64,11 @@ const _getOpenPipelineRecords = async (
       v.Qualification_Call_Date__c as qualification_call_date,
       v.is_contacted,
       v.is_mql,
-      v.recordtypeid
+      v.recordtypeid,
+      v.Next_Steps__c as next_steps,
+      v.NextStep as opportunity_next_step,
+      v.TOF_Stage as tof_stage,
+      v.Opp_CreatedDate as opp_created_date
     FROM \`${FULL_TABLE}\` v
     ${whereClause}
     ORDER BY v.Opportunity_AUM DESC NULLS LAST
@@ -115,6 +119,7 @@ const _getOpenPipelineRecords = async (
       source: toString(r.source) || 'Unknown',
       channel: toString(r.channel) || 'Unknown',
       stage: toString(r.stage) || 'Unknown',
+      tofStage: toString(r.tof_stage) || 'Prospect',
       sga: r.sga ? toString(r.sga) : null,
       sgm: r.sgm ? toString(r.sgm) : null,
       campaignId: r.campaign_id ? toString(r.campaign_id) : null,
@@ -135,6 +140,8 @@ const _getOpenPipelineRecords = async (
       negotiatingDate: null,
       onHoldDate: null,
       closedDate: null,
+      oppCreatedDate: extractDate(r.opp_created_date),
+      daysInCurrentStage: null,
       initialCallScheduledDate: initialCallDate,
       qualificationCallDate: qualCallDate,
       isContacted: r.is_contacted === 1,
@@ -146,6 +153,8 @@ const _getOpenPipelineRecords = async (
       recordTypeId: r.recordtypeid ? toString(r.recordtypeid) : null,
       isPrimaryOppRecord: true, // Open pipeline records are already filtered to primary records
       opportunityId: null, // Not needed for open pipeline
+      nextSteps: r.next_steps ? toString(r.next_steps) : null,
+      opportunityNextStep: r.opportunity_next_step ? toString(r.opportunity_next_step) : null,
     };
   });
 };
@@ -326,15 +335,25 @@ const _getOpenPipelineRecordsByStage = async (
       v.Qualification_Call_Date__c as qualification_call_date,
       v.is_contacted,
       v.is_mql,
-      v.recordtypeid
+      v.recordtypeid,
+      v.Next_Steps__c as next_steps,
+      v.NextStep as opportunity_next_step,
+      v.TOF_Stage as tof_stage,
+      v.Opp_CreatedDate as opp_created_date,
+      v.Stage_Entered_Discovery__c as discovery_date,
+      v.Stage_Entered_Sales_Process__c as sales_process_date,
+      v.Stage_Entered_Negotiating__c as negotiating_date,
+      v.Stage_Entered_Signed__c as signed_date,
+      v.Stage_Entered_On_Hold__c as on_hold_date,
+      v.Stage_Entered_Closed__c as closed_date
     FROM \`${FULL_TABLE}\` v
     ${whereClause}
     ORDER BY v.Opportunity_AUM DESC NULLS LAST
     LIMIT 1000
   `;
-  
+
   const results = await runQuery<RawDetailRecordResult>(query, params);
-  
+
   return results.map(r => {
     // Helper function to extract date values (handles both DATE and TIMESTAMP types)
     const extractDate = (field: any): string | null => {
@@ -343,7 +362,7 @@ const _getOpenPipelineRecordsByStage = async (
       if (typeof field === 'object' && field.value) return field.value;
       return null;
     };
-    
+
     // Extract all date fields
     const filterDate = extractDate(r.filter_date) || '';
     const contactedDate = extractDate(r.contacted_date);
@@ -351,7 +370,14 @@ const _getOpenPipelineRecordsByStage = async (
     const sqlDate = extractDate(r.sql_date);
     const sqoDate = extractDate(r.sqo_date);
     const joinedDate = extractDate(r.joined_date);
-    
+    const oppCreatedDate = extractDate(r.opp_created_date);
+    const discoveryDate = extractDate(r.discovery_date);
+    const salesProcessDate = extractDate(r.sales_process_date);
+    const negotiatingDate = extractDate(r.negotiating_date);
+    const signedDate = extractDate(r.signed_date);
+    const onHoldDate = extractDate(r.on_hold_date);
+    const closedDate = extractDate(r.closed_date);
+
     // Extract Initial Call Scheduled Date (DATE field - direct string)
     let initialCallDate: string | null = null;
     if (r.initial_call_scheduled_date) {
@@ -361,7 +387,7 @@ const _getOpenPipelineRecordsByStage = async (
         initialCallDate = r.initial_call_scheduled_date.value;
       }
     }
-    
+
     // Extract Qualification Call Date (DATE field - direct string)
     let qualCallDate: string | null = null;
     if (r.qualification_call_date) {
@@ -371,13 +397,33 @@ const _getOpenPipelineRecordsByStage = async (
         qualCallDate = r.qualification_call_date.value;
       }
     }
-    
+
+    const stageForCalc = toString(r.stage) || 'Unknown';
+    const tofStageForCalc = toString(r.tof_stage) || 'Prospect';
+    const daysInCurrentStage = calculateDaysInStage({
+      stage: stageForCalc,
+      tofStage: tofStageForCalc,
+      oppCreatedDate,
+      discoveryDate,
+      salesProcessDate,
+      negotiatingDate,
+      signedDate,
+      onHoldDate,
+      closedDate,
+      joinedDate,
+      contactedDate,
+      mqlDate,
+      sqlDate,
+      sqoDate,
+    });
+
     return {
       id: toString(r.id),
       advisorName: toString(r.advisor_name) || 'Unknown',
       source: toString(r.source) || 'Unknown',
       channel: toString(r.channel) || 'Unknown',
-      stage: toString(r.stage) || 'Unknown',
+      stage: stageForCalc,
+      tofStage: tofStageForCalc,
       sga: r.sga ? toString(r.sga) : null,
       sgm: r.sgm ? toString(r.sgm) : null,
       campaignId: r.campaign_id ? toString(r.campaign_id) : null,
@@ -392,12 +438,14 @@ const _getOpenPipelineRecordsByStage = async (
       sqlDate,
       sqoDate,
       joinedDate,
-      signedDate: null,
-      discoveryDate: null,
-      salesProcessDate: null,
-      negotiatingDate: null,
-      onHoldDate: null,
-      closedDate: null,
+      signedDate,
+      discoveryDate,
+      salesProcessDate,
+      negotiatingDate,
+      onHoldDate,
+      closedDate,
+      oppCreatedDate,
+      daysInCurrentStage,
       initialCallScheduledDate: initialCallDate,
       qualificationCallDate: qualCallDate,
       isContacted: r.is_contacted === 1,
@@ -405,10 +453,12 @@ const _getOpenPipelineRecordsByStage = async (
       isSql: true,
       isSqo: true,
       isJoined: false,
-      isOpenPipeline: OPEN_PIPELINE_STAGES.includes(toString(r.stage)),
+      isOpenPipeline: OPEN_PIPELINE_STAGES.includes(stageForCalc),
       recordTypeId: r.recordtypeid ? toString(r.recordtypeid) : null,
       isPrimaryOppRecord: (r.is_primary_opp_record ?? 0) === 1,
       opportunityId: r.opportunity_id ? toString(r.opportunity_id) : null,
+      nextSteps: r.next_steps ? toString(r.next_steps) : null,
+      opportunityNextStep: r.opportunity_next_step ? toString(r.opportunity_next_step) : null,
     };
   });
 };
@@ -575,7 +625,17 @@ const _getOpenPipelineRecordsBySgm = async (
       v.is_contacted,
       v.is_mql,
       v.recordtypeid,
-      v.is_primary_opp_record
+      v.is_primary_opp_record,
+      v.Next_Steps__c as next_steps,
+      v.NextStep as opportunity_next_step,
+      v.TOF_Stage as tof_stage,
+      v.Opp_CreatedDate as opp_created_date,
+      v.Stage_Entered_Discovery__c as discovery_date,
+      v.Stage_Entered_Sales_Process__c as sales_process_date,
+      v.Stage_Entered_Negotiating__c as negotiating_date,
+      v.Stage_Entered_Signed__c as signed_date,
+      v.Stage_Entered_On_Hold__c as on_hold_date,
+      v.Stage_Entered_Closed__c as closed_date
     FROM \`${FULL_TABLE}\` v
     ${whereClause}
     ORDER BY v.Opportunity_AUM DESC NULLS LAST
@@ -599,6 +659,13 @@ const _getOpenPipelineRecordsBySgm = async (
     const sqlDate = extractDate(r.sql_date);
     const sqoDate = extractDate(r.sqo_date);
     const joinedDate = extractDate(r.joined_date);
+    const oppCreatedDate = extractDate(r.opp_created_date);
+    const discoveryDate = extractDate(r.discovery_date);
+    const salesProcessDate = extractDate(r.sales_process_date);
+    const negotiatingDate = extractDate(r.negotiating_date);
+    const signedDate = extractDate(r.signed_date);
+    const onHoldDate = extractDate(r.on_hold_date);
+    const closedDate = extractDate(r.closed_date);
 
     let initialCallDate: string | null = null;
     if (r.initial_call_scheduled_date) {
@@ -618,12 +685,32 @@ const _getOpenPipelineRecordsBySgm = async (
       }
     }
 
+    const stageForCalc = toString(r.stage) || 'Unknown';
+    const tofStageForCalc = toString(r.tof_stage) || 'Prospect';
+    const daysInCurrentStage = calculateDaysInStage({
+      stage: stageForCalc,
+      tofStage: tofStageForCalc,
+      oppCreatedDate,
+      discoveryDate,
+      salesProcessDate,
+      negotiatingDate,
+      signedDate,
+      onHoldDate,
+      closedDate,
+      joinedDate,
+      contactedDate,
+      mqlDate,
+      sqlDate,
+      sqoDate,
+    });
+
     return {
       id: toString(r.id),
       advisorName: toString(r.advisor_name) || 'Unknown',
       source: toString(r.source) || 'Unknown',
       channel: toString(r.channel) || 'Unknown',
-      stage: toString(r.stage) || 'Unknown',
+      stage: stageForCalc,
+      tofStage: tofStageForCalc,
       sga: r.sga ? toString(r.sga) : null,
       sgm: r.sgm ? toString(r.sgm) : null,
       campaignId: r.campaign_id ? toString(r.campaign_id) : null,
@@ -638,12 +725,14 @@ const _getOpenPipelineRecordsBySgm = async (
       sqlDate,
       sqoDate,
       joinedDate,
-      signedDate: null,
-      discoveryDate: null,
-      salesProcessDate: null,
-      negotiatingDate: null,
-      onHoldDate: null,
-      closedDate: null,
+      signedDate,
+      discoveryDate,
+      salesProcessDate,
+      negotiatingDate,
+      onHoldDate,
+      closedDate,
+      oppCreatedDate,
+      daysInCurrentStage,
       initialCallScheduledDate: initialCallDate,
       qualificationCallDate: qualCallDate,
       isContacted: r.is_contacted === 1,
@@ -651,10 +740,12 @@ const _getOpenPipelineRecordsBySgm = async (
       isSql: true,
       isSqo: true,
       isJoined: false,
-      isOpenPipeline: OPEN_PIPELINE_STAGES.includes(toString(r.stage)),
+      isOpenPipeline: OPEN_PIPELINE_STAGES.includes(stageForCalc),
       recordTypeId: r.recordtypeid ? toString(r.recordtypeid) : null,
       isPrimaryOppRecord: (r.is_primary_opp_record ?? 0) === 1,
       opportunityId: r.opportunity_id ? toString(r.opportunity_id) : null,
+      nextSteps: r.next_steps ? toString(r.next_steps) : null,
+      opportunityNextStep: r.opportunity_next_step ? toString(r.opportunity_next_step) : null,
     };
   });
 };
@@ -839,7 +930,17 @@ const _getSgmConversionDrilldownRecords = async (
       v.is_contacted,
       v.is_mql,
       v.recordtypeid,
-      v.is_primary_opp_record
+      v.is_primary_opp_record,
+      v.Next_Steps__c as next_steps,
+      v.NextStep as opportunity_next_step,
+      v.TOF_Stage as tof_stage,
+      v.Opp_CreatedDate as opp_created_date,
+      v.Stage_Entered_Discovery__c as discovery_date,
+      v.Stage_Entered_Sales_Process__c as sales_process_date,
+      v.Stage_Entered_Negotiating__c as negotiating_date,
+      v.Stage_Entered_Signed__c as signed_date,
+      v.Stage_Entered_On_Hold__c as on_hold_date,
+      v.Stage_Entered_Closed__c as closed_date
     FROM \`${FULL_TABLE}\` v
     INNER JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` u
       ON v.SGM_Owner_Name__c = u.Name
@@ -866,6 +967,13 @@ const _getSgmConversionDrilldownRecords = async (
     const sqlDate = extractDate(r.sql_date);
     const sqoDate = extractDate(r.sqo_date);
     const joinedDate = extractDate(r.joined_date);
+    const oppCreatedDate = extractDate(r.opp_created_date);
+    const discoveryDate = extractDate(r.discovery_date);
+    const salesProcessDate = extractDate(r.sales_process_date);
+    const negotiatingDate = extractDate(r.negotiating_date);
+    const signedDate = extractDate(r.signed_date);
+    const onHoldDate = extractDate(r.on_hold_date);
+    const closedDate = extractDate(r.closed_date);
 
     let initialCallDate: string | null = null;
     if (r.initial_call_scheduled_date) {
@@ -886,6 +994,23 @@ const _getSgmConversionDrilldownRecords = async (
     }
 
     const stage = toString(r.stage);
+    const tofStageForCalc = toString(r.tof_stage) || 'Prospect';
+    const daysInCurrentStage = calculateDaysInStage({
+      stage: stage || 'Unknown',
+      tofStage: tofStageForCalc,
+      oppCreatedDate,
+      discoveryDate,
+      salesProcessDate,
+      negotiatingDate,
+      signedDate,
+      onHoldDate,
+      closedDate,
+      joinedDate,
+      contactedDate,
+      mqlDate,
+      sqlDate,
+      sqoDate,
+    });
 
     return {
       id: toString(r.id),
@@ -893,6 +1018,7 @@ const _getSgmConversionDrilldownRecords = async (
       source: toString(r.source) || 'Unknown',
       channel: toString(r.channel) || 'Unknown',
       stage,
+      tofStage: tofStageForCalc,
       sga: r.sga ? toString(r.sga) : null,
       sgm: r.sgm ? toString(r.sgm) : null,
       campaignId: r.campaign_id ? toString(r.campaign_id) : null,
@@ -907,12 +1033,14 @@ const _getSgmConversionDrilldownRecords = async (
       sqlDate,
       sqoDate,
       joinedDate,
-      signedDate: null,
-      discoveryDate: null,
-      salesProcessDate: null,
-      negotiatingDate: null,
-      onHoldDate: null,
-      closedDate: null,
+      signedDate,
+      discoveryDate,
+      salesProcessDate,
+      negotiatingDate,
+      onHoldDate,
+      closedDate,
+      oppCreatedDate,
+      daysInCurrentStage,
       initialCallScheduledDate: initialCallDate,
       qualificationCallDate: qualCallDate,
       isContacted: r.is_contacted === 1,
@@ -924,6 +1052,8 @@ const _getSgmConversionDrilldownRecords = async (
       recordTypeId: r.recordtypeid ? toString(r.recordtypeid) : null,
       isPrimaryOppRecord: (r.is_primary_opp_record ?? 0) === 1,
       opportunityId: r.opportunity_id ? toString(r.opportunity_id) : null,
+      nextSteps: r.next_steps ? toString(r.next_steps) : null,
+      opportunityNextStep: r.opportunity_next_step ? toString(r.opportunity_next_step) : null,
     };
   });
 };

@@ -133,6 +133,7 @@ export interface DetailRecord {
   source: string;
   channel: string;
   stage: string;
+  tofStage: string;                      // TOF_Stage (always populated, lead-centric milestone)
   sga: string | null;
   sgm: string | null;
   campaignId: string | null;
@@ -153,6 +154,8 @@ export interface DetailRecord {
   negotiatingDate: string | null; // Stage_Entered_Negotiating__c
   onHoldDate: string | null; // Stage_Entered_On_Hold__c
   closedDate: string | null; // Stage_Entered_Closed__c
+  oppCreatedDate: string | null;         // Opp_CreatedDate (proxy for Qualifying stage entry)
+  daysInCurrentStage: number | null;     // Calculated: days since entering current stage
   initialCallScheduledDate: string | null;
   qualificationCallDate: string | null;
   isContacted: boolean;
@@ -167,6 +170,8 @@ export interface DetailRecord {
   prospectSourceType?: string | null;    // 'Lead' | 'Re-Engagement' (optional for backward compat with ExploreResults/open-pipeline)
   originRecruitingOppId?: string | null; // Previous_Recruiting_Opportunity_ID__c
   originOpportunityUrl?: string | null;  // URL to original closed-lost opp
+  nextSteps: string | null;              // Lead.Next_Steps__c
+  opportunityNextStep: string | null;    // Opportunity.NextStep
 }
 
 export interface ForecastData {
