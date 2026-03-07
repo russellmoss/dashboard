@@ -141,6 +141,7 @@ export interface AdminQuarterlyProgress {
   sgaBreakdown: Array<{
     sgaName: string;
     sqoCount: number;
+    openSqlCount: number;
     // Note: individual goal, progress%, pacing are calculated client-side
   }>;
 }

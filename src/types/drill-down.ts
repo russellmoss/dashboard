@@ -5,7 +5,7 @@
  */
 
 // Metric type for drill-down
-export type MetricType = 'initial-calls' | 'qualification-calls' | 'sqos';
+export type MetricType = 'initial-calls' | 'qualification-calls' | 'sqos' | 'open-sqls';
 
 // Base interface with common fields
 export interface DrillDownRecordBase {
@@ -48,8 +48,18 @@ export interface SQODrillDownRecord extends DrillDownRecordBase {
   stageName: string | null;
 }
 
+// Open SQL Drill-Down Record
+export interface OpenSQLDrillDownRecord extends DrillDownRecordBase {
+  sqlDate: string;
+  sgaName: string | null;
+  aum: number | null;
+  aumFormatted: string;
+  aumTier: string | null;
+  stageName: string | null;
+}
+
 // Union type for all drill-down records
-export type DrillDownRecord = InitialCallRecord | QualificationCallRecord | SQODrillDownRecord;
+export type DrillDownRecord = InitialCallRecord | QualificationCallRecord | SQODrillDownRecord | OpenSQLDrillDownRecord;
 
 // Props for MetricDrillDownModal
 export interface MetricDrillDownModalProps {
@@ -107,6 +117,27 @@ export interface RawQualificationCallRecord {
   mql_stage_entered_ts: { value: string } | string | null;
   converted_date_raw: string | { value: string } | null;
   Date_Became_SQO__c: { value: string } | string | null;
+  Opp_CreatedDate: { value: string } | string | null;
+  Stage_Entered_Discovery__c: { value: string } | string | null;
+  Stage_Entered_Sales_Process__c: { value: string } | string | null;
+  Stage_Entered_Negotiating__c: { value: string } | string | null;
+}
+
+export interface RawOpenSQLDrillDownRecord {
+  primary_key: string;
+  advisor_name: string;
+  converted_date_raw: string | { value: string } | null;
+  Original_source: string;
+  Channel_Grouping_Name: string | null;
+  SGA_Owner_Name__c: string | null;
+  Opportunity_AUM: number | null;
+  aum_tier: string | null;
+  TOF_Stage: string;
+  StageName: string | null;
+  lead_url: string | null;
+  opportunity_url: string | null;
+  Next_Steps__c: string | null;
+  NextStep: string | null;
   Opp_CreatedDate: { value: string } | string | null;
   Stage_Entered_Discovery__c: { value: string } | string | null;
   Stage_Entered_Sales_Process__c: { value: string } | string | null;

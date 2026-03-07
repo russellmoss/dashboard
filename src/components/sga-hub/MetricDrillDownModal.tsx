@@ -12,12 +12,13 @@ import {
   TableRow,
   TableCell,
 } from '@tremor/react';
-import { 
-  MetricDrillDownModalProps, 
+import {
+  MetricDrillDownModalProps,
   MetricType,
   InitialCallRecord,
   QualificationCallRecord,
   SQODrillDownRecord,
+  OpenSQLDrillDownRecord,
   DrillDownRecord
 } from '@/types/drill-down';
 import { formatDate } from '@/lib/utils/format-helpers';
@@ -34,6 +35,10 @@ function isQualificationCallRecord(record: DrillDownRecord): record is Qualifica
 
 function isSQODrillDownRecord(record: DrillDownRecord): record is SQODrillDownRecord {
   return 'sqoDate' in record;
+}
+
+function isOpenSQLDrillDownRecord(record: DrillDownRecord): record is OpenSQLDrillDownRecord {
+  return 'sqlDate' in record;
 }
 
 // Column configurations
@@ -59,6 +64,16 @@ const COLUMN_CONFIGS: Record<MetricType, { key: string; label: string; width?: s
   'sqos': [
     { key: 'advisorName', label: 'Advisor Name', width: 'w-44' },
     { key: 'sqoDate', label: 'SQO Date', width: 'w-28' },
+    { key: 'source', label: 'Source', width: 'w-28' },
+    { key: 'channel', label: 'Channel', width: 'w-28' },
+    { key: 'aumFormatted', label: 'AUM', width: 'w-28' },
+    { key: 'aumTier', label: 'Tier', width: 'w-20' },
+    { key: 'stageName', label: 'Stage', width: 'w-24' },
+    { key: 'actions', label: '', width: 'w-20' },
+  ],
+  'open-sqls': [
+    { key: 'advisorName', label: 'Advisor Name', width: 'w-44' },
+    { key: 'sqlDate', label: 'SQL Date', width: 'w-28' },
     { key: 'source', label: 'Source', width: 'w-28' },
     { key: 'channel', label: 'Channel', width: 'w-28' },
     { key: 'aumFormatted', label: 'AUM', width: 'w-28' },
@@ -139,6 +154,20 @@ export function MetricDrillDownModal({
         'Opportunity Next Step': record.opportunityNextStep || '',
         'Days in Current Stage': record.daysInCurrentStage ?? '',
       }));
+    } else if (metricType === 'open-sqls') {
+      return (records as OpenSQLDrillDownRecord[]).map(record => ({
+        'Advisor Name': record.advisorName,
+        'SQL Date': formatDate(record.sqlDate) || '',
+        'Source': record.source,
+        'Channel': record.channel,
+        'AUM': record.aumFormatted,
+        'Tier': record.aumTier || '',
+        'Stage': record.stageName || record.tofStage,
+        'Salesforce URL': record.opportunityUrl || record.leadUrl || '',
+        'Lead Next Steps': record.nextSteps || '',
+        'Opportunity Next Step': record.opportunityNextStep || '',
+        'Days in Current Stage': record.daysInCurrentStage ?? '',
+      }));
     } else {
       return (records as SQODrillDownRecord[]).map(record => {
         const baseExport = {
@@ -205,6 +234,9 @@ export function MetricDrillDownModal({
     }
     if (key === 'sqoDate' && isSQODrillDownRecord(record)) {
       return formatDate(record.sqoDate) || '-';
+    }
+    if (key === 'sqlDate' && isOpenSQLDrillDownRecord(record)) {
+      return formatDate(record.sqlDate) || '-';
     }
     if (key === 'sgaName' && isSQODrillDownRecord(record)) {
       return record.sgaName || '-';

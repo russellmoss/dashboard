@@ -10,6 +10,7 @@ import { getQuarterInfo } from '@/lib/utils/sga-hub-helpers';
 
 export interface SGABreakdownRow {
   sgaName: string;
+  openSqlCount: number;
   goal: number | null;
   sqoCount: number;
   progressPercent: number | null; // SQO Count / Goal * 100
@@ -24,6 +25,7 @@ interface SGABreakdownTableProps {
   breakdown: SGABreakdownRow[];
   isLoading?: boolean;
   onSQOClick?: (sgaName: string) => void; // Note: AdminQuarterlyProgressView wraps this to pass filters
+  onOpenSqlClick?: (sgaName: string) => void;
   // Filter props
   selectedSGAs?: string[];
   selectedPacingStatuses?: string[];
@@ -32,7 +34,7 @@ interface SGABreakdownTableProps {
   sgaOptions?: Array<{ value: string; label: string; isActive: boolean }>;
 }
 
-type SortColumn = 'sgaName' | 'goal' | 'sqoCount' | 'progressPercent' | 'pacingStatus' | 'pacingDiff' | null;
+type SortColumn = 'sgaName' | 'openSqlCount' | 'goal' | 'sqoCount' | 'progressPercent' | 'pacingStatus' | 'pacingDiff' | null;
 type SortDirection = 'asc' | 'desc';
 
 export function SGABreakdownTable({
@@ -41,6 +43,7 @@ export function SGABreakdownTable({
   breakdown,
   isLoading = false,
   onSQOClick,
+  onOpenSqlClick,
   selectedSGAs = [],
   selectedPacingStatuses = [],
 }: SGABreakdownTableProps) {
@@ -78,6 +81,9 @@ export function SGABreakdownTable({
           break;
         case 'goal':
           comparison = (a.goal || 0) - (b.goal || 0);
+          break;
+        case 'openSqlCount':
+          comparison = a.openSqlCount - b.openSqlCount;
           break;
         case 'sqoCount':
           comparison = a.sqoCount - b.sqoCount;
@@ -185,7 +191,8 @@ export function SGABreakdownTable({
           <TableHead>
             <TableRow className="bg-gray-50 dark:bg-gray-900">
               <SortableHeader column="sgaName">SGA Name</SortableHeader>
-              <SortableHeader column="goal" alignRight>Individual Goal</SortableHeader>
+              <SortableHeader column="openSqlCount" alignRight>Open SQLs</SortableHeader>
+              <SortableHeader column="goal" alignRight>Individual SQO Goal</SortableHeader>
               <SortableHeader column="sqoCount" alignRight>SQO Count</SortableHeader>
               <SortableHeader column="progressPercent" alignRight>Progress %</SortableHeader>
               <SortableHeader column="pacingStatus" alignCenter>Pacing Status</SortableHeader>
@@ -195,7 +202,7 @@ export function SGABreakdownTable({
           <TableBody>
             {sortedBreakdown.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-gray-500 dark:text-gray-400 py-12">
+                <TableCell colSpan={7} className="text-center text-gray-500 dark:text-gray-400 py-12">
                   No data available
                 </TableCell>
               </TableRow>
@@ -225,6 +232,20 @@ export function SGABreakdownTable({
                   >
                     <TableCell className="font-medium text-gray-900 dark:text-white">
                       {row.sgaName}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {onOpenSqlClick ? (
+                        <button
+                          onClick={() => onOpenSqlClick(row.sgaName)}
+                          className="font-semibold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
+                        >
+                          {row.openSqlCount}
+                        </button>
+                      ) : (
+                        <span className="font-semibold text-amber-600 dark:text-amber-400">
+                          {row.openSqlCount}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right text-gray-900 dark:text-white">
                       {row.goal ?? '-'}

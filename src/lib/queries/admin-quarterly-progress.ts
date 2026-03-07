@@ -15,6 +15,7 @@ import { prisma } from '@/lib/prisma';
 interface RawAdminProgressResult {
   sga_name: string;
   sqo_count: number | null;
+  open_sql_count: number | null;
 }
 
 /**
@@ -80,7 +81,7 @@ const _getAdminQuarterlyProgress = async (
         ${sgaWhereClause}
     ),
     SQOData AS (
-      SELECT 
+      SELECT
         COALESCE(COALESCE(sga_user.Name, v.Opp_SGA_Name__c), v.SGA_Owner_Name__c) as sga_name,
         v.primary_key
       FROM \`${FULL_TABLE}\` v
@@ -93,13 +94,31 @@ const _getAdminQuarterlyProgress = async (
         AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(CONCAT(@endDate, ' 23:59:59'))
         ${channelFilter}
         ${sourceFilter}
+    ),
+    OpenSQLData AS (
+      SELECT
+        v.SGA_Owner_Name__c as sga_name,
+        v.primary_key
+      FROM \`${FULL_TABLE}\` v
+      WHERE v.is_sql = 1
+        AND LOWER(COALESCE(v.SQO_raw, '')) != 'yes'
+        AND (v.StageName IS NULL OR v.StageName != 'Closed Lost')
+        AND v.recordtypeid = @recruitingRecordType
+        AND v.converted_date_raw IS NOT NULL
+        AND DATE(v.converted_date_raw) >= DATE(@startDate)
+        AND DATE(v.converted_date_raw) <= DATE(@endDate)
+        ${channelFilter}
+        ${sourceFilter}
     )
-    SELECT 
+    SELECT
       a.sga_name,
-      COALESCE(COUNT(DISTINCT s.primary_key), 0) as sqo_count
+      COALESCE(COUNT(DISTINCT s.primary_key), 0) as sqo_count,
+      COALESCE(COUNT(DISTINCT o.primary_key), 0) as open_sql_count
     FROM ActiveSGAs a
     LEFT JOIN SQOData s
       ON a.sga_name = s.sga_name
+    LEFT JOIN OpenSQLData o
+      ON a.sga_name = o.sga_name
     GROUP BY a.sga_name
     ORDER BY sqo_count DESC, a.sga_name ASC
   `;
@@ -130,6 +149,7 @@ const _getAdminQuarterlyProgress = async (
   const sgaBreakdown = results.map(row => ({
     sgaName: toString(row.sga_name),
     sqoCount: toNumber(row.sqo_count) || 0,
+    openSqlCount: toNumber(row.open_sql_count) || 0,
   }));
 
   // Fetch individual SGA goals and calculate aggregate

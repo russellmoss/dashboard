@@ -126,6 +126,7 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
       'initial-calls': 'Initial Calls',
       'qualification-calls': 'Qualification Calls',
       'sqos': 'SQOs',
+      'open-sqls': 'Open SQLs',
     };
 
     // Determine if this is a quarterly or weekly metric

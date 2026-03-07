@@ -389,6 +389,7 @@ export function SGAHubContent() {
       'initial-calls': 'Initial Calls',
       'qualification-calls': 'Qualification Calls',
       'sqos': 'SQOs',
+      'open-sqls': 'Open SQLs',
     };
     
     const title = `${metricLabels[metricType]} - Week of ${formatDate(weekStartDate)}`;
@@ -541,6 +542,41 @@ export function SGAHubContent() {
     } catch (error) {
       console.error('Error fetching SQO drill-down:', error);
       setDrillDownError('Failed to load SQO records. Please try again.');
+    } finally {
+      setDrillDownLoading(false);
+    }
+  };
+
+  const handleAdminQuarterlyOpenSqlClick = async (
+    sgaName: string,
+    filters: { year: number; quarter: number; channels: string[]; sources: string[] }
+  ) => {
+    setDrillDownLoading(true);
+    setDrillDownError(null);
+    setDrillDownMetricType('open-sqls');
+    setDrillDownOpen(true);
+
+    const title = `${sgaName} - Open SQLs - ${filters.year}-Q${filters.quarter}`;
+    setDrillDownTitle(title);
+
+    setDrillDownContext({
+      metricType: 'open-sqls',
+      title,
+      sgaName: sgaName,
+      quarter: `${filters.year}-Q${filters.quarter}`,
+    });
+
+    try {
+      const response = await dashboardApi.getOpenSQLDrillDown(
+        sgaName,
+        `${filters.year}-Q${filters.quarter}`,
+        filters.channels.length > 0 ? filters.channels : undefined,
+        filters.sources.length > 0 ? filters.sources : undefined
+      );
+      setDrillDownRecords(response.records);
+    } catch (error) {
+      console.error('Error fetching Open SQL drill-down:', error);
+      setDrillDownError('Failed to load Open SQL records. Please try again.');
     } finally {
       setDrillDownLoading(false);
     }
@@ -785,6 +821,7 @@ export function SGAHubContent() {
           <AdminQuarterlyProgressView
             onSQOClick={handleAdminQuarterlySQOClick}
             onTeamSQOClick={handleAdminTeamSQOClick}
+            onOpenSqlClick={handleAdminQuarterlyOpenSqlClick}
           />
         ) : (
           // SGA view: Show existing quarterly progress (UNCHANGED)

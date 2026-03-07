@@ -32,10 +32,11 @@ import {
   LeaderboardEntry,
   AdminQuarterlyProgress
 } from '@/types/sga-hub';
-import { 
-  InitialCallRecord, 
-  QualificationCallRecord, 
-  SQODrillDownRecord 
+import {
+  InitialCallRecord,
+  QualificationCallRecord,
+  SQODrillDownRecord,
+  OpenSQLDrillDownRecord
 } from '@/types/drill-down';
 import type { AgentRequest, AgentResponse, StreamChunk } from '@/types/agent';
 import {
@@ -687,6 +688,27 @@ export const dashboardApi = {
     
     return apiFetch<{ records: SQODrillDownRecord[] }>(
       `/api/sga-hub/drill-down/sqos?${params.toString()}`
+    );
+  },
+
+  getOpenSQLDrillDown: (
+    sgaName: string,
+    quarter: string,
+    channels?: string[],
+    sources?: string[]
+  ) => {
+    const params = new URLSearchParams({
+      sgaName,
+      quarter,
+    });
+    if (channels && channels.length > 0) {
+      channels.forEach(channel => params.append('channels', channel));
+    }
+    if (sources && sources.length > 0) {
+      sources.forEach(source => params.append('sources', source));
+    }
+    return apiFetch<{ records: OpenSQLDrillDownRecord[] }>(
+      `/api/sga-hub/drill-down/open-sqls?${params.toString()}`
     );
   },
 

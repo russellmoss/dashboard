@@ -2,13 +2,15 @@
 
 import { runQuery } from '@/lib/bigquery';
 import { FULL_TABLE, MAPPING_TABLE, RECRUITING_RECORD_TYPE } from '@/config/constants';
-import { 
-  InitialCallRecord, 
-  QualificationCallRecord, 
+import {
+  InitialCallRecord,
+  QualificationCallRecord,
   SQODrillDownRecord,
+  OpenSQLDrillDownRecord,
   RawInitialCallRecord,
   RawQualificationCallRecord,
-  RawSQODrillDownRecord
+  RawSQODrillDownRecord,
+  RawOpenSQLDrillDownRecord
 } from '@/types/drill-down';
 import { formatCurrency, calculateDaysInStage } from '@/lib/utils/date-helpers';
 import { toString, toNumber } from '@/types/bigquery-raw';
@@ -348,5 +350,119 @@ const _getSQODrillDown = async (
 export const getSQODrillDown = cachedQuery(
   _getSQODrillDown,
   'getSQODrillDown',
+  CACHE_TAGS.DASHBOARD
+);
+
+/**
+ * Transform raw Open SQL record to typed interface
+ */
+function transformOpenSQLDrillDownRecord(raw: RawOpenSQLDrillDownRecord): OpenSQLDrillDownRecord {
+  const aum = toNumber(raw.Opportunity_AUM);
+  const dateValue = extractDateValue(raw.converted_date_raw);
+  return {
+    primaryKey: toString(raw.primary_key),
+    advisorName: toString(raw.advisor_name) || 'Unknown',
+    sqlDate: dateValue ? dateValue.split('T')[0] : '',
+    source: toString(raw.Original_source) || 'Unknown',
+    channel: toString(raw.Channel_Grouping_Name) || 'Other',
+    sgaName: raw.SGA_Owner_Name__c ? toString(raw.SGA_Owner_Name__c) : null,
+    aum: aum,
+    aumFormatted: aum ? formatCurrency(aum) : '-',
+    aumTier: raw.aum_tier ? toString(raw.aum_tier) : null,
+    tofStage: toString(raw.TOF_Stage) || 'Unknown',
+    stageName: raw.StageName ? toString(raw.StageName) : null,
+    leadUrl: raw.lead_url ? toString(raw.lead_url) : null,
+    opportunityUrl: raw.opportunity_url ? toString(raw.opportunity_url) : null,
+    nextSteps: raw.Next_Steps__c ? toString(raw.Next_Steps__c) : null,
+    opportunityNextStep: raw.NextStep ? toString(raw.NextStep) : null,
+    daysInCurrentStage: calculateDaysInStage({
+      stage: raw.StageName ? toString(raw.StageName) : 'Unknown',
+      tofStage: toString(raw.TOF_Stage) || 'Unknown',
+      sqoDate: null,
+      oppCreatedDate: extractDateValue(raw.Opp_CreatedDate),
+      discoveryDate: extractDateValue(raw.Stage_Entered_Discovery__c),
+      salesProcessDate: extractDateValue(raw.Stage_Entered_Sales_Process__c),
+      negotiatingDate: extractDateValue(raw.Stage_Entered_Negotiating__c),
+    }),
+  };
+}
+
+/**
+ * Get Open SQL drill-down records for a specific SGA and date range
+ */
+const _getOpenSQLDrillDown = async (
+  sgaName: string,
+  startDate: string,
+  endDate: string,
+  options?: {
+    channels?: string[];
+    sources?: string[];
+  }
+): Promise<OpenSQLDrillDownRecord[]> => {
+  const { channels, sources } = options || {};
+
+  const channelFilter = channels && channels.length > 0
+    ? 'AND v.Channel_Grouping_Name IN UNNEST(@channels)'
+    : '';
+
+  const sourceFilter = sources && sources.length > 0
+    ? 'AND v.Original_source IN UNNEST(@sources)'
+    : '';
+
+  const query = `
+    SELECT
+      v.primary_key,
+      v.advisor_name,
+      v.converted_date_raw,
+      v.Original_source,
+      v.Channel_Grouping_Name,
+      v.SGA_Owner_Name__c,
+      v.Opportunity_AUM,
+      v.aum_tier,
+      v.TOF_Stage,
+      v.StageName,
+      v.lead_url,
+      v.opportunity_url,
+      v.Next_Steps__c,
+      v.NextStep,
+      v.Opp_CreatedDate,
+      v.Stage_Entered_Discovery__c,
+      v.Stage_Entered_Sales_Process__c,
+      v.Stage_Entered_Negotiating__c
+    FROM \`${FULL_TABLE}\` v
+    WHERE v.is_sql = 1
+      AND LOWER(COALESCE(v.SQO_raw, '')) != 'yes'
+      AND (v.StageName IS NULL OR v.StageName != 'Closed Lost')
+      AND v.recordtypeid = @recruitingRecordType
+      AND v.converted_date_raw IS NOT NULL
+      AND DATE(v.converted_date_raw) >= DATE(@startDate)
+      AND DATE(v.converted_date_raw) <= DATE(@endDate)
+      AND v.SGA_Owner_Name__c = @sgaName
+      ${channelFilter}
+      ${sourceFilter}
+    ORDER BY v.converted_date_raw DESC
+  `;
+
+  const params: Record<string, any> = {
+    startDate,
+    endDate,
+    recruitingRecordType: RECRUITING_RECORD_TYPE,
+    sgaName,
+  };
+
+  if (channels && channels.length > 0) {
+    params.channels = channels;
+  }
+  if (sources && sources.length > 0) {
+    params.sources = sources;
+  }
+
+  const results = await runQuery<RawOpenSQLDrillDownRecord>(query, params);
+  return results.map(transformOpenSQLDrillDownRecord);
+};
+
+export const getOpenSQLDrillDown = cachedQuery(
+  _getOpenSQLDrillDown,
+  'getOpenSQLDrillDown',
   CACHE_TAGS.DASHBOARD
 );

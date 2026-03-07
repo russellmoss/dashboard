@@ -16,11 +16,13 @@ import { AdminQuarterlyProgress } from '@/types/sga-hub';
 interface AdminQuarterlyProgressViewProps {
   onSQOClick?: (sgaName: string, filters: { year: number; quarter: number; channels: string[]; sources: string[] }) => void;
   onTeamSQOClick?: (filters: { year: number; quarter: number; channels: string[]; sources: string[] }) => void;
+  onOpenSqlClick?: (sgaName: string, filters: { year: number; quarter: number; channels: string[]; sources: string[] }) => void;
 }
 
 export function AdminQuarterlyProgressView({
   onSQOClick,
   onTeamSQOClick,
+  onOpenSqlClick,
 }: AdminQuarterlyProgressViewProps) {
   const currentQuarterInfo = getQuarterInfo(getCurrentQuarter());
   
@@ -209,6 +211,7 @@ export function AdminQuarterlyProgressView({
       
       return {
         sgaName: item.sgaName,
+        openSqlCount: item.openSqlCount,
         goal,
         sqoCount: item.sqoCount,
         progressPercent,
@@ -306,6 +309,7 @@ export function AdminQuarterlyProgressView({
         breakdown={sgaBreakdown}
         isLoading={loading}
         onSQOClick={onSQOClick ? (sgaName) => onSQOClick(sgaName, { year, quarter, channels: selectedChannels, sources: selectedSources }) : undefined}
+        onOpenSqlClick={onOpenSqlClick ? (sgaName) => onOpenSqlClick(sgaName, { year, quarter, channels: selectedChannels, sources: selectedSources }) : undefined}
         selectedSGAs={selectedSGAs}
         selectedPacingStatuses={selectedPacingStatuses}
         sgaOptions={sgaOptions}
