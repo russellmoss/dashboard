@@ -83,7 +83,7 @@ export function validateTemplateSelection(
 
   // Validate date range (not required for snapshot templates or period_comparison which uses separate period params)
   // generic_detail_list also supports optional dateRange (for "all time" queries)
-  const templatesWithoutDateRange = ['open_pipeline_list', 'pipeline_by_stage', 'generic_detail_list', 'mql_detail_list', 'sql_detail_list'];
+  const templatesWithoutDateRange = ['open_pipeline_list', 'pipeline_by_stage', 'generic_detail_list', 'mql_detail_list', 'sql_detail_list', 'closed_lost_list', 're_engagement_list'];
   if (selection.templateId === 'period_comparison') {
     // Period comparison requires currentPeriod and previousPeriod
     // These can be preset strings (e.g., 'this_quarter') or DateRangeParams objects (for custom ranges)
@@ -230,7 +230,7 @@ export function getMetricSql(metricName: string): string {
   if (metricName in VOLUME_METRICS) {
     const metric = VOLUME_METRICS[metricName as keyof typeof VOLUME_METRICS];
     sql = metric.sql;
-    isOppLevel = ['sqos', 'joined'].includes(metricName);
+    isOppLevel = ['sqos', 'joined', 'closed_lost'].includes(metricName);
   } else if (metricName in AUM_METRICS) {
     const metric = AUM_METRICS[metricName as keyof typeof AUM_METRICS];
     sql = metric.sql;
@@ -379,7 +379,8 @@ export function getDateRangeSql(
 export function getMetricDateField(metricName: string): string {
   if (metricName in VOLUME_METRICS) {
     const metric = VOLUME_METRICS[metricName as keyof typeof VOLUME_METRICS];
-    return metric.dateField;
+    // Snapshot metrics (like closed_lost) have dateField: null — use FilterDate as fallback
+    return metric.dateField || 'FilterDate';
   }
   if (metricName in AUM_METRICS) {
     const metric = AUM_METRICS[metricName as keyof typeof AUM_METRICS];
@@ -719,6 +720,18 @@ export function compileQuery(
     case 'opportunities_by_age':
       compiledQuery = compileOpportunitiesByAge(params);
       break;
+    case 'closed_lost_list':
+      compiledQuery = compileClosedLostList(params);
+      break;
+    case 're_engagement_list':
+      compiledQuery = compileReEngagementList(params);
+      break;
+    case 'weekly_actuals_by_sga':
+      compiledQuery = compileWeeklyActualsBySga(params);
+      break;
+    case 'sga_quarterly_progress':
+      compiledQuery = compileSgaQuarterlyProgress(params);
+      break;
     default:
       throw new Error(`Unsupported template: ${selection.templateId}`);
   }
@@ -988,20 +1001,37 @@ function compileMetricByDimension(
   const { metric, dimension, dateRange, filters, limit } = params;
   if (!metric) throw new Error('Metric is required');
   if (!dimension) throw new Error('Dimension is required');
-  if (!dateRange) throw new Error('Date range is required for metric_by_dimension template');
+
+  // Check if this is a snapshot metric (no date field) — dateRange not required
+  const isSnapshotMetric = (metric in VOLUME_METRICS && (VOLUME_METRICS[metric as keyof typeof VOLUME_METRICS] as any).dateField === null)
+    || (metric in AUM_METRICS && (AUM_METRICS[metric as keyof typeof AUM_METRICS] as any).dateField === null);
+
+  if (!dateRange && !isSnapshotMetric) {
+    throw new Error('Date range is required for metric_by_dimension template');
+  }
 
   let metricSql = getMetricSql(metric);
   const dimensionSql = getDimensionSql(dimension);
-  const dateRangeSql = getDateRangeSql(dateRange);
   const filterResult = buildDimensionFilterSql(filters || [], false);
   const filterSql = filterResult.sql;
   const limitSql = limit ? `LIMIT ${limit}` : '';
 
-  // Replace @startDate and @endDate placeholders in metric SQL
-  const isPreset = dateRange.preset && dateRange.preset !== 'custom';
-  if (isPreset) {
-    metricSql = metricSql.replace(/@startDate/g, dateRangeSql.startSql);
-    metricSql = metricSql.replace(/@endDate/g, dateRangeSql.endSql);
+  const queryParams: Record<string, unknown> = {
+    recruitingRecordType: CONSTANTS.RECRUITING_RECORD_TYPE,
+  };
+
+  // Replace @startDate and @endDate placeholders in metric SQL (if dateRange provided)
+  if (dateRange) {
+    const dateRangeSql = getDateRangeSql(dateRange);
+    const isPreset = dateRange.preset && dateRange.preset !== 'custom';
+    if (isPreset) {
+      metricSql = metricSql.replace(/@startDate/g, dateRangeSql.startSql);
+      metricSql = metricSql.replace(/@endDate/g, dateRangeSql.endSql);
+    }
+    if (!isPreset) {
+      queryParams.startDate = dateRangeSql.startDate;
+      queryParams.endDate = dateRangeSql.endDate;
+    }
   }
 
   const sql = `
@@ -1017,14 +1047,7 @@ ORDER BY metric_value DESC
 ${limitSql}
   `.trim();
 
-  const queryParams: Record<string, unknown> = {
-    recruitingRecordType: CONSTANTS.RECRUITING_RECORD_TYPE,
-  };
-  
-  if (!isPreset) {
-    queryParams.startDate = dateRangeSql.startDate;
-    queryParams.endDate = dateRangeSql.endDate;
-  }
+  const today = new Date().toISOString().split('T')[0];
 
   return {
     sql,
@@ -1034,9 +1057,12 @@ ${limitSql}
     metadata: {
       metric,
       dimension,
-      dateRange: {
-        start: dateRangeSql.startDate,
-        end: dateRangeSql.endDate,
+      dateRange: dateRange ? {
+        start: getDateRangeSql(dateRange).startDate,
+        end: getDateRangeSql(dateRange).endDate,
+      } : {
+        start: today,
+        end: today,
       },
     },
   };
@@ -2626,6 +2652,264 @@ function compileGenericDetailList(params: TemplateSelection['parameters']): Comp
 function compileOpportunitiesByAge(params: TemplateSelection['parameters']): CompiledQuery {
   // TODO: Implement following pattern from opportunities_by_age template
   throw new Error('Not yet implemented: opportunities_by_age');
+}
+
+// =============================================================================
+// CLOSED LOST LIST COMPILER
+// =============================================================================
+
+function compileClosedLostList(params: TemplateSelection['parameters']): CompiledQuery {
+  const { filters } = params;
+  const filterResult = buildDimensionFilterSql(filters || [], true); // opportunity-level
+  const filterSql = filterResult.sql;
+
+  const sql = `
+    SELECT
+      v.advisor_name,
+      v.SGA_Owner_Name__c as sga,
+      v.SGM_Owner_Name__c as sgm,
+      v.StageName as stage,
+      FORMAT_TIMESTAMP('%Y-%m-%d', v.Date_Became_SQO__c) as sqo_date,
+      v.Closed_Lost_Reason__c as closed_lost_reason,
+      COALESCE(v.Underwritten_AUM__c, v.Amount) as aum,
+      v.aum_tier,
+      v.Original_source as source,
+      IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
+      v.salesforce_url
+    FROM \`${CONSTANTS.FULL_TABLE}\` v
+    WHERE v.StageName = 'Closed Lost'
+      AND v.recordtypeid = @recruitingRecordType
+      AND v.is_sqo_unique = 1
+      ${filterSql}
+    ORDER BY COALESCE(v.Underwritten_AUM__c, v.Amount) DESC NULLS LAST
+  `.trim();
+
+  return {
+    sql,
+    params: {
+      recruitingRecordType: CONSTANTS.RECRUITING_RECORD_TYPE,
+    },
+    templateId: 'closed_lost_list',
+    visualization: 'table',
+    metadata: {
+      dateRange: {
+        start: new Date().toISOString().split('T')[0],
+        end: new Date().toISOString().split('T')[0],
+      },
+    },
+  };
+}
+
+// =============================================================================
+// RE-ENGAGEMENT LIST COMPILER
+// =============================================================================
+
+function compileReEngagementList(params: TemplateSelection['parameters']): CompiledQuery {
+  const { filters } = params;
+  const filterResult = buildDimensionFilterSql(filters || [], true); // opportunity-level
+  const filterSql = filterResult.sql;
+
+  const sql = `
+    SELECT
+      v.advisor_name,
+      v.SGA_Owner_Name__c as sga,
+      v.SGM_Owner_Name__c as sgm,
+      v.StageName as stage,
+      FORMAT_TIMESTAMP('%Y-%m-%d', v.Opp_CreatedDate) as created_date,
+      COALESCE(v.Underwritten_AUM__c, v.Amount) as aum,
+      v.aum_tier,
+      v.salesforce_url
+    FROM \`${CONSTANTS.FULL_TABLE}\` v
+    WHERE v.record_type_name = 'Re-Engagement'
+      AND v.StageName NOT IN ('Closed Lost', 'Joined')
+      AND v.is_primary_opp_record = 1
+      ${filterSql}
+    ORDER BY COALESCE(v.Underwritten_AUM__c, v.Amount) DESC NULLS LAST
+  `.trim();
+
+  return {
+    sql,
+    params: {},
+    templateId: 're_engagement_list',
+    visualization: 'table',
+    metadata: {
+      dateRange: {
+        start: new Date().toISOString().split('T')[0],
+        end: new Date().toISOString().split('T')[0],
+      },
+    },
+  };
+}
+
+// =============================================================================
+// WEEKLY ACTUALS BY SGA COMPILER
+// =============================================================================
+
+function compileWeeklyActualsBySga(params: TemplateSelection['parameters']): CompiledQuery {
+  const { dateRange, filters } = params;
+
+  if (!dateRange) {
+    throw new Error('Date range is required for weekly_actuals_by_sga template');
+  }
+
+  const dateRangeSql = getDateRangeSql(dateRange);
+  const isPreset = dateRange.preset && dateRange.preset !== 'custom';
+  const startDateExpr = isPreset ? dateRangeSql.startSql : '@startDate';
+  const endDateExpr = isPreset ? dateRangeSql.endSql : '@endDate';
+
+  // Build SGA filter from filters array
+  let sgaFilterLead = '';
+  let sgaFilterOpp = '';
+  if (filters) {
+    const sgaFilter = filters.find((f: DimensionFilter) => f.dimension === 'sga');
+    if (sgaFilter) {
+      sgaFilterLead = SGA_FILTER_PATTERNS.lead.withFilter;
+      sgaFilterOpp = SGA_FILTER_PATTERNS.opportunity.withFilter;
+    }
+  }
+
+  const queryParams: Record<string, unknown> = {
+    recruitingRecordType: CONSTANTS.RECRUITING_RECORD_TYPE,
+  };
+  if (!isPreset) {
+    queryParams.startDate = dateRangeSql.startDate;
+    queryParams.endDate = dateRangeSql.endDate;
+  }
+  if (filters) {
+    const sgaFilter = filters.find((f: DimensionFilter) => f.dimension === 'sga');
+    if (sgaFilter) {
+      queryParams.sga = sgaFilter.value;
+    }
+  }
+
+  const sql = `
+    WITH weeks AS (
+      SELECT week_start
+      FROM UNNEST(GENERATE_DATE_ARRAY(
+        DATE_TRUNC(DATE(${startDateExpr}), WEEK(MONDAY)),
+        DATE_TRUNC(DATE(${endDateExpr}), WEEK(MONDAY)),
+        INTERVAL 1 WEEK
+      )) as week_start
+    ),
+    ic AS (
+      SELECT DATE_TRUNC(v.Initial_Call_Scheduled_Date__c, WEEK(MONDAY)) as week_start,
+        COUNT(DISTINCT v.primary_key) as count
+      FROM \`${CONSTANTS.FULL_TABLE}\` v
+      WHERE v.Initial_Call_Scheduled_Date__c >= DATE(${startDateExpr})
+        AND v.Initial_Call_Scheduled_Date__c <= DATE(${endDateExpr})
+        ${sgaFilterLead}
+      GROUP BY 1
+    ),
+    qc AS (
+      SELECT DATE_TRUNC(v.Qualification_Call_Date__c, WEEK(MONDAY)) as week_start,
+        COUNT(DISTINCT v.Full_Opportunity_ID__c) as count
+      FROM \`${CONSTANTS.FULL_TABLE}\` v
+      WHERE v.Qualification_Call_Date__c >= DATE(${startDateExpr})
+        AND v.Qualification_Call_Date__c <= DATE(${endDateExpr})
+        ${sgaFilterLead}
+      GROUP BY 1
+    ),
+    sq AS (
+      SELECT DATE(DATE_TRUNC(v.Date_Became_SQO__c, WEEK(MONDAY))) as week_start,
+        COUNT(*) as count
+      FROM \`${CONSTANTS.FULL_TABLE}\` v
+      WHERE v.is_sqo_unique = 1
+        AND v.recordtypeid = @recruitingRecordType
+        AND v.Date_Became_SQO__c >= TIMESTAMP(${startDateExpr})
+        AND v.Date_Became_SQO__c <= TIMESTAMP(CONCAT(CAST(${endDateExpr} AS STRING), ' 23:59:59'))
+        ${sgaFilterOpp}
+      GROUP BY 1
+    )
+    SELECT w.week_start,
+      COALESCE(ic.count, 0) as initial_calls,
+      COALESCE(qc.count, 0) as qualification_calls,
+      COALESCE(sq.count, 0) as sqos
+    FROM weeks w
+    LEFT JOIN ic ON w.week_start = ic.week_start
+    LEFT JOIN qc ON w.week_start = qc.week_start
+    LEFT JOIN sq ON w.week_start = sq.week_start
+    ORDER BY w.week_start DESC
+  `.trim();
+
+  return {
+    sql,
+    params: queryParams,
+    templateId: 'weekly_actuals_by_sga',
+    visualization: 'table',
+    metadata: {
+      dateRange: {
+        start: dateRangeSql.startDate || new Date().toISOString().split('T')[0],
+        end: dateRangeSql.endDate || new Date().toISOString().split('T')[0],
+      },
+    },
+  };
+}
+
+// =============================================================================
+// SGA QUARTERLY PROGRESS COMPILER
+// =============================================================================
+
+function compileSgaQuarterlyProgress(params: TemplateSelection['parameters']): CompiledQuery {
+  const { dateRange, filters } = params;
+
+  if (!dateRange) {
+    throw new Error('Date range is required for sga_quarterly_progress template');
+  }
+
+  const dateRangeSql = getDateRangeSql(dateRange);
+  const isPreset = dateRange.preset && dateRange.preset !== 'custom';
+  const startDateExpr = isPreset ? dateRangeSql.startSql : '@startDate';
+  const endDateExpr = isPreset ? dateRangeSql.endSql : '@endDate';
+
+  // Build SGA filter from filters array
+  let sgaFilterOpp = '';
+  const queryParams: Record<string, unknown> = {
+    recruitingRecordType: CONSTANTS.RECRUITING_RECORD_TYPE,
+  };
+  if (!isPreset) {
+    queryParams.startDate = dateRangeSql.startDate;
+    queryParams.endDate = dateRangeSql.endDate;
+  }
+  if (filters) {
+    const sgaFilter = filters.find((f: DimensionFilter) => f.dimension === 'sga');
+    if (sgaFilter) {
+      sgaFilterOpp = SGA_FILTER_PATTERNS.opportunity.withFilter;
+      queryParams.sga = sgaFilter.value;
+    }
+  }
+
+  const sql = `
+    SELECT
+      CONCAT(
+        CAST(EXTRACT(YEAR FROM v.Date_Became_SQO__c) AS STRING),
+        '-Q',
+        CAST(EXTRACT(QUARTER FROM v.Date_Became_SQO__c) AS STRING)
+      ) as quarter,
+      COUNT(*) as sqo_count,
+      SUM(v.Opportunity_AUM) as total_aum
+    FROM \`${CONSTANTS.FULL_TABLE}\` v
+    WHERE v.is_sqo_unique = 1
+      AND v.recordtypeid = @recruitingRecordType
+      AND v.Date_Became_SQO__c IS NOT NULL
+      AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(${startDateExpr})
+      AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(CONCAT(CAST(${endDateExpr} AS STRING), ' 23:59:59'))
+      ${sgaFilterOpp}
+    GROUP BY quarter
+    ORDER BY quarter DESC
+  `.trim();
+
+  return {
+    sql,
+    params: queryParams,
+    templateId: 'sga_quarterly_progress',
+    visualization: 'table',
+    metadata: {
+      dateRange: {
+        start: dateRangeSql.startDate || new Date().toISOString().split('T')[0],
+        end: dateRangeSql.endDate || new Date().toISOString().split('T')[0],
+      },
+    },
+  };
 }
 
 // =============================================================================

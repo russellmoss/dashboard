@@ -67,6 +67,13 @@ Use `/new-feature` skill to spawn parallel agent team (code-inspector,
 data-verifier, pattern-finder). Each saves findings to project root.
 Lead synthesizes into exploration-results.md.
 
+### Semantic Layer Maintenance
+Use `/audit-semantic-layer` skill after adding new dashboard features
+or periodically. Spawns 3 agents (gap-finder, schema-author,
+data-validator) to find missing Explore AI coverage, draft additive
+updates, and verify against live BigQuery. Produces audit report for
+human review before applying changes.
+
 ### Guide Building Phase
 Use `/build-guide` skill to create agentic_implementation_guide.md from
 exploration results + actual source code inspection.

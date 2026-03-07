@@ -1093,7 +1093,7 @@ export const QUERY_TEMPLATES = {
     ],
     
     note: 'No default age thresholds - users define thresholds via ageThreshold parameter. Supports filtering by stage, AUM tier, SGA, SGM, Channel, Source. Supports grouping by dimensions. Age can be calculated from creation date or most recent stage entry date.',
-    
+
     implementationNotes: {
       ageCalculationFromCreation: 'When ageMethod=from_creation: DATE_DIFF(CURRENT_DATE(), DATE(Opp_CreatedDate), DAY) as age_in_days',
       ageCalculationFromStageEntry: 'When ageMethod=from_stage_entry: DATE_DIFF(CURRENT_DATE(), DATE(GREATEST(Stage_Entered_Discovery__c, Stage_Entered_Sales_Process__c, Stage_Entered_Negotiating__c, Stage_Entered_On_Hold__c, Stage_Entered_Signed__c)), DAY) as age_in_days',
@@ -1102,6 +1102,206 @@ export const QUERY_TEMPLATES = {
       stageFilterSpecific: 'When stageFilter is specific stage: Use StageName = @stageFilter',
       dateFieldHandling: 'Opp_CreatedDate is TIMESTAMP - use DATE() casting. Stage entry dates are TIMESTAMP - use DATE() casting.',
     },
+  },
+
+  // ===========================================================================
+  // CLOSED LOST LIST - Closed-lost SQOs with reason and AUM
+  // ===========================================================================
+  closed_lost_list: {
+    id: 'closed_lost_list',
+    description: 'List closed-lost SQOs with AUM and reason',
+
+    template: `
+      SELECT
+        v.advisor_name,
+        v.SGA_Owner_Name__c as sga,
+        v.SGM_Owner_Name__c as sgm,
+        v.StageName as stage,
+        v.Date_Became_SQO__c as sqo_date,
+        v.Closed_Lost_Reason__c as closed_lost_reason,
+        COALESCE(v.Underwritten_AUM__c, v.Amount) as aum,
+        v.aum_tier,
+        v.Original_source as source,
+        IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
+        v.salesforce_url
+      FROM \`${FULL_TABLE}\` v
+      WHERE v.StageName = 'Closed Lost'
+        AND v.recordtypeid = @recruitingRecordType
+        AND v.is_sqo_unique = 1
+        {dimensionFilters}
+      ORDER BY COALESCE(v.Underwritten_AUM__c, v.Amount) DESC NULLS LAST
+    `,
+
+    parameters: {
+      recruitingRecordType: { type: 'constant', value: RECRUITING_RECORD_TYPE },
+      dimensionFilters: { type: 'filter[]', required: false },
+    },
+
+    visualization: 'table',
+
+    exampleQuestions: [
+      'Show me closed lost opportunities',
+      'List closed lost deals for John Doe',
+      'Which closed lost opportunities have the highest AUM?',
+      'Why did we lose deals this quarter?',
+    ],
+  },
+
+  // ===========================================================================
+  // RE-ENGAGEMENT LIST - Open re-engagement opportunities
+  // ===========================================================================
+  re_engagement_list: {
+    id: 're_engagement_list',
+    description: 'List open re-engagement opportunities (returning advisors)',
+
+    template: `
+      SELECT
+        v.advisor_name,
+        v.SGA_Owner_Name__c as sga,
+        v.SGM_Owner_Name__c as sgm,
+        v.StageName as stage,
+        v.Opp_CreatedDate as created_date,
+        COALESCE(v.Underwritten_AUM__c, v.Amount) as aum,
+        v.aum_tier,
+        v.salesforce_url
+      FROM \`${FULL_TABLE}\` v
+      WHERE v.record_type_name = 'Re-Engagement'
+        AND v.StageName NOT IN ('Closed Lost', 'Joined')
+        AND v.is_primary_opp_record = 1
+        {dimensionFilters}
+      ORDER BY COALESCE(v.Underwritten_AUM__c, v.Amount) DESC NULLS LAST
+    `,
+
+    parameters: {
+      dimensionFilters: { type: 'filter[]', required: false },
+    },
+
+    visualization: 'table',
+
+    exampleQuestions: [
+      'Show me the re-engagement pipeline',
+      'List open re-engagement opportunities',
+      'Re-engagement opps for John Doe',
+      'What re-engagement opportunities are in Discovery?',
+    ],
+  },
+
+  // ===========================================================================
+  // WEEKLY ACTUALS BY SGA - Initial calls, qual calls, SQOs by week
+  // ===========================================================================
+  weekly_actuals_by_sga: {
+    id: 'weekly_actuals_by_sga',
+    description: 'Weekly breakdown of initial calls, qualification calls, and SQOs',
+
+    template: `
+      WITH weeks AS (
+        SELECT week_start
+        FROM UNNEST(GENERATE_DATE_ARRAY(
+          DATE_TRUNC(DATE(@startDate), WEEK(MONDAY)),
+          DATE_TRUNC(DATE(@endDate), WEEK(MONDAY)),
+          INTERVAL 1 WEEK
+        )) as week_start
+      ),
+      ic AS (
+        SELECT DATE_TRUNC(v.Initial_Call_Scheduled_Date__c, WEEK(MONDAY)) as week_start,
+          COUNT(DISTINCT v.primary_key) as count
+        FROM \`${FULL_TABLE}\` v
+        WHERE v.Initial_Call_Scheduled_Date__c >= @startDate
+          AND v.Initial_Call_Scheduled_Date__c <= @endDate
+          {sgaFilterLead}
+        GROUP BY 1
+      ),
+      qc AS (
+        SELECT DATE_TRUNC(v.Qualification_Call_Date__c, WEEK(MONDAY)) as week_start,
+          COUNT(DISTINCT v.Full_Opportunity_ID__c) as count
+        FROM \`${FULL_TABLE}\` v
+        WHERE v.Qualification_Call_Date__c >= @startDate
+          AND v.Qualification_Call_Date__c <= @endDate
+          {sgaFilterLead}
+        GROUP BY 1
+      ),
+      sq AS (
+        SELECT DATE(DATE_TRUNC(v.Date_Became_SQO__c, WEEK(MONDAY))) as week_start,
+          COUNT(*) as count
+        FROM \`${FULL_TABLE}\` v
+        WHERE v.is_sqo_unique = 1
+          AND v.recordtypeid = @recruitingRecordType
+          AND v.Date_Became_SQO__c >= TIMESTAMP(@startDate)
+          AND v.Date_Became_SQO__c <= TIMESTAMP(CONCAT(@endDate, ' 23:59:59'))
+          {sgaFilterOpp}
+        GROUP BY 1
+      )
+      SELECT w.week_start,
+        COALESCE(ic.count, 0) as initial_calls,
+        COALESCE(qc.count, 0) as qualification_calls,
+        COALESCE(sq.count, 0) as sqos
+      FROM weeks w
+      LEFT JOIN ic ON w.week_start = ic.week_start
+      LEFT JOIN qc ON w.week_start = qc.week_start
+      LEFT JOIN sq ON w.week_start = sq.week_start
+      ORDER BY w.week_start DESC
+    `,
+
+    parameters: {
+      startDate: { type: 'date', required: true },
+      endDate: { type: 'date', required: true },
+      sga: { type: 'string', required: false },
+      recruitingRecordType: { type: 'constant', value: RECRUITING_RECORD_TYPE },
+      dimensionFilters: { type: 'filter[]', required: false },
+    },
+
+    visualization: 'table',
+
+    exampleQuestions: [
+      'Show weekly actuals for John Doe this quarter',
+      'How many initial calls each week this month?',
+      'Weekly SQO breakdown this quarter',
+    ],
+  },
+
+  // ===========================================================================
+  // SGA QUARTERLY PROGRESS - SQO count and AUM by quarter
+  // ===========================================================================
+  sga_quarterly_progress: {
+    id: 'sga_quarterly_progress',
+    description: 'Quarterly SQO count and total AUM for a specific SGA',
+
+    template: `
+      SELECT
+        CONCAT(
+          CAST(EXTRACT(YEAR FROM v.Date_Became_SQO__c) AS STRING),
+          '-Q',
+          CAST(EXTRACT(QUARTER FROM v.Date_Became_SQO__c) AS STRING)
+        ) as quarter,
+        COUNT(*) as sqo_count,
+        SUM(v.Opportunity_AUM) as total_aum
+      FROM \`${FULL_TABLE}\` v
+      WHERE v.is_sqo_unique = 1
+        AND v.recordtypeid = @recruitingRecordType
+        AND v.Date_Became_SQO__c IS NOT NULL
+        AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+        AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(CONCAT(@endDate, ' 23:59:59'))
+        {sgaFilterOpp}
+        {dimensionFilters}
+      GROUP BY quarter
+      ORDER BY quarter DESC
+    `,
+
+    parameters: {
+      startDate: { type: 'date', required: true },
+      endDate: { type: 'date', required: true },
+      sga: { type: 'string', required: false },
+      recruitingRecordType: { type: 'constant', value: RECRUITING_RECORD_TYPE },
+      dimensionFilters: { type: 'filter[]', required: false },
+    },
+
+    visualization: 'table',
+
+    exampleQuestions: [
+      "What's John Doe's quarterly SQO count?",
+      'Show SQO progress by quarter for the last 4 quarters',
+      'SQO history for Sarah Smith this year',
+    ],
   },
 } as const;
 
@@ -1279,7 +1479,53 @@ export const QUESTION_PATTERNS = {
       /what are/i,
       /details/i,
     ],
-    templateHint: 'sqo_detail_list or generic_detail_list or scheduled_calls_list or open_pipeline_list',
+    templateHint: 'sqo_detail_list or generic_detail_list or scheduled_calls_list or open_pipeline_list or closed_lost_list or re_engagement_list',
+  },
+
+  // Closed lost / loss reason questions
+  closed_lost: {
+    patterns: [
+      /closed lost/i,
+      /lost deal/i,
+      /why.*(los|lost)/i,
+      /loss reason/i,
+      /close reason/i,
+      /re-engagement candidate/i,
+    ],
+    templateHint: 'closed_lost_list or metric_by_dimension with closed_lost_reason',
+  },
+
+  // Re-engagement questions
+  re_engagement: {
+    patterns: [
+      /re-?engagement/i,
+      /returning advisor/i,
+      /re-?recruit/i,
+    ],
+    templateHint: 're_engagement_list',
+  },
+
+  // Weekly actuals / SGA activity questions
+  weekly_actuals: {
+    patterns: [
+      /weekly actual/i,
+      /weekly activity/i,
+      /weekly breakdown/i,
+      /calls.*week/i,
+      /activity.*cadence/i,
+    ],
+    templateHint: 'weekly_actuals_by_sga',
+  },
+
+  // SGA quarterly progress
+  sga_quarterly: {
+    patterns: [
+      /quarterly.*progress/i,
+      /quarterly.*sqo/i,
+      /sqo.*quarter/i,
+      /sqo.*history/i,
+    ],
+    templateHint: 'sga_quarterly_progress',
   },
   
   // AUM questions

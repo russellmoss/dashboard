@@ -119,6 +119,12 @@ export const DATE_FIELDS = {
     type: 'TIMESTAMP',
     usedFor: ['opportunities_by_age'],
   },
+  Stage_Entered_Closed__c: {
+    description: 'When opportunity entered Closed (Lost) stage',
+    type: 'TIMESTAMP',
+    usedFor: ['closed_lost', 'opportunities_by_age'],
+    note: 'Legacy data gap: 2023 = 3.6% populated, 2024 = 65.4%, 2025 = 74.5%, 2026 = 80.3%. Reliable for 2024+ records. Do not promise exact closed dates for pre-2024 records.',
+  },
 } as const;
 
 // =============================================================================
@@ -267,6 +273,23 @@ export const VOLUME_METRICS = {
     )`,
     visualization: 'metric',
     aliases: ['qual calls', 'discovery calls'],
+  },
+
+  closed_lost: {
+    name: 'Closed Lost',
+    description: 'Opportunities that are currently Closed Lost (snapshot count, no date filter)',
+    dateField: null, // No date filter - current state snapshot
+    sql: `SUM(
+      CASE
+        WHEN v.StageName = 'Closed Lost'
+          AND v.recordtypeid = @recruitingRecordType
+        THEN 1 ELSE 0
+      END
+    )`,
+    requiredParams: ['recruitingRecordType'],
+    visualization: 'metric',
+    aliases: ['closed lost', 'lost deals', 'lost opportunities'],
+    note: 'Current-state snapshot of all closed-lost records. Not date-filtered. Use with closed_lost_reason dimension for "why are we losing deals?" analysis.',
   },
 
   signed: {
@@ -662,6 +685,82 @@ export const DIMENSIONS = {
     groupable: true,
     aliases: ['agency', 'partner'],
   },
+
+  next_steps: {
+    name: 'Next Steps (Lead)',
+    description: 'Next steps text on the lead record (Next_Steps__c)',
+    field: 'v.Next_Steps__c',
+    rawField: 'Next_Steps__c',
+    requiresJoin: false,
+    filterable: true,
+    groupable: false,
+    aliases: ['lead next steps', 'follow-up notes'],
+    note: 'Free text field, max 255 chars. Use for filtering by keyword, not grouping.',
+  },
+
+  opp_next_step: {
+    name: 'Opportunity Next Step',
+    description: 'Next step text on the opportunity record',
+    field: 'v.NextStep',
+    rawField: 'NextStep',
+    requiresJoin: false,
+    filterable: true,
+    groupable: false,
+    aliases: ['opportunity next step', 'opp next step'],
+    note: 'Salesforce standard NextStep field on Opportunity. Free text, max 255 chars.',
+  },
+
+  conversion_status: {
+    name: 'Conversion Status',
+    description: 'Lead-level disposition status relative to the current funnel stage being viewed',
+    field: 'v.Conversion_Status',
+    rawField: 'Conversion_Status',
+    requiresJoin: false,
+    filterable: true,
+    groupable: true,
+    allowedValues: ['Open', 'Closed', 'Joined'],
+    aliases: ['lead status', 'prospect status', 'disposition'],
+    note: 'Context-dependent by funnel stage. For a given stage (e.g., MQL): Open = has not yet progressed or closed, Closed = closed lost, Joined = progressed to the next stage. Distribution: Closed = 85,046, Open = 22,254, Joined = 118.',
+  },
+
+  closed_lost_reason: {
+    name: 'Closed Lost Reason',
+    description: 'Reason the opportunity was closed lost',
+    field: 'v.Closed_Lost_Reason__c',
+    rawField: 'Closed_Lost_Reason__c',
+    requiresJoin: false,
+    filterable: true,
+    groupable: true,
+    allowedValues: [
+      'No Longer Responsive',
+      'No Show – Intro Call',
+      'Candidate Declined - Timing',
+      'Savvy Declined - No Book of Business',
+      'Savvy Declined - Insufficient Revenue',
+      'Savvy Declined – Book Not Transferable',
+      'Candidate Declined - Economics',
+      'Candidate Declined - Fear of Change',
+      'Other',
+      'Savvy Declined - Poor Culture Fit',
+      'Candidate Declined - Lost to Competitor',
+      'Candidate Declined - Operational Constraints',
+      'Savvy Declined - Compliance',
+    ],
+    aliases: ['loss reason', 'close reason', 'why lost', 'reason for loss'],
+    note: 'Only populated on Closed Lost opportunities. 13 known values. Top reasons: No Longer Responsive (272), No Show - Intro Call (237), Candidate Declined - Timing (235).',
+  },
+
+  campaign_name: {
+    name: 'Campaign Name',
+    description: 'Human-readable Salesforce campaign name',
+    field: 'v.Campaign_Name__c',
+    rawField: 'Campaign_Name__c',
+    requiresJoin: false,
+    filterable: true,
+    groupable: true,
+    aliases: ['campaign name', 'marketing campaign name'],
+    note: 'Perfect coverage: 10,312 records with Campaign_Id have matching Campaign_Name. Zero orphaned IDs. More user-friendly than campaign dimension (which uses Campaign_Id__c).',
+  },
 } as const;
 
 // =============================================================================
@@ -832,6 +931,18 @@ export const ENTITY_MAPPINGS = {
   'signed deals': {
     filter: "v.StageName = 'Signed' AND v.is_sqo_unique = 1",
     description: 'Opportunities in Signed stage',
+  },
+  're-engagement opportunities': {
+    filter: "v.record_type_name = 'Re-Engagement' AND v.StageName NOT IN ('Closed Lost', 'Joined')",
+    description: 'Open re-engagement opportunities (returning advisors, not new recruiting)',
+  },
+  'stale pipeline': {
+    filter: "v.is_sqo_unique = 1 AND v.StageName IN ('Qualifying', 'Discovery', 'Sales Process', 'Negotiating')",
+    description: 'Open pipeline opportunities — combine with days-in-stage calculation for staleness',
+  },
+  'external agency leads': {
+    filter: "v.External_Agency__c IS NOT NULL AND TRIM(v.External_Agency__c) != ''",
+    description: 'Leads sourced through an external recruiter agency',
   },
 } as const;
 

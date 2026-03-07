@@ -33,6 +33,11 @@ You can answer questions about:
 - Qualification calls
 - Who signed in a period (list of signed opportunities)
 - Who joined in a period (list of joined advisors)
+- Closed-lost opportunity lists (why deals were lost, loss reasons, AUM)
+- Re-engagement pipeline (returning advisors with Re-Engagement record type)
+- Weekly activity cadence (initial calls, qualification calls, SQOs by week per SGA)
+- SGA quarterly progress (SQO count and AUM grouped by quarter)
+- Pipeline aging questions (which deals are stale in a given stage)
 
 ## AVAILABLE QUERY TEMPLATES
 
@@ -263,6 +268,30 @@ Note: Calculate startDate as 4 quarters before current date. If today is 2026-01
 Question: "SQO to joined conversion rates for the last 6 quarters"
 → templateId: "conversion_trend", conversionMetric: "sqo_to_joined_rate", timePeriod: "quarter", dateRange: { "preset": "custom", "startDate": "2024-10-01", "endDate": "2026-01-15" }
 Note: If today is 2026-01-15, last 6 quarters = Q4 2024, Q1 2025, Q2 2025, Q3 2025, Q4 2025, Q1 2026. Start from Q4 2024 start (2024-10-01), end at TODAY (2026-01-15). Always use TODAY as endDate, not the end of last complete quarter.
+
+Question: "show me closed lost opportunities"
+→ templateId: "closed_lost_list"
+Note: No dateRange needed — current snapshot of all closed-lost SQOs. Add SGA/SGM/channel filters as needed. For "why are we losing deals?" use metric_by_dimension with dimension: "closed_lost_reason" instead.
+
+Question: "why are we losing deals?" or "what is the most common closed lost reason?" or "what is the most common close lost reason across all time?"
+→ templateId: "metric_by_dimension", metric: "closed_lost", dimension: "closed_lost_reason"
+Note: Use the closed_lost metric (NOT sqos) with closed_lost_reason dimension. The closed_lost metric is a snapshot that counts all Closed Lost records — no dateRange needed. Do NOT use the sqos metric for this because many closed-lost records never became SQO. For a ranked list, use top_n instead of metric_by_dimension with the same metric and dimension. For a detailed record list, use closed_lost_list template.
+
+Question: "show me the re-engagement pipeline"
+→ templateId: "re_engagement_list"
+Note: Re-engagement opportunities have a different record type than recruiting (Re-Engagement vs Recruiting). No date range needed — current snapshot of open re-engagement opps. Filter by sga/sgm/stage as needed.
+
+Question: "show me John Doe's weekly activity this quarter"
+→ templateId: "weekly_actuals_by_sga", filters: [{ "dimension": "sga", "operator": "equals", "value": "John Doe" }], dateRange: { "preset": "this_quarter" }
+Note: Returns a weekly series of initial calls, qualification calls, and SQOs. Zero-padded weeks included. Requires a date range. Works without SGA filter for team-wide view.
+
+Question: "what's Sarah Smith's quarterly SQO history?"
+→ templateId: "sga_quarterly_progress", filters: [{ "dimension": "sga", "operator": "equals", "value": "Sarah Smith" }], dateRange: { "preset": "custom", "startDate": "2025-01-01", "endDate": "2026-03-07" }
+Note: For multi-quarter history, set a wide date range. Results group by quarter automatically. Includes both SQO count and total AUM per quarter.
+
+Question: "which deals have been in Discovery for more than 60 days?"
+→ templateId: "opportunities_by_age", ageMethod: "from_stage_entry", ageThreshold: 60, stageFilter: "Discovery"
+Note: Use opportunities_by_age template for stale pipeline questions. The ageThreshold is user-defined (no defaults). Common thresholds: 30 (warning), 60 (stale), 90 (critical). Supports filtering by stage, SGA, SGM, channel.
 `;
 }
 
