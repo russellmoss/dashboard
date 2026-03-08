@@ -18,12 +18,16 @@ export function NotificationBell({ onNotificationClick }: NotificationBellProps)
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Fetch unread count on mount and periodically
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
     fetchUnreadCount();
 
     // Poll for new notifications every 30 seconds
-    const interval = setInterval(fetchUnreadCount, 30000);
-    return () => clearInterval(interval);
+    intervalRef.current = setInterval(fetchUnreadCount, 30000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
   }, []);
 
   // Close dropdown when clicking outside
@@ -42,7 +46,12 @@ export function NotificationBell({ onNotificationClick }: NotificationBellProps)
     try {
       const count = await notificationsApi.getUnreadCount();
       setUnreadCount(count);
-    } catch (err) {
+    } catch (err: any) {
+      // Stop polling on 401 — session expired, no point retrying every 30s
+      if (err?.status === 401) {
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        return;
+      }
       console.error('Failed to fetch unread count:', err);
     }
   };
