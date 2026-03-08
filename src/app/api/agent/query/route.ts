@@ -308,7 +308,7 @@ async function handleNonStreamingRequest(
     }
     
     // Handle BigQuery errors
-    if (error instanceof Error && error.message.includes('BigQuery') || 
+    if (error instanceof Error && error.message.includes('BigQuery') ||
         (error as any)?.code === 400 || (error as any)?.code === 403) {
       return NextResponse.json({
         success: false,
@@ -320,7 +320,21 @@ async function handleNonStreamingRequest(
         visualization: 'metric',
       } as AgentResponse);
     }
-    
+
+    // Handle template compilation errors (missing required params, etc.)
+    if (error instanceof Error && error.message.includes('required')) {
+      return NextResponse.json({
+        success: false,
+        error: {
+          code: 'MISSING_PARAMETER',
+          message: error.message,
+          suggestion: 'Could you provide more details? Try rephrasing your question with the specific information needed.',
+        },
+        visualization: 'metric',
+        visualizationOverridden: false,
+      } as AgentResponse);
+    }
+
     // Re-throw for other errors to be handled by outer catch
     throw error;
   }
@@ -446,12 +460,16 @@ async function handleStreamingRequest(
         controller.close();
 
       } catch (error) {
+        const isParamError = error instanceof Error && error.message.includes('required');
         controller.enqueue(
           encoder.encode(formatSSE({
             type: 'error',
             data: {
-              code: 'EXECUTION_ERROR',
+              code: isParamError ? 'MISSING_PARAMETER' : 'EXECUTION_ERROR',
               message: error instanceof Error ? error.message : 'Query execution failed',
+              suggestion: isParamError
+                ? 'Could you provide more details? Try rephrasing your question with the specific information needed.'
+                : undefined,
             }
           }))
         );

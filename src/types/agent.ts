@@ -160,7 +160,7 @@ export type StreamChunk =
   | { type: 'executing' }
   | { type: 'result'; data: QueryResultData }
   | { type: 'complete'; data: AgentResponse }
-  | { type: 'error'; data: { code: string; message: string } };
+  | { type: 'error'; data: { code: string; message: string; suggestion?: string } };
 
 /**
  * Export type helpers

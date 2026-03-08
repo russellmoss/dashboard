@@ -151,6 +151,19 @@ export function validateTemplateSelection(
     }
   }
 
+  // Validate template-specific required parameters
+  if (selection.templateId === 'sga_summary' && !params.sga) {
+    errors.push('SGA name is required for sga_summary template. Which SGA would you like to see a summary for?');
+  }
+
+  if (['metric_by_dimension', 'conversion_by_dimension'].includes(selection.templateId) && !params.dimension) {
+    errors.push('Dimension is required for this template. Please specify a dimension to group by.');
+  }
+
+  if (['time_to_convert', 'multi_stage_conversion'].includes(selection.templateId) && (!params.startStage || !params.endStage)) {
+    errors.push('Start stage and end stage are required for this template.');
+  }
+
   return {
     valid: errors.length === 0,
     errors,
