@@ -229,6 +229,15 @@ export function ConversionTrendChart({
     );
   }
 
+  if (!chartData || chartData.length === 0) {
+    return (
+      <Card className="mb-6">
+        <Title className="dark:text-white">Conversion Rate Trends</Title>
+        <Text className="text-gray-500 dark:text-gray-400 p-8 text-center">No data for selected period</Text>
+      </Card>
+    );
+  }
+
   return (
     <Card className="mb-6">
       {/* Header Section */}

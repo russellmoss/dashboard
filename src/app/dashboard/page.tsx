@@ -1189,14 +1189,14 @@ export default function DashboardPage() {
           {featureSelection.charts.conversionTrends && (
             <ChartErrorBoundary>
               <ConversionTrendChart
+                key={`conversion-${trendGranularity}-${trendMode}`}
                 trends={trends}
                 onGranularityChange={setTrendGranularity}
                 granularity={trendGranularity}
                 mode={trendMode}
                 onModeChange={(newMode) => {
                   setTrendMode(newMode);
-                  // Trigger refetch when mode changes
-                  fetchDashboardData();
+                  // useEffect handles refetch via fetchDashboardData dependency on trendMode
                 }}
                 isLoading={loading}
               />
@@ -1207,6 +1207,7 @@ export default function DashboardPage() {
           {featureSelection.charts.volumeTrends && (
             <ChartErrorBoundary>
               <VolumeTrendChart
+                key={`volume-${trendGranularity}`}
                 trends={trends}
                 onGranularityChange={setTrendGranularity}
                 granularity={trendGranularity}
