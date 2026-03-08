@@ -485,6 +485,9 @@ async function handleStreamingRequest(
 // CLAUDE API CALL
 // =============================================================================
 
+const CLAUDE_MAX_RETRIES = 3;
+const CLAUDE_RETRY_BASE_MS = 1000; // 1s, 2s, 4s exponential backoff
+
 async function callClaude(
   question: string,
   conversationHistory?: any[]
@@ -510,32 +513,58 @@ async function callClaude(
     content: question,
   });
 
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 1024,
-    system: systemPrompt,
-    messages,
-  });
+  // Retry loop for transient errors (429 rate limit, 529 overloaded)
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < CLAUDE_MAX_RETRIES; attempt++) {
+    try {
+      const response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages,
+      });
 
-  // Extract text from response
-  const textBlock = response.content.find((block) => block.type === 'text');
-  if (!textBlock || textBlock.type !== 'text') {
-    throw new Error('No text response from Claude');
+      // Extract text from response
+      const textBlock = response.content.find((block) => block.type === 'text');
+      if (!textBlock || textBlock.type !== 'text') {
+        throw new Error('No text response from Claude');
+      }
+
+      // Parse JSON from response
+      const jsonMatch = textBlock.text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('No JSON found in Claude response');
+      }
+
+      try {
+        const selection = JSON.parse(jsonMatch[0]) as TemplateSelection;
+        return selection;
+      } catch (parseError) {
+        logger.error('Failed to parse Claude response', { text: textBlock.text });
+        throw new Error('Failed to parse template selection from Claude');
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      const status = (error as any)?.status;
+      const isRetryable = status === 429 || status === 529;
+
+      if (isRetryable && attempt < CLAUDE_MAX_RETRIES - 1) {
+        const delayMs = CLAUDE_RETRY_BASE_MS * Math.pow(2, attempt);
+        logger.warn(`Claude API ${status}, retrying in ${delayMs}ms (attempt ${attempt + 1}/${CLAUDE_MAX_RETRIES})`, { status, attempt });
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        continue;
+      }
+
+      // Not retryable or exhausted retries — throw with clear message
+      if (isRetryable) {
+        throw new Error('The AI service is temporarily overloaded. Please try again in a moment.');
+      }
+      throw error;
+    }
   }
 
-  // Parse JSON from response
-  const jsonMatch = textBlock.text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error('No JSON found in Claude response');
-  }
-
-  try {
-    const selection = JSON.parse(jsonMatch[0]) as TemplateSelection;
-    return selection;
-  } catch (parseError) {
-    logger.error('Failed to parse Claude response', { text: textBlock.text });
-    throw new Error('Failed to parse template selection from Claude');
-  }
+  // Should not reach here, but safety net
+  throw lastError || new Error('Claude API call failed');
 }
 
 // =============================================================================
