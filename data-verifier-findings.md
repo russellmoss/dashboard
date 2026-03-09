@@ -1,234 +1,233 @@
-# Data Verifier Findings: Stale Pipeline Alerts
+# Data Verifier Findings — Weekly Goals vs. Actuals
 
-**Date:** 2026-02-25
-**Feature:** Stale Pipeline Alerts on Pipeline Tab
-**Project:** savvy-gtm-analytics
+## Summary
 
----
-
-## 1. Relevant BigQuery Views
-
-The only relevant view for open pipeline is **savvy-gtm-analytics.Tableau_Views.vw_funnel_master**.
-
-Full list of views in Tableau_Views dataset:
-- vw_funnel_master: primary analytics view (relevant)
-- vw_daily_forecast: forecast data (not relevant)
-- vw_joined_advisor_location: geographic data (not relevant)
-- vw_sga_activity_performance: SGA activity metrics (not relevant)
-- geocoded_addresses: table (not relevant)
-
-No vw_stale_pipeline, vw_open_pipeline, or similar views exist in savvy-gtm-analytics (Tableau_Views + SavvyGTMData both confirmed).
-
-vw_t3_conference_enriched lives in savvy-gtm-analytics.ml_features for T3 conference ML -- not relevant to this feature.
+All 7 actuals metrics have verified BigQuery data sources. No view modifications needed.
 
 ---
 
-## 2. daysInCurrentStage -- Does It Exist in BigQuery?
+## 1. MQL Actuals ✅
 
-NO. daysInCurrentStage does NOT exist as a column in vw_funnel_master. It is entirely calculated at the application layer in src/lib/utils/date-helpers.ts:261.
+**Source:** `savvy-gtm-analytics.SavvyGTMData.vw_sga_funnel`
+**Date field:** `mql_stage_entered_ts` (TIMESTAMP — maps to `Stage_Entered_Call_Scheduled__c` on Lead)
+**SGA field:** `SGA_Owner_Name__c`
+**Flag field:** `is_mql` (INTEGER, 1/0)
 
-The BigQuery view has all the raw stage entry date inputs:
+**Query pattern:**
+```sql
+SELECT SGA_Owner_Name__c, COUNT(*) as mql_count
+FROM `savvy-gtm-analytics.SavvyGTMData.vw_sga_funnel`
+WHERE mql_stage_entered_ts >= @week_start AND mql_stage_entered_ts < @week_end
+GROUP BY SGA_Owner_Name__c
+```
 
-| BQ Column | Type | Used For |
-|-----------|------|----------|
-| Stage_Entered_Discovery__c | TIMESTAMP | Discovery stage entry |
-| Stage_Entered_Sales_Process__c | TIMESTAMP | Sales Process stage entry |
-| Stage_Entered_Negotiating__c | TIMESTAMP | Negotiating stage entry |
-| Stage_Entered_On_Hold__c | TIMESTAMP | On Hold stage entry |
-| Stage_Entered_Signed__c | TIMESTAMP | Signed stage entry |
-| Opp_CreatedDate | TIMESTAMP | Qualifying stage proxy (no Stage_Entered_Qualifying__c) |
-| Date_Became_SQO__c | TIMESTAMP | SQO/fallback |
+**Sample (3/2–3/8):** Brian O'Hara: 42, Perry Kalmeta: 24, Russell Armitage: 16, Jacqueline Tully: 14 (152 total across 15 SGAs)
 
-No view changes needed for this feature. All required data is present.
-
----
-
-## 3. StageName / Opportunity Stage Field
-
-Field: StageName (STRING, from Opportunity.StageName).
-
-Open pipeline stage distribution (is_sqo=1, is_joined=0, StageName not in Closed/Signed/Joined, is_primary_opp_record=1):
-
-| Stage | Count | % of Open Pipeline |
-|-------|-------|--------------------|
-| Sales Process | 56 | 32.4% |
-| On Hold | 54 | 31.2% |
-| Discovery | 38 | 22.0% |
-| Negotiating | 19 | 11.0% |
-| Qualifying | 6 | 3.5% |
-| **Total** | **173** | **100%** |
-
-All 173 open pipeline records have StageName populated (100%). All are is_primary_opp_record = 1.
-
-Full dataset StageName values (NULL = lead-only records with no linked opportunity):
-- NULL: 100,186
-- Closed Lost: 1,920
-- Planned Nurture: 530
-- Joined: 111
-- On Hold: 62 (total incl. historical)
-- Sales Process: 56 (all open pipeline)
-- Outreach: 53
-- Qualifying: 51 (only 6 are open pipeline SQOs)
-- Discovery: 38 (all open)
-- Re-Engaged: 23
-- Negotiating: 19 (all open)
-- Call Scheduled: 9
-- Signed: 7
-- Engaged: 4
+**Note:** MQL = "Call Scheduled" stage in Salesforce. The `mql_stage_entered_ts` is the timestamp when the lead entered this stage.
 
 ---
 
-## 4. Stage Tracking Fields
+## 2. SQL Actuals ✅
 
-- StageName: current opportunity stage (STRING), directly from Salesforce Opportunity
-- TOF_Stage: computed highest milestone reached funnel stage (always populated), NOT the current stage. Values: Prospect, Contacted, MQL, SQL, SQO, Joined, Closed
-- StageName_code: INT64, numeric encoding of StageName for sorting
+**Source:** `savvy-gtm-analytics.SavvyGTMData.vw_sga_funnel`
+**Date field:** `converted_date_raw` (DATE — Lead.ConvertedDate)
+**SGA field:** `SGA_Owner_Name__c`
+**Flag field:** `is_sql` (INTEGER, 1/0)
 
-For Stale Pipeline Alerts, StageName is the correct field to group by. No new fields needed.
+**Query pattern:**
+```sql
+SELECT SGA_Owner_Name__c, COUNT(*) as sql_count
+FROM `savvy-gtm-analytics.SavvyGTMData.vw_sga_funnel`
+WHERE converted_date_raw >= @week_start AND converted_date_raw < @week_end
+GROUP BY SGA_Owner_Name__c
+```
 
----
+**Sample (3/2–3/8):** Marisa Saucedo: 4, Jacqueline Tully: 4, Russell Armitage: 4 (28 total across 10 SGAs)
 
-## 5. stageEnteredDate / How daysInCurrentStage is Calculated
-
-There is no unified stage entered date field. The app uses a CASE-based lookup in calculateDaysInStage() (src/lib/utils/date-helpers.ts:284):
-
-- Qualifying    -> Opp_CreatedDate (proxy -- no Stage_Entered_Qualifying__c in Salesforce)
-- Discovery     -> Stage_Entered_Discovery__c
-- Sales Process -> Stage_Entered_Sales_Process__c
-- Negotiating   -> Stage_Entered_Negotiating__c
-- Signed        -> Stage_Entered_Signed__c
-- On Hold       -> Stage_Entered_On_Hold__c
-- Closed Lost   -> Stage_Entered_Closed__c
-- Joined        -> advisor_join_date__c
-
-This logic already exists in the codebase. daysInCurrentStage is already on DetailRecord. No new calculation logic needed.
+**Note:** SQL = Lead converted to Opportunity (IsConverted = TRUE). `converted_date_raw` is a DATE not TIMESTAMP.
 
 ---
 
-## 6. Population Rates for Open Pipeline Records
+## 3. SQO Actuals ✅
 
-| Metric | Value |
-|--------|-------|
-| Total open pipeline records | 173 |
-| Records with calculable days_in_stage | 168 |
-| **Population rate** | **97.1%** |
-| Records with NULL (no entry date) | 5 |
-| StageName populated | 173/173 (100%) |
-| Opportunity_AUM populated | 173/173 (100%) |
-| advisor_name populated | 173/173 (100%) |
+**Source:** `savvy-gtm-analytics.SavvyGTMData.vw_sga_funnel`
+**Date field:** `Date_Became_SQO__c` (TIMESTAMP)
+**SGA field:** `SGA_Owner_Name__c`
+**Flag field:** `is_sqo` (INTEGER, 1/0 — derived from `SQL__c = 'Yes'` on Opportunity)
 
-The 5 NULL records are in Discovery (4) and On Hold (1) -- stage entry date missing from Salesforce.
+**Query pattern:**
+```sql
+SELECT SGA_Owner_Name__c, COUNT(*) as sqo_count
+FROM `savvy-gtm-analytics.SavvyGTMData.vw_sga_funnel`
+WHERE Date_Became_SQO__c >= @week_start AND Date_Became_SQO__c < @week_end
+GROUP BY SGA_Owner_Name__c
+```
 
----
-
-## 7. Distribution of Days-in-Stage and Threshold Analysis
-
-Overall statistics (173 open pipeline records):
-
-| Metric | Value |
-|--------|-------|
-| Min days | 0 |
-| Max days | 516 |
-| Average days | 87.4 |
-| P25 | 16 |
-| Median | 47 |
-| P75 | 118 |
-
-Threshold flags:
-
-| Threshold | Records Flagged | % of Open Pipeline |
-|-----------|----------------|-------------------|
-| No date (NULL) | 5 | 2.9% |
-| < 30 days | 61 | 35.3% |
-| 30-59 days | 33 | 19.1% |
-| 60-89 days | 20 | 11.6% |
-| 90+ days | 54 | 31.2% |
-| **Flagged at 30-day threshold** | **107** | **61.8%** |
-| **Flagged at 60-day threshold** | **74** | **42.8%** |
-| **Flagged at 90-day threshold** | **54** | **31.2%** |
-
-Per-stage breakdown:
-
-| Stage | Total | Avg Days | Median | NULL | @30d | @60d | @90d |
-|-------|-------|----------|--------|------|------|------|------|
-| Sales Process | 56 | 49.8 | 27 | 0 | 27 (48%) | 16 (29%) | 10 (18%) |
-| On Hold | 54 | 173.3 | 154 | 1 | 48 (89%) | 42 (78%) | 37 (69%) |
-| Discovery | 38 | 27.3 | 16 | 4 | 14 (37%) | 5 (13%) | 0 (0%) |
-| Negotiating | 19 | 69.8 | 51 | 0 | 15 (79%) | 9 (47%) | 5 (26%) |
-| Qualifying | 6 | 74.8 | 27 | 0 | 3 (50%) | 2 (33%) | 2 (33%) |
-
-Key finding: On Hold is the stalest segment (avg 173d, median 154d). 31% of all open pipeline has been in current stage 90+ days. Feature will surface meaningful data.
+**Sample (3/2–3/8):** Ryan Crandall: 6, Russell Armitage: 6, Amy Waller: 5 (43 total across 12 SGAs)
 
 ---
 
-## 8. Existing Stale Pipeline Views
+## 4. Initial Calls Actuals ✅
 
-None exist. Confirmed by querying INFORMATION_SCHEMA.TABLES in both Tableau_Views and SavvyGTMData. No view name contains stale, pipeline, or open.
+**Source:** `savvy-gtm-analytics.Tableau_Views.vw_sga_activity_performance`
+**Date field:** `Initial_Call_Scheduled_Date__c` (DATE — on the Lead/Opp record, not the Task)
+**SGA field:** `SGA_Owner_Name__c`
 
----
+**Query pattern (DISTINCT to avoid task-level duplication):**
+```sql
+SELECT SGA_Owner_Name__c,
+  COUNT(DISTINCT COALESCE(Full_prospect_id__c, Full_Opportunity_ID__c)) as initial_calls
+FROM `savvy-gtm-analytics.Tableau_Views.vw_sga_activity_performance`
+WHERE Initial_Call_Scheduled_Date__c >= @week_start
+  AND Initial_Call_Scheduled_Date__c < @week_end
+GROUP BY SGA_Owner_Name__c
+```
 
-## 9. Edge Cases
+**Sample (3/2–3/8):** Russell Armitage: 7, Brian O'Hara: 7, Marisa Saucedo: 5 (63 total across 15 SGAs)
 
-| Edge Case | Count | Notes |
-|-----------|-------|-------|
-| NULL days_in_stage | 5 | 4 Discovery + 1 On Hold -- entry date missing in Salesforce |
-| Negative days | 0 | No data quality issues |
-| Zero days (entered today) | 1 | Valid |
-| Days > 365 | 4 | Max 516 days -- all in On Hold, expected behavior |
-| Days > 730 | 0 | No extreme outliers |
-| NULL StageName on is_sqo=1 records | 0 | All 173 open pipeline have StageName populated |
-| No Stage_Entered_Qualifying__c | 6 records | Uses Opp_CreatedDate as proxy |
+**Population rate:** 268/14,433 leads (1.9%) have Initial_Call_Scheduled_Date__c — this is expected since only leads that progress to a scheduled call get this date.
 
-Special handling needed:
+**Next-week lookahead works:** Query with date range 3/9–3/15 returns future scheduled calls (Brian O'Hara: 14, Perry Kalmeta: 14, etc.)
 
-1. Qualifying stage: uses Opp_CreatedDate as proxy (no Stage_Entered_Qualifying__c in Salesforce). Days = days since opp was created. Consider a UI footnote.
-2. On Hold: deliberate pause state, not necessarily stuck. Consider treating separately (different section, different color, or configurable exclusion).
-3. NULL days_in_stage (5 records): show N/A or sort to bottom in UI.
-
----
-
-## 10. vw_open_pipeline Existence
-
-Does not exist. Open pipeline is filtered from vw_funnel_master using:
-
-    WHERE is_sqo = 1
-      AND is_joined = 0
-      AND StageName NOT IN (Closed Lost, Signed, Joined)
-      AND is_primary_opp_record = 1
-
-Consistent with existing dashboard query patterns.
+**IMPORTANT:** Must use `COUNT(DISTINCT ...)` because vw_sga_activity_performance is at the Task level (many tasks per lead). Without DISTINCT, counts inflate ~3x.
 
 ---
 
-## 11. vw_t3_conference_enriched Relevance
+## 5. Qualification Calls Actuals ✅
 
-views/vw_t3_conference_enriched.sql targets savvy-gtm-analytics.ml_features.T3_conference_enriched. Enriches T3 conference ML data with CRM signals (replied, SQL, SQO). Not relevant to Stale Pipeline Alerts.
+**Source:** `savvy-gtm-analytics.Tableau_Views.vw_sga_activity_performance`
+**Date field:** `Qualification_Call_Date__c` (DATE)
+**SGA field:** `SGA_Owner_Name__c`
+**SGM field:** `sgm_name` (populated — links qual call to the SGM)
+
+**Query pattern:**
+```sql
+SELECT SGA_Owner_Name__c,
+  COUNT(DISTINCT COALESCE(Full_prospect_id__c, Full_Opportunity_ID__c)) as qual_calls
+FROM `savvy-gtm-analytics.Tableau_Views.vw_sga_activity_performance`
+WHERE Qualification_Call_Date__c >= @week_start
+  AND Qualification_Call_Date__c < @week_end
+GROUP BY SGA_Owner_Name__c
+```
+
+**Sample (3/2–3/8):** Craig Suchodolski: 3, Ryan Crandall: 3, Russell Armitage: 3 (18 total across 9 SGAs)
+
+**Population rate:** 70/14,433 leads (0.5%) have Qualification_Call_Date__c — expected since few leads reach this stage.
+
+**SGM linkage confirmed:** `sgm_name` field is populated on qualification call records (e.g., Jade Bingham, Erin Pearson, Bryan Belville, etc.)
 
 ---
 
-## 12. AUM Data (Useful for Display)
+## 6. Leads Sourced ✅
 
-All 173 open pipeline records have Opportunity_AUM populated (100%):
+**Source:** `savvy-gtm-analytics.SavvyGTMData.Lead` (direct table)
+**Date field:** `CreatedDate` (TIMESTAMP)
+**SGA field:** `SGA_Owner_Name__c`
+**Self-sourced filter:** `Final_Source__c IN ('Fintrx (Self-Sourced)', 'LinkedIn (Self Sourced)')`
 
-| Stage | Avg AUM (M) | Max AUM (M) |
-|-------|------------|------------|
-| Discovery | 185.7 | 550 |
-| Sales Process | 98.5 | 550 |
-| Negotiating | 83.0 | 500 |
-| On Hold | 63.7 | 238 |
-| Qualifying | 53.3 | 130 |
+**Query patterns:**
+
+Total leads sourced:
+```sql
+SELECT SGA_Owner_Name__c, COUNT(*) as leads_sourced
+FROM `savvy-gtm-analytics.SavvyGTMData.Lead`
+WHERE CreatedDate >= @week_start AND CreatedDate < @week_end
+GROUP BY SGA_Owner_Name__c
+```
+
+Self-sourced only:
+```sql
+SELECT SGA_Owner_Name__c, COUNT(*) as self_sourced
+FROM `savvy-gtm-analytics.SavvyGTMData.Lead`
+WHERE Final_Source__c IN ('Fintrx (Self-Sourced)', 'LinkedIn (Self Sourced)')
+  AND CreatedDate >= @week_start AND CreatedDate < @week_end
+GROUP BY SGA_Owner_Name__c
+```
+
+**Sample (3/2–3/8) self-sourced:** Eleni Stefanopoulos: 918, Holly Huffman: 161, Channing Guyer: 102 (1,534 total)
+
+**Note:** Lead table includes non-SGA owners (e.g., "Savvy Operations"). Filter to active SGAs using JOIN to User table or use vw_sga_funnel which already filters.
 
 ---
 
-## Summary: What Exists vs. What Is Needed
+## 7. Leads Contacted ✅
 
-| Need | Status | Notes |
-|------|--------|-------|
-| StageName field | EXISTS in BQ | 100% populated for open pipeline |
-| Stage entry dates per stage | EXISTS in BQ | 97.1% calculable days_in_stage |
-| daysInCurrentStage on DetailRecord | ALREADY IMPLEMENTED | src/lib/utils/date-helpers.ts:261 |
-| Open pipeline filter | NO VIEW NEEDED | Filter from vw_funnel_master |
-| Stale pipeline BQ view | NOT NEEDED | App-layer calculation sufficient |
-| vw_stale_pipeline view | DOES NOT EXIST | Not needed |
+**Source:** `savvy-gtm-analytics.SavvyGTMData.vw_sga_funnel`
+**Date field:** `stage_entered_contacting__c` (TIMESTAMP)
+**SGA field:** `SGA_Owner_Name__c`
 
-No BigQuery view changes are required for this feature. All data is available in vw_funnel_master and the daysInCurrentStage calculation logic already exists at src/lib/utils/date-helpers.ts:261.
+**Query patterns:**
+
+All leads contacted:
+```sql
+SELECT SGA_Owner_Name__c, COUNT(*) as leads_contacted
+FROM `savvy-gtm-analytics.SavvyGTMData.vw_sga_funnel`
+WHERE stage_entered_contacting__c >= @week_start AND stage_entered_contacting__c < @week_end
+GROUP BY SGA_Owner_Name__c
+```
+
+Self-sourced contacted (requires Lead table for Final_Source__c):
+```sql
+SELECT l.SGA_Owner_Name__c, COUNT(*) as self_sourced_contacted
+FROM `savvy-gtm-analytics.SavvyGTMData.Lead` l
+WHERE l.Final_Source__c IN ('Fintrx (Self-Sourced)', 'LinkedIn (Self Sourced)')
+  AND l.Stage_Entered_Contacting__c >= @week_start
+  AND l.Stage_Entered_Contacting__c < @week_end
+GROUP BY l.SGA_Owner_Name__c
+```
+
+**Sample (3/2–3/8) all contacted:** Russell Armitage: 901, Channing Guyer: 648, Marisa Saucedo: 584 (4,468 total)
+**Sample (3/2–3/8) self-sourced contacted:** Russell Armitage: 309, Eleni Stefanopoulos: 227, Holly Huffman: 156
+
+**Note:** Self-sourced contacted query returns "Savvy Operations" (104) — must filter to real SGAs. Use `WHERE SGA_Owner_Name__c != 'Savvy Operations'` or JOIN to User table.
+
+---
+
+## 8. Data Quality Notes
+
+### SGA Name Consistency
+- `SGA_Owner_Name__c` is consistent across `vw_sga_funnel`, `vw_sga_activity_performance`, and the Lead table
+- Both views filter to active SGA/SGM users via JOIN to `SavvyGTMData.User` WHERE `IsSGA__c = TRUE AND IsActive = TRUE`
+- Direct Lead table queries need explicit SGA filtering
+
+### Edge Cases
+- **"Savvy Operations"** and **"Savvy Marketing"** appear as SGA_Owner_Name__c on some leads — must be excluded
+- `vw_sga_funnel` handles this: replaces "Savvy Marketing" with opp-level SGA and filters to active users
+- Direct Lead table queries don't filter — add WHERE clause or JOIN
+
+### Date Type Differences
+| Field | Type | Notes |
+|-------|------|-------|
+| `mql_stage_entered_ts` | TIMESTAMP | Compare with TIMESTAMP |
+| `converted_date_raw` | DATE | Compare with DATE |
+| `Date_Became_SQO__c` | TIMESTAMP | Compare with TIMESTAMP |
+| `Initial_Call_Scheduled_Date__c` | DATE | Compare with DATE |
+| `Qualification_Call_Date__c` | DATE | Compare with DATE |
+| `CreatedDate` (Lead) | TIMESTAMP | Compare with TIMESTAMP |
+| `stage_entered_contacting__c` | TIMESTAMP | Compare with TIMESTAMP |
+
+### View Selection Guide
+| Metric | Best Source | Why |
+|--------|------------|-----|
+| MQL, SQL, SQO | `vw_sga_funnel` | Pre-calculated flags, active SGA filter, combined Lead+Opp |
+| Initial Calls, Qual Calls | `vw_sga_activity_performance` | Has call date fields + task-level detail for drilldown |
+| Leads Sourced | `Lead` table direct | Need `Final_Source__c` which isn't in funnel views |
+| Leads Contacted (all) | `vw_sga_funnel` | Has `stage_entered_contacting__c` + active SGA filter |
+| Leads Contacted (self-sourced) | `Lead` table direct | Need `Final_Source__c` + `Stage_Entered_Contacting__c` |
+
+---
+
+## 9. Drilldown Data Availability
+
+All metrics support drilldown to individual records:
+
+- **MQL/SQL/SQO drilldown:** `vw_sga_funnel` has `unique_id`, `Full_prospect_id__c`, `Full_Opportunity_ID__c`, plus channel/source fields
+- **Initial/Qual call drilldown:** `vw_sga_activity_performance` has `Full_prospect_id__c`, `Full_Opportunity_ID__c`, `advisor_name`, `Prospect_Name`, `Opp_Name`, `StageName`, `TOF_Stage`, `sgm_name`
+- **Leads sourced drilldown:** Lead table has full lead details (Name, Company, Email, Phone, etc.)
+- **Leads contacted drilldown:** Lead table has `Stage_Entered_Contacting__c` + full lead details
+
+---
+
+## 10. No View Modifications Needed ✅
+
+All required fields exist in current views/tables. No BigQuery view changes are blockers.

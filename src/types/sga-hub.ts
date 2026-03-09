@@ -17,6 +17,10 @@ export interface WeeklyGoal {
   initialCallsGoal: number;
   qualificationCallsGoal: number;
   sqoGoal: number;
+  mqlGoal: number;
+  sqlGoal: number;
+  leadsSourcedGoal: number;
+  leadsContactedGoal: number;
   createdAt: string;
   updatedAt: string;
   createdBy: string | null;
@@ -29,6 +33,10 @@ export interface WeeklyGoalInput {
   initialCallsGoal: number;
   qualificationCallsGoal: number;
   sqoGoal: number;
+  mqlGoal: number;
+  sqlGoal: number;
+  leadsSourcedGoal: number;
+  leadsContactedGoal: number;
 }
 
 /** Weekly actuals from BigQuery */
@@ -37,6 +45,12 @@ export interface WeeklyActual {
   initialCalls: number;
   qualificationCalls: number;
   sqos: number;
+  mqls: number;
+  sqls: number;
+  leadsSourced: number;
+  leadsSourcedSelfSourced: number;
+  leadsContacted: number;
+  leadsContactedSelfSourced: number;
 }
 
 /** Combined goal and actual for display */
@@ -49,17 +63,31 @@ export interface WeeklyGoalWithActuals {
   initialCallsGoal: number | null;
   qualificationCallsGoal: number | null;
   sqoGoal: number | null;
-  
+  mqlGoal: number | null;
+  sqlGoal: number | null;
+  leadsSourcedGoal: number | null;
+  leadsContactedGoal: number | null;
+
   // Actuals
   initialCallsActual: number;
   qualificationCallsActual: number;
   sqoActual: number;
-  
+  mqlActual: number;
+  sqlActual: number;
+  leadsSourcedActual: number;
+  leadsSourcedSelfSourcedActual: number;
+  leadsContactedActual: number;
+  leadsContactedSelfSourcedActual: number;
+
   // Differences (null if goal not set)
   initialCallsDiff: number | null;
   qualificationCallsDiff: number | null;
   sqoDiff: number | null;
-  
+  mqlDiff: number | null;
+  sqlDiff: number | null;
+  leadsSourcedDiff: number | null;
+  leadsContactedDiff: number | null;
+
   // Status
   hasGoal: boolean;
   canEdit: boolean; // SGAs can only edit current/future weeks; Admins can edit any week

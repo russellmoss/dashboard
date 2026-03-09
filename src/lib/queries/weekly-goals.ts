@@ -65,7 +65,8 @@ export async function upsertWeeklyGoal(
   }
   
   // Validate goals are non-negative
-  if (input.initialCallsGoal < 0 || input.qualificationCallsGoal < 0 || input.sqoGoal < 0) {
+  if (input.initialCallsGoal < 0 || input.qualificationCallsGoal < 0 || input.sqoGoal < 0 ||
+      input.mqlGoal < 0 || input.sqlGoal < 0 || input.leadsSourcedGoal < 0 || input.leadsContactedGoal < 0) {
     throw new Error('Goal values must be non-negative');
   }
   
@@ -82,6 +83,10 @@ export async function upsertWeeklyGoal(
       initialCallsGoal: input.initialCallsGoal,
       qualificationCallsGoal: input.qualificationCallsGoal,
       sqoGoal: input.sqoGoal,
+      mqlGoal: input.mqlGoal,
+      sqlGoal: input.sqlGoal,
+      leadsSourcedGoal: input.leadsSourcedGoal,
+      leadsContactedGoal: input.leadsContactedGoal,
       updatedBy,
     },
     create: {
@@ -90,6 +95,10 @@ export async function upsertWeeklyGoal(
       initialCallsGoal: input.initialCallsGoal,
       qualificationCallsGoal: input.qualificationCallsGoal,
       sqoGoal: input.sqoGoal,
+      mqlGoal: input.mqlGoal,
+      sqlGoal: input.sqlGoal,
+      leadsSourcedGoal: input.leadsSourcedGoal,
+      leadsContactedGoal: input.leadsContactedGoal,
       createdBy: updatedBy,
       updatedBy,
     },
@@ -120,7 +129,7 @@ export async function getWeeklyGoalsByWeek(
 export async function getAllSGAWeeklyGoals(
   startDate: string,
   endDate: string
-): Promise<WeeklyGoal[]> {
+): Promise<{ goals: WeeklyGoal[]; sgaUsers: Array<{ email: string; name: string }> }> {
   const goals = await prisma.weeklyGoal.findMany({
     where: {
       weekStartDate: {
@@ -133,8 +142,20 @@ export async function getAllSGAWeeklyGoals(
       { userEmail: 'asc' },
     ],
   });
-  
-  return goals.map(transformWeeklyGoal);
+
+  // Extract unique user emails and look up names
+  const uniqueEmails = [...new Set(goals.map(g => g.userEmail))];
+  const users = await prisma.user.findMany({
+    where: { email: { in: uniqueEmails } },
+    select: { email: true, name: true },
+  });
+  const emailToName = new Map(users.map(u => [u.email, u.name || u.email]));
+  const sgaUsers = uniqueEmails.map(email => ({
+    email,
+    name: emailToName.get(email) || email,
+  }));
+
+  return { goals: goals.map(transformWeeklyGoal), sgaUsers };
 }
 
 /**
@@ -176,6 +197,10 @@ export async function copyWeeklyGoal(
       initialCallsGoal: sourceGoal.initialCallsGoal,
       qualificationCallsGoal: sourceGoal.qualificationCallsGoal,
       sqoGoal: sourceGoal.sqoGoal,
+      mqlGoal: sourceGoal.mqlGoal,
+      sqlGoal: sourceGoal.sqlGoal,
+      leadsSourcedGoal: sourceGoal.leadsSourcedGoal,
+      leadsContactedGoal: sourceGoal.leadsContactedGoal,
     },
     updatedBy
   );
@@ -200,6 +225,10 @@ function transformWeeklyGoal(goal: any): WeeklyGoal {
     initialCallsGoal: goal.initialCallsGoal,
     qualificationCallsGoal: goal.qualificationCallsGoal,
     sqoGoal: goal.sqoGoal,
+    mqlGoal: goal.mqlGoal,
+    sqlGoal: goal.sqlGoal,
+    leadsSourcedGoal: goal.leadsSourcedGoal,
+    leadsContactedGoal: goal.leadsContactedGoal,
     createdAt: goal.createdAt.toISOString(),
     updatedAt: goal.updatedAt.toISOString(),
     createdBy: goal.createdBy,

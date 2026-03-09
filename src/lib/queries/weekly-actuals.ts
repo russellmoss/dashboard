@@ -12,6 +12,12 @@ interface RawWeeklyActualResult {
   initial_calls: number | null;
   qualification_calls: number | null;
   sqos: number | null;
+  mqls: number | null;
+  sqls: number | null;
+  leads_sourced: number | null;
+  leads_sourced_self: number | null;
+  leads_contacted: number | null;
+  leads_contacted_self: number | null;
 }
 
 /**
@@ -63,6 +69,63 @@ const _getWeeklyActuals = async (
         AND v.recordtypeid = @recruitingRecordType
       GROUP BY week_start
     ),
+    mqls AS (
+      SELECT
+        DATE(DATE_TRUNC(mql_stage_entered_ts, WEEK(MONDAY))) as week_start,
+        COUNT(*) as count
+      FROM \`${FULL_TABLE}\`
+      WHERE SGA_Owner_Name__c = @sgaName
+        AND mql_stage_entered_ts IS NOT NULL
+        AND mql_stage_entered_ts >= TIMESTAMP(@startDate)
+        AND mql_stage_entered_ts <= TIMESTAMP(CONCAT(@endDate, ' 23:59:59'))
+      GROUP BY week_start
+    ),
+    sqls AS (
+      SELECT
+        DATE_TRUNC(converted_date_raw, WEEK(MONDAY)) as week_start,
+        COUNT(*) as count
+      FROM \`${FULL_TABLE}\`
+      WHERE SGA_Owner_Name__c = @sgaName
+        AND converted_date_raw IS NOT NULL
+        AND converted_date_raw >= @startDate
+        AND converted_date_raw <= @endDate
+        AND is_sql = 1
+      GROUP BY week_start
+    ),
+    leads_sourced AS (
+      SELECT
+        DATE(DATE_TRUNC(l.CreatedDate, WEEK(MONDAY))) as week_start,
+        COUNT(*) as total,
+        COUNTIF(l.Final_Source__c IN ('Fintrx (Self-Sourced)', 'LinkedIn (Self Sourced)')) as self_sourced
+      FROM \`savvy-gtm-analytics.SavvyGTMData.Lead\` l
+      WHERE l.SGA_Owner_Name__c = @sgaName
+        AND l.CreatedDate >= TIMESTAMP(@startDate)
+        AND l.CreatedDate <= TIMESTAMP(CONCAT(@endDate, ' 23:59:59'))
+      GROUP BY week_start
+    ),
+    leads_contacted AS (
+      SELECT
+        DATE(DATE_TRUNC(stage_entered_contacting__c, WEEK(MONDAY))) as week_start,
+        COUNT(*) as total
+      FROM \`${FULL_TABLE}\`
+      WHERE SGA_Owner_Name__c = @sgaName
+        AND stage_entered_contacting__c IS NOT NULL
+        AND stage_entered_contacting__c >= TIMESTAMP(@startDate)
+        AND stage_entered_contacting__c <= TIMESTAMP(CONCAT(@endDate, ' 23:59:59'))
+      GROUP BY week_start
+    ),
+    leads_contacted_self AS (
+      SELECT
+        DATE(DATE_TRUNC(l.Stage_Entered_Contacting__c, WEEK(MONDAY))) as week_start,
+        COUNT(*) as self_sourced
+      FROM \`savvy-gtm-analytics.SavvyGTMData.Lead\` l
+      WHERE l.SGA_Owner_Name__c = @sgaName
+        AND l.Final_Source__c IN ('Fintrx (Self-Sourced)', 'LinkedIn (Self Sourced)')
+        AND l.Stage_Entered_Contacting__c IS NOT NULL
+        AND l.Stage_Entered_Contacting__c >= TIMESTAMP(@startDate)
+        AND l.Stage_Entered_Contacting__c <= TIMESTAMP(CONCAT(@endDate, ' 23:59:59'))
+      GROUP BY week_start
+    ),
     -- Generate all weeks in range
     all_weeks AS (
       SELECT week_start
@@ -74,18 +137,29 @@ const _getWeeklyActuals = async (
         )
       ) as week_start
     )
-    SELECT 
+    SELECT
       aw.week_start,
       COALESCE(ic.count, 0) as initial_calls,
       COALESCE(qc.count, 0) as qualification_calls,
-      COALESCE(s.count, 0) as sqos
+      COALESCE(s.count, 0) as sqos,
+      COALESCE(m.count, 0) as mqls,
+      COALESCE(sq2.count, 0) as sqls,
+      COALESCE(ls.total, 0) as leads_sourced,
+      COALESCE(ls.self_sourced, 0) as leads_sourced_self,
+      COALESCE(lc.total, 0) as leads_contacted,
+      COALESCE(lcs.self_sourced, 0) as leads_contacted_self
     FROM all_weeks aw
     LEFT JOIN initial_calls ic ON aw.week_start = ic.week_start
     LEFT JOIN qual_calls qc ON aw.week_start = qc.week_start
     LEFT JOIN sqos s ON aw.week_start = s.week_start
+    LEFT JOIN mqls m ON aw.week_start = m.week_start
+    LEFT JOIN sqls sq2 ON aw.week_start = sq2.week_start
+    LEFT JOIN leads_sourced ls ON aw.week_start = ls.week_start
+    LEFT JOIN leads_contacted lc ON aw.week_start = lc.week_start
+    LEFT JOIN leads_contacted_self lcs ON aw.week_start = lcs.week_start
     ORDER BY aw.week_start DESC
   `;
-  
+
   const params = {
     sgaName,
     startDate,
@@ -150,6 +224,68 @@ const _getAllSGAWeeklyActuals = async (
         AND recordtypeid = @recruitingRecordType
       GROUP BY sga_name, week_start
     ),
+    mqls AS (
+      SELECT
+        SGA_Owner_Name__c as sga_name,
+        DATE(DATE_TRUNC(mql_stage_entered_ts, WEEK(MONDAY))) as week_start,
+        COUNT(*) as count
+      FROM \`${FULL_TABLE}\`
+      WHERE SGA_Owner_Name__c IS NOT NULL
+        AND mql_stage_entered_ts IS NOT NULL
+        AND mql_stage_entered_ts >= TIMESTAMP(@startDate)
+        AND mql_stage_entered_ts <= TIMESTAMP(CONCAT(@endDate, ' 23:59:59'))
+      GROUP BY sga_name, week_start
+    ),
+    sqls AS (
+      SELECT
+        SGA_Owner_Name__c as sga_name,
+        DATE_TRUNC(converted_date_raw, WEEK(MONDAY)) as week_start,
+        COUNT(*) as count
+      FROM \`${FULL_TABLE}\`
+      WHERE SGA_Owner_Name__c IS NOT NULL
+        AND converted_date_raw IS NOT NULL
+        AND converted_date_raw >= @startDate
+        AND converted_date_raw <= @endDate
+        AND is_sql = 1
+      GROUP BY sga_name, week_start
+    ),
+    leads_sourced AS (
+      SELECT
+        u.Name as sga_name,
+        DATE(DATE_TRUNC(l.CreatedDate, WEEK(MONDAY))) as week_start,
+        COUNT(*) as total,
+        COUNTIF(l.Final_Source__c IN ('Fintrx (Self-Sourced)', 'LinkedIn (Self Sourced)')) as self_sourced
+      FROM \`savvy-gtm-analytics.SavvyGTMData.Lead\` l
+      JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` u ON l.SGA_Owner_Name__c = u.Name AND u.IsSGA__c = TRUE
+      WHERE l.CreatedDate >= TIMESTAMP(@startDate)
+        AND l.CreatedDate <= TIMESTAMP(CONCAT(@endDate, ' 23:59:59'))
+      GROUP BY sga_name, week_start
+    ),
+    leads_contacted AS (
+      SELECT
+        SGA_Owner_Name__c as sga_name,
+        DATE(DATE_TRUNC(stage_entered_contacting__c, WEEK(MONDAY))) as week_start,
+        COUNT(*) as total
+      FROM \`${FULL_TABLE}\`
+      WHERE SGA_Owner_Name__c IS NOT NULL
+        AND stage_entered_contacting__c IS NOT NULL
+        AND stage_entered_contacting__c >= TIMESTAMP(@startDate)
+        AND stage_entered_contacting__c <= TIMESTAMP(CONCAT(@endDate, ' 23:59:59'))
+      GROUP BY sga_name, week_start
+    ),
+    leads_contacted_self AS (
+      SELECT
+        u.Name as sga_name,
+        DATE(DATE_TRUNC(l.Stage_Entered_Contacting__c, WEEK(MONDAY))) as week_start,
+        COUNT(*) as self_sourced
+      FROM \`savvy-gtm-analytics.SavvyGTMData.Lead\` l
+      JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` u ON l.SGA_Owner_Name__c = u.Name AND u.IsSGA__c = TRUE
+      WHERE l.Final_Source__c IN ('Fintrx (Self-Sourced)', 'LinkedIn (Self Sourced)')
+        AND l.Stage_Entered_Contacting__c IS NOT NULL
+        AND l.Stage_Entered_Contacting__c >= TIMESTAMP(@startDate)
+        AND l.Stage_Entered_Contacting__c <= TIMESTAMP(CONCAT(@endDate, ' 23:59:59'))
+      GROUP BY sga_name, week_start
+    ),
     all_sgas AS (
       SELECT DISTINCT SGA_Owner_Name__c as sga_name
       FROM \`${FULL_TABLE}\`
@@ -165,17 +301,28 @@ const _getAllSGAWeeklyActuals = async (
         )
       ) as week_start
     )
-    SELECT 
+    SELECT
       s.sga_name,
       aw.week_start,
       COALESCE(ic.count, 0) as initial_calls,
       COALESCE(qc.count, 0) as qualification_calls,
-      COALESCE(sq.count, 0) as sqos
+      COALESCE(sq.count, 0) as sqos,
+      COALESCE(m.count, 0) as mqls,
+      COALESCE(sq2.count, 0) as sqls,
+      COALESCE(ls.total, 0) as leads_sourced,
+      COALESCE(ls.self_sourced, 0) as leads_sourced_self,
+      COALESCE(lc.total, 0) as leads_contacted,
+      COALESCE(lcs.self_sourced, 0) as leads_contacted_self
     FROM all_sgas s
     CROSS JOIN all_weeks aw
     LEFT JOIN initial_calls ic ON s.sga_name = ic.sga_name AND aw.week_start = ic.week_start
     LEFT JOIN qual_calls qc ON s.sga_name = qc.sga_name AND aw.week_start = qc.week_start
     LEFT JOIN sqos sq ON s.sga_name = sq.sga_name AND aw.week_start = sq.week_start
+    LEFT JOIN mqls m ON s.sga_name = m.sga_name AND aw.week_start = m.week_start
+    LEFT JOIN sqls sq2 ON s.sga_name = sq2.sga_name AND aw.week_start = sq2.week_start
+    LEFT JOIN leads_sourced ls ON s.sga_name = ls.sga_name AND aw.week_start = ls.week_start
+    LEFT JOIN leads_contacted lc ON s.sga_name = lc.sga_name AND aw.week_start = lc.week_start
+    LEFT JOIN leads_contacted_self lcs ON s.sga_name = lcs.sga_name AND aw.week_start = lcs.week_start
     ORDER BY s.sga_name, aw.week_start DESC
   `;
   
@@ -237,5 +384,11 @@ function transformWeeklyActual(row: RawWeeklyActualResult): WeeklyActual {
     initialCalls: toNumber(row.initial_calls) || 0,
     qualificationCalls: toNumber(row.qualification_calls) || 0,
     sqos: toNumber(row.sqos) || 0,
+    mqls: toNumber(row.mqls) || 0,
+    sqls: toNumber(row.sqls) || 0,
+    leadsSourced: toNumber(row.leads_sourced) || 0,
+    leadsSourcedSelfSourced: toNumber(row.leads_sourced_self) || 0,
+    leadsContacted: toNumber(row.leads_contacted) || 0,
+    leadsContactedSelfSourced: toNumber(row.leads_contacted_self) || 0,
   };
 }

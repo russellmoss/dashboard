@@ -54,6 +54,10 @@ model WeeklyGoal {
   initialCallsGoal       Int      @default(0)
   qualificationCallsGoal Int      @default(0)
   sqoGoal                Int      @default(0)
+  mqlGoal                Int      @default(0)
+  sqlGoal                Int      @default(0)
+  leadsSourcedGoal       Int      @default(0)
+  leadsContactedGoal     Int      @default(0)
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
   createdBy              String? // Email of user who created

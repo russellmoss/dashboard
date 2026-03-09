@@ -7,10 +7,18 @@ import {
   QualificationCallRecord,
   SQODrillDownRecord,
   OpenSQLDrillDownRecord,
+  MQLDrillDownRecord,
+  SQLDrillDownRecord,
+  LeadsSourcedRecord,
+  LeadsContactedRecord,
   RawInitialCallRecord,
   RawQualificationCallRecord,
   RawSQODrillDownRecord,
-  RawOpenSQLDrillDownRecord
+  RawOpenSQLDrillDownRecord,
+  RawMQLDrillDownRecord,
+  RawSQLDrillDownRecord,
+  RawLeadsSourcedRecord,
+  RawLeadsContactedRecord,
 } from '@/types/drill-down';
 import { formatCurrency, calculateDaysInStage } from '@/lib/utils/date-helpers';
 import { toString, toNumber } from '@/types/bigquery-raw';
@@ -146,12 +154,13 @@ function transformSQODrillDownRecord(raw: RawSQODrillDownRecord): SQODrillDownRe
  * Get Initial Calls drill-down records for a specific SGA and week
  */
 const _getInitialCallsDrillDown = async (
-  sgaName: string,
+  sgaName: string | null,
   weekStartDate: string,
   weekEndDate: string
 ): Promise<InitialCallRecord[]> => {
+  const sgaFilter = sgaName !== null ? 'AND v.SGA_Owner_Name__c = @sgaName' : '';
   const query = `
-    SELECT 
+    SELECT
       v.primary_key,
       v.advisor_name,
       v.Initial_Call_Scheduled_Date__c,
@@ -168,18 +177,15 @@ const _getInitialCallsDrillDown = async (
     FROM \`${FULL_TABLE}\` v
     LEFT JOIN \`${MAPPING_TABLE}\` nm
       ON v.Original_source = nm.original_source
-    WHERE v.SGA_Owner_Name__c = @sgaName
-      AND v.Initial_Call_Scheduled_Date__c IS NOT NULL
+    WHERE v.Initial_Call_Scheduled_Date__c IS NOT NULL
       AND v.Initial_Call_Scheduled_Date__c >= @weekStartDate
       AND v.Initial_Call_Scheduled_Date__c <= @weekEndDate
+      ${sgaFilter}
     ORDER BY v.Initial_Call_Scheduled_Date__c DESC
   `;
 
-  const params = {
-    sgaName,
-    weekStartDate,
-    weekEndDate,
-  };
+  const params: Record<string, any> = { weekStartDate, weekEndDate };
+  if (sgaName !== null) params.sgaName = sgaName;
 
   const results = await runQuery<RawInitialCallRecord>(query, params);
   return results.map(transformInitialCallRecord);
@@ -195,12 +201,13 @@ export const getInitialCallsDrillDown = cachedQuery(
  * Get Qualification Calls drill-down records for a specific SGA and week
  */
 const _getQualificationCallsDrillDown = async (
-  sgaName: string,
+  sgaName: string | null,
   weekStartDate: string,
   weekEndDate: string
 ): Promise<QualificationCallRecord[]> => {
+  const sgaFilter = sgaName !== null ? 'AND v.SGA_Owner_Name__c = @sgaName' : '';
   const query = `
-    SELECT 
+    SELECT
       v.primary_key,
       v.advisor_name,
       v.Qualification_Call_Date__c,
@@ -225,18 +232,15 @@ const _getQualificationCallsDrillDown = async (
     FROM \`${FULL_TABLE}\` v
     LEFT JOIN \`${MAPPING_TABLE}\` nm
       ON v.Original_source = nm.original_source
-    WHERE v.SGA_Owner_Name__c = @sgaName
-      AND v.Qualification_Call_Date__c IS NOT NULL
+    WHERE v.Qualification_Call_Date__c IS NOT NULL
       AND v.Qualification_Call_Date__c >= @weekStartDate
       AND v.Qualification_Call_Date__c <= @weekEndDate
+      ${sgaFilter}
     ORDER BY v.Qualification_Call_Date__c DESC
   `;
 
-  const params = {
-    sgaName,
-    weekStartDate,
-    weekEndDate,
-  };
+  const params: Record<string, any> = { weekStartDate, weekEndDate };
+  if (sgaName !== null) params.sgaName = sgaName;
 
   const results = await runQuery<RawQualificationCallRecord>(query, params);
   return results.map(transformQualificationCallRecord);
@@ -464,5 +468,258 @@ const _getOpenSQLDrillDown = async (
 export const getOpenSQLDrillDown = cachedQuery(
   _getOpenSQLDrillDown,
   'getOpenSQLDrillDown',
+  CACHE_TAGS.DASHBOARD
+);
+
+// ============================================================================
+// MQL DRILL-DOWN
+// ============================================================================
+
+function transformMQLDrillDownRecord(raw: RawMQLDrillDownRecord): MQLDrillDownRecord {
+  return {
+    primaryKey: toString(raw.primary_key),
+    advisorName: toString(raw.advisor_name) || 'Unknown',
+    source: toString(raw.Original_source) || 'Unknown',
+    channel: toString(raw.Channel_Grouping_Name) || 'Other',
+    tofStage: toString(raw.TOF_Stage) || 'Unknown',
+    mqlDate: extractDateValue(raw.mql_stage_entered_ts) || '',
+    initialCallDate: extractDateValue(raw.Initial_Call_Scheduled_Date__c),
+    leadUrl: raw.lead_url ? toString(raw.lead_url) : null,
+    opportunityUrl: raw.opportunity_url ? toString(raw.opportunity_url) : null,
+    nextSteps: raw.Next_Steps__c ? toString(raw.Next_Steps__c) : null,
+    opportunityNextStep: raw.NextStep ? toString(raw.NextStep) : null,
+    daysInCurrentStage: null,
+  };
+}
+
+const _getMQLDrillDown = async (
+  sgaName: string | null,
+  weekStartDate: string,
+  weekEndDate: string
+): Promise<MQLDrillDownRecord[]> => {
+  const sgaFilter = sgaName !== null ? 'AND v.SGA_Owner_Name__c = @sgaName' : '';
+  const query = `
+    SELECT
+      v.primary_key,
+      v.advisor_name,
+      v.mql_stage_entered_ts,
+      v.Original_source,
+      COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as Channel_Grouping_Name,
+      v.TOF_Stage,
+      v.Initial_Call_Scheduled_Date__c,
+      v.lead_url,
+      v.opportunity_url,
+      v.Next_Steps__c,
+      v.NextStep
+    FROM \`${FULL_TABLE}\` v
+    LEFT JOIN \`${MAPPING_TABLE}\` nm
+      ON v.Original_source = nm.original_source
+    WHERE v.mql_stage_entered_ts IS NOT NULL
+      AND v.mql_stage_entered_ts >= TIMESTAMP(@weekStartDate)
+      AND v.mql_stage_entered_ts <= TIMESTAMP(CONCAT(@weekEndDate, ' 23:59:59'))
+      ${sgaFilter}
+    ORDER BY v.mql_stage_entered_ts DESC
+  `;
+
+  const params: Record<string, any> = { weekStartDate, weekEndDate };
+  if (sgaName !== null) params.sgaName = sgaName;
+  const results = await runQuery<RawMQLDrillDownRecord>(query, params);
+  return results.map(transformMQLDrillDownRecord);
+};
+
+export const getMQLDrillDown = cachedQuery(
+  _getMQLDrillDown,
+  'getMQLDrillDown',
+  CACHE_TAGS.DASHBOARD
+);
+
+// ============================================================================
+// SQL DRILL-DOWN
+// ============================================================================
+
+function transformSQLDrillDownRecord(raw: RawSQLDrillDownRecord): SQLDrillDownRecord {
+  return {
+    primaryKey: toString(raw.primary_key),
+    advisorName: toString(raw.advisor_name) || 'Unknown',
+    source: toString(raw.Original_source) || 'Unknown',
+    channel: toString(raw.Channel_Grouping_Name) || 'Other',
+    tofStage: toString(raw.TOF_Stage) || 'Unknown',
+    sqlDate: extractDateValue(raw.converted_date_raw) || '',
+    qualificationCallDate: extractDateValue(raw.Qualification_Call_Date__c),
+    leadUrl: raw.lead_url ? toString(raw.lead_url) : null,
+    opportunityUrl: raw.opportunity_url ? toString(raw.opportunity_url) : null,
+    nextSteps: raw.Next_Steps__c ? toString(raw.Next_Steps__c) : null,
+    opportunityNextStep: raw.NextStep ? toString(raw.NextStep) : null,
+    daysInCurrentStage: null,
+  };
+}
+
+const _getSQLDrillDown = async (
+  sgaName: string | null,
+  weekStartDate: string,
+  weekEndDate: string
+): Promise<SQLDrillDownRecord[]> => {
+  const sgaFilter = sgaName !== null ? 'AND v.SGA_Owner_Name__c = @sgaName' : '';
+  const query = `
+    SELECT
+      v.primary_key,
+      v.advisor_name,
+      v.converted_date_raw,
+      v.Original_source,
+      COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as Channel_Grouping_Name,
+      v.TOF_Stage,
+      v.Qualification_Call_Date__c,
+      v.lead_url,
+      v.opportunity_url,
+      v.Next_Steps__c,
+      v.NextStep
+    FROM \`${FULL_TABLE}\` v
+    LEFT JOIN \`${MAPPING_TABLE}\` nm
+      ON v.Original_source = nm.original_source
+    WHERE v.converted_date_raw IS NOT NULL
+      AND v.converted_date_raw >= @weekStartDate
+      AND v.converted_date_raw <= @weekEndDate
+      AND v.is_sql = 1
+      ${sgaFilter}
+    ORDER BY v.converted_date_raw DESC
+  `;
+
+  const params: Record<string, any> = { weekStartDate, weekEndDate };
+  if (sgaName !== null) params.sgaName = sgaName;
+  const results = await runQuery<RawSQLDrillDownRecord>(query, params);
+  return results.map(transformSQLDrillDownRecord);
+};
+
+export const getSQLDrillDown = cachedQuery(
+  _getSQLDrillDown,
+  'getSQLDrillDown',
+  CACHE_TAGS.DASHBOARD
+);
+
+// ============================================================================
+// LEADS SOURCED DRILL-DOWN
+// ============================================================================
+
+function transformLeadsSourcedRecord(raw: RawLeadsSourcedRecord): LeadsSourcedRecord {
+  return {
+    primaryKey: raw.Id,
+    leadId: raw.Id,
+    advisorName: toString(raw.Name) || 'Unknown',
+    company: toString(raw.Company) || '',
+    source: toString(raw.Final_Source__c) || 'Unknown',
+    createdDate: extractDateValue(raw.CreatedDate) || '',
+    isSelfSourced: ['Fintrx (Self-Sourced)', 'LinkedIn (Self Sourced)'].includes(raw.Final_Source__c),
+    leadUrl: `https://savvywealth.lightning.force.com/lightning/r/Lead/${raw.Id}/view`,
+  };
+}
+
+const _getLeadsSourcedDrillDown = async (
+  sgaName: string | null,
+  weekStartDate: string,
+  weekEndDate: string,
+  selfSourcedOnly?: boolean
+): Promise<LeadsSourcedRecord[]> => {
+  const sgaFilter = sgaName !== null ? 'AND l.SGA_Owner_Name__c = @sgaName' : '';
+  const selfSourcedFilter = selfSourcedOnly
+    ? "AND l.Final_Source__c IN ('Fintrx (Self-Sourced)', 'LinkedIn (Self Sourced)')"
+    : '';
+
+  const query = `
+    SELECT
+      l.Id,
+      l.Name,
+      l.Company,
+      l.Final_Source__c,
+      l.CreatedDate,
+      l.SGA_Owner_Name__c
+    FROM \`savvy-gtm-analytics.SavvyGTMData.Lead\` l
+    WHERE l.CreatedDate >= TIMESTAMP(@weekStartDate)
+      AND l.CreatedDate <= TIMESTAMP(CONCAT(@weekEndDate, ' 23:59:59'))
+      ${sgaFilter}
+      ${selfSourcedFilter}
+    ORDER BY l.CreatedDate DESC
+  `;
+
+  const params: Record<string, any> = { weekStartDate, weekEndDate };
+  if (sgaName !== null) params.sgaName = sgaName;
+  const results = await runQuery<RawLeadsSourcedRecord>(query, params);
+  return results.map(transformLeadsSourcedRecord);
+};
+
+export const getLeadsSourcedDrillDown = cachedQuery(
+  _getLeadsSourcedDrillDown,
+  'getLeadsSourcedDrillDown',
+  CACHE_TAGS.DASHBOARD
+);
+
+// ============================================================================
+// LEADS CONTACTED DRILL-DOWN
+// ============================================================================
+
+function transformLeadsContactedRecord(raw: RawLeadsContactedRecord): LeadsContactedRecord {
+  return {
+    primaryKey: toString(raw.primary_key),
+    advisorName: toString(raw.advisor_name) || 'Unknown',
+    source: toString(raw.Original_source) || 'Unknown',
+    channel: toString(raw.Channel_Grouping_Name) || toString(raw.Original_source) || 'Other',
+    contactedDate: extractDateValue(raw.stage_entered_contacting__c) || '',
+    leadUrl: raw.lead_url || `https://savvywealth.lightning.force.com/lightning/r/Lead/${raw.primary_key}/view`,
+  };
+}
+
+const _getLeadsContactedDrillDown = async (
+  sgaName: string | null,
+  weekStartDate: string,
+  weekEndDate: string,
+  selfSourcedOnly?: boolean
+): Promise<LeadsContactedRecord[]> => {
+  const sgaFilterFunnel = sgaName !== null ? 'AND v.SGA_Owner_Name__c = @sgaName' : '';
+  const sgaFilterLead = sgaName !== null ? 'AND l.SGA_Owner_Name__c = @sgaName' : '';
+
+  const defaultQuery = `
+    SELECT
+      v.primary_key,
+      v.advisor_name,
+      v.Original_source,
+      COALESCE(nm.Channel_Grouping_Name, v.Channel_Grouping_Name, 'Other') as Channel_Grouping_Name,
+      v.stage_entered_contacting__c,
+      v.lead_url
+    FROM \`${FULL_TABLE}\` v
+    LEFT JOIN \`${MAPPING_TABLE}\` nm
+      ON v.Original_source = nm.original_source
+    WHERE v.stage_entered_contacting__c IS NOT NULL
+      AND v.stage_entered_contacting__c >= TIMESTAMP(@weekStartDate)
+      AND v.stage_entered_contacting__c <= TIMESTAMP(CONCAT(@weekEndDate, ' 23:59:59'))
+      ${sgaFilterFunnel}
+    ORDER BY v.stage_entered_contacting__c DESC
+  `;
+
+  const selfSourcedQuery = `
+    SELECT
+      l.Id as primary_key,
+      l.Name as advisor_name,
+      l.Final_Source__c as Original_source,
+      l.Final_Source__c as Channel_Grouping_Name,
+      l.Stage_Entered_Contacting__c as stage_entered_contacting__c,
+      CAST(NULL AS STRING) as lead_url
+    FROM \`savvy-gtm-analytics.SavvyGTMData.Lead\` l
+    WHERE l.Final_Source__c IN ('Fintrx (Self-Sourced)', 'LinkedIn (Self Sourced)')
+      AND l.Stage_Entered_Contacting__c IS NOT NULL
+      AND l.Stage_Entered_Contacting__c >= TIMESTAMP(@weekStartDate)
+      AND l.Stage_Entered_Contacting__c <= TIMESTAMP(CONCAT(@weekEndDate, ' 23:59:59'))
+      ${sgaFilterLead}
+    ORDER BY l.Stage_Entered_Contacting__c DESC
+  `;
+
+  const query = selfSourcedOnly ? selfSourcedQuery : defaultQuery;
+  const params: Record<string, any> = { weekStartDate, weekEndDate };
+  if (sgaName !== null) params.sgaName = sgaName;
+  const results = await runQuery<RawLeadsContactedRecord>(query, params);
+  return results.map(transformLeadsContactedRecord);
+};
+
+export const getLeadsContactedDrillDown = cachedQuery(
+  _getLeadsContactedDrillDown,
+  'getLeadsContactedDrillDown',
   CACHE_TAGS.DASHBOARD
 );

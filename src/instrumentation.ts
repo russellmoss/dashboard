@@ -6,9 +6,16 @@ export async function register() {
         dsn: process.env.SENTRY_DSN,
         enableLogs: true,
         debug: false,
+
+        // Tracing: full sampling in dev, 10% in production
+        tracesSampleRate: process.env.NODE_ENV === 'development' ? 1.0 : 0.1,
+
+        // Send user IP / cookies for debugging authenticated issues
+        sendDefaultPii: true,
+
         integrations: [
-          Sentry.consoleLoggingIntegration({ 
-            levels: ['log', 'warn', 'error'] 
+          Sentry.consoleLoggingIntegration({
+            levels: ['log', 'warn', 'error']
           }),
         ],
       });
@@ -45,9 +52,16 @@ export async function register() {
         dsn: process.env.SENTRY_DSN,
         enableLogs: true,
         debug: false,
+
+        // Tracing: full sampling in dev, 10% in production
+        tracesSampleRate: process.env.NODE_ENV === 'development' ? 1.0 : 0.1,
+
+        // Send user IP / cookies for debugging authenticated issues
+        sendDefaultPii: true,
+
         integrations: [
-          Sentry.consoleLoggingIntegration({ 
-            levels: ['log', 'warn', 'error'] 
+          Sentry.consoleLoggingIntegration({
+            levels: ['log', 'warn', 'error']
           }),
         ],
       });

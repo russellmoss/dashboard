@@ -36,7 +36,11 @@ export function IndividualGoalEditor({
   const [initialCallsGoal, setInitialCallsGoal] = useState<number>(0);
   const [qualificationCallsGoal, setQualificationCallsGoal] = useState<number>(0);
   const [sqoGoal, setSqoGoal] = useState<number>(0);
-  
+  const [mqlGoal, setMqlGoal] = useState<number>(0);
+  const [sqlGoal, setSqlGoal] = useState<number>(0);
+  const [leadsSourcedGoal, setLeadsSourcedGoal] = useState<number>(0);
+  const [leadsContactedGoal, setLeadsContactedGoal] = useState<number>(0);
+
   // Quarterly goal field
   const [quarterlySqoGoal, setQuarterlySqoGoal] = useState<number>(0);
   
@@ -49,6 +53,10 @@ export function IndividualGoalEditor({
         setInitialCallsGoal(sgaOverview.currentWeekGoal.initialCallsGoal);
         setQualificationCallsGoal(sgaOverview.currentWeekGoal.qualificationCallsGoal);
         setSqoGoal(sgaOverview.currentWeekGoal.sqoGoal);
+        setMqlGoal(sgaOverview.currentWeekGoal.mqlGoal ?? 0);
+        setSqlGoal(sgaOverview.currentWeekGoal.sqlGoal ?? 0);
+        setLeadsSourcedGoal(sgaOverview.currentWeekGoal.leadsSourcedGoal ?? 0);
+        setLeadsContactedGoal(sgaOverview.currentWeekGoal.leadsContactedGoal ?? 0);
         setWeekStartDate(sgaOverview.currentWeekGoal.weekStartDate);
       } else if (goalType === 'quarterly' && sgaOverview.currentQuarterGoal) {
         setQuarterlySqoGoal(sgaOverview.currentQuarterGoal.sqoGoal);
@@ -58,6 +66,10 @@ export function IndividualGoalEditor({
         setInitialCallsGoal(0);
         setQualificationCallsGoal(0);
         setSqoGoal(0);
+        setMqlGoal(0);
+        setSqlGoal(0);
+        setLeadsSourcedGoal(0);
+        setLeadsContactedGoal(0);
         setQuarterlySqoGoal(0);
       }
       setError(null);
@@ -78,15 +90,13 @@ export function IndividualGoalEditor({
 
       if (goalType === 'weekly') {
         // Validate weekly goals
-        if (initialCallsGoal < 0 || qualificationCallsGoal < 0 || sqoGoal < 0) {
+        const weeklyFields = [initialCallsGoal, qualificationCallsGoal, sqoGoal, mqlGoal, sqlGoal, leadsSourcedGoal, leadsContactedGoal];
+        if (weeklyFields.some(v => v < 0)) {
           setError('Goals must be non-negative integers');
           setLoading(false);
           return;
         }
-
-        if (!Number.isInteger(initialCallsGoal) ||
-            !Number.isInteger(qualificationCallsGoal) ||
-            !Number.isInteger(sqoGoal)) {
+        if (weeklyFields.some(v => !Number.isInteger(v))) {
           setError('Goals must be whole numbers');
           setLoading(false);
           return;
@@ -101,6 +111,10 @@ export function IndividualGoalEditor({
             initialCallsGoal,
             qualificationCallsGoal,
             sqoGoal,
+            mqlGoal,
+            sqlGoal,
+            leadsSourcedGoal,
+            leadsContactedGoal,
           }),
         });
 
@@ -200,47 +214,36 @@ export function IndividualGoalEditor({
           {/* Goal Values */}
           {goalType === 'weekly' ? (
             <div className="space-y-4">
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Pipeline</p>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Initial Calls Goal
-                </label>
-                <TextInput
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={initialCallsGoal.toString()}
-                  onChange={(e) => setInitialCallsGoal(parseInt(e.target.value) || 0)}
-                  placeholder="0"
-                  required
-                />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">MQL Goal</label>
+                <TextInput type="text" inputMode="numeric" value={mqlGoal.toString()} onChange={(e) => setMqlGoal(parseInt(e.target.value) || 0)} placeholder="0" required />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Qualification Calls Goal
-                </label>
-                <TextInput
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={qualificationCallsGoal.toString()}
-                  onChange={(e) => setQualificationCallsGoal(parseInt(e.target.value) || 0)}
-                  placeholder="0"
-                  required
-                />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">SQL Goal</label>
+                <TextInput type="text" inputMode="numeric" value={sqlGoal.toString()} onChange={(e) => setSqlGoal(parseInt(e.target.value) || 0)} placeholder="0" required />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  SQO Goal
-                </label>
-                <TextInput
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={sqoGoal.toString()}
-                  onChange={(e) => setSqoGoal(parseInt(e.target.value) || 0)}
-                  placeholder="0"
-                  required
-                />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">SQO Goal</label>
+                <TextInput type="text" inputMode="numeric" value={sqoGoal.toString()} onChange={(e) => setSqoGoal(parseInt(e.target.value) || 0)} placeholder="0" required />
+              </div>
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider pt-2">Calls</p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Initial Calls Goal</label>
+                <TextInput type="text" inputMode="numeric" value={initialCallsGoal.toString()} onChange={(e) => setInitialCallsGoal(parseInt(e.target.value) || 0)} placeholder="0" required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Qualification Calls Goal</label>
+                <TextInput type="text" inputMode="numeric" value={qualificationCallsGoal.toString()} onChange={(e) => setQualificationCallsGoal(parseInt(e.target.value) || 0)} placeholder="0" required />
+              </div>
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider pt-2">Lead Activity</p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Leads Sourced Goal</label>
+                <TextInput type="text" inputMode="numeric" value={leadsSourcedGoal.toString()} onChange={(e) => setLeadsSourcedGoal(parseInt(e.target.value) || 0)} placeholder="0" required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Leads Contacted Goal</label>
+                <TextInput type="text" inputMode="numeric" value={leadsContactedGoal.toString()} onChange={(e) => setLeadsContactedGoal(parseInt(e.target.value) || 0)} placeholder="0" required />
               </div>
             </div>
           ) : (

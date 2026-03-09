@@ -5,7 +5,7 @@
  */
 
 // Metric type for drill-down
-export type MetricType = 'initial-calls' | 'qualification-calls' | 'sqos' | 'open-sqls';
+export type MetricType = 'initial-calls' | 'qualification-calls' | 'sqos' | 'open-sqls' | 'mqls' | 'sqls' | 'leads-sourced' | 'leads-contacted';
 
 // Base interface with common fields
 export interface DrillDownRecordBase {
@@ -58,8 +58,42 @@ export interface OpenSQLDrillDownRecord extends DrillDownRecordBase {
   stageName: string | null;
 }
 
+// MQL Drill-Down Record
+export interface MQLDrillDownRecord extends DrillDownRecordBase {
+  mqlDate: string;
+  initialCallDate: string | null;
+}
+
+// SQL Drill-Down Record
+export interface SQLDrillDownRecord extends DrillDownRecordBase {
+  sqlDate: string;
+  qualificationCallDate: string | null;
+}
+
+// Leads Sourced Record (different fields from Lead table — does NOT extend DrillDownRecordBase)
+export interface LeadsSourcedRecord {
+  primaryKey: string;  // Lead Id — matches primary_key in vw_funnel_master
+  leadId: string;
+  advisorName: string;
+  company: string;
+  source: string;
+  createdDate: string;
+  isSelfSourced: boolean;
+  leadUrl: string | null;
+}
+
+// Leads Contacted Record
+export interface LeadsContactedRecord {
+  primaryKey: string;
+  advisorName: string;
+  source: string;
+  channel: string;
+  contactedDate: string;
+  leadUrl: string | null;
+}
+
 // Union type for all drill-down records
-export type DrillDownRecord = InitialCallRecord | QualificationCallRecord | SQODrillDownRecord | OpenSQLDrillDownRecord;
+export type DrillDownRecord = InitialCallRecord | QualificationCallRecord | SQODrillDownRecord | OpenSQLDrillDownRecord | MQLDrillDownRecord | SQLDrillDownRecord | LeadsSourcedRecord | LeadsContactedRecord;
 
 // Props for MetricDrillDownModal
 export interface MetricDrillDownModalProps {
@@ -168,6 +202,54 @@ export interface RawSQODrillDownRecord {
   Stage_Entered_On_Hold__c: { value: string } | string | null;
   Stage_Entered_Closed__c: { value: string } | string | null;
 }
+
+// Raw BigQuery types for new drill-down records
+export interface RawMQLDrillDownRecord {
+  primary_key: string;
+  advisor_name: string;
+  mql_stage_entered_ts: { value: string } | string | null;
+  Original_source: string;
+  Channel_Grouping_Name: string | null;
+  TOF_Stage: string;
+  Initial_Call_Scheduled_Date__c: { value: string } | string | null;
+  lead_url: string | null;
+  opportunity_url: string | null;
+  Next_Steps__c: string | null;
+  NextStep: string | null;
+}
+
+export interface RawSQLDrillDownRecord {
+  primary_key: string;
+  advisor_name: string;
+  converted_date_raw: string | { value: string } | null;
+  Original_source: string;
+  Channel_Grouping_Name: string | null;
+  TOF_Stage: string;
+  Qualification_Call_Date__c: { value: string } | string | null;
+  lead_url: string | null;
+  opportunity_url: string | null;
+  Next_Steps__c: string | null;
+  NextStep: string | null;
+}
+
+export interface RawLeadsSourcedRecord {
+  Id: string;
+  Name: string;
+  Company: string | null;
+  Final_Source__c: string;
+  CreatedDate: { value: string } | string | null;
+  SGA_Owner_Name__c: string;
+}
+
+export interface RawLeadsContactedRecord {
+  primary_key: string;
+  advisor_name: string;
+  Original_source: string;
+  Channel_Grouping_Name: string | null;
+  stage_entered_contacting__c: { value: string } | string | null;
+  lead_url: string | null;
+}
+// NOTE: Final_Source__c is NOT in vw_funnel_master. Self-sourced toggle only affects counts, not drill-down records.
 
 // Drill-down context for "Back" button functionality
 export interface DrillDownContext {

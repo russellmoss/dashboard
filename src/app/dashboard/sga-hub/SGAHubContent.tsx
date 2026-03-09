@@ -6,6 +6,8 @@ import { useSession } from 'next-auth/react';
 import { SGAHubTabs, SGAHubTab } from '@/components/sga-hub/SGAHubTabs';
 import { WeeklyGoalsTable } from '@/components/sga-hub/WeeklyGoalsTable';
 import { WeeklyGoalEditor } from '@/components/sga-hub/WeeklyGoalEditor';
+import { WeeklyGoalsVsActuals } from '@/components/sga-hub/WeeklyGoalsVsActuals';
+import { AdminGoalsRollupView } from '@/components/sga-hub/AdminGoalsRollupView';
 import { ClosedLostFollowUpTabs } from '@/components/sga-hub/ClosedLostFollowUpTabs';
 import { QuarterlyProgressCard } from '@/components/sga-hub/QuarterlyProgressCard';
 import { SQODetailTable } from '@/components/sga-hub/SQODetailTable';
@@ -95,6 +97,12 @@ export function SGAHubContent() {
   const [leaderboardSources, setLeaderboardSources] = useState<string[]>([]); // Empty array = all sources (default)
   const [leaderboardSGAs, setLeaderboardSGAs] = useState<string[]>([]); // Empty array = all active SGAs (default)
 
+  // Admin Goals vs. Actuals state
+  const [allSGAGoals, setAllSGAGoals] = useState<WeeklyGoal[]>([]);
+  const [allSGAActuals, setAllSGAActuals] = useState<WeeklyActual[]>([]);
+  const [sgaList, setSgaList] = useState<Array<{ email: string; name: string }>>([]);
+  const [sgaUsersFromGoals, setSgaUsersFromGoals] = useState<Array<{ email: string; name: string }>>([]);
+
   // Filter options (for channel/source/SGA dropdowns)
   const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null);
   const [sgaOptions, setSgaOptions] = useState<Array<{ value: string; label: string; isActive: boolean }>>([]);
@@ -105,14 +113,42 @@ export function SGAHubContent() {
     try {
       setLoading(true);
       setError(null);
-      
-      const [goalsResponse, actualsResponse] = await Promise.all([
-        dashboardApi.getWeeklyGoals(dateRange.startDate, dateRange.endDate),
-        dashboardApi.getWeeklyActuals(dateRange.startDate, dateRange.endDate),
-      ]);
-      
-      setWeeklyGoals(goalsResponse.goals);
-      setWeeklyActuals(actualsResponse.actuals);
+
+      if (isAdmin) {
+        // Admin: fetch all SGAs' data for rollup view
+        const [goalsResponse, actualsResponse] = await Promise.all([
+          dashboardApi.getAllSGAWeeklyGoals(dateRange.startDate, dateRange.endDate),
+          dashboardApi.getAllSGAWeeklyActuals(dateRange.startDate, dateRange.endDate),
+        ]);
+
+        setAllSGAGoals(goalsResponse.goals);
+
+        // Flatten all SGA actuals into a single array (tag each with sgaName)
+        const flatActuals: (WeeklyActual & { sgaName: string })[] = [];
+        for (const sgaGroup of actualsResponse.actuals) {
+          for (const actual of sgaGroup.actuals) {
+            flatActuals.push({ ...actual, sgaName: sgaGroup.sgaName });
+          }
+        }
+        setAllSGAActuals(flatActuals as unknown as WeeklyActual[]);
+
+        // Store sgaUsers for email lookup (used by SGA list effect below)
+        setSgaUsersFromGoals((goalsResponse as any).sgaUsers || []);
+
+        // Also set individual data for own user
+        setWeeklyGoals(goalsResponse.goals.filter(g => g.userEmail === session?.user?.email));
+        const ownActuals = actualsResponse.actuals.find(s => s.sgaName === sgaName);
+        setWeeklyActuals(ownActuals?.actuals || []);
+      } else {
+        // SGA: fetch own data only
+        const [goalsResponse, actualsResponse] = await Promise.all([
+          dashboardApi.getWeeklyGoals(dateRange.startDate, dateRange.endDate),
+          dashboardApi.getWeeklyActuals(dateRange.startDate, dateRange.endDate),
+        ]);
+
+        setWeeklyGoals(goalsResponse.goals);
+        setWeeklyActuals(actualsResponse.actuals);
+      }
     } catch (err) {
       setError(handleApiError(err));
     } finally {
@@ -242,6 +278,18 @@ export function SGAHubContent() {
     fetchSGAOptions();
   }, []);
 
+  // Build admin SGA list when sgaOptions or sgaUsersFromGoals change
+  useEffect(() => {
+    if (!isAdmin) return;
+    if (sgaOptions.length === 0) return;
+    const emailByName = new Map(sgaUsersFromGoals.map(su => [su.name, su.email]));
+    const activeSGAs = sgaOptions
+      .filter(s => s.isActive)
+      .map(s => ({ email: emailByName.get(s.value) || '', name: s.value }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    setSgaList(activeSGAs);
+  }, [isAdmin, sgaOptions, sgaUsersFromGoals]);
+
   // Fetch leaderboard data
   const fetchLeaderboard = async () => {
     try {
@@ -323,13 +371,14 @@ export function SGAHubContent() {
         initialCalls: 0,
         qualificationCalls: 0,
         sqos: 0,
+        mqls: 0,
+        sqls: 0,
+        leadsSourced: 0,
+        leadsSourcedSelfSourced: 0,
+        leadsContacted: 0,
+        leadsContactedSelfSourced: 0,
       };
-      
-      // Calculate differences
-      const initialCallsDiff = goal ? actual.initialCalls - goal.initialCallsGoal : null;
-      const qualificationCallsDiff = goal ? actual.qualificationCalls - goal.qualificationCallsGoal : null;
-      const sqoDiff = goal ? actual.sqos - goal.sqoGoal : null;
-      
+
       weeks.push({
         weekStartDate,
         weekEndDate: weekInfo.weekEndDate,
@@ -337,12 +386,26 @@ export function SGAHubContent() {
         initialCallsGoal: goal?.initialCallsGoal ?? null,
         qualificationCallsGoal: goal?.qualificationCallsGoal ?? null,
         sqoGoal: goal?.sqoGoal ?? null,
+        mqlGoal: goal?.mqlGoal ?? null,
+        sqlGoal: goal?.sqlGoal ?? null,
+        leadsSourcedGoal: goal?.leadsSourcedGoal ?? null,
+        leadsContactedGoal: goal?.leadsContactedGoal ?? null,
         initialCallsActual: actual.initialCalls,
         qualificationCallsActual: actual.qualificationCalls,
         sqoActual: actual.sqos,
-        initialCallsDiff,
-        qualificationCallsDiff,
-        sqoDiff,
+        mqlActual: actual.mqls,
+        sqlActual: actual.sqls,
+        leadsSourcedActual: actual.leadsSourced,
+        leadsSourcedSelfSourcedActual: actual.leadsSourcedSelfSourced,
+        leadsContactedActual: actual.leadsContacted,
+        leadsContactedSelfSourcedActual: actual.leadsContactedSelfSourced,
+        initialCallsDiff: goal ? actual.initialCalls - goal.initialCallsGoal : null,
+        qualificationCallsDiff: goal ? actual.qualificationCalls - goal.qualificationCallsGoal : null,
+        sqoDiff: goal ? actual.sqos - goal.sqoGoal : null,
+        mqlDiff: goal ? actual.mqls - goal.mqlGoal : null,
+        sqlDiff: goal ? actual.sqls - goal.sqlGoal : null,
+        leadsSourcedDiff: goal ? actual.leadsSourced - goal.leadsSourcedGoal : null,
+        leadsContactedDiff: goal ? actual.leadsContacted - goal.leadsContactedGoal : null,
         hasGoal: !!goal,
         canEdit: isAdmin || isCurrentWeek || isFutureWeek,
       });
@@ -374,9 +437,12 @@ export function SGAHubContent() {
     return formatDateISO(getWeekSundayDate(startDate));
   };
 
-  // Handle metric click from Weekly Goals Table
-  const handleWeeklyMetricClick = async (weekStartDate: string, metricType: MetricType) => {
-    if (!sgaName || sgaName === 'Unknown') return;
+  // Handle metric click from Weekly Goals / Goals vs. Actuals
+  const handleWeeklyMetricClick = async (weekStartDate: string, metricType: MetricType, options?: { selfSourcedOnly?: boolean; sgaName?: string; userEmail?: string; teamLevel?: boolean }) => {
+    const targetSGA = options?.sgaName || sgaName;
+    const targetEmail = options?.userEmail;
+    const teamLevel = options?.teamLevel || false;
+    if (!teamLevel && (!targetSGA || targetSGA === 'Unknown')) return;
 
     setDrillDownLoading(true);
     setDrillDownError(null);
@@ -390,15 +456,19 @@ export function SGAHubContent() {
       'qualification-calls': 'Qualification Calls',
       'sqos': 'SQOs',
       'open-sqls': 'Open SQLs',
+      'mqls': 'MQLs',
+      'sqls': 'SQLs',
+      'leads-sourced': 'Leads Sourced',
+      'leads-contacted': 'Leads Contacted',
     };
-    
+
     const title = `${metricLabels[metricType]} - Week of ${formatDate(weekStartDate)}`;
     setDrillDownTitle(title);
 
     setDrillDownContext({
       metricType,
       title,
-      sgaName: sgaName,
+      sgaName: targetSGA,
       weekStartDate,
       weekEndDate,
     });
@@ -406,21 +476,43 @@ export function SGAHubContent() {
     try {
       let records: DrillDownRecord[] = [];
 
-      // For SGA Hub, users are viewing their own data, so don't pass userEmail
-      // Only admins/managers viewing other users' data should pass userEmail
       switch (metricType) {
         case 'initial-calls': {
-          const response = await dashboardApi.getInitialCallsDrillDown(sgaName, weekStartDate, weekEndDate);
+          const response = await dashboardApi.getInitialCallsDrillDown(targetSGA, weekStartDate, weekEndDate, targetEmail, teamLevel);
           records = response.records;
           break;
         }
         case 'qualification-calls': {
-          const response = await dashboardApi.getQualificationCallsDrillDown(sgaName, weekStartDate, weekEndDate);
+          const response = await dashboardApi.getQualificationCallsDrillDown(targetSGA, weekStartDate, weekEndDate, targetEmail, teamLevel);
           records = response.records;
           break;
         }
         case 'sqos': {
-          const response = await dashboardApi.getSQODrillDown(sgaName, { weekStartDate, weekEndDate });
+          const response = await dashboardApi.getSQODrillDown(targetSGA, { weekStartDate, weekEndDate }, targetEmail, undefined, undefined, teamLevel);
+          records = response.records;
+          break;
+        }
+        case 'mqls': {
+          const response = await dashboardApi.getMQLDrillDown(targetSGA, weekStartDate, weekEndDate, targetEmail, teamLevel);
+          records = response.records;
+          break;
+        }
+        case 'sqls': {
+          const response = await dashboardApi.getSQLDrillDown(targetSGA, weekStartDate, weekEndDate, targetEmail, teamLevel);
+          records = response.records;
+          break;
+        }
+        case 'leads-sourced': {
+          const response = await dashboardApi.getLeadsSourcedDrillDown(
+            targetSGA, weekStartDate, weekEndDate, options?.selfSourcedOnly, targetEmail, teamLevel
+          );
+          records = response.records;
+          break;
+        }
+        case 'leads-contacted': {
+          const response = await dashboardApi.getLeadsContactedDrillDown(
+            targetSGA, weekStartDate, weekEndDate, options?.selfSourcedOnly, targetEmail, teamLevel
+          );
           records = response.records;
           break;
         }
@@ -725,59 +817,33 @@ export function SGAHubContent() {
       
       {activeTab === 'weekly-goals' && (
         <>
-          <div className="mb-4 flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Start Date:
-              </label>
-              <input
-                type="date"
-                value={dateRange.startDate}
-                onChange={(e) => setDateRange({ ...dateRange, startDate: e.target.value })}
-                className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                End Date:
-              </label>
-              <input
-                type="date"
-                value={dateRange.endDate}
-                onChange={(e) => setDateRange({ ...dateRange, endDate: e.target.value })}
-                className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-              />
-            </div>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => setDateRange(getDefaultWeekRange())}
-            >
-              Reset to Default
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              icon={Download}
-              onClick={() => exportWeeklyGoalsCSV(goalsWithActuals, sgaName)}
-              disabled={goalsWithActuals.length === 0}
-            >
-              Export CSV
-            </Button>
-          </div>
-          
           {error && (
             <Card className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
               <Text className="text-red-600 dark:text-red-400">{error}</Text>
             </Card>
           )}
-          
-          <WeeklyGoalsTable
-            goals={goalsWithActuals}
-            onEditGoal={handleEditGoal}
-            isLoading={loading}
-            onMetricClick={handleWeeklyMetricClick}
-          />
+
+          {loading ? (
+            <LoadingSpinner />
+          ) : isAdmin ? (
+            <AdminGoalsRollupView
+              allSGAGoals={allSGAGoals}
+              allSGAActuals={allSGAActuals}
+              sgaList={sgaList}
+              onGoalSaved={() => fetchWeeklyData()}
+              onMetricClick={handleWeeklyMetricClick}
+            />
+          ) : (
+            <WeeklyGoalsVsActuals
+              weeklyGoals={weeklyGoals}
+              weeklyActuals={weeklyActuals}
+              isAdmin={false}
+              sgaName={sgaName}
+              userEmail={session?.user?.email || ''}
+              onGoalSaved={() => fetchWeeklyData()}
+              onMetricClick={handleWeeklyMetricClick}
+            />
+          )}
         </>
       )}
       

@@ -11,13 +11,11 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
-    // Check authentication
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Use permissions from session (derived from JWT, no DB query)
     const permissions = getSessionPermissions(session);
     if (!permissions) {
       return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
@@ -26,13 +24,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Parse query parameters
     const { searchParams } = new URL(request.url);
     const targetUserEmail = searchParams.get('userEmail');
+    const teamLevel = searchParams.get('teamLevel') === 'true';
     const weekStartDate = searchParams.get('weekStartDate');
     const weekEndDate = searchParams.get('weekEndDate');
 
-    // Validate required parameters
     if (!weekStartDate || !weekEndDate) {
       return NextResponse.json(
         { error: 'Missing required parameters: weekStartDate, weekEndDate' },
@@ -40,27 +37,34 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Determine which user's records to fetch
-    let userEmail = session.user.email;
-    if (targetUserEmail) {
+    let sgaName: string | null = null;
+
+    if (teamLevel) {
       if (!['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
-      userEmail = targetUserEmail;
+      sgaName = null;
+    } else {
+      let userEmail = session.user.email;
+      if (targetUserEmail) {
+        if (!['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
+          return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+        userEmail = targetUserEmail;
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { email: userEmail },
+        select: { name: true },
+      });
+
+      if (!user) {
+        return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      }
+      sgaName = user.name;
     }
 
-    // Get user to retrieve name for BigQuery filter
-    const user = await prisma.user.findUnique({
-      where: { email: userEmail },
-      select: { name: true },
-    });
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    // Fetch drill-down records
-    const records = await getQualificationCallsDrillDown(user.name, weekStartDate, weekEndDate);
+    const records = await getQualificationCallsDrillDown(sgaName, weekStartDate, weekEndDate);
 
     return NextResponse.json({ records });
   } catch (error) {

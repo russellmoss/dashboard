@@ -36,6 +36,10 @@ export function BulkGoalEditor({
   const [initialCallsGoal, setInitialCallsGoal] = useState<number>(0);
   const [qualificationCallsGoal, setQualificationCallsGoal] = useState<number>(0);
   const [sqoGoal, setSqoGoal] = useState<number>(0);
+  const [mqlGoal, setMqlGoal] = useState<number>(0);
+  const [sqlGoal, setSqlGoal] = useState<number>(0);
+  const [leadsSourcedGoal, setLeadsSourcedGoal] = useState<number>(0);
+  const [leadsContactedGoal, setLeadsContactedGoal] = useState<number>(0);
 
   // Quarterly goal field
   const [quarterlySqoGoal, setQuarterlySqoGoal] = useState<number>(0);
@@ -47,6 +51,10 @@ export function BulkGoalEditor({
       setInitialCallsGoal(0);
       setQualificationCallsGoal(0);
       setSqoGoal(0);
+      setMqlGoal(0);
+      setSqlGoal(0);
+      setLeadsSourcedGoal(0);
+      setLeadsContactedGoal(0);
       setQuarterlySqoGoal(0);
       setError(null);
     }
@@ -94,6 +102,10 @@ export function BulkGoalEditor({
               initialCallsGoal,
               qualificationCallsGoal,
               sqoGoal,
+              mqlGoal,
+              sqlGoal,
+              leadsSourcedGoal,
+              leadsContactedGoal,
             }),
           });
           if (!response.ok) throw new Error(`Failed to save goal for ${email}`);
@@ -199,45 +211,43 @@ export function BulkGoalEditor({
 
           {/* Goal Values */}
           {goalType === 'weekly' ? (
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Initial Calls Goal
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={initialCallsGoal}
-                  onChange={(e) => setInitialCallsGoal(parseInt(e.target.value) || 0)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                  required
-                />
+            <div className="space-y-4">
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Pipeline</p>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">MQL Goal</label>
+                  <input type="text" inputMode="numeric" value={mqlGoal} onChange={(e) => setMqlGoal(parseInt(e.target.value) || 0)} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white" required />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">SQL Goal</label>
+                  <input type="text" inputMode="numeric" value={sqlGoal} onChange={(e) => setSqlGoal(parseInt(e.target.value) || 0)} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white" required />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">SQO Goal</label>
+                  <input type="text" inputMode="numeric" value={sqoGoal} onChange={(e) => setSqoGoal(parseInt(e.target.value) || 0)} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white" required />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Qualification Calls Goal
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={qualificationCallsGoal}
-                  onChange={(e) => setQualificationCallsGoal(parseInt(e.target.value) || 0)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                  required
-                />
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider pt-2">Calls</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Initial Calls Goal</label>
+                  <input type="text" inputMode="numeric" value={initialCallsGoal} onChange={(e) => setInitialCallsGoal(parseInt(e.target.value) || 0)} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white" required />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Qualification Calls Goal</label>
+                  <input type="text" inputMode="numeric" value={qualificationCallsGoal} onChange={(e) => setQualificationCallsGoal(parseInt(e.target.value) || 0)} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white" required />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  SQO Goal
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={sqoGoal}
-                  onChange={(e) => setSqoGoal(parseInt(e.target.value) || 0)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                  required
-                />
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider pt-2">Lead Activity</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Leads Sourced Goal</label>
+                  <input type="text" inputMode="numeric" value={leadsSourcedGoal} onChange={(e) => setLeadsSourcedGoal(parseInt(e.target.value) || 0)} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white" required />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Leads Contacted Goal</label>
+                  <input type="text" inputMode="numeric" value={leadsContactedGoal} onChange={(e) => setLeadsContactedGoal(parseInt(e.target.value) || 0)} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white" required />
+                </div>
               </div>
             </div>
           ) : (

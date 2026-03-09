@@ -714,21 +714,30 @@ Two related pages for SGA performance tracking:
 
 ### SGA Hub Tabs
 
-#### 1. Weekly Goals Tab
+#### 1. Weekly Goals vs. Actuals Tab
 
-Tracks weekly activity metrics against goals:
+Tracks 7 weekly activity metrics against goals with scorecard + chart views:
 
 | Metric | Date Field | Filter |
 |--------|------------|--------|
+| MQLs | `Date_Became_MQL__c` (TIMESTAMP) | Week range |
+| SQLs | `Date_Became_SQL__c` (TIMESTAMP) | Week range |
+| SQOs | `Date_Became_SQO__c` (TIMESTAMP) | Week range + `is_sqo_unique=1` + `recordtypeid` |
 | Initial Calls | `Initial_Call_Scheduled_Date__c` (DATE) | Week range |
 | Qualification Calls | `Qualification_Call_Date__c` (DATE) | Week range |
-| SQOs | `Date_Became_SQO__c` (TIMESTAMP) | Week range + `is_sqo_unique=1` + `recordtypeid` |
+| Leads Sourced | `CreatedDate` (TIMESTAMP) | Week range + SGA ownership |
+| Leads Contacted | `First_Activity_Date__c` (DATE) | Week range + SGA ownership |
 
 **Call Timing in Funnel**:
 - Initial Calls occur between MQL and SQL (SGA schedules and conducts)
 - Qualification Calls occur after SQL conversion (SGA + SGM conduct together to determine SQO eligibility)
 
 **Week Definition**: Monday-Sunday, calculated with `DATE_TRUNC(..., WEEK(MONDAY))`
+
+**Layout**:
+- **Scorecards**: Last Week + This Week side-by-side, Next Week centered below. Each scorecard shows Goal, Actual, and Difference with color-coded left border matching chart colors.
+- **Charts**: Three Recharts line charts (Pipeline, Calls, Lead Activity) with week-based range selector (4/8/12 weeks + custom date range). Default data window is 12 weeks back.
+- **Admin Rollup View**: Aggregates all SGA goals/actuals into a single rolled-up view. Dropdown to switch between "All SGAs (Rollup)" and individual SGAs. Rollup is read-only; individual SGA view allows goal editing.
 
 **Goal Storage**: PostgreSQL via Prisma `WeeklyGoal` model:
 ```prisma
@@ -739,6 +748,10 @@ model WeeklyGoal {
   initialCallsGoal       Int      @default(0)
   qualificationCallsGoal Int      @default(0)
   sqoGoal                Int      @default(0)
+  mqlGoal                Int      @default(0)
+  sqlGoal                Int      @default(0)
+  leadsSourcedGoal       Int      @default(0)
+  leadsContactedGoal     Int      @default(0)
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
   createdBy              String?  // Email of user who created
@@ -753,6 +766,7 @@ model WeeklyGoal {
 **Edit Permissions**:
 - **SGAs**: Can only edit current and future weeks (not past)
 - **Admins/Managers**: Can edit any week for any SGA
+- **Rollup view**: Always read-only (goals are aggregated)
 
 #### 2. Quarterly Progress Tab
 
@@ -851,13 +865,20 @@ Overview dashboard showing all active SGAs:
 
 ### Drill-Down Modals
 
-Click any metric value to see underlying records:
+Click any metric actual value to see underlying records:
 
 | Metric | API Route | Records Shown |
 |--------|-----------|---------------|
+| MQLs | `/api/sga-hub/drill-down/mqls` | Leads that became MQL in period |
+| SQLs | `/api/sga-hub/drill-down/sqls` | Leads that became SQL in period |
+| SQOs | `/api/sga-hub/drill-down/sqos` | Opportunities that became SQO |
 | Initial Calls | `/api/sga-hub/drill-down/initial-calls` | Leads with initial call in period |
 | Qualification Calls | `/api/sga-hub/drill-down/qualification-calls` | Leads with qual call in period |
-| SQOs | `/api/sga-hub/drill-down/sqos` | Opportunities that became SQO |
+| Leads Sourced | `/api/sga-hub/drill-down/leads-sourced` | Leads created in period |
+| Leads Contacted | `/api/sga-hub/drill-down/leads-contacted` | Leads with first activity in period |
+| Open SQLs | `/api/sga-hub/drill-down/open-sqls` | Open SQL opportunities (quarterly) |
+
+**Team-Level Drill-Down**: When clicking metrics in the admin rollup view, `teamLevel=true` is passed to skip the SGA filter and return all records across all SGAs. Only `admin`, `manager`, and `revops_admin` roles can use team-level queries.
 
 **Nested Modal Flow**:
 ```
@@ -866,7 +887,7 @@ Metric Click → Drill-Down Modal → Row Click → Record Detail Modal
                         "← Back" button returns here
 ```
 
-**MetricDrillDownModal Component**: Shared component used by both SGA Hub and SGA Management.
+**MetricDrillDownModal Component**: Shared component used by both SGA Hub and SGA Management. Supports CSV export for all metric types.
 
 ### SGA Name Matching
 
@@ -882,7 +903,11 @@ Metric Click → Drill-Down Modal → Row Click → Record Detail Modal
 |-------|------|-------------------|
 | `Initial_Call_Scheduled_Date__c` | DATE | Direct: `>= @startDate` |
 | `Qualification_Call_Date__c` | DATE | Direct: `>= @startDate` |
+| `First_Activity_Date__c` | DATE | Direct: `>= @startDate` |
+| `Date_Became_MQL__c` | TIMESTAMP | Wrapped: `>= TIMESTAMP(@startDate)` |
+| `Date_Became_SQL__c` | TIMESTAMP | Wrapped: `>= TIMESTAMP(@startDate)` |
 | `Date_Became_SQO__c` | TIMESTAMP | Wrapped: `>= TIMESTAMP(@startDate)` |
+| `CreatedDate` | TIMESTAMP | Wrapped: `>= TIMESTAMP(@startDate)` |
 
 **Week Join Pattern**: Cast TIMESTAMP to DATE when grouping:
 ```sql
@@ -891,26 +916,36 @@ DATE(DATE_TRUNC(Date_Became_SQO__c, WEEK(MONDAY))) as week_start
 
 ### CSV Export
 
-All tabs support CSV export:
-- `exportWeeklyGoalsCSV()` — Weekly goals with actuals
+All tabs support CSV export via `src/lib/utils/sga-hub-csv-export.ts`:
+- `exportWeeklyGoalsCSV()` — Weekly goals with actuals (all 7 metrics: MQL, SQL, SQO, IC, QC, Leads Sourced, Leads Contacted)
 - `exportQuarterlyProgressCSV()` — Quarterly progress data
 - `exportClosedLostCSV()` — Closed lost records
-- `exportAdminOverviewCSV()` — Admin SGA overview
+- `exportAdminOverviewCSV()` — Admin SGA overview (all 7 weekly goal/actual columns + quarterly progress)
+- **MetricDrillDownModal** — Each drill-down modal has its own CSV export for the underlying records
 
 ### API Routes
 
 | Route | Method | Purpose |
 |-------|--------|---------|
-| `/api/sga-hub/weekly-goals` | GET/POST | Get/set weekly goals |
-| `/api/sga-hub/weekly-actuals` | GET | Get actuals from BigQuery |
+| `/api/sga-hub/weekly-goals` | GET/POST | Get/set weekly goals (7 metrics) |
+| `/api/sga-hub/weekly-actuals` | GET | Get actuals from BigQuery (7 metrics + self-sourced variants) |
 | `/api/sga-hub/quarterly-progress` | GET | Get quarterly SQO progress |
 | `/api/sga-hub/quarterly-goals` | GET/POST | Get/set quarterly goals |
+| `/api/sga-hub/admin-quarterly-progress` | GET | Admin view of all SGA quarterly progress |
+| `/api/sga-hub/manager-quarterly-goal` | GET/POST | Manager quarterly goal management |
 | `/api/sga-hub/closed-lost` | GET | Get closed lost records |
 | `/api/sga-hub/sqo-details` | GET | Get SQO details for current quarter |
 | `/api/sga-hub/re-engagement` | GET | Get re-engagement opportunities |
-| `/api/sga-hub/drill-down/initial-calls` | POST | Drill-down for initial calls |
-| `/api/sga-hub/drill-down/qualification-calls` | POST | Drill-down for qual calls |
-| `/api/sga-hub/drill-down/sqos` | POST | Drill-down for SQOs |
+| `/api/sga-hub/leaderboard` | GET | SGA leaderboard data |
+| `/api/sga-hub/leaderboard-sga-options` | GET | SGA options for leaderboard filters |
+| `/api/sga-hub/drill-down/initial-calls` | POST | Drill-down: initial calls (supports teamLevel) |
+| `/api/sga-hub/drill-down/qualification-calls` | POST | Drill-down: qualification calls (supports teamLevel) |
+| `/api/sga-hub/drill-down/mqls` | POST | Drill-down: MQLs (supports teamLevel) |
+| `/api/sga-hub/drill-down/sqls` | POST | Drill-down: SQLs (supports teamLevel) |
+| `/api/sga-hub/drill-down/sqos` | POST | Drill-down: SQOs (supports teamLevel) |
+| `/api/sga-hub/drill-down/leads-sourced` | POST | Drill-down: leads sourced (supports teamLevel) |
+| `/api/sga-hub/drill-down/leads-contacted` | POST | Drill-down: leads contacted (supports teamLevel) |
+| `/api/sga-hub/drill-down/open-sqls` | POST | Drill-down: open SQL opportunities |
 | `/api/admin/sga-overview` | GET | Admin overview of all SGAs |
 
 ---

@@ -1,10 +1,10 @@
-// src/app/api/sga-hub/drill-down/initial-calls/route.ts
+// src/app/api/sga-hub/drill-down/leads-contacted/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
-import { getInitialCallsDrillDown } from '@/lib/queries/drill-down';
+import { getLeadsContactedDrillDown } from '@/lib/queries/drill-down';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
     const teamLevel = searchParams.get('teamLevel') === 'true';
     const weekStartDate = searchParams.get('weekStartDate');
     const weekEndDate = searchParams.get('weekEndDate');
+    const selfSourcedOnly = searchParams.get('selfSourcedOnly') === 'true';
 
     if (!weekStartDate || !weekEndDate) {
       return NextResponse.json(
@@ -64,13 +65,13 @@ export async function GET(request: NextRequest) {
       sgaName = user.name;
     }
 
-    const records = await getInitialCallsDrillDown(sgaName, weekStartDate, weekEndDate);
+    const records = await getLeadsContactedDrillDown(sgaName, weekStartDate, weekEndDate, selfSourcedOnly);
 
     return NextResponse.json({ records });
   } catch (error) {
-    console.error('Error fetching initial calls drill-down:', error);
+    console.error('Error fetching leads contacted drill-down:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch initial calls records' },
+      { error: 'Failed to fetch leads contacted records' },
       { status: 500 }
     );
   }

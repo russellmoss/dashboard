@@ -36,7 +36,11 @@ import {
   InitialCallRecord,
   QualificationCallRecord,
   SQODrillDownRecord,
-  OpenSQLDrillDownRecord
+  OpenSQLDrillDownRecord,
+  MQLDrillDownRecord,
+  SQLDrillDownRecord,
+  LeadsSourcedRecord,
+  LeadsContactedRecord,
 } from '@/types/drill-down';
 import type { AgentRequest, AgentResponse, StreamChunk } from '@/types/agent';
 import {
@@ -499,10 +503,28 @@ export const dashboardApi = {
 
   getWeeklyActuals: (startDate?: string, endDate?: string, userEmail?: string) =>
     apiFetch<{ actuals: WeeklyActual[]; sgaName?: string; startDate: string; endDate: string }>(
-      `/api/sga-hub/weekly-actuals?${new URLSearchParams({ 
-        ...(startDate && { startDate }), 
+      `/api/sga-hub/weekly-actuals?${new URLSearchParams({
+        ...(startDate && { startDate }),
         ...(endDate && { endDate }),
         ...(userEmail && { userEmail })
+      }).toString()}`
+    ),
+
+  getAllSGAWeeklyGoals: (startDate?: string, endDate?: string) =>
+    apiFetch<{ goals: WeeklyGoal[]; sgaUsers: Array<{ email: string; name: string }> }>(
+      `/api/sga-hub/weekly-goals?${new URLSearchParams({
+        allSGAs: 'true',
+        ...(startDate && { startDate }),
+        ...(endDate && { endDate }),
+      }).toString()}`
+    ),
+
+  getAllSGAWeeklyActuals: (startDate?: string, endDate?: string) =>
+    apiFetch<{ actuals: Array<{ sgaName: string; actuals: WeeklyActual[] }>; startDate: string; endDate: string }>(
+      `/api/sga-hub/weekly-actuals?${new URLSearchParams({
+        allSGAs: 'true',
+        ...(startDate && { startDate }),
+        ...(endDate && { endDate }),
       }).toString()}`
     ),
 
@@ -632,13 +654,15 @@ export const dashboardApi = {
     sgaName: string,
     weekStartDate: string,
     weekEndDate: string,
-    userEmail?: string
+    userEmail?: string,
+    teamLevel?: boolean
   ) =>
     apiFetch<{ records: InitialCallRecord[] }>(
       `/api/sga-hub/drill-down/initial-calls?${new URLSearchParams({
         weekStartDate,
         weekEndDate,
         ...(userEmail && { userEmail }),
+        ...(teamLevel && { teamLevel: 'true' }),
       }).toString()}`
     ),
 
@@ -646,13 +670,15 @@ export const dashboardApi = {
     sgaName: string,
     weekStartDate: string,
     weekEndDate: string,
-    userEmail?: string
+    userEmail?: string,
+    teamLevel?: boolean
   ) =>
     apiFetch<{ records: QualificationCallRecord[] }>(
       `/api/sga-hub/drill-down/qualification-calls?${new URLSearchParams({
         weekStartDate,
         weekEndDate,
         ...(userEmail && { userEmail }),
+        ...(teamLevel && { teamLevel: 'true' }),
       }).toString()}`
     ),
 
@@ -710,6 +736,36 @@ export const dashboardApi = {
     return apiFetch<{ records: OpenSQLDrillDownRecord[] }>(
       `/api/sga-hub/drill-down/open-sqls?${params.toString()}`
     );
+  },
+
+  getMQLDrillDown: (sgaName: string, weekStartDate: string, weekEndDate: string, userEmail?: string, teamLevel?: boolean) => {
+    const params = new URLSearchParams({ weekStartDate, weekEndDate });
+    if (userEmail) params.append('userEmail', userEmail);
+    if (teamLevel) params.append('teamLevel', 'true');
+    return apiFetch<{ records: MQLDrillDownRecord[] }>(`/api/sga-hub/drill-down/mqls?${params}`);
+  },
+
+  getSQLDrillDown: (sgaName: string, weekStartDate: string, weekEndDate: string, userEmail?: string, teamLevel?: boolean) => {
+    const params = new URLSearchParams({ weekStartDate, weekEndDate });
+    if (userEmail) params.append('userEmail', userEmail);
+    if (teamLevel) params.append('teamLevel', 'true');
+    return apiFetch<{ records: SQLDrillDownRecord[] }>(`/api/sga-hub/drill-down/sqls?${params}`);
+  },
+
+  getLeadsSourcedDrillDown: (sgaName: string, weekStartDate: string, weekEndDate: string, selfSourcedOnly?: boolean, userEmail?: string, teamLevel?: boolean) => {
+    const params = new URLSearchParams({ weekStartDate, weekEndDate });
+    if (selfSourcedOnly) params.append('selfSourcedOnly', 'true');
+    if (userEmail) params.append('userEmail', userEmail);
+    if (teamLevel) params.append('teamLevel', 'true');
+    return apiFetch<{ records: LeadsSourcedRecord[] }>(`/api/sga-hub/drill-down/leads-sourced?${params}`);
+  },
+
+  getLeadsContactedDrillDown: (sgaName: string, weekStartDate: string, weekEndDate: string, selfSourcedOnly?: boolean, userEmail?: string, teamLevel?: boolean) => {
+    const params = new URLSearchParams({ weekStartDate, weekEndDate });
+    if (selfSourcedOnly) params.append('selfSourcedOnly', 'true');
+    if (userEmail) params.append('userEmail', userEmail);
+    if (teamLevel) params.append('teamLevel', 'true');
+    return apiFetch<{ records: LeadsContactedRecord[] }>(`/api/sga-hub/drill-down/leads-contacted?${params}`);
   },
 
   refreshCache: () =>

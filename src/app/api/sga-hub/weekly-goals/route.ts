@@ -4,8 +4,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
-import { 
-  getWeeklyGoals, 
+import {
+  getWeeklyGoals,
+  getAllSGAWeeklyGoals,
   upsertWeeklyGoal,
   copyWeeklyGoal,
 } from '@/lib/queries/weekly-goals';
@@ -37,10 +38,25 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const targetUserEmail = searchParams.get('userEmail'); // Admin only
-    
+    const allSGAs = searchParams.get('allSGAs') === 'true';
+
+    // Use default range if not provided
+    const dateRange = startDate && endDate
+      ? { startDate, endDate }
+      : getDefaultWeekRange();
+
+    // Admin: fetch all SGAs' goals
+    if (allSGAs) {
+      if (!['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      const { goals, sgaUsers } = await getAllSGAWeeklyGoals(dateRange.startDate, dateRange.endDate);
+      return NextResponse.json({ goals, sgaUsers });
+    }
+
     // Determine which user's goals to fetch
     let userEmail = session.user.email;
-    
+
     if (targetUserEmail) {
       // Only admin/manager/revops_admin can view other users' goals
       if (!['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
@@ -54,11 +70,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Use default range if not provided
-    const dateRange = startDate && endDate 
-      ? { startDate, endDate }
-      : getDefaultWeekRange();
-    
     const goals = await getWeeklyGoals(
       userEmail,
       dateRange.startDate,
@@ -96,11 +107,15 @@ export async function POST(request: NextRequest) {
     
     // Parse request body
     const body = await request.json();
-    const { 
-      weekStartDate, 
-      initialCallsGoal, 
-      qualificationCallsGoal, 
+    const {
+      weekStartDate,
+      initialCallsGoal,
+      qualificationCallsGoal,
       sqoGoal,
+      mqlGoal,
+      sqlGoal,
+      leadsSourcedGoal,
+      leadsContactedGoal,
       userEmail: targetUserEmail, // Admin only - to set for another user
       copyFromWeek, // Optional - copy goals from another week
     } = body;
@@ -182,6 +197,10 @@ export async function POST(request: NextRequest) {
       initialCallsGoal: initialCallsGoal ?? 0,
       qualificationCallsGoal: qualificationCallsGoal ?? 0,
       sqoGoal: sqoGoal ?? 0,
+      mqlGoal: mqlGoal ?? 0,
+      sqlGoal: sqlGoal ?? 0,
+      leadsSourcedGoal: leadsSourcedGoal ?? 0,
+      leadsContactedGoal: leadsContactedGoal ?? 0,
     };
     
     const goal = await upsertWeeklyGoal(

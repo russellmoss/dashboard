@@ -1,10 +1,10 @@
-// src/app/api/sga-hub/drill-down/initial-calls/route.ts
+// src/app/api/sga-hub/drill-down/mqls/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
-import { getInitialCallsDrillDown } from '@/lib/queries/drill-down';
+import { getMQLDrillDown } from '@/lib/queries/drill-down';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -64,13 +64,13 @@ export async function GET(request: NextRequest) {
       sgaName = user.name;
     }
 
-    const records = await getInitialCallsDrillDown(sgaName, weekStartDate, weekEndDate);
+    const records = await getMQLDrillDown(sgaName, weekStartDate, weekEndDate);
 
     return NextResponse.json({ records });
   } catch (error) {
-    console.error('Error fetching initial calls drill-down:', error);
+    console.error('Error fetching MQL drill-down:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch initial calls records' },
+      { error: 'Failed to fetch MQL records' },
       { status: 500 }
     );
   }

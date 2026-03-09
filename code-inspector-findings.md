@@ -1,289 +1,180 @@
-# Code Inspector Findings: Stale Pipeline Alerts
+# Code Inspector Findings — Weekly Goals vs. Actuals
 
-## 1. DetailRecord and DrillDownRecordBase Types
+## 1. SGA Hub Page Structure
 
-### DetailRecord
-File: src/types/dashboard.ts  Lines: 130-175
+**Main Files:**
+- `src/app/dashboard/sga-hub/page.tsx` — Server wrapper (auth + permissions)
+- `src/app/dashboard/sga-hub/SGAHubContent.tsx` — Main client component (~950 lines)
 
-daysInCurrentStage ALREADY EXISTS on DetailRecord at line 158:
-  daysInCurrentStage: number | null;  // days since entering current stage
+**5 Existing Tabs** (SGAHubTab enum):
+1. `leaderboard` — SGA rankings
+2. `weekly-goals` — Current weekly goal tracking (3 metrics only)
+3. `closed-lost` — Follow-up opportunities
+4. `quarterly-progress` — Quarterly pacing
+5. `activity` — SGA activity overview
 
-Stage-entry dates available for aging calculation:
-  discoveryDate: string|null   line 152 - Stage_Entered_Discovery__c
-  salesProcessDate: string|null line 153 - Stage_Entered_Sales_Process__c
-  negotiatingDate: string|null  line 154 - Stage_Entered_Negotiating__c
-  onHoldDate: string|null       line 155 - Stage_Entered_On_Hold__c
-  oppCreatedDate: string|null   line 157 - Opp_CreatedDate (Qualifying proxy)
-  signedDate: string|null       line 151 - Stage_Entered_Signed__c
-  stage: string                 line 135 - StageName (current opportunity stage)
-
-### DrillDownRecordBase
-File: src/types/drill-down.ts  Lines: 11-22
-daysInCurrentStage: number | null at line 21.
-
-Conclusion: No type changes required. Both types already have daysInCurrentStage.
+**Tab component:** `src/components/sga-hub/SGAHubTabs.tsx` — Button-based switcher with icons
 
 ---
 
-## 2. calculateDaysInStage Utility
-File: src/lib/utils/date-helpers.ts  Lines: 261-319
+## 2. Current WeeklyGoal Prisma Model (prisma/schema.prisma lines 50-65)
 
-Fully implemented. Returns integer days from stage entry to today, or null.
+```prisma
+model WeeklyGoal {
+  id                     String   @id @default(cuid())
+  userEmail              String
+  weekStartDate          DateTime @db.Date
+  initialCallsGoal       Int      @default(0)
+  qualificationCallsGoal Int      @default(0)
+  sqoGoal                Int      @default(0)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  createdBy              String?
+  updatedBy              String?
+  @@unique([userEmail, weekStartDate])
+  @@index([userEmail])
+  @@index([weekStartDate])
+}
+```
 
-Stage-to-date mapping:
-  Qualifying    -> oppCreatedDate (no Stage_Entered_Qualifying__c exists)
-  Discovery     -> discoveryDate
-  Sales Process -> salesProcessDate
-  Negotiating   -> negotiatingDate
-  Signed        -> signedDate
-  On Hold       -> onHoldDate
-  Closed Lost   -> closedDate
-  Joined        -> joinedDate
-
----
-
-## 3. Pipeline Tab Component
-File: src/app/dashboard/pipeline/page.tsx  Lines: 1-571
-
-Current render structure (top to bottom):
-1. PipelineScorecard (line 412) - AUM + advisor count, both clickable
-2. PipelineFilters (line 424) - stage multi-select, SGM multi-select
-3. Tab Toggle By Stage / By SGM (line 438) - revops_admin only
-4. SqlDateFilter (line 464) - By SGM tab only
-5. Card with chart (lines 472-523) - PipelineByStageChart or PipelineBySgmChart
-6. SgmConversionTable (line 526) - By SGM tab only
-7. VolumeDrillDownModal (line 535) - reused for all drill-down lists
-8. RecordDetailModal (line 561) - opens from drill-down row click
-
-NEW SECTION INSERT POINT:
-After line 523 (closing chart Card), before line 534 (VolumeDrillDownModal).
-Condition: activeTab === byStage
+**Current model has only 3 goal metrics.** New feature needs 7: MQL, SQL, SQO, Initial Calls, Qualification Calls, Leads Sourced, Leads Contacted.
 
 ---
 
-## 4. Open Pipeline Data Fetching
+## 3. Current Types (src/types/sga-hub.ts)
 
-API Routes in src/app/api/dashboard/:
-  pipeline-summary/        -> getOpenPipelineSummary (aggregates only, no DetailRecords)
-  pipeline-drilldown/      -> getOpenPipelineRecordsByStage (DetailRecords WITH daysInCurrentStage)
-  pipeline-drilldown-sgm/  -> getOpenPipelineRecordsBySgm (DetailRecords WITH daysInCurrentStage)
-  pipeline-by-sgm/         -> getOpenPipelineBySgm (aggregates by SGM)
+### Types to modify:
+- `WeeklyGoal` (line 13) — add mqlGoal, sqlGoal, leadsSourcedGoal, leadsContactedGoal
+- `WeeklyGoalInput` (line 27) — add new goal fields
+- `WeeklyActual` (line 35) — add mqlActual, sqlActual, leadsSourced, leadsContacted, leadsContactedSelfSourced
+- `WeeklyGoalWithActuals` (line 43) — add all new goal/actual/diff fields + toggle state
 
-Query Functions in src/lib/queries/open-pipeline.ts:
-
-getOpenPipelineRecords (exported, line 162):
-  Does NOT compute daysInCurrentStage - hardcodes null at line 144.
-  Does NOT select stage entry date columns.
-  Not called by pipeline drill-down. Do NOT use for stale alerts.
-
-getOpenPipelineRecordsByStage (exported, line 466):
-  Called by pipeline-drilldown route.
-  DOES compute daysInCurrentStage via calculateDaysInStage() at line 403.
-  SELECT includes discovery_date, sales_process_date, negotiating_date,
-  signed_date, on_hold_date, closed_date.
-
-getOpenPipelineRecordsBySgm (exported, line 753):
-  Called by pipeline-drilldown-sgm route.
-  DOES compute daysInCurrentStage at line 690.
-  SELECT includes all stage entry dates.
-
-getSgmConversionDrilldownRecords (exported, line 1061):
-  DOES compute daysInCurrentStage at line 998.
-
-KEY: Existing drill-down queries already return daysInCurrentStage populated.
-Stale alerts reuse these routes without modification.
+### Types to create:
+- New drilldown record types for MQL, SQL, Leads Sourced, Leads Contacted
 
 ---
 
-## 5. All DetailRecord Construction Sites
+## 4. Current Weekly Goals Components
 
-SITE 1 - getOpenPipelineRecords (intentional null)
-  File: src/lib/queries/open-pipeline.ts  Lines: 116-159
-  daysInCurrentStage: null  (line 144)
-  Not used by pipeline drill-down. No stage-entry columns in SELECT.
-
-SITE 2 - _getOpenPipelineRecordsByStage (full calculation)
-  File: src/lib/queries/open-pipeline.ts  Lines: 357-463
-  calculateDaysInStage({...}) at line 403
-  return { ..., daysInCurrentStage } at line 448
-
-SITE 3 - _getOpenPipelineRecordsBySgm (full calculation)
-  File: src/lib/queries/open-pipeline.ts  Lines: 554-751
-  calculateDaysInStage({...}) at line 690
-  return { ..., daysInCurrentStage } at line 735
-
-SITE 4 - _getSgmConversionDrilldownRecords (full calculation)
-  File: src/lib/queries/open-pipeline.ts  Lines: 857-1059
-  calculateDaysInStage({...}) at line 998
-  return { ..., daysInCurrentStage } at line 1043
-
-SITE 5 - _getDetailRecords (main dashboard funnel)
-  File: src/lib/queries/detail-records.ts  Lines: 322-435
-  calculateDaysInStage({...}) at line 372
-  return { ..., daysInCurrentStage } at line 417
-
-SITE 6 - ExploreResults.tsx (AI Explore, inline construction)
-  File: src/components/dashboard/ExploreResults.tsx  Lines: 893-938
-  daysInCurrentStage: null  (line 937) - intentional, AI lacks stage entry dates
-
-Total: 6 construction sites.
-Sites 2, 3, 4, 5 fully compute daysInCurrentStage.
-Sites 1 and 6 intentionally null (expected for those data paths).
-No new construction sites needed for Stale Pipeline Alerts.
+- `src/components/sga-hub/WeeklyGoalsTable.tsx` — Interactive table (currently 3 metrics)
+- `src/components/sga-hub/WeeklyGoalEditor.tsx` — Modal for editing goals
+- `src/components/sga-hub/IndividualGoalEditor.tsx` — Single SGA editor (admin)
+- `src/components/sga-hub/BulkGoalEditor.tsx` — Bulk editor (admin)
 
 ---
 
-## 6. Existing Stage Grouping Patterns
+## 5. API Routes (src/app/api/sga-hub/)
 
-No existing component groups DetailRecord[] by stage client-side.
+**Weekly Goals routes:**
+- `weekly-goals/route.ts` — GET/POST for goals (Prisma)
+- `weekly-actuals/route.ts` — GET actuals from BigQuery
 
-Closest existing patterns:
-  PipelineByStageChart: groups aggregated OpenPipelineByStage summary data (not DetailRecords)
-  RecruiterHubContent.tsx (src/app/dashboard/recruiter-hub/RecruiterHubContent.tsx) lines 52-87:
-    Defines OPEN_OPPORTUNITY_STAGES_RH and OPPORTUNITY_STAGE_COLORS
-    Best reference for stage-grouped display with color coding per stage.
+**Drill-down routes:**
+- `drill-down/initial-calls/route.ts` — Initial calls by week/SGA
+- `drill-down/qualification-calls/route.ts` — Qual calls by week/SGA
+- `drill-down/sqos/route.ts` — SQOs with filters
 
-OPPORTUNITY_STAGE_COLORS (RecruiterHubContent.tsx lines 76-87):
-  Qualifying:      bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400
-  Discovery:       bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400
-  Sales Process:   bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400
-  Negotiating:     bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400
-  Signed:          bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400
-  On Hold:         bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300
-
-STAGE_COLORS hex values (src/config/constants.ts lines 23-31):
-  Qualifying: #60a5fa  Discovery: #34d399  Sales Process: #fbbf24
-  Negotiating: #f97316  Signed: #a78bfa  On Hold: #f87171
+**New routes needed:**
+- `drill-down/mqls/route.ts` — MQL drill-down
+- `drill-down/sqls/route.ts` — SQL drill-down
+- `drill-down/leads-sourced/route.ts` — Leads sourced drill-down
+- `drill-down/leads-contacted/route.ts` — Leads contacted drill-down
 
 ---
 
-## 7. Drilldown / Detail Click Pattern
+## 6. User Role Detection
 
-Established in src/app/dashboard/pipeline/page.tsx:
-  1. Bar/segment click -> handleBarClick(stage, metric) -> fetches -> VolumeDrillDownModal
-  2. Row click -> handleRecordClick(record.id) line 284 -> closes modal -> RecordDetailModal
-  3. RecordDetailModal fetches full record by ID
-  4. Back button -> handleBackToDrillDown() line 290 -> re-opens VolumeDrillDownModal
+**Permission system:** `src/lib/permissions.ts`
 
-VolumeDrillDownModal (src/components/dashboard/VolumeDrillDownModal.tsx):
-  Wraps DetailRecordsTable.
-  Props: records: DetailRecord[], title, loading, error, onRecordClick, metricFilter, canExport
+```typescript
+const isAdmin = permissions?.role === 'admin' || permissions?.role === 'manager' || permissions?.role === 'revops_admin';
+```
 
-For Stale Pipeline Alerts: reuse the same VolumeDrillDownModal + RecordDetailModal stack.
-Stage group click -> setDrillDownRecords(stageRecords), setDrillDownStage(stage), setDrillDownOpen(true).
+**SGA filter from token:**
+```typescript
+sgaFilter: tokenData.role === 'sga' ? tokenData.name : null
+```
 
----
-
-## 8. Existing Threshold / Alert UI Patterns
-
-DataFreshnessIndicator: green/red dot + background.
-  bg-green-50 text-green-700 / bg-red-50 text-red-700
-
-DetailRecordsTable stage flag spans (lines 578-582):
-  text-red-600 dark:text-red-400       Contacted flag
-  text-orange-600 dark:text-orange-400 MQL flag
-  text-blue-600 dark:text-blue-400     SQL flag
-  text-green-600 dark:text-green-400   SQO flag
-
-Tremor Badge: imported in DetailRecordsTable.tsx line 4. Available.
-
-Recommended aging badge pattern (needs to be created):
-  >90 days:   bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400
-  60-90 days: bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400
-  30-60 days: bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400
-  <30 days:   bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400
+**Edit permissions (SGAHubContent.tsx line ~347):**
+```typescript
+canEdit: isAdmin || isCurrentWeek || isFutureWeek
+```
 
 ---
 
-## 9. Where the New Section Slots In
+## 7. SGA User ↔ BigQuery Mapping
 
-File: src/app/dashboard/pipeline/page.tsx
+**Chain:** `User.email` → `User.name` → `SGA_Owner_Name__c` in BigQuery
 
-INSERT AFTER line 523 (closing chart Card), BEFORE line 534 (VolumeDrillDownModal comment).
-Render condition: activeTab === byStage
-
-Existing page state for reuse:
-  selectedStages (line 50)   - current stage filter
-  selectedSgms (line 51)     - current SGM filter
-  sgmOptions (line 46)
-  sgmOptionsLoading (line 47)
-  drillDownRecords (line 78)  - reuse drill-down list state
-  drillDownOpen (line 77)
-  drillDownLoading (line 79)
-  drillDownStage (line 80)
-  selectedRecordId (line 84)
-  handleRecordClick (line 284)
-  handleCloseDrillDown (line 343)
+In weekly-actuals.ts:
+```typescript
+const user = await prisma.user.findUnique({ where: { email: userEmail }, select: { name: true } });
+// user.name is passed as @sgaName to BigQuery
+```
 
 ---
 
-## 10. Exists vs Needs to Be Built
+## 8. Query Functions
 
-ALREADY EXISTS (reuse):
-  DetailRecord.daysInCurrentStage - src/types/dashboard.ts line 158
-  calculateDaysInStage() - src/lib/utils/date-helpers.ts lines 261-319
-  getOpenPipelineRecordsByStage() - src/lib/queries/open-pipeline.ts line 262
-  getOpenPipelineRecordsBySgm() - src/lib/queries/open-pipeline.ts line 554
-  VolumeDrillDownModal component
-  RecordDetailModal component
-  OPPORTUNITY_STAGE_COLORS pattern - RecruiterHubContent.tsx lines 76-87
-  STAGE_COLORS hex constants - src/config/constants.ts lines 23-31
-  OPEN_PIPELINE_STAGES constant - src/config/constants.ts line 6
-  PipelineFilters component
-  pipeline-drilldown API route (already returns daysInCurrentStage)
-  dashboardApi.getPipelineDrilldown() - src/lib/api-client.ts line 357
-  Drill-down state in pipeline/page.tsx
-
-NEEDS TO BE BUILT NEW:
-
-  1. StalePipelineAlerts component
-     Path: src/components/dashboard/StalePipelineAlerts.tsx
-     - Groups DetailRecord[] by record.stage client-side
-     - Per-stage aging distribution at 30/60/90 day thresholds
-     - Aging badges on each row
-     - Stage group click triggers existing drill-down state
-
-  2. Fetch logic in pipeline/page.tsx
-     - New state: stalePipelineRecords, stalePipelineLoading
-     - Parallel getPipelineDrilldown() per selectedStages entry
-     - Deduplication by record.id (same as handleAumClick, lines 215-228)
-     - Triggered by selectedStages/selectedSgms changes
-
-  3. getAgingBadgeStyle(days: number | null): string helper function
-
-API ROUTE CHANGES: None required.
-NEW BIGQUERY FIELDS: None required.
+- `src/lib/queries/weekly-goals.ts` (209 lines) — Prisma CRUD: get, upsert, delete, copy
+- `src/lib/queries/weekly-actuals.ts` (242 lines) — BigQuery: aggregates by WEEK(MONDAY)
+- `src/lib/queries/drill-down.ts` (469 lines) — BigQuery: detailed records for modals
+- `src/lib/bigquery.ts` — Client setup + `runQuery<T>()` helper
 
 ---
 
-## 11. Important Architecture Notes
+## 9. Drilldown Pattern
 
-1. Do NOT use getOpenPipelineRecords for stale alerts.
-   It hardcodes daysInCurrentStage: null and omits stage-entry date columns.
-   Use getOpenPipelineRecordsByStage (pipeline-drilldown route) instead.
+**Flow:** Click metric → `handleWeeklyMetricClick()` → fetch drill-down → `MetricDrillDownModal` → click row → `RecordDetailModal`
 
-2. Follow handleAumClick pattern (pipeline/page.tsx lines 202-240) for fetch logic.
-   It fetches one stage at a time in parallel, then deduplicates by record.id.
-   This is the correct model for fetching all open pipeline records across stages.
+**State in SGAHubContent.tsx:**
+```typescript
+const [drillDownOpen, setDrillDownOpen] = useState(false);
+const [drillDownMetricType, setDrillDownMetricType] = useState<MetricType | null>(null);
+const [drillDownRecords, setDrillDownRecords] = useState<DrillDownRecord[]>([]);
+```
 
-3. OPEN_PIPELINE_STAGES = [Qualifying, Discovery, Sales Process, Negotiating]
-   src/config/constants.ts line 6. Only these 4 stages are open pipeline.
-   Signed and On Hold are excluded from open pipeline but present in DetailRecord.stage.
-
-4. Stale alerts must respect selectedStages filter from PipelineFilters.
-   If selectedStages is empty, show all OPEN_PIPELINE_STAGES.
-   If selectedStages has entries, only fetch and display those stages.
-
-5. Export path: no changes needed.
-   ExportButton uses Object.keys - automatically includes daysInCurrentStage.
-   ExportMenu and MetricDrillDownModal use explicit column mappings - no new fields added.
-
-6. The cachedQuery wrapper is used by all query functions.
-   Exported functions (getOpenPipelineRecordsByStage etc.) are the cached wrappers.
-   Internal functions (prefixed _) contain the actual BigQuery logic.
-
-7. StalePipelineAlerts component should accept:
-   props: { records: DetailRecord[], loading: boolean, onStageClick: (stage: string, records: DetailRecord[]) => void }
-   It groups records client-side by record.stage, no extra API calls needed.
+**Components:**
+- `src/components/sga-hub/MetricDrillDownModal.tsx` — Configurable by MetricType
+- `src/components/dashboard/RecordDetailModal.tsx` — Full record detail viewer
 
 ---
+
+## 10. Chart/Graph Patterns
+
+**Libraries:** Tremor React + Recharts
+**Existing charts:**
+- `QuarterlyProgressChart.tsx` — AreaChart with historical SQO data
+- No existing "goal vs actual line chart" — will need to create
+
+---
+
+## 11. Constants (src/config/constants.ts)
+
+```typescript
+FULL_TABLE = `savvy-gtm-analytics.Tableau_Views.vw_funnel_master`
+MAPPING_TABLE = `savvy-gtm-analytics.Tableau_Views.source_to_channel_mapping`
+RECRUITING_RECORD_TYPE = '012Dn000000mrO3IAI'
+```
+
+---
+
+## 12. Files to Modify Summary
+
+| Category | File | Changes |
+|----------|------|---------|
+| Schema | `prisma/schema.prisma` | Drop & recreate WeeklyGoal with 7 goals |
+| Types | `src/types/sga-hub.ts` | Add new fields to WeeklyGoal, WeeklyActual, WeeklyGoalWithActuals |
+| Types | `src/types/drill-down.ts` | Add MQL, SQL, LeadsSourced, LeadsContacted record types |
+| Queries | `src/lib/queries/weekly-goals.ts` | Update for 7 goal fields |
+| Queries | `src/lib/queries/weekly-actuals.ts` | Add MQL, SQL, Leads Sourced, Leads Contacted queries |
+| Queries | `src/lib/queries/drill-down.ts` | Add 4 new drill-down query functions |
+| API | `src/app/api/sga-hub/weekly-goals/route.ts` | Handle 7 goal fields |
+| API | `src/app/api/sga-hub/weekly-actuals/route.ts` | Return expanded actuals |
+| API | New: `drill-down/mqls/`, `drill-down/sqls/`, `drill-down/leads-sourced/`, `drill-down/leads-contacted/` | 4 new routes |
+| Components | `src/components/sga-hub/WeeklyGoalsTable.tsx` | Expand to 7 metrics, 3 sections, graphs |
+| Components | `src/components/sga-hub/WeeklyGoalEditor.tsx` | 7 goal inputs |
+| Components | `src/components/sga-hub/MetricDrillDownModal.tsx` | Handle new metric types |
+| Components | `src/components/sga-hub/SGAHubTabs.tsx` | Rename tab |
+| Components | New: Goals vs Actuals charts (3 graphs) | Line charts with toggleable series |
+| Page | `src/app/dashboard/sga-hub/SGAHubContent.tsx` | Wire new tab, drilldown handlers, admin rollup |

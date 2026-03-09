@@ -22,11 +22,15 @@ interface RawSGAOption {
  */
 const EXCLUDED_SGAS = [
   'Anett Diaz',
+  'Ariana Butler',
+  'Bre McDaniel',
+  'Bryan Belville',
+  'GinaRose Galli',
   'Jacqueline Tully',
-  'Savvy Operations',
-  'Savvy Marketing',
-  'Russell Moss',
   'Jed Entin',
+  'Russell Moss',
+  'Savvy Marketing',
+  'Savvy Operations',
 ];
 
 /**

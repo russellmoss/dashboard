@@ -1,344 +1,158 @@
-# Pattern Finder Findings: Stale Pipeline Alerts Feature
+# Pattern Finder Findings — Weekly Goals vs. Actuals
 
-Generated: 2026-02-25
+## 1. Tab Pattern
 
----
+**Current implementation:** `src/components/sga-hub/SGAHubTabs.tsx`
+- Button-based tab switcher using Tremor's Button component
+- Tab enum: `SGAHubTab` defined in SGAHubContent.tsx
+- Parent manages active tab via `useState`
+- Content rendered conditionally in SGAHubContent based on active tab
 
-## Summary
-
-8 pattern areas investigated for the Stale Pipeline Alerts feature.
-CRITICAL FINDING: daysInCurrentStage has NEVER been displayed in the UI (only CSV exports).
-The new Stale Pipeline Alerts section will be the first UI display of this field.
-
----
-
-## Pattern 1: daysInCurrentStage Data Flow
-
-### Entry Point
-BigQuery vw_funnel_master -> open-pipeline.ts query functions -> DetailRecord type -> API route -> component
-
-### Type Definition
-File: src/types/dashboard.ts line 158
-
-  daysInCurrentStage: number | null;
-
-### Calculation Function
-File: src/lib/utils/date-helpers.ts lines 261-319
-
-  calculateDaysInStage(stage, oppCreatedDate, discoveryDate, salesProcessDate, negotiatingDate): number | null
-
-Stage-to-date mapping:
-  Qualifying -> oppCreatedDate (used as proxy, no dedicated column)
-  Discovery -> discoveryDate
-  Sales Process -> salesProcessDate
-  Negotiating -> negotiatingDate
-
-Returns Math.max(0, Math.floor(diffMs / 86400000)) or null if date unavailable.
-
-### CRITICAL BUG: _getOpenPipelineRecords hardcodes null
-File: src/lib/queries/open-pipeline.ts line 144
-
-  daysInCurrentStage: null, // BUG: never calculated
-
-This function is called by GET /api/dashboard/pipeline-overview.
-It omits all stage-entry date columns from its SELECT.
-Any UI reading from this endpoint will always see null.
-
-### Correct Implementation: _getOpenPipelineRecordsByStage
-File: src/lib/queries/open-pipeline.ts lines 262+
-
-  daysInCurrentStage: calculateDaysInStage(
-    toString(raw.Stage__c),
-    extractDate(raw.Opp_Created_Date__c),
-    extractDate(raw.Discovery_Date__c),
-    extractDate(raw.Sales_Process_Date__c),
-    extractDate(raw.Negotiating_Date__c)
-  ),
-
-This is called by POST /api/dashboard/pipeline-drilldown.
-Use this endpoint for the Stale Pipeline Alerts feature.
-
-### API Route
-File: src/app/api/dashboard/pipeline-drilldown/route.ts
-
-  POST body: { stage, filters?, sgms?, dateRange? }
-  Returns: { records: DetailRecord[], stage: string }
-
-### Only existing use of daysInCurrentStage in output
-File: src/components/sga-hub/MetricDrillDownModal.tsx lines 127, 140, 155
-
-  csv column: daysInCurrentStage ?? empty string
-
-daysInCurrentStage is NOT in any visible UI column (DetailRecordsTable).
-The Stale Pipeline Alerts section will be the FIRST UI display of this field.
+**To add/rename tab:** Update the enum, update SGAHubTabs.tsx button list, add content block in SGAHubContent.tsx.
 
 ---
 
-## Pattern 2: Next Steps Fields
+## 2. BigQuery Query Pattern
 
-### Fields in DetailRecord (src/types/dashboard.ts)
+**Client:** `src/lib/bigquery.ts`
+```typescript
+async function runQuery<T>(query: string, params?: Record<string, any>): Promise<T[]>
+```
 
-  nextSteps: string | null         (line 173) -- from Next_Steps__c
-  opportunityNextStep: string | null (line 174) -- from Opportunity_Next_Step__c
+**Parameterized queries:** Always `@paramName` syntax, NEVER string interpolation.
 
-CONFIRMED: nextStepDate and daysUntilNextStep do NOT exist in DetailRecord.
-Neither field exists in any type file or BigQuery schema.
+**Date windowing pattern (from weekly-actuals.ts):**
+```sql
+WHERE SGA_Owner_Name__c = @sgaName
+  AND DATE_TRUNC(mql_stage_entered_ts, WEEK(MONDAY)) >= @startDate
+```
 
-### Transform pattern (src/lib/queries/drill-down.ts)
+**CTE pattern:** Multiple CTEs for different metrics, LEFT JOIN to generate all weeks (even 0-count weeks).
 
-  nextSteps: raw.Next_Steps__c ? toString(raw.Next_Steps__c) : null,
-
-### Rendering pattern (src/components/dashboard/RecordDetailModal.tsx lines 349-372)
-
-Displayed in gray card, conditional render:
-  {record.nextSteps || record.opportunityNextStep} && <section>...</section>
-
-Two-field display: Next Steps (primary), Opportunity Next Step (secondary).
-Shows only when at least one field is non-null.
-
----
-
-## Pattern 3: Pipeline Tab Grouping and Display
-
-File: src/app/dashboard/pipeline/page.tsx
-
-### Stage constants (src/config/constants.ts)
-
-  OPEN_PIPELINE_STAGES = [Qualifying, Discovery, Sales Process, Negotiating]
-
-  STAGE_COLORS:
-    Qualifying: #60a5fa
-    Discovery:  #34d399
-    Sales Process: #fbbf24
-    Negotiating:   #f97316
-
-### Section card pattern
-
-  <Card className=mb-6>
-    ... content ...
-  </Card>
-
-Use this card wrapper for the new Stale Pipeline Alerts section.
-
-### Tab toggle pattern (lines 438-461)
-
-  active:   bg-blue-600 text-white
-  inactive: bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400
-
-### Drill-down state management (lines 77-84)
-
-  drillDownOpen: boolean
-  drillDownRecords: DetailRecord[]
-  drillDownLoading: boolean
-  drillDownStage: string
-  drillDownMetric: string
-
-Entry point: handleBarClick (line 182)
+**Key tables:**
+- `vw_funnel_master` — primary for MQL/SQL/SQO (used via FULL_TABLE constant)
+- `vw_sga_funnel` — SGA-specific funnel view (active SGAs only)
+- `vw_sga_activity_performance` — Task-level data with Initial/Qual call dates
+- `SavvyGTMData.Lead` — Direct table for leads sourced/contacted with Final_Source__c
 
 ---
 
-## Pattern 4: Badge and Color Patterns for Status/Age
+## 3. API Route Pattern
 
-### 4-tier severity color system
-File: src/lib/utils/freshness-helpers.ts lines 55-92
+**Standard structure:**
+```typescript
+export async function GET(request: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-Function: getStatusColor(status: fresh | recent | stale | very_stale)
+  const permissions = await getSessionPermissions(session);
+  if (!permissions) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  fresh:      bg-green-50  dark:bg-green-900/20  text-green-700  dark:text-green-400
-  recent:     bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400
-  stale:      bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400
-  very_stale: bg-red-50    dark:bg-red-900/20    text-red-700    dark:text-red-400
+  // Admin override pattern:
+  let userEmail = session.user.email;
+  const targetEmail = searchParams.get('userEmail');
+  if (targetEmail) {
+    if (!['admin', 'manager', 'revops_admin'].includes(permissions.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    userEmail = targetEmail;
+  }
 
-Use this for the days-in-stage badge in Stale Pipeline Alerts.
-
-### Stage badge pattern
-File: src/components/dashboard/RecordDetailModal.tsx lines 157-173
-
-Function: getStageBadgeClasses(stage)
-
-  px-2.5 py-1 text-xs font-semibold rounded-full
-  bg-{color}-100 dark:bg-{color}-900/30
-  text-{color}-800 dark:text-{color}-200
-
----
-
-## Pattern 5: Drilldown / Detail Panel
-
-### Modal components
-  VolumeDrillDownModal -- outer shell, fixed modal
-  DetailRecordsTable  -- inner table, 50 records per page (line 160)
-  RecordDetailModal   -- full record detail panel
-
-### Pipeline page wiring
-File: src/app/dashboard/pipeline/page.tsx
-
-  <VolumeDrillDownModal
-    open={drillDownOpen}
-    records={drillDownRecords}
-    loading={drillDownLoading}
-    stage={drillDownStage}
-    metricFilter=openPipeline
-  />
-  <RecordDetailModal
-    record={selectedRecord}
-    open={detailOpen}
-  />
-
-metricFilter=openPipeline is the correct value for pipeline drilldowns.
-
-### CSV export in DetailRecordsTable
-Uses ExportButton with Object.keys(data[0]) -- auto column mapping.
-daysInCurrentStage is in DetailRecord so it WILL appear in auto CSV exports.
-But it is NOT in any visible table column.
+  const data = await queryFunction(userEmail, ...params);
+  return NextResponse.json(data);
+}
+```
 
 ---
 
-## Pattern 6: Configurable Thresholds
+## 4. Scorecard / Metric Card Pattern
 
-No configurable threshold UI exists in this codebase.
-Thresholds are hardcoded in helper functions.
+**Current weekly goals:** Table-based layout in `WeeklyGoalsTable.tsx`
+- Rows per week, columns per metric
+- Goal values are inline-editable (click to edit, Enter to save)
+- Color coding: green if actual >= goal, red if below
+- Click on actual number opens drill-down modal
 
-Example: freshness-helpers.ts uses hardcoded day boundaries.
-No database table, no admin UI, no constants file for user-editable thresholds.
-
-Recommendation for Stale Pipeline Alerts:
-Follow existing pattern -- hardcode threshold in a constant or helper function.
-Suggested: STALE_PIPELINE_THRESHOLDS in src/config/constants.ts
-
-  const STALE_PIPELINE_THRESHOLDS = {
-    Qualifying: 14,
-    Discovery: 21,
-    Sales_Process: 30,
-    Negotiating: 21,
-  };
+**No existing "scorecard card" pattern** — the spec calls for a card-based layout for the 3 week sections. Will need new component.
 
 ---
 
-## Pattern 7: Section Header Pattern
+## 5. Drilldown Modal Pattern
 
-### Local SectionHeader component pattern
-File: src/components/dashboard/RecordDetailModal.tsx lines 37-46
+**MetricDrillDownModal.tsx:**
+- Takes `metricType` to determine column configuration
+- Existing MetricTypes: 'initial-calls', 'qualification-calls', 'sqos', 'open-sqls'
+- Each type has different table columns
+- Export CSV capability built in
+- Row click → `onRecordClick(primaryKey)` → opens RecordDetailModal
 
-  const SectionHeader = ({ icon: Icon, title }) => (
-    <div className=flex items-center gap-2 mb-3>
-      <Icon className=h-4 w-4 text-gray-500 />
-      <h3 className=text-sm font-semibold uppercase tracking-wide text-gray-500>
-        {title}
-      </h3>
-    </div>
-  );
-
-Icon source: lucide-react
-Used throughout RecordDetailModal for each section.
-
-### Pipeline page section pattern
-Sections are wrapped in <Card className=mb-6>.
-Section title uses inline h2/h3 with font-semibold class, not a reusable component.
+**To add new metric types:** Add to MetricType enum, add column config in MetricDrillDownModal.
 
 ---
 
-## Pattern 8: Null/Undefined Handling for Numeric Fields
+## 6. Chart Pattern
 
-### Type coercion helpers (src/types/bigquery-raw.ts lines 148-154)
+**Existing:** `QuarterlyProgressChart.tsx` uses Tremor AreaChart
+- Data structure: `{ date: string, actual: number, goal: number }[]`
+- Toggleable series via Tremor's built-in legend clicks
 
-  toNumber(value): number
-    return Number(value) || 0;
-    ALWAYS returns number, NEVER null.
-
-  toString(value): string
-    return value ?? empty string;
-    ALWAYS returns string, NEVER null.
-
-### Convention for nullable fields
-
-Use explicit ternary for nullable semantics:
-  raw.SomeField ? toNumber(raw.SomeField) : null
-
-Do NOT use toNumber() alone if null is a valid/meaningful value.
-toNumber(null) returns 0 -- this masks missing data.
-
-daysInCurrentStage: number | null follows this convention correctly.
-calculateDaysInStage() returns null when date is unavailable.
-
-### CSV null handling pattern
-  daysInCurrentStage ?? empty string
-Nullish coalescing to empty string for CSV output.
+**For new "Goals vs Actuals" graphs:**
+- Use Tremor LineChart (consistent with library)
+- 3 charts: Pipeline (MQL/SQL/SQO), Calls (Initial/Qual), Lead Activity (Sourced/Contacted)
+- Each metric: goal line + actual line
+- Default trailing 90 days, customizable date range
+- Data: array of weekly data points with goal/actual per metric
 
 ---
 
----
+## 7. Goal Editing Pattern
 
-## Drift Analysis: Inconsistencies Found
+**Current flow:**
+1. `WeeklyGoalEditor.tsx` — Modal with form inputs
+2. POST to `/api/sga-hub/weekly-goals` with `WeeklyGoalInput`
+3. Backend calls `upsertWeeklyGoal()` in `weekly-goals.ts`
+4. Prisma upsert (create or update on unique constraint)
+5. Frontend refetches actuals data
 
-### 1. extractDate vs extractDateValue -- 3 different implementations
-
-open-pipeline.ts: 4 inline extractDate() copies (one per query function)
-  - Each function defines its own local extractDate()
-  - No shared import
-
-drill-down.ts: module-level extractDateValue() function
-  - More defensive than open-pipeline inline versions
-  - Different name, different location
-
-Recommendation: consolidate into one exported function in date-helpers.ts
-
-### 2. daysInCurrentStage calculation -- correct in 3 of 4 query functions
-
-_getOpenPipelineRecords: hardcodes null (BUG)
-_getOpenPipelineRecordsByStage: correct (uses calculateDaysInStage)
-_getOpenPipelineRecordsBySgm: correct (uses calculateDaysInStage)
-_getSgmConversionDrilldownRecords: correct (uses calculateDaysInStage)
-
-The bug in _getOpenPipelineRecords is NOT relevant to Stale Pipeline Alerts
-because the feature uses _getOpenPipelineRecordsByStage via pipeline-drilldown endpoint.
-
-### 3. No shared type for stage-grouped records
-
-Each query function returns DetailRecord[] with same fields but no shared intermediate type.
-This is consistent with the rest of the codebase -- no intermediate types.
+**Prisma upsert pattern (weekly-goals.ts):**
+```typescript
+await prisma.weeklyGoal.upsert({
+  where: { userEmail_weekStartDate: { userEmail, weekStartDate } },
+  create: { userEmail, weekStartDate, ...goalData, createdBy, updatedBy },
+  update: { ...goalData, updatedBy },
+});
+```
 
 ---
 
-## Implementation Guidance for Stale Pipeline Alerts
+## 8. Admin vs SGA Data Filtering
 
-### Data source
-Use POST /api/dashboard/pipeline-drilldown
-Body: { stage: StageName, filters: currentFilters }
-This endpoint correctly populates daysInCurrentStage.
+**SGA view:** Only sees own data. userEmail from session.
+**Admin view:** Can view any SGA via `userEmail` query param override.
+**Rollup:** Admin routes (e.g., `admin-quarterly-progress`) aggregate across all SGAs.
 
-### Threshold logic
-Add STALE_PIPELINE_THRESHOLDS constant to src/config/constants.ts.
-Filter records server-side or client-side where daysInCurrentStage >= threshold.
-
-### Color coding
-Use getStatusColor() from src/lib/utils/freshness-helpers.ts.
-Map days to status tier: fresh/recent/stale/very_stale.
-
-### Section placement
-Add as new <Card className=mb-6> section in pipeline page.
-Position: after existing stage breakdown section.
-
-### Drill-down
-Can reuse existing VolumeDrillDownModal + DetailRecordsTable.
-Pass metricFilter=openPipeline.
-Pre-filter records to only stale ones before passing to modal.
-
-### No new API route needed
-pipeline-drilldown already provides what is needed.
-The feature is entirely client-side filtering of existing data.
+**SGA selector:** `AdminQuarterlyProgressView.tsx` has SGA dropdown for individual view.
 
 ---
 
-## Key Files Reference
+## 9. Three-Section (Last/This/Next Week) Pattern
 
-src/types/dashboard.ts -- DetailRecord type
-src/lib/utils/date-helpers.ts -- calculateDaysInStage()
-src/lib/queries/open-pipeline.ts -- query functions
-src/lib/utils/freshness-helpers.ts -- getStatusColor()
-src/components/dashboard/RecordDetailModal.tsx -- badge + section patterns
-src/app/dashboard/pipeline/page.tsx -- pipeline page
-src/components/dashboard/VolumeDrillDownModal.tsx -- drilldown modal
-src/components/dashboard/DetailRecordsTable.tsx -- records table
-src/config/constants.ts -- stage names + colors
-src/types/bigquery-raw.ts -- toNumber(), toString()
+**NOT currently implemented.** The current weekly goals tab shows a rolling multi-week table. The new feature replaces this with 3 distinct sections.
 
+**Week calculation helpers exist:** `src/lib/utils/sga-hub-helpers.ts`
+- `getWeekStartDate(date)` — Get Monday for any date
+- `getWeekEndDate(weekStartDate)` — Get Sunday
+- `getWeekLabel(weekStart, weekEnd)` — Format label
+- `isCurrentWeek(weekStartDate)` — Check if week is current
+- `isFutureWeek(weekStartDate)` — Check if week is future
+
+These helpers support Monday-based weeks, matching the spec's "Monday-ized" requirement.
+
+---
+
+## 10. CSV Export Pattern
+
+**Existing:** `src/lib/utils/sga-hub-csv-export.ts`
+- `exportToCsv(filename, records, columns)` — Client-side CSV generation
+- Used in MetricDrillDownModal export button
+- Handles special characters, date formatting

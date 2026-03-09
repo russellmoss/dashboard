@@ -19,6 +19,10 @@ import {
   QualificationCallRecord,
   SQODrillDownRecord,
   OpenSQLDrillDownRecord,
+  MQLDrillDownRecord,
+  SQLDrillDownRecord,
+  LeadsSourcedRecord,
+  LeadsContactedRecord,
   DrillDownRecord
 } from '@/types/drill-down';
 import { formatDate } from '@/lib/utils/format-helpers';
@@ -38,7 +42,23 @@ function isSQODrillDownRecord(record: DrillDownRecord): record is SQODrillDownRe
 }
 
 function isOpenSQLDrillDownRecord(record: DrillDownRecord): record is OpenSQLDrillDownRecord {
-  return 'sqlDate' in record;
+  return 'sqlDate' in record && 'aumFormatted' in record;
+}
+
+function isMQLDrillDownRecord(record: DrillDownRecord): record is MQLDrillDownRecord {
+  return 'mqlDate' in record;
+}
+
+function isSQLDrillDownRecord(record: DrillDownRecord): record is SQLDrillDownRecord {
+  return 'sqlDate' in record && !('aumFormatted' in record);
+}
+
+function isLeadsSourcedRecord(record: DrillDownRecord): record is LeadsSourcedRecord {
+  return 'leadId' in record && 'createdDate' in record;
+}
+
+function isLeadsContactedRecord(record: DrillDownRecord): record is LeadsContactedRecord {
+  return 'contactedDate' in record;
 }
 
 // Column configurations
@@ -79,6 +99,37 @@ const COLUMN_CONFIGS: Record<MetricType, { key: string; label: string; width?: s
     { key: 'aumFormatted', label: 'AUM', width: 'w-28' },
     { key: 'aumTier', label: 'Tier', width: 'w-20' },
     { key: 'stageName', label: 'Stage', width: 'w-24' },
+    { key: 'actions', label: '', width: 'w-20' },
+  ],
+  'mqls': [
+    { key: 'advisorName', label: 'Advisor Name', width: 'w-48' },
+    { key: 'mqlDate', label: 'MQL Date', width: 'w-32' },
+    { key: 'source', label: 'Source', width: 'w-32' },
+    { key: 'channel', label: 'Channel', width: 'w-32' },
+    { key: 'initialCallDate', label: 'Initial Call Date', width: 'w-32' },
+    { key: 'actions', label: '', width: 'w-20' },
+  ],
+  'sqls': [
+    { key: 'advisorName', label: 'Advisor Name', width: 'w-48' },
+    { key: 'sqlDate', label: 'SQL Date', width: 'w-32' },
+    { key: 'source', label: 'Source', width: 'w-32' },
+    { key: 'channel', label: 'Channel', width: 'w-32' },
+    { key: 'qualificationCallDate', label: 'Qual Call Date', width: 'w-32' },
+    { key: 'actions', label: '', width: 'w-20' },
+  ],
+  'leads-sourced': [
+    { key: 'advisorName', label: 'Advisor Name', width: 'w-48' },
+    { key: 'company', label: 'Company', width: 'w-40' },
+    { key: 'createdDate', label: 'Created Date', width: 'w-32' },
+    { key: 'source', label: 'Source', width: 'w-32' },
+    { key: 'isSelfSourced', label: 'Self-Sourced', width: 'w-24' },
+    { key: 'actions', label: '', width: 'w-20' },
+  ],
+  'leads-contacted': [
+    { key: 'advisorName', label: 'Advisor Name', width: 'w-48' },
+    { key: 'contactedDate', label: 'Contacted Date', width: 'w-32' },
+    { key: 'source', label: 'Source', width: 'w-32' },
+    { key: 'channel', label: 'Channel', width: 'w-32' },
     { key: 'actions', label: '', width: 'w-20' },
   ],
 };
@@ -168,6 +219,41 @@ export function MetricDrillDownModal({
         'Opportunity Next Step': record.opportunityNextStep || '',
         'Days in Current Stage': record.daysInCurrentStage ?? '',
       }));
+    } else if (metricType === 'mqls') {
+      return (records as MQLDrillDownRecord[]).map(record => ({
+        'Advisor Name': record.advisorName,
+        'MQL Date': formatDate(record.mqlDate) || '',
+        'Source': record.source,
+        'Channel': record.channel,
+        'Initial Call Date': record.initialCallDate ? formatDate(record.initialCallDate) || '' : '',
+        'Salesforce URL': record.leadUrl || record.opportunityUrl || '',
+      }));
+    } else if (metricType === 'sqls') {
+      return (records as SQLDrillDownRecord[]).map(record => ({
+        'Advisor Name': record.advisorName,
+        'SQL Date': formatDate(record.sqlDate) || '',
+        'Source': record.source,
+        'Channel': record.channel,
+        'Qual Call Date': record.qualificationCallDate ? formatDate(record.qualificationCallDate) || '' : '',
+        'Salesforce URL': record.leadUrl || record.opportunityUrl || '',
+      }));
+    } else if (metricType === 'leads-sourced') {
+      return (records as LeadsSourcedRecord[]).map(record => ({
+        'Advisor Name': record.advisorName,
+        'Company': record.company,
+        'Created Date': formatDate(record.createdDate) || '',
+        'Source': record.source,
+        'Self-Sourced': record.isSelfSourced ? 'Yes' : 'No',
+        'Salesforce URL': record.leadUrl || '',
+      }));
+    } else if (metricType === 'leads-contacted') {
+      return (records as LeadsContactedRecord[]).map(record => ({
+        'Advisor Name': record.advisorName,
+        'Contacted Date': formatDate(record.contactedDate) || '',
+        'Source': record.source,
+        'Channel': record.channel,
+        'Salesforce URL': record.leadUrl || '',
+      }));
     } else {
       return (records as SQODrillDownRecord[]).map(record => {
         const baseExport = {
@@ -241,7 +327,31 @@ export function MetricDrillDownModal({
     if (key === 'sgaName' && isSQODrillDownRecord(record)) {
       return record.sgaName || '-';
     }
-    
+    if (key === 'mqlDate' && isMQLDrillDownRecord(record)) {
+      return formatDate(record.mqlDate) || '-';
+    }
+    if (key === 'sqlDate' && isSQLDrillDownRecord(record)) {
+      return formatDate(record.sqlDate) || '-';
+    }
+    if (key === 'initialCallDate' && isMQLDrillDownRecord(record)) {
+      return record.initialCallDate ? formatDate(record.initialCallDate) || '-' : '-';
+    }
+    if (key === 'qualificationCallDate' && isSQLDrillDownRecord(record)) {
+      return record.qualificationCallDate ? formatDate(record.qualificationCallDate) || '-' : '-';
+    }
+    if (key === 'createdDate' && isLeadsSourcedRecord(record)) {
+      return formatDate(record.createdDate) || '-';
+    }
+    if (key === 'contactedDate' && isLeadsContactedRecord(record)) {
+      return formatDate(record.contactedDate) || '-';
+    }
+    if (key === 'isSelfSourced' && isLeadsSourcedRecord(record)) {
+      return record.isSelfSourced ? 'Yes' : 'No';
+    }
+    if (key === 'company' && isLeadsSourcedRecord(record)) {
+      return record.company || '-';
+    }
+
     const value = record[key as keyof DrillDownRecord];
     if (value === null || value === undefined) return '-';
     return String(value);
@@ -328,18 +438,23 @@ export function MetricDrillDownModal({
                         <TableCell key={col.key}>
                           {col.key === 'actions' ? (
                             <div className="flex items-center gap-1">
-                              {record.opportunityUrl && (
-                                <a
-                                  href={record.opportunityUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
-                                  title="Open in Salesforce"
-                                >
-                                  <ExternalLink className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                                </a>
-                              )}
+                              {(() => {
+                                const sfUrl = 'opportunityUrl' in record ? (record as any).opportunityUrl : null;
+                                const leadUrlVal = 'leadUrl' in record ? (record as any).leadUrl : null;
+                                const url = sfUrl || leadUrlVal;
+                                return url ? (
+                                  <a
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
+                                    title="Open in Salesforce"
+                                  >
+                                    <ExternalLink className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                  </a>
+                                ) : null;
+                              })()}
                             </div>
                           ) : (
                             <span className="text-gray-900 dark:text-gray-100">
