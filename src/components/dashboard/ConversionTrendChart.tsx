@@ -370,6 +370,7 @@ export function ConversionTrendChart({
                 fill={colorMap[cat]}
                 radius={[4, 4, 0, 0]}
                 maxBarSize={50}
+                isAnimationActive={false}
               >
                 <LabelList 
                   dataKey={cat} 

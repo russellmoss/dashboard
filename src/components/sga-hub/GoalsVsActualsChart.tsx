@@ -188,6 +188,7 @@ export function GoalsVsActualsChart({ title, data, metrics }: GoalsVsActualsChar
                   strokeWidth={2}
                   dot={{ r: 3 }}
                   connectNulls={false}
+                  isAnimationActive={false}
                 />,
                 <Line
                   key={`${m.key}Goal`}
@@ -199,6 +200,7 @@ export function GoalsVsActualsChart({ title, data, metrics }: GoalsVsActualsChar
                   strokeDasharray="5 5"
                   dot={false}
                   connectNulls={false}
+                  isAnimationActive={false}
                 />,
               ];
             })}

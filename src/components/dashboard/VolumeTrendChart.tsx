@@ -256,6 +256,7 @@ export function VolumeTrendChart({
                 fill={VOLUME_COLORS[cat]}
                 radius={[4, 4, 0, 0]}
                 maxBarSize={50}
+                isAnimationActive={false}
                 onClick={onBarClick ? (data: any, index: number, e: any) => {
                   // Get the period from the clicked data point
                   // data is the chart data object: { period: "2025-Q4", SQLs: 193, SQOs: 144, Joined: 17 }
