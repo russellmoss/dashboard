@@ -254,9 +254,9 @@ export function getDefaultWeekRange(): { startDate: string; endDate: string } {
   const today = new Date();
   const currentMonday = getWeekMondayDate(today);
   
-  // 12 weeks before current (supports chart views up to 12 weeks)
+  // 52 weeks before current (supports custom chart date ranges up to 1 year)
   const startMonday = new Date(currentMonday);
-  startMonday.setDate(startMonday.getDate() - 84);
+  startMonday.setDate(startMonday.getDate() - 364);
   
   // 1 week after current (next week's Sunday)
   const endSunday = new Date(currentMonday);

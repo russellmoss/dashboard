@@ -37,6 +37,8 @@ const WEEK_RANGE_OPTIONS = [
   { label: '4 Weeks', weeks: 4 },
   { label: '8 Weeks', weeks: 8 },
   { label: '12 Weeks', weeks: 12 },
+  { label: '24 Weeks', weeks: 24 },
+  { label: '52 Weeks', weeks: 52 },
   { label: 'Custom', weeks: -1 },
 ];
 
@@ -157,7 +159,10 @@ export function GoalsVsActualsChart({ title, data, metrics }: GoalsVsActualsChar
               dataKey="weekLabel"
               tick={{ fontSize: 10, fill: isDark ? '#9ca3af' : CHART_COLORS.axis }}
               tickLine={false}
-              interval="preserveStartEnd"
+              angle={filteredData.length > 16 ? -45 : 0}
+              textAnchor={filteredData.length > 16 ? 'end' : 'middle'}
+              height={filteredData.length > 16 ? 60 : 30}
+              interval={filteredData.length > 24 ? Math.floor(filteredData.length / 12) : 'preserveStartEnd'}
             />
             <YAxis
               tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : CHART_COLORS.axis }}
