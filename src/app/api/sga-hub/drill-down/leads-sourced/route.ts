@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const targetUserEmail = searchParams.get('userEmail');
+    const sgaNameParam = searchParams.get('sgaName');
     const teamLevel = searchParams.get('teamLevel') === 'true';
     const weekStartDate = searchParams.get('weekStartDate');
     const weekEndDate = searchParams.get('weekEndDate');
@@ -45,6 +46,8 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
       sgaName = null;
+    } else if (sgaNameParam) {
+      sgaName = sgaNameParam;
     } else {
       let userEmail = session.user.email;
       if (targetUserEmail) {
