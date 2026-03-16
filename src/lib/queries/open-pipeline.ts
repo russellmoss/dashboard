@@ -800,8 +800,8 @@ const _getSgmConversionData = async (
       SUM(v.sql_to_sqo_progression) as sql_to_sqo_numer,
       SUM(v.eligible_for_sql_conversions) as sql_to_sqo_denom,
       SUM(v.is_sqo_unique) as sqos_count,
-      SUM(v.sqo_to_joined_progression) as sqo_to_joined_numer,
-      SUM(v.eligible_for_sqo_conversions) as sqo_to_joined_denom,
+      SUM(v.is_joined_unique) as sqo_to_joined_numer,
+      SUM(v.is_joined_unique) + COUNTIF(v.StageName = 'Closed Lost' AND v.is_primary_opp_record = 1) as sqo_to_joined_denom,
       SUM(v.is_joined_unique) as joined_count
     FROM \`${FULL_TABLE}\` v
     INNER JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` u

@@ -1,844 +1,1474 @@
-# Agentic Implementation Guide: Stale Pipeline Alerts
-
-**Generated:** 2026-02-25
-**Based on:** exploration-results.md + code-inspector-findings.md + data-verifier-findings.md + pattern-finder-findings.md
-
----
+# Agentic Implementation Guide: Forecasting Module
 
 ## Reference Document
+All decisions in this guide are based on the completed exploration files:
+- `exploration-results.md` (synthesized findings — primary source of truth)
+- `code-inspector-findings.md` (exact line numbers, code patterns)
+- `data-verifier-findings.md` (BQ schema, data quality, edge cases)
+- `pattern-finder-findings.md` (conventions to follow)
+- `forecast_sheet_exploration.md` (updated sheet structure, formula patterns, data alignment validation)
 
-All decisions in this guide are based on the completed exploration files in the project root.
-Those documents are the single source of truth for line numbers, field names, and patterns.
+Human-verified decisions from Appendix C of `forecasting_exploration.md` override all other assumptions.
 
----
+The exploration confirmed the following sheet structure: 26 sub-sources across 7 Finance_View channels,
+3-tier rollup (detail sections → channel summary → total), monthly-first waterfall calculations,
+and SGA-based Created volumes for Outbound. See Phase 8 of the exploration for the canonical reference tables.
 
 ## Feature Summary
 
-| What | Details |
-|---|---|
-| New section | Stale Pipeline Alerts card on Pipeline tab (By Stage view) |
-| Data source | `POST /api/dashboard/pipeline-drilldown` — already returns `daysInCurrentStage` |
-| Key field | `DetailRecord.daysInCurrentStage: number \| null` — already exists, no type changes |
-| Grouping | Client-side grouping by `record.stage`, no new API routes |
-| Thresholds | <30d green, 30–59d yellow, 60–89d orange, 90d+ red, null N/A |
-| On Hold | 54 records averaging 173 days — shown in a "Deliberate Hold" sub-section |
-| New files | 1 — `src/components/dashboard/StalePipelineAlerts.tsx` |
-| Modified files | 2 — `src/config/constants.ts`, `src/app/dashboard/pipeline/page.tsx` |
-| Type changes | None |
-| API route changes | None |
-| BigQuery changes | None |
+| Capability | Source | Notes |
+|-----------|--------|-------|
+| Source-first forecasting | Neon DB (Prisma) + BQ `vw_funnel_master` | Sources (`Original_source`) are the atomic unit; channels (`Finance_View__c`) are computed rollups |
+| Auto-populated conversion rates | BQ trailing 90-day resolved-only actuals | 5 transitions: Created→Contacted→MQL→SQL→SQO→Joined |
+| Lock/unlock per cell | Neon `ForecastOverride` model | Unlocked = auto-update from live data; locked = manual override with annotation |
+| Waterfall volume calculations | Computed in app — monthly-first | Monthly: Created × rate chain. Quarterly = SUM(3 months). Rates are per-month, not per-quarter. |
+| Forecast vs. actuals side-by-side | BQ `vw_funnel_master` for actuals | Updated daily via existing data transfer |
+| Targets & gap tracking | Neon `ForecastTarget` model | Forecast (expected) vs. finance minimum (needed) vs. gap filler (stretch) |
+| Full change tracking | Neon `ForecastOverride` model | Every override logged with user, timestamp, reason |
+| Google Sheets export | Sheets API via Apps Script template | Read-only snapshot with live waterfall formulas |
+| BQ sync (Neon → BQ) | Native BQ table `forecast_data` | `Total_*` + `Cohort_source` rows for `vw_daily_forecast` |
 
----
+## Canonical Source Taxonomy (from exploration Phase 8.1)
+
+26 sub-sources across 7 Finance_View channels. Dashboard must support all ACTIVE and NEW sources;
+PLACEHOLDER sources should be available but hidden by default.
+
+| # | Finance_View | Sub-Source | Status | BQ Original_source | Notes |
+|---|-------------|-----------|--------|-------------------|-------|
+| 1 | Outbound | Provided List (Lead Scoring) | ACTIVE | Provided List (Lead Scoring) | SGA-based: 200/SGA |
+| 2 | Outbound | LinkedIn (Self Sourced) | ACTIVE | LinkedIn (Self Sourced) | SGA-based: 200/SGA |
+| 3 | Outbound | Fintrx (Self-Sourced) | NEW | Fintrx (Self-Sourced) | SGA-based: 80/SGA. Rates seeded from LinkedIn SS. |
+| 4 | Marketing | Direct Traffic | ACTIVE | Direct Traffic | Sheet has duplicate section — use 2nd (row 253) |
+| 5 | Marketing | Google Ads + LinkedIn Ads | ACTIVE | ["Google Ads", "LinkedIn Ads"] | Combined — needs bqSourceMapping |
+| 6 | Marketing | Job Applications | ACTIVE | Job Applications | |
+| 7 | Outbound + Marketing | Events | ACTIVE | Events | |
+| 8 | Outbound + Marketing | Provided List (Marketing) | ACTIVE | Provided List (Marketing) | |
+| 9 | Re-Engagement | Re-Engagement | ACTIVE | Re-Engagement | Non-standard funnel: monthly rates ≠ quarterly |
+| 10 | Partnerships | Recruitment Firm | ACTIVE | Recruitment Firm | High conversion rates (>90% at some stages) |
+| 11 | Advisor Referrals | Advisor Referral | ACTIVE | Advisor Referral | Very small volumes |
+| 12 | Other | Other | ACTIVE | Other | |
+| 13-26 | Various | Blog, Search, LinkedIn Savvy, etc. | PLACEHOLDER | Various/N/A | Zero forecast, kept as future channel slots |
+
+**BQ sources NOT in sheet:** Employee Referral (Partnerships), Partnerships (Partnerships) — tracked in BQ but no forecast section.
+**Sheet has duplicate Direct Traffic:** Row 227 (superseded, no forecast) and row 253 (active). Dashboard enforces uniqueness.
 
 ## Architecture Rules
-
-- Never use string interpolation in BigQuery queries — always `@paramName` (standing rule)
-- Use `toString()` / `toNumber()` helpers for type-safe transforms
-- Do NOT use `getOpenPipelineRecords` — it hardcodes `daysInCurrentStage: null`
-- Use `POST /api/dashboard/pipeline-drilldown` (backed by `_getOpenPipelineRecordsByStage`) which correctly computes `daysInCurrentStage`
-
----
+- Never use string interpolation in BigQuery queries — always `@paramName` syntax
+- All BQ queries target views/tables via constants in `src/config/constants.ts`
+- Use `toString()`/`toNumber()` helpers from `src/types/bigquery-raw.ts` for type-safe transforms
+- Use centralized `extractDateValue()` for date fields — do NOT add another copy
+- All new BQ query functions MUST use `cachedQuery` wrapper (anti-pattern: `forecast.ts` has no caching)
+- Prisma queries are NEVER cached
+- Do not modify API routes unless they transform data (most are pass-through)
+- Source-first architecture: no hardcoded channel taxonomy, no `new_mapping` dependency, no CASE WHEN overrides
+- Historical conversion rates MUST be pulled from `vw_channel_conversion_rates_pivoted` directly —
+  do NOT derive rates from volume ratios in `vw_channel_funnel_volume_by_month`.
+  The rate view uses cohorted attribution methodology that produces different values than simple division.
+  (Exploration Phase 6.2: LinkedIn SS Q4 2025 rate=94.49% vs volume ratio=89.6%)
 
 ## Pre-Flight Checklist
 
-Run this before making any changes:
-
 ```bash
-cd /c/Users/russe/Documents/Dashboard && npm run build 2>&1 | tail -20
+npm run build 2>&1 | head -50
 ```
 
-**Expected:** Build succeeds. Note the exact pre-existing error count.
-If the build is already broken, STOP and report. Do not proceed with a broken baseline.
-
-Also verify the key field exists:
-
-```bash
-grep -n "daysInCurrentStage" src/types/dashboard.ts
-```
-
-**Expected:** Line ~158 — `daysInCurrentStage: number | null;`
+If pre-existing errors, **STOP AND REPORT**. Do not proceed with a broken baseline.
 
 ---
 
-# PHASE 1: Constants
+# PHASE 1: Resolve Blockers
 
 ## Context
+Three blockers were identified during exploration. Two are resolved (Russell creates native BQ table). One requires a code fix.
 
-Add `STALE_PIPELINE_THRESHOLDS` and `ON_HOLD_STAGE` to `src/config/constants.ts`.
-This makes thresholds configurable from a single location instead of scattered magic numbers.
+## Step 1.1: Verify native BQ table exists
+**Action**: Ask user to confirm `savvy-gtm-analytics.SavvyGTMData.forecast_data` native table is created, backfilled, and `vw_daily_forecast` FROM clause updated to point to it.
 
-## Step 1.1: Add constants to end of file
+**STOP AND REPORT if not ready** — Phases 11-12 depend on this.
 
-**File:** `src/config/constants.ts`
-
-The file currently ends with `export const DEFAULT_DATE_PRESET = 'q4' as const;` (line 41).
-Add after that line:
-
-```typescript
-
-export const STALE_PIPELINE_THRESHOLDS = {
-  warning: 30,   // yellow badge: >= 30 days
-  stale: 60,     // orange badge: >= 60 days
-  critical: 90,  // red badge: >= 90 days
-} as const;
-
-// On Hold is excluded from OPEN_PIPELINE_STAGES (not actively progressing)
-// but is included in stale alerts as a separate "Deliberate Hold" section
-export const ON_HOLD_STAGE = 'On Hold' as const;
-```
+## Step 1.2: Fix `converted_date_raw` DATE→TIMESTAMP cast
+**File**: All new query files created in Phase 4 must use `TIMESTAMP(v.converted_date_raw)` instead of bare `v.converted_date_raw` in any TIMESTAMP comparison. This is documented here as a standing rule — the actual queries are written in Phase 4.
 
 ## PHASE 1 — VALIDATION GATE
 
-```bash
-grep -n "STALE_PIPELINE_THRESHOLDS\|ON_HOLD_STAGE" src/config/constants.ts
-```
+No code changes yet. Confirm blockers are resolved.
 
-**Expected:** Two lines showing the new exports.
-
-**STOP AND REPORT:**
-- "Added `STALE_PIPELINE_THRESHOLDS` and `ON_HOLD_STAGE` to `src/config/constants.ts`"
+**STOP AND REPORT**: Tell the user:
+- "Blocker status confirmed"
 - "Ready to proceed to Phase 2?"
 
 ---
 
-# PHASE 2: StalePipelineAlerts Component
+# PHASE 2: Database (Prisma Schema + Migration)
 
 ## Context
+Add 8 new models and 3 enums to the Prisma schema. Write a manual migration SQL file. The `ForecastSource` model is the source-first atomic unit.
 
-This is the primary new UI work. The component:
-- Accepts `DetailRecord[]` already populated with `daysInCurrentStage`
-- Groups records client-side by `record.stage` using `useMemo`
-- Shows a summary header per stage (count by tier, clickable)
-- Lists each record with advisor name, AUM, days badge, and next step preview
-- Clicking a stage group header calls `onStageClick` → opens `VolumeDrillDownModal`
-- On Hold records appear in a distinct sub-section with a deliberate-hold note
-- Fully dark mode compatible
+## Step 2.1: Add enums to `prisma/schema.prisma`
+**File**: `prisma/schema.prisma` (append after line 200, after existing enums)
 
-Key patterns followed:
-- Badge classes: `px-2.5 py-0.5 text-xs font-semibold rounded-full` (from `RecordDetailModal.tsx`)
-- Section wrapper: `<Card className="mb-6">` (standard pipeline page pattern)
-- Color tiers: same green/yellow/orange/red pattern as `getStatusColor()` in `freshness-helpers.ts`
-- Stage colors: `STAGE_COLORS` from `constants.ts`
+```prisma
+// =============================================================================
+// FORECASTING MODULE
+// Source-first quarterly forecasting with lock/unlock overrides
+// =============================================================================
 
-## Step 2.1: Create the component
-
-**File:** `src/components/dashboard/StalePipelineAlerts.tsx` (new file)
-
-```tsx
-'use client';
-
-import React, { useMemo } from 'react';
-import { Card, Text } from '@tremor/react';
-import { AlertTriangle, Clock, ChevronRight } from 'lucide-react';
-import { DetailRecord } from '@/types/dashboard';
-import {
-  OPEN_PIPELINE_STAGES,
-  STAGE_COLORS,
-  STALE_PIPELINE_THRESHOLDS,
-  ON_HOLD_STAGE,
-} from '@/config/constants';
-
-// ─── Aging tier helpers ───────────────────────────────────────────────────────
-
-type AgingTier = 'fresh' | 'warning' | 'stale' | 'critical' | 'unknown';
-
-function getAgingTier(days: number | null): AgingTier {
-  if (days === null) return 'unknown';
-  if (days >= STALE_PIPELINE_THRESHOLDS.critical) return 'critical';
-  if (days >= STALE_PIPELINE_THRESHOLDS.stale)    return 'stale';
-  if (days >= STALE_PIPELINE_THRESHOLDS.warning)  return 'warning';
-  return 'fresh';
+enum ForecastStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
 }
 
-const TIER_BADGE_CLASSES: Record<AgingTier, string> = {
-  fresh:   'bg-green-100  text-green-800  dark:bg-green-900/30  dark:text-green-400',
-  warning: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
-  stale:   'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
-  critical:'bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-400',
-  unknown: 'bg-gray-100   text-gray-500   dark:bg-gray-800      dark:text-gray-400',
-};
-
-const TIER_RANGE_LABEL: Record<AgingTier, string> = {
-  fresh:   `<${STALE_PIPELINE_THRESHOLDS.warning}d`,
-  warning: `${STALE_PIPELINE_THRESHOLDS.warning}–${STALE_PIPELINE_THRESHOLDS.stale - 1}d`,
-  stale:   `${STALE_PIPELINE_THRESHOLDS.stale}–${STALE_PIPELINE_THRESHOLDS.critical - 1}d`,
-  critical:`${STALE_PIPELINE_THRESHOLDS.critical}d+`,
-  unknown: 'N/A',
-};
-
-function AgingBadge({ days }: { days: number | null }) {
-  const tier = getAgingTier(days);
-  const label = days === null ? 'N/A' : `${days}d`;
-  return (
-    <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-full flex-shrink-0 ${TIER_BADGE_CLASSES[tier]}`}>
-      {label}
-    </span>
-  );
+enum FunnelStage {
+  CREATED
+  CONTACTED
+  MQL
+  SQL
+  SQO
+  JOINED
 }
 
-function formatAum(aum: number): string {
-  if (aum >= 1_000_000_000) return `$${(aum / 1_000_000_000).toFixed(1)}B`;
-  if (aum >= 1_000_000)     return `$${(aum / 1_000_000).toFixed(0)}M`;
-  return `$${aum.toLocaleString()}`;
-}
-
-// ─── Tier summary bar ────────────────────────────────────────────────────────
-
-interface TierCounts {
-  fresh: number;
-  warning: number;
-  stale: number;
-  critical: number;
-  unknown: number;
-}
-
-function TierSummaryBadges({ counts, total }: { counts: TierCounts; total: number }) {
-  const tiers: AgingTier[] = ['critical', 'stale', 'warning', 'fresh', 'unknown'];
-  return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      {tiers.map(tier => {
-        const count = counts[tier];
-        if (count === 0) return null;
-        const pct = Math.round((count / total) * 100);
-        return (
-          <span key={tier} className={`px-2 py-0.5 text-xs font-medium rounded-full ${TIER_BADGE_CLASSES[tier]}`}>
-            {count} {TIER_RANGE_LABEL[tier]} ({pct}%)
-          </span>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── Stage section ───────────────────────────────────────────────────────────
-
-interface StageSectionProps {
-  stage: string;
-  records: DetailRecord[];
-  isOnHold?: boolean;
-  onStageClick: (stage: string, records: DetailRecord[]) => void;
-}
-
-function StageSection({ stage, records, isOnHold = false, onStageClick }: StageSectionProps) {
-  const stageColor = STAGE_COLORS[stage] ?? '#94a3b8';
-
-  const counts = useMemo<TierCounts>(() => {
-    return records.reduce(
-      (acc, r) => {
-        acc[getAgingTier(r.daysInCurrentStage)]++;
-        return acc;
-      },
-      { fresh: 0, warning: 0, stale: 0, critical: 0, unknown: 0 }
-    );
-  }, [records]);
-
-  // Sort: highest days first, nulls last
-  const sorted = useMemo(() => {
-    return [...records].sort((a, b) => {
-      if (a.daysInCurrentStage === null && b.daysInCurrentStage === null) return 0;
-      if (a.daysInCurrentStage === null) return 1;
-      if (b.daysInCurrentStage === null) return -1;
-      return b.daysInCurrentStage - a.daysInCurrentStage;
-    });
-  }, [records]);
-
-  const staleCount = counts.critical + counts.stale + counts.warning;
-
-  return (
-    <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-      {/* Stage header — clickable */}
-      <button
-        onClick={() => onStageClick(stage, records)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-left"
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <span
-            className="w-3 h-3 rounded-full flex-shrink-0"
-            style={{ backgroundColor: stageColor }}
-          />
-          <span className="font-semibold text-sm text-gray-900 dark:text-gray-100">
-            {stage}
-          </span>
-          {isOnHold && (
-            <span className="text-xs text-gray-400 dark:text-gray-500 italic hidden sm:inline">
-              — deliberate pause
-            </span>
-          )}
-          <span className="text-xs text-gray-400 dark:text-gray-500">
-            {records.length} record{records.length !== 1 ? 's' : ''}
-            {staleCount > 0 && (
-              <span className="ml-1 text-orange-600 dark:text-orange-400">
-                · {staleCount} flagged
-              </span>
-            )}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-          <TierSummaryBadges counts={counts} total={records.length} />
-          <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
-        </div>
-      </button>
-
-      {/* Record rows */}
-      <div className="divide-y divide-gray-100 dark:divide-gray-800">
-        {sorted.map(record => (
-          <div
-            key={record.id}
-            className="flex items-center justify-between px-4 py-2.5 text-sm"
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              <AgingBadge days={record.daysInCurrentStage} />
-              <span className="font-medium text-gray-800 dark:text-gray-200 truncate">
-                {record.advisorName}
-              </span>
-              {record.nextSteps && (
-                <span className="text-xs text-gray-400 dark:text-gray-500 truncate hidden md:block max-w-xs">
-                  {record.nextSteps}
-                </span>
-              )}
-            </div>
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 flex-shrink-0 ml-2">
-              {formatAum(record.aum)}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─── Main component ───────────────────────────────────────────────────────────
-
-interface StalePipelineAlertsProps {
-  records: DetailRecord[];
-  loading: boolean;
-  onStageClick: (stage: string, records: DetailRecord[]) => void;
-}
-
-export function StalePipelineAlerts({ records, loading, onStageClick }: StalePipelineAlertsProps) {
-  // Group records by stage client-side
-  const byStage = useMemo(() => {
-    const map = new Map<string, DetailRecord[]>();
-    for (const record of records) {
-      const stage = record.stage || 'Unknown';
-      const existing = map.get(stage) ?? [];
-      existing.push(record);
-      map.set(stage, existing);
-    }
-    return map;
-  }, [records]);
-
-  // Separate On Hold from actively-progressing stages
-  const onHoldRecords = byStage.get(ON_HOLD_STAGE) ?? [];
-  const activeStageRecords = OPEN_PIPELINE_STAGES
-    .map(stage => ({ stage, records: byStage.get(stage) ?? [] }))
-    .filter(({ records: r }) => r.length > 0);
-
-  const totalFlagged = records.filter(
-    r => r.daysInCurrentStage !== null && r.daysInCurrentStage >= STALE_PIPELINE_THRESHOLDS.warning
-  ).length;
-
-  const hasData = records.length > 0;
-
-  if (!hasData && !loading) return null;
-
-  return (
-    <Card className="mb-6">
-      {/* Section header */}
-      <div className="flex items-center gap-2 mb-4">
-        <AlertTriangle className="w-5 h-5 text-orange-500 flex-shrink-0" />
-        <div>
-          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            Stale Pipeline Alerts
-          </h2>
-          {!loading && hasData && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              {totalFlagged} of {records.length} records flagged at {STALE_PIPELINE_THRESHOLDS.warning}d+
-              · Click a stage to view details
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Loading skeleton */}
-      {loading && (
-        <div className="space-y-3">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="h-12 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse" />
-          ))}
-        </div>
-      )}
-
-      {/* Active pipeline stages */}
-      {!loading && activeStageRecords.length > 0 && (
-        <div className="space-y-3">
-          {activeStageRecords.map(({ stage, records: stageRecords }) => (
-            <StageSection
-              key={stage}
-              stage={stage}
-              records={stageRecords}
-              onStageClick={onStageClick}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* On Hold — always shown separately if records exist */}
-      {!loading && onHoldRecords.length > 0 && (
-        <div className={activeStageRecords.length > 0 ? 'mt-4 pt-4 border-t border-gray-200 dark:border-gray-700' : ''}>
-          <div className="flex items-center gap-1.5 mb-2">
-            <Clock className="w-3.5 h-3.5 text-gray-400" />
-            <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">
-              On Hold
-            </span>
-          </div>
-          <StageSection
-            stage={ON_HOLD_STAGE}
-            records={onHoldRecords}
-            isOnHold
-            onStageClick={onStageClick}
-          />
-        </div>
-      )}
-
-      {/* Qualifying footnote — only when Qualifying records are present */}
-      {!loading && (byStage.get('Qualifying')?.length ?? 0) > 0 && (
-        <p className="mt-3 text-xs text-gray-400 dark:text-gray-500 italic">
-          * Qualifying: days counted from opportunity creation date (no Salesforce stage entry date available)
-        </p>
-      )}
-    </Card>
-  );
+enum StageTransition {
+  CREATED_TO_CONTACTED
+  CONTACTED_TO_MQL
+  MQL_TO_SQL
+  SQL_TO_SQO
+  SQO_TO_JOINED
 }
 ```
 
-## Step 2.2: Verify field names against DetailRecord
+## Step 2.2: Add Forecast model
+**File**: `prisma/schema.prisma` (append after enums)
 
-Before saving, verify the field names used in the component match the actual `DetailRecord` type:
+```prisma
+model Forecast {
+  id        String         @id @default(cuid())
+  quarter   String         // "2026-Q2" format
+  year      Int
+  status    ForecastStatus @default(DRAFT)
+  notes     String?        @db.Text
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  createdBy String?        // Email of creator
+  updatedBy String?        // Email of last updater
 
+  // Relations
+  sources     ForecastSource[]
+  lineItems   ForecastLineItem[]
+  rateItems   ForecastRateItem[]
+  assumptions ForecastAssumption[]
+  targets     ForecastTarget[]
+
+  @@unique([quarter])
+  @@index([quarter])
+  @@index([status])
+}
+```
+
+## Step 2.3: Add ForecastSource model
+**File**: `prisma/schema.prisma` (append after Forecast)
+
+```prisma
+// bqSourceMapping handles combined sub-sources (e.g., "Google Ads + LinkedIn Ads" maps to
+// ["Google Ads", "LinkedIn Ads"] in BQ). When empty, subSource is used directly as the BQ key.
+model ForecastSource {
+  id              String   @id @default(cuid())
+  forecastId      String
+  forecast        Forecast @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+  subSource       String   // Original_source from BQ (e.g., "Provided Lead List")
+  channel         String   // Finance_View__c from BQ (e.g., "Outbound")
+  isActive        Boolean  @default(true)
+  isManual        Boolean  @default(false) // true = user-added, not from BQ discovery
+  bqSourceMapping String[] @default([]) // BQ Original_source values this maps to (e.g., ["Google Ads", "LinkedIn Ads"] for combined sources). Empty = subSource is the BQ key.
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([forecastId, subSource])
+  @@index([forecastId])
+  @@index([channel])
+}
+```
+
+## Step 2.4: Add ForecastLineItem model
+**File**: `prisma/schema.prisma`
+
+```prisma
+model ForecastLineItem {
+  id               String      @id @default(cuid())
+  forecastId       String
+  forecast         Forecast    @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+  channel          String      // Finance_View__c (copied from ForecastSource for query convenience)
+  subSource        String      // Original_source
+  month            String      // "2026-04" format
+  stage            FunnelStage
+  calculatedVolume Int         @default(0) // Waterfall-computed volume
+  finalVolume      Int         @default(0) // = calculatedVolume unless overridden
+  isLocked         Boolean     @default(false)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  // Relations
+  overrides ForecastOverride[]
+
+  @@unique([forecastId, subSource, month, stage])
+  @@index([forecastId])
+  @@index([channel])
+  @@index([subSource])
+  @@index([month])
+}
+```
+
+## Step 2.5: Add ForecastRateItem model
+**File**: `prisma/schema.prisma`
+
+```prisma
+model ForecastRateItem {
+  id             String          @id @default(cuid())
+  forecastId     String
+  forecast       Forecast        @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+  channel        String          // Finance_View__c
+  subSource      String          // Original_source
+  month          String          // "2026-04" format
+  transition     StageTransition
+  calculatedRate Float           @default(0) // From BQ trailing 90-day resolved
+  finalRate      Float           @default(0) // = calculatedRate unless overridden
+  isLocked       Boolean         @default(false)
+  rateSource     String          @default("calculated") // "calculated" | "manual" | "business_assumption"
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  // Relations
+  overrides ForecastOverride[]
+
+  @@unique([forecastId, subSource, month, transition])
+  @@index([forecastId])
+  @@index([channel])
+  @@index([subSource])
+}
+```
+
+## Step 2.6: Add ForecastOverride model
+**File**: `prisma/schema.prisma`
+
+```prisma
+model ForecastOverride {
+  id            String            @id @default(cuid())
+  lineItemId    String?
+  lineItem      ForecastLineItem? @relation(fields: [lineItemId], references: [id], onDelete: Cascade)
+  rateItemId    String?
+  rateItem      ForecastRateItem? @relation(fields: [rateItemId], references: [id], onDelete: Cascade)
+  fieldType     String            // "volume" | "rate"
+  originalValue Float
+  overrideValue Float
+  reason        String            @db.Text // Required annotation
+  overriddenBy  String            // Email of user
+  createdAt     DateTime          @default(now())
+
+  @@index([lineItemId])
+  @@index([rateItemId])
+  @@index([overriddenBy])
+  @@index([createdAt])
+}
+```
+
+## Step 2.7: Add ForecastAssumption model
+**File**: `prisma/schema.prisma`
+
+```prisma
+// Standard assumption keys for Outbound:
+//   "sga_count" — channel=Outbound, month="2026-04", value="14.5"
+//   "sourcing_rate_per_sga" — channel=Outbound, subSource="Fintrx (Self-Sourced)", value="80"
+//   "sourcing_rate_per_sga" — channel=Outbound, subSource="Provided List (Lead Scoring)", value="200"
+//   "person_overlay" — channel=Outbound, subSource=NULL, month="2026-04", value="0.5" (e.g., Lauren partial allocation)
+// SGA counts are shared across all Outbound sub-sources for a given month.
+// Created volume = sourcing_rate_per_sga × (sga_count + person_overlay) for that month.
+// Standard assumption keys for global:
+//   "sqo_to_joined_override" — channel=NULL, value="0.15"
+model ForecastAssumption {
+  id              String   @id @default(cuid())
+  forecastId      String
+  forecast        Forecast @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+  channel         String?  // NULL = global assumption
+  subSource       String?  // NULL = channel-level or global
+  month           String?  // NULL = quarter-level
+  assumptionKey   String   // "sga_count" | "lead_list_size" | "sourcing_rate_per_sga" | "person_overlay" | "sqo_to_joined_override" | "rate_seed_from" | custom
+  assumptionValue String   // String-encoded value
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  updatedBy       String?
+
+  @@unique([forecastId, channel, subSource, month, assumptionKey])
+  @@index([forecastId])
+}
+```
+
+## Step 2.8: Add ForecastTarget model
+**File**: `prisma/schema.prisma`
+
+```prisma
+model ForecastTarget {
+  id                   String   @id @default(cuid())
+  forecastId           String
+  forecast             Forecast @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+  channel              String   // Finance_View__c channel
+  month                String   // "2026-04" format
+  stage                FunnelStage
+  minimumForecast      Int      @default(0) // What we expect
+  financeMinimum       Int      @default(0) // What we need
+  gapFillerAllocation  Int      @default(0) // Stretch allocation
+  comments             String?  @db.Text
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  updatedBy            String?
+
+  @@unique([forecastId, channel, month, stage])
+  @@index([forecastId])
+  @@index([channel])
+}
+```
+
+## Step 2.9: Write migration SQL
+**File**: `prisma/migrations/manual_forecasting_models_migration.sql` (new file)
+
+Write a CREATE TABLE + CREATE UNIQUE INDEX + CREATE INDEX SQL file matching all 8 models above. Use the same naming conventions as existing migrations: table names are PascalCase matching model names, columns are camelCase in quotes.
+
+Key rules:
+- `id` TEXT PRIMARY KEY DEFAULT gen_random_uuid() — BUT since Prisma uses CUID, use TEXT with no DB default (app generates CUIDs)
+- Actually, match existing migration pattern: `id TEXT NOT NULL` (Prisma generates CUIDs at app layer)
+- All `DateTime` → `TIMESTAMP(3)`, `@db.Date` → `DATE`, `@db.Text` → `TEXT`
+- `Int` → `INTEGER`, `Float` → `DOUBLE PRECISION`, `Boolean` → `BOOLEAN`
+- Enum columns → `TEXT` with CHECK constraints matching enum values
+- Foreign keys with `ON DELETE CASCADE`
+
+**Important**: This file is applied manually in Neon SQL editor, NOT via `prisma migrate dev`.
+
+## Step 2.10: Apply migration and generate client
 ```bash
-grep -n "advisorName\|record\.stage\|daysInCurrentStage\|nextSteps\|\.aum\b" src/types/dashboard.ts | head -20
+# After Russell applies SQL in Neon:
+npx prisma generate
+npm run gen:models
 ```
-
-**If `advisorName` is not found**, check the correct display name field (may be `name`, `fullName`, or similar) and update the component's record rows accordingly before saving.
 
 ## PHASE 2 — VALIDATION GATE
 
 ```bash
-grep -n "export function StalePipelineAlerts\|getAgingTier\|AgingBadge\|TierSummaryBadges\|StageSection" src/components/dashboard/StalePipelineAlerts.tsx
+npx prisma validate
+npx prisma generate 2>&1 | tail -5
 ```
 
-**Expected:** All 5 identifiers found.
+**Expected**: `prisma validate` passes. `prisma generate` succeeds with no errors.
 
-Then type-check:
-```bash
-cd /c/Users/russe/Documents/Dashboard && npx tsc --noEmit 2>&1 | head -30
-```
-
-**Expected:** Zero errors.
-
-**STOP AND REPORT:**
-- "Created `StalePipelineAlerts.tsx` with aging tier logic, per-stage sections, On Hold sub-section"
-- "TypeScript: [N] errors (expected: 0)"
+**STOP AND REPORT**: Tell the user:
+- "8 forecast models + 3 enums added to Prisma schema"
+- "Migration SQL written to `prisma/migrations/manual_forecasting_models_migration.sql`"
+- "Apply the migration in Neon SQL editor, then confirm ready for Phase 3"
 - "Ready to proceed to Phase 3?"
 
 ---
 
-# PHASE 3: Pipeline Page Wiring
+# PHASE 3: TypeScript Types
 
 ## Context
+Create forecast-specific types and add raw BQ result interfaces. This phase produces NO build errors (types aren't consumed yet).
 
-Wire `StalePipelineAlerts` into `src/app/dashboard/pipeline/page.tsx`.
-Four changes: (1) merge imports, (2) add state, (3) add fetch logic + handler, (4) render component.
-Follow the `handleAumClick` fetch pattern exactly (sequential for-loop, deduplicate by `record.id`).
+## Step 3.1: Create `src/types/forecast.ts`
+**File**: `src/types/forecast.ts` (new file)
 
-The file currently has 571 lines. All line numbers below are approximate — verify visually.
-
-## Step 3.1: Merge constants import
-
-**Current line 11:**
-```typescript
-import { OPEN_PIPELINE_STAGES } from '@/config/constants';
-```
-
-**Replace with:**
-```typescript
-import { OPEN_PIPELINE_STAGES, ON_HOLD_STAGE } from '@/config/constants';
-```
-
-## Step 3.2: Add StalePipelineAlerts import
-
-**Current line ~23 (after SgmConversionTable import):**
-```typescript
-import { SgmOption, SgmPipelineChartData } from '@/types/dashboard';
-```
-
-**Add immediately after that line:**
-```typescript
-import { StalePipelineAlerts } from '@/components/dashboard/StalePipelineAlerts';
-```
-
-## Step 3.3: Add state variables
-
-**After line ~96** (the `drillDownConversionMetric` state declaration), add:
-```typescript
-  // Stale pipeline alerts
-  const [staleRecords, setStaleRecords] = useState<DetailRecord[]>([]);
-  const [staleLoading, setStaleLoading] = useState(false);
-```
-
-## Step 3.4: Add fetch logic
-
-**After the `fetchConversionData` useCallback** (around line ~172) and before the `useEffect` that calls `fetchBySgmData`, add:
+Define all forecast types. Key types:
 
 ```typescript
-  // Fetch all open pipeline records for stale alerts (both active stages and On Hold)
-  const fetchStaleRecords = useCallback(async () => {
-    if (sgmOptionsLoading || selectedSgms.length === 0) return;
-    setStaleLoading(true);
+// Re-export Prisma enums for client-side use (Prisma types only available server-side)
+export type ForecastStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+export type FunnelStage = 'CREATED' | 'CONTACTED' | 'MQL' | 'SQL' | 'SQO' | 'JOINED';
+export type StageTransition =
+  | 'CREATED_TO_CONTACTED'
+  | 'CONTACTED_TO_MQL'
+  | 'MQL_TO_SQL'
+  | 'SQL_TO_SQO'
+  | 'SQO_TO_JOINED';
 
-    try {
-      const sgmsToSend = selectedSgms.length === sgmOptions.length ? undefined : selectedSgms;
-      const allRecords: DetailRecord[] = [];
-      const recordIds = new Set<string>();
+// API response types
+export interface ForecastSummary {
+  id: string;
+  quarter: string;
+  year: number;
+  status: ForecastStatus;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string | null;
+}
 
-      // Include all selected active stages plus On Hold (always relevant for staleness)
-      const stagesToFetch = [...selectedStages, ON_HOLD_STAGE];
+export interface ForecastSourceItem {
+  id: string;
+  forecastId: string;
+  subSource: string;
+  channel: string;
+  isActive: boolean;
+  isManual: boolean;
+  bqSourceMapping: string[]; // BQ Original_source values for combined sources; empty = use subSource
+  sortOrder: number;
+}
 
-      for (const stage of stagesToFetch) {
-        try {
-          const result = await dashboardApi.getPipelineDrilldown(stage, undefined, sgmsToSend);
-          for (const record of result.records) {
-            if (!recordIds.has(record.id)) {
-              recordIds.add(record.id);
-              allRecords.push(record);
-            }
-          }
-        } catch (err) {
-          console.error(`[StaleAlerts] Error fetching stage ${stage}:`, err);
-        }
-      }
+export interface ForecastLineItemData {
+  id: string;
+  channel: string;
+  subSource: string;
+  month: string;
+  stage: FunnelStage;
+  calculatedVolume: number;
+  finalVolume: number;
+  isLocked: boolean;
+}
 
-      setStaleRecords(allRecords);
-    } catch (err) {
-      console.error('[StaleAlerts] Error:', err);
-      setStaleRecords([]);
-    } finally {
-      setStaleLoading(false);
-    }
-  }, [selectedStages, selectedSgms, sgmOptions.length, sgmOptionsLoading]);
+export interface ForecastRateItemData {
+  id: string;
+  channel: string;
+  subSource: string;
+  month: string;
+  transition: StageTransition;
+  calculatedRate: number;
+  finalRate: number;
+  isLocked: boolean;
+  rateSource: string;
+}
 
-  useEffect(() => {
-    if (status === 'authenticated') {
-      fetchStaleRecords();
-    }
-  }, [status, fetchStaleRecords]);
+export interface ForecastOverrideData {
+  id: string;
+  lineItemId: string | null;
+  rateItemId: string | null;
+  fieldType: string;
+  originalValue: number;
+  overrideValue: number;
+  reason: string;
+  overriddenBy: string;
+  createdAt: string;
+}
+
+export interface ForecastAssumptionData {
+  id: string;
+  channel: string | null;
+  subSource: string | null;
+  month: string | null;
+  assumptionKey: string;
+  assumptionValue: string;
+}
+
+export interface ForecastTargetData {
+  id: string;
+  channel: string;
+  month: string;
+  stage: FunnelStage;
+  minimumForecast: number;
+  financeMinimum: number;
+  gapFillerAllocation: number;
+  comments: string | null;
+}
+
+// Waterfall computation types
+export interface WaterfallRow {
+  subSource: string;
+  channel: string;
+  month: string;
+  created: number;
+  contactedRate: number;
+  contacted: number;
+  mqlRate: number;
+  mqls: number;
+  sqlRate: number;
+  sqls: number;
+  sqoRate: number;
+  sqos: number;
+  joinedRate: number;
+  joined: number;
+}
+
+// BQ source discovery result
+export interface DiscoveredSource {
+  originalSource: string;
+  financeViewC: string;
+  recordCount: number;
+  lastActivity: string;
+}
+
+// Actuals from BQ
+export interface ForecastActuals {
+  channel: string;
+  subSource: string;
+  month: string;
+  stage: string;
+  actualVolume: number;
+}
+
+// Sheets export data package
+export interface ForecastExportData {
+  forecast: ForecastSummary;
+  sources: ForecastSourceItem[];
+  lineItems: ForecastLineItemData[];
+  rateItems: ForecastRateItemData[];
+  targets: ForecastTargetData[];
+  assumptions: ForecastAssumptionData[];
+  actuals: ForecastActuals[];
+  overrides: ForecastOverrideData[];
+  exportedBy: string;
+  exportDate: string;
+}
+
+// Channel-grouped UI display types
+export interface ChannelGroup {
+  channel: string;
+  sources: ForecastSourceItem[];
+  totalsByStage: Record<FunnelStage, number>;
+}
 ```
 
-## Step 3.5: Add stage click handler
-
-**After the `handleCloseDrillDown` function** (around line ~350), add:
+## Step 3.2: Add raw BQ types to `src/types/bigquery-raw.ts`
+**File**: `src/types/bigquery-raw.ts` (append to existing file)
 
 ```typescript
-  // Handle stale alert stage click — opens drill-down pre-filtered to that stage's records
-  const handleStaleStageClick = (stage: string, stageRecords: DetailRecord[]) => {
-    setDrillDownRecords(stageRecords);
-    setDrillDownStage(stage);
-    setDrillDownMetric(null);
-    setDrillDownSgm(null);
-    setDrillDownConversionMetric(null);
-    setDrillDownOpen(true);
-  };
+// Forecast module raw BQ types
+export interface RawDiscoveredSource {
+  Original_source: { value: string } | string;
+  Finance_View__c: { value: string } | string;
+  record_count: { value: string } | string;
+  last_activity: { value: string } | string;
+}
+
+export interface RawTrailingRate {
+  channel: { value: string } | string;
+  sub_source: { value: string } | string;
+  transition: { value: string } | string;
+  numerator: { value: string } | string;
+  denominator: { value: string } | string;
+  rate: { value: string } | string;
+}
+
+export interface RawForecastActual {
+  channel: { value: string } | string;
+  sub_source: { value: string } | string;
+  month_key: { value: string } | string;
+  stage: { value: string } | string;
+  volume: { value: string } | string;
+}
+
+export interface RawHistoricalActual {
+  yr: { value: string } | string;
+  qtr: { value: string } | string;
+  channel: { value: string } | string;
+  prospects: { value: string } | string;
+  contacted: { value: string } | string;
+  mqls: { value: string } | string;
+  sqls: { value: string } | string;
+  sqos: { value: string } | string;
+  joined: { value: string } | string;
+}
 ```
 
-## Step 3.6: Render the component
+## Step 3.3: Add constant for new BQ table
+**File**: `src/config/constants.ts` (add after line 37)
 
-**After line 523** (the closing `</Card>` of the chart section) and **before line 525** (`{/* Conversion Table */}`), add:
-
-```tsx
-      {/* Stale Pipeline Alerts — By Stage tab only */}
-      {activeTab === 'byStage' && (
-        <StalePipelineAlerts
-          records={staleRecords}
-          loading={staleLoading}
-          onStageClick={handleStaleStageClick}
-        />
-      )}
+```typescript
+export const FORECAST_DATA_TABLE = 'savvy-gtm-analytics.SavvyGTMData.forecast_data';
 ```
 
 ## PHASE 3 — VALIDATION GATE
 
-Verify all identifiers are present:
 ```bash
-grep -n "StalePipelineAlerts\|ON_HOLD_STAGE\|staleRecords\|staleLoading\|fetchStaleRecords\|handleStaleStageClick" src/app/dashboard/pipeline/page.tsx
+npx tsc --noEmit 2>&1 | tail -10
 ```
 
-**Expected:** All 6 identifiers found.
+**Expected**: Zero new errors (types defined but not yet consumed).
 
-Check for duplicate imports from constants:
-```bash
-grep -n "from '@/config/constants'" src/app/dashboard/pipeline/page.tsx
-```
-
-**Expected:** Exactly 1 line.
-
-**STOP AND REPORT:**
-- "Wired `StalePipelineAlerts` into pipeline page"
-- "6 identifiers present: [list them]"
-- "Import count from constants: [N] (expected: 1)"
-- "Ready to proceed to Phase 4 (build validation)?"
+**STOP AND REPORT**: Tell the user:
+- "Types created: `src/types/forecast.ts` with 15+ interfaces"
+- "Raw BQ types added to `src/types/bigquery-raw.ts`"
+- "Constant `FORECAST_DATA_TABLE` added to `src/config/constants.ts`"
+- "Ready to proceed to Phase 4?"
 
 ---
 
-# PHASE 4: Build Validation
+# PHASE 4: Core Query Functions
 
 ## Context
+Create 5 new query files in `src/lib/queries/`. All follow the `forecast-goals.ts` pattern: private `_fn` + exported `cachedQuery` wrapper. All use `@paramName` syntax, `toNumber()`/`toString()` coercers.
 
-Run a full TypeScript build. This feature makes no type changes, so the build should
-pass cleanly if all imports and props are correct.
+**Critical**: All queries comparing `converted_date_raw` MUST use `TIMESTAMP(v.converted_date_raw)` (it's DATE, not TIMESTAMP).
 
-## Step 4.1: Full build
+## Step 4.1: Create `src/lib/queries/forecast-sources.ts`
+**File**: `src/lib/queries/forecast-sources.ts` (new file)
 
-```bash
-cd /c/Users/russe/Documents/Dashboard && npm run build 2>&1 | tail -40
+BQ source discovery query:
+```sql
+SELECT
+  v.Original_source,
+  v.Finance_View__c,
+  COUNT(*) as record_count,
+  MAX(v.FilterDate) as last_activity
+FROM `{FULL_TABLE}` v
+WHERE v.FilterDate >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 180 DAY)
+  AND v.Original_source IS NOT NULL
+  AND v.Finance_View__c IS NOT NULL
+GROUP BY v.Original_source, v.Finance_View__c
+ORDER BY record_count DESC
 ```
 
-**Expected:** `✓ Compiled successfully` with zero TypeScript errors.
+- Import `FULL_TABLE` from `src/config/constants.ts`
+- Return type: `DiscoveredSource[]`
+- Transform: `toString(row.Original_source)`, `toString(row.Finance_View__c)`, `toNumber(row.record_count)`, `toString(row.last_activity)`
+- Cache: `cachedQuery(_fn, "forecast-sources", CACHE_TAGS.DASHBOARD)`
 
-## Step 4.2: If errors appear — triage guide
+## Step 4.2: Create `src/lib/queries/forecast-rates.ts`
+**File**: `src/lib/queries/forecast-rates.ts` (new file)
 
-| Error message | Cause | Fix |
-|---|---|---|
-| `Cannot find module '@/components/dashboard/StalePipelineAlerts'` | File not created | Verify file exists at exact path |
-| `Property 'daysInCurrentStage' does not exist on type 'DetailRecord'` | Import path wrong | Check `src/types/dashboard.ts` line 158 |
-| `Cannot find name 'ON_HOLD_STAGE'` | Import not merged | Check Step 3.1 merged the constants import |
-| `Property 'nextSteps' does not exist` | Wrong field name | Check `src/types/dashboard.ts` lines 173–174 for exact name |
-| `Property 'advisorName' does not exist` | Wrong field name | Check DetailRecord for correct display name field |
-| Duplicate `import ... from '@/config/constants'` | Two separate import lines | Merge into one |
-| `Object is possibly 'undefined'` | `byStage.get()` returns `undefined` | Verify `?? []` fallback in component |
+Trailing 90-day resolved-only rates. Five separate sub-queries per transition, matching the pattern from `conversion-rates.ts`:
+
+**Created→Contacted**: Use `FilterDate` field, `is_contacted` flag
+**Contacted→MQL**: Use `stage_entered_contacting__c` in [today-120d, today-30d] window, `contacted_to_mql_progression` flag, `eligible_for_contacted_conversions_30d` flag
+**MQL→SQL**: Use `mql_stage_entered_ts`, `mql_to_sql_progression`, `eligible_for_mql_conversions`
+**SQL→SQO**: Use `TIMESTAMP(converted_date_raw)` (**BLOCKER 2 fix**), `sql_to_sqo_progression`, `eligible_for_sql_conversions`, filter `recordtypeid = '012Dn000000mrO3IAI'`
+**SQO→Joined**: Use `Date_Became_SQO__c`, `sqo_to_joined_progression`, `eligible_for_sqo_conversions`
+
+Parameters: optional `@channel`, `@subSource` for filtering.
+Return: rates grouped by `Finance_View__c` × `Original_source` × transition.
+Cache: `cachedQuery(_fn, "forecast-rates", CACHE_TAGS.DASHBOARD)`
+
+## Step 4.2b: Rate seeding fallback for new/sparse sources
+
+When a source has insufficient trailing-90-day data (fewer than 5 records in the denominator),
+the rate calculation should return `null` instead of a potentially meaningless rate.
+
+The API route (Phase 5) must handle this by:
+1. Running the trailing-90-day query for all sources
+2. For any source where a transition returns `null`:
+   a. Check if a `ForecastAssumption` exists with key `"rate_seed_from"` for that source
+      (e.g., channel="Outbound", subSource="Fintrx (Self-Sourced)", value="LinkedIn (Self Sourced)")
+   b. If found, copy that source's calculated rates as the default
+   c. If not found, return null — the UI will show "Insufficient data — set manually or copy from another source"
+3. The UI should offer a "Copy rates from..." dropdown that lists other sources in the same channel
+
+This matches the sheet's pattern where Fintrx monthly rates were manually set to match LinkedIn Self Sourced:
+- Created→Contacted: 87.69% (from LinkedIn SS)
+- Contacted→MQL: 2.30% (from LinkedIn SS)
+- MQL→SQL: 40.00% (from LinkedIn SS)
+- SQL→SQO: 71.00% (from LinkedIn SS)
+
+## Step 4.3: Create `src/lib/queries/forecast-actuals.ts`
+**File**: `src/lib/queries/forecast-actuals.ts` (new file)
+
+**CRITICAL: Period type filtering**
+- For completed quarters: use `period_type = 'QUARTERLY'` ONLY
+- For the current (in-progress) quarter: use `period_type = 'QTD'` ONLY
+- NEVER combine both — the Google Sheet does this and it causes double-counting of prospects_created
+  (exploration found +48 discrepancy for Provided List, +18 for LinkedIn SS in Q4 2025)
+
+The dashboard should determine quarter completeness: if the current date is past the quarter's end date,
+use QUARTERLY; otherwise use QTD.
+
+Current quarter actuals from `vw_funnel_master`:
+```sql
+SELECT
+  v.Finance_View__c as channel,
+  v.Original_source as sub_source,
+  FORMAT_TIMESTAMP('%Y-%m', v.FilterDate) as month_key,
+  'created' as stage,
+  COUNT(*) as volume
+FROM `{FULL_TABLE}` v
+WHERE v.FilterDate >= @startDate
+  AND v.FilterDate < @endDate
+GROUP BY 1, 2, 3, 4
+-- UNION ALL for contacted (SUM(is_contacted)), mql, sql, sqo, joined stages
+```
+
+Parameters: `@startDate`, `@endDate` (quarter boundaries).
+Return: `ForecastActuals[]`
+Cache: `cachedQuery(_fn, "forecast-actuals", CACHE_TAGS.DASHBOARD)`
+
+## Step 4.4: Create `src/lib/queries/forecast-historical.ts`
+**File**: `src/lib/queries/forecast-historical.ts` (new file)
+
+Historical actuals for 4+ quarters:
+```sql
+SELECT
+  EXTRACT(YEAR FROM v.FilterDate) as yr,
+  EXTRACT(QUARTER FROM v.FilterDate) as qtr,
+  v.Finance_View__c as channel,
+  COUNT(*) as prospects,
+  SUM(CASE WHEN v.is_contacted = 1 THEN 1 ELSE 0 END) as contacted,
+  -- ... mql, sql, sqo, joined similarly
+FROM `{FULL_TABLE}` v
+WHERE v.FilterDate >= @startDate
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3
+```
+
+Parameters: `@startDate` (e.g., 15 months ago).
+Cache: `cachedQuery(_fn, "forecast-historical", CACHE_TAGS.DASHBOARD)`
+
+## Step 4.5: Create `src/lib/queries/forecast-sync.ts`
+**File**: `src/lib/queries/forecast-sync.ts` (new file)
+
+Neon → BQ sync function. Uses `@google-cloud/bigquery` client directly (not `runQuery`):
+- Read forecast data from Neon via Prisma
+- Build two row types: `Total_*` (channel aggregates) + `Cohort_source` (sub-source detail)
+- Stage name mapping: internal `CREATED` → export `prospects`; `CONTACTED` is NOT exported; `MQL`/`SQL`/`SQO`/`JOINED` lowercase
+- Write to `FORECAST_DATA_TABLE` via BQ INSERT
+- Delete existing rows for the quarter first (idempotent)
+
+This function is NOT cached (it's a write operation).
+
+## Waterfall Computation Rules (from exploration Phase 8.2)
+
+The waterfall is computed **monthly-first**, matching the Google Sheet's proven methodology:
+
+**Monthly calculation (for each sub-source × month):**
+```
+Created = [from SGA assumptions (Outbound) or manual input (other channels)]
+Contacted = Created × Created→Contacted rate (monthly rate, not quarterly)
+MQL = Contacted × Contacted→MQL rate
+SQL = MQL × MQL→SQL rate
+SQO = SQL × SQL→SQO rate
+Joined = SQO × SQO→Joined rate
+```
+
+**Quarterly rollup:**
+```
+Q_Created = SUM(Apr_Created, May_Created, Jun_Created)
+Q_Contacted = SUM(Apr_Contacted, May_Contacted, Jun_Contacted)
+Q_MQL = SUM(Apr_MQL, May_MQL, Jun_MQL)
+... (same for all stages)
+```
+
+**IMPORTANT: Quarterly rate ≠ AVERAGE of monthly rates.**
+The quarterly rate column is DISPLAY ONLY — computed as Q_StageOut / Q_StageIn.
+For example: Q_MQL_to_SQL_rate = Q_SQL / Q_MQL (not AVERAGE of monthly MQL→SQL rates).
+The exploration confirmed this: Fintrx G137 (quarterly Contacted→MQL) = 0% via AVERAGE(C:E),
+but the actual quarterly MQL volume (G138=75) is correct because it sums monthly volumes
+which use the hardcoded monthly rate (2.3%), not the quarterly rate.
+
+**Created volume sources (by channel type):**
+- Outbound: `sourcing_rate_per_sga × sga_count_for_month` (from ForecastAssumption)
+- All other channels: manually entered volume per month (stored directly on ForecastLineItem)
 
 ## PHASE 4 — VALIDATION GATE
 
 ```bash
-cd /c/Users/russe/Documents/Dashboard && npm run build 2>&1 | grep -E "error TS|✓ Compiled|Failed to compile" | head -20
+npx tsc --noEmit 2>&1 | grep -c "error TS"
 ```
 
-**Expected:** `✓ Compiled successfully`
+**Expected**: Zero TypeScript errors. All query functions compile.
 
-**STOP AND REPORT:**
-- "Build result: [PASS / FAIL]"
-- "Error count: [N] (expected: 0)"
-- If fail: list each `error TS` line with file and line number
-- "Ready to proceed to Phase 5 (doc sync)?" [only if build passes]
+```bash
+grep -r "cachedQuery" src/lib/queries/forecast-*.ts | wc -l
+```
+
+**Expected**: 4 (sources, rates, actuals, historical — sync is not cached).
+
+```bash
+grep -r "TIMESTAMP(v.converted_date_raw)" src/lib/queries/forecast-rates.ts
+```
+
+**Expected**: At least 1 match (Blocker 2 fix applied).
+
+**STOP AND REPORT**: Tell the user:
+- "5 query files created with `cachedQuery` wrappers"
+- "`converted_date_raw` TIMESTAMP cast applied"
+- "Ready to proceed to Phase 5?"
 
 ---
 
-# PHASE 5: Documentation Sync
+# PHASE 5: Core API Routes (CRUD)
 
 ## Context
+Create 13 API route files under `src/app/api/forecast/`. All follow the standard auth pattern: `getServerSession` → `getSessionPermissions` → role check → `forbidRecruiter` → `forbidCapitalPartner`.
 
-Run agent-guard to sync narrative docs (ARCHITECTURE.md, README.md) with the code changes.
-Must happen after build passes, before UI validation.
+Edit access (`canEditForecast`) restricted to `revops_admin` + `admin`. Read access for all non-blocked roles.
 
-## Step 5.1: Sync
+## Step 5.1: Create `src/app/api/forecast/route.ts`
+**Methods**: GET (list forecasts), POST (create new forecast)
+- GET: `prisma.forecast.findMany({ orderBy: { createdAt: 'desc' } })`
+- POST: Validate quarter format, create forecast + run source discovery, return new forecast
+- Role: GET = any non-recruiter/non-capital_partner; POST = `revops_admin` or `admin` only
 
-```bash
-cd /c/Users/russe/Documents/Dashboard && npx agent-guard sync
-```
+## Step 5.2: Create `src/app/api/forecast/[id]/route.ts`
+**Methods**: GET, PUT, DELETE
+- GET: `prisma.forecast.findUnique({ include: { sources: true } })`
+- PUT: Update status, notes. Only `revops_admin`/`admin`.
+- DELETE: `prisma.forecast.delete()`. Only `revops_admin`.
 
-## Step 5.2: Review changes
+## Step 5.3: Create `src/app/api/forecast/[id]/discover-sources/route.ts`
+**Method**: POST
+- Runs `discoverForecastSources()` BQ query
+- Creates/updates `ForecastSource` records via Prisma upsert
+- Auto-discovered sources default to `isActive: true`; zero-volume sources to `isActive: false`
+- Only `revops_admin`/`admin`
 
-```bash
-git diff --stat docs/
-git diff docs/ARCHITECTURE.md | head -60
-```
+## Step 5.4: Create `src/app/api/forecast/[id]/sources/route.ts`
+**Methods**: GET, PUT
+- GET: `prisma.forecastSource.findMany({ where: { forecastId } })`
+- PUT: Toggle active/inactive, add manual sources, reorder
+- Only `revops_admin`/`admin` for PUT
+
+## Step 5.5: Create `src/app/api/forecast/[id]/line-items/route.ts`
+**Methods**: GET, PUT
+- GET: Return all line items for forecast
+- PUT: Bulk update `finalVolume` values (only unlocked items)
+
+## Step 5.6: Create `src/app/api/forecast/[id]/rate-items/route.ts`
+**Methods**: GET, PUT
+- GET: Return all rate items for forecast
+- PUT: Bulk update `finalRate` values (only unlocked items)
+
+## Step 5.7: Create `src/app/api/forecast/[id]/overrides/route.ts`
+**Methods**: GET, POST
+- GET: Return all overrides for forecast (join through line/rate items)
+- POST: Create override (lock cell): validate `reason` required, record `overriddenBy`
+
+## Step 5.8: Create `src/app/api/forecast/[id]/assumptions/route.ts`
+**Methods**: GET, PUT
+- Standard Prisma CRUD on `ForecastAssumption`
+
+## Step 5.9: Create `src/app/api/forecast/[id]/targets/route.ts`
+**Methods**: GET, PUT
+- Standard Prisma CRUD on `ForecastTarget`
+
+## Step 5.10: Create `src/app/api/forecast/[id]/calculate-rates/route.ts`
+**Method**: POST
+- Fetch trailing 90-day rates via `getTrailing90DayRates()` from Phase 4
+- Populate `ForecastRateItem` records for all active sources
+- Special handling: SQO→Joined uses ~15% business assumption (configurable via `ForecastAssumption` with key `sqo_to_joined_override`)
+- Trigger waterfall recalculation
+- Only `revops_admin`/`admin`
+
+## Step 5.11: Create `src/app/api/forecast/[id]/actuals/route.ts`
+**Method**: GET
+- Fetch current actuals from BQ via `getForecastActuals()`
+- Return actuals grouped by channel/source/stage/month
+
+## Step 5.12: Create `src/app/api/forecast/[id]/export/route.ts`
+**Method**: POST
+- `export const maxDuration = 60`
+- Builds `ForecastExportData` package
+- Calls `ForecastSheetsExporter.exportToSheets()` (Phase 10)
+- Returns `{ success, spreadsheetId, spreadsheetUrl }`
+- Requires `permissions.canExport`
+
+## Step 5.13: Create `src/app/api/forecast/[id]/sync-bq/route.ts`
+**Method**: POST
+- Calls `syncForecastToBQ()` from Phase 4
+- Only `revops_admin`
+- Returns sync results (rows written, row types)
 
 ## PHASE 5 — VALIDATION GATE
 
 ```bash
-git status --short docs/
+npx tsc --noEmit 2>&1 | grep -c "error TS"
 ```
 
-**Expected:** Modified or clean (no unexpected deletions).
+**Expected**: Zero errors.
 
-**STOP AND REPORT:**
-- "agent-guard sync complete — [N] docs updated"
-- "ARCHITECTURE.md changes: [yes/no — brief summary if yes]"
-- "Ready to proceed to Phase 6 (UI validation)?"
+```bash
+find src/app/api/forecast -name "route.ts" | wc -l
+```
+
+**Expected**: 13 route files.
+
+```bash
+grep -r "forbidRecruiter" src/app/api/forecast/ | wc -l
+```
+
+**Expected**: 13 (every route has recruiter guard).
+
+```bash
+npm run build 2>&1 | tail -10
+```
+
+**Expected**: Build passes.
+
+**STOP AND REPORT**: Tell the user:
+- "13 API routes created under `/api/forecast/`"
+- "All routes have auth guards (session + role + recruiter/CP blocks)"
+- "Edit operations restricted to `revops_admin`/`admin`"
+- "Ready to proceed to Phase 6?"
 
 ---
 
-# PHASE 6: UI/UX Validation (Requires User)
+# PHASE 6: API Client Methods
 
 ## Context
+Add `forecastApi` to `src/lib/api-client.ts` so components can call the new endpoints.
 
-Human-in-the-loop verification in the browser. Present each test group, wait for confirmation
-before moving to the next. Do NOT mark this phase complete until the user confirms all groups.
+## Step 6.1: Add forecast API client
+**File**: `src/lib/api-client.ts`
 
-**Start dev server if not running:**
-```bash
-cd /c/Users/russe/Documents/Dashboard && npm run dev
+Add a new exported object after the existing `notificationsApi`:
+
+```typescript
+import type {
+  ForecastSummary,
+  ForecastSourceItem,
+  ForecastLineItemData,
+  ForecastRateItemData,
+  ForecastOverrideData,
+  ForecastAssumptionData,
+  ForecastTargetData,
+  ForecastActuals,
+} from '@/types/forecast';
+
+export const forecastApi = {
+  // Forecast CRUD
+  list: () => apiFetch<{ forecasts: ForecastSummary[] }>('/api/forecast'),
+
+  create: (data: { quarter: string; year: number; notes?: string }) =>
+    apiFetch<{ forecast: ForecastSummary }>('/api/forecast', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  get: (id: string) =>
+    apiFetch<{ forecast: ForecastSummary; sources: ForecastSourceItem[] }>(
+      `/api/forecast/${encodeURIComponent(id)}`
+    ),
+
+  update: (id: string, data: { status?: string; notes?: string }) =>
+    apiFetch<{ forecast: ForecastSummary }>(
+      `/api/forecast/${encodeURIComponent(id)}`,
+      { method: 'PUT', body: JSON.stringify(data) }
+    ),
+
+  delete: (id: string) =>
+    apiFetch<{ success: boolean }>(
+      `/api/forecast/${encodeURIComponent(id)}`,
+      { method: 'DELETE' }
+    ),
+
+  // Source management
+  discoverSources: (id: string) =>
+    apiFetch<{ sources: ForecastSourceItem[]; discovered: number }>(
+      `/api/forecast/${encodeURIComponent(id)}/discover-sources`,
+      { method: 'POST' }
+    ),
+
+  getSources: (id: string) =>
+    apiFetch<{ sources: ForecastSourceItem[] }>(
+      `/api/forecast/${encodeURIComponent(id)}/sources`
+    ),
+
+  updateSources: (id: string, updates: Partial<ForecastSourceItem>[]) =>
+    apiFetch<{ sources: ForecastSourceItem[] }>(
+      `/api/forecast/${encodeURIComponent(id)}/sources`,
+      { method: 'PUT', body: JSON.stringify({ updates }) }
+    ),
+
+  // Line items
+  getLineItems: (id: string) =>
+    apiFetch<{ lineItems: ForecastLineItemData[] }>(
+      `/api/forecast/${encodeURIComponent(id)}/line-items`
+    ),
+
+  updateLineItems: (id: string, updates: Partial<ForecastLineItemData>[]) =>
+    apiFetch<{ lineItems: ForecastLineItemData[] }>(
+      `/api/forecast/${encodeURIComponent(id)}/line-items`,
+      { method: 'PUT', body: JSON.stringify({ updates }) }
+    ),
+
+  // Rate items
+  getRateItems: (id: string) =>
+    apiFetch<{ rateItems: ForecastRateItemData[] }>(
+      `/api/forecast/${encodeURIComponent(id)}/rate-items`
+    ),
+
+  updateRateItems: (id: string, updates: Partial<ForecastRateItemData>[]) =>
+    apiFetch<{ rateItems: ForecastRateItemData[] }>(
+      `/api/forecast/${encodeURIComponent(id)}/rate-items`,
+      { method: 'PUT', body: JSON.stringify({ updates }) }
+    ),
+
+  // Overrides
+  getOverrides: (id: string) =>
+    apiFetch<{ overrides: ForecastOverrideData[] }>(
+      `/api/forecast/${encodeURIComponent(id)}/overrides`
+    ),
+
+  createOverride: (id: string, data: {
+    lineItemId?: string;
+    rateItemId?: string;
+    fieldType: string;
+    originalValue: number;
+    overrideValue: number;
+    reason: string;
+  }) =>
+    apiFetch<{ override: ForecastOverrideData }>(
+      `/api/forecast/${encodeURIComponent(id)}/overrides`,
+      { method: 'POST', body: JSON.stringify(data) }
+    ),
+
+  // Assumptions & targets
+  getAssumptions: (id: string) =>
+    apiFetch<{ assumptions: ForecastAssumptionData[] }>(
+      `/api/forecast/${encodeURIComponent(id)}/assumptions`
+    ),
+
+  updateAssumptions: (id: string, assumptions: Partial<ForecastAssumptionData>[]) =>
+    apiFetch<{ assumptions: ForecastAssumptionData[] }>(
+      `/api/forecast/${encodeURIComponent(id)}/assumptions`,
+      { method: 'PUT', body: JSON.stringify({ assumptions }) }
+    ),
+
+  getTargets: (id: string) =>
+    apiFetch<{ targets: ForecastTargetData[] }>(
+      `/api/forecast/${encodeURIComponent(id)}/targets`
+    ),
+
+  updateTargets: (id: string, targets: Partial<ForecastTargetData>[]) =>
+    apiFetch<{ targets: ForecastTargetData[] }>(
+      `/api/forecast/${encodeURIComponent(id)}/targets`,
+      { method: 'PUT', body: JSON.stringify({ targets }) }
+    ),
+
+  // Actions
+  calculateRates: (id: string) =>
+    apiFetch<{ rateItems: ForecastRateItemData[]; message: string }>(
+      `/api/forecast/${encodeURIComponent(id)}/calculate-rates`,
+      { method: 'POST' }
+    ),
+
+  getActuals: (id: string) =>
+    apiFetch<{ actuals: ForecastActuals[] }>(
+      `/api/forecast/${encodeURIComponent(id)}/actuals`
+    ),
+
+  exportToSheets: (id: string) =>
+    apiFetch<{ success: boolean; spreadsheetId: string; spreadsheetUrl: string }>(
+      `/api/forecast/${encodeURIComponent(id)}/export`,
+      { method: 'POST' }
+    ),
+
+  syncToBQ: (id: string) =>
+    apiFetch<{ success: boolean; rowsWritten: number; message: string }>(
+      `/api/forecast/${encodeURIComponent(id)}/sync-bq`,
+      { method: 'POST' }
+    ),
+};
 ```
-
-Navigate to: `http://localhost:3000/dashboard/pipeline`
-
----
-
-### Test Group A: Section Renders
-
-1. Navigate to the Pipeline tab (By Stage — the default)
-2. Wait for data to load, scroll below the bar chart
-
-**Verify:**
-- [ ] "Stale Pipeline Alerts" section card appears below the chart
-- [ ] `AlertTriangle` icon visible in header
-- [ ] Summary line: "X of Y records flagged at 30d+"
-- [ ] Stage sections visible (at least some of: Qualifying, Discovery, Sales Process, Negotiating)
-- [ ] On Hold section appears separately, labeled with "deliberate pause"
-- [ ] Badges show correct colors: green (<30d), yellow (30–59d), orange (60–89d), red (90d+)
-- [ ] N/A badge for any records without a stage date
-- [ ] Qualifying footnote visible if any Qualifying records present
-
-**Ask user:** "Does the Stale Pipeline Alerts section appear with correctly colored aging badges?"
-
----
-
-### Test Group B: Stage Click → Drill-Down
-
-1. Click on any stage section header (e.g., "Negotiating")
-
-**Verify:**
-- [ ] `VolumeDrillDownModal` opens
-- [ ] Modal title shows the stage name
-- [ ] Records in the modal match those visible in the stale alerts section for that stage
-- [ ] Record count is consistent
-
-**Ask user:** "Does clicking a stage open the drill-down modal with the correct records?"
-
----
-
-### Test Group C: Record Detail → Back
-
-1. From the drill-down modal opened in Test B, click any record row
-
-**Verify:**
-- [ ] `RecordDetailModal` opens for that record
-- [ ] Back button is present
-- [ ] Clicking Back returns to the drill-down modal
-
-**Ask user:** "Does clicking a record open the detail panel, and does Back return to the list?"
-
----
-
-### Test Group D: Filter Interaction
-
-1. Use PipelineFilters to deselect one stage (e.g., "Discovery"), click Apply
-2. Wait for stale alerts to reload
-
-**Verify:**
-- [ ] Stale alerts re-fetches (loading skeleton briefly visible)
-- [ ] Discovery section disappears from stale alerts
-- [ ] On Hold section still appears (fetched independently of selectedStages)
-
-**Ask user:** "Does the stale alerts section update correctly when stage filters change?"
-
----
-
-### Test Group E: By SGM Tab
-
-1. Switch to the "By SGM" tab (if revops_admin)
-
-**Verify:**
-- [ ] Stale Pipeline Alerts section does NOT appear on the By SGM tab
-- [ ] Only the By Stage tab shows the section
-
-**Ask user:** "Does the section correctly disappear on the By SGM tab?"
-
----
-
-### Test Group F: Dark Mode
-
-1. Toggle to dark mode
-
-**Verify:**
-- [ ] All badges readable (no invisible text)
-- [ ] Stage headers readable
-- [ ] Card backgrounds correct
-
-**Ask user:** "Does the section look correct in dark mode?"
-
----
-
-### Test Group G: Data Accuracy Spot-Check
-
-1. Find a record with a red badge (90d+) in the stale alerts section
-2. Click the stage to open the drill-down, then click that record to open the detail modal
-
-**Verify:**
-- [ ] The stage in the detail modal matches the stage it was listed under
-- [ ] Days in stage is plausible (not zero, not thousands)
-
-**Ask user:** "Do the days-in-stage values look accurate?"
-
----
 
 ## PHASE 6 — VALIDATION GATE
 
-**STOP AND REPORT (after all test groups confirmed):**
-- "All 7 UI test groups passed"
-- "Stale Pipeline Alerts feature complete and validated"
-- "Next: commit changes — remember to write `.ai-session-context.md` first (CLAUDE.md protocol)"
+```bash
+npx tsc --noEmit 2>&1 | grep -c "error TS"
+```
+
+**Expected**: Zero errors.
+
+**STOP AND REPORT**: Tell the user:
+- "API client `forecastApi` added with 20+ typed methods"
+- "Ready to proceed to Phase 7?"
 
 ---
+
+# PHASE 7: Permissions & Navigation
+
+## Context
+Add forecast page to permissions and sidebar navigation. Page ID = 17.
+
+## Step 7.1: Update permissions
+**File**: `src/lib/permissions.ts`
+
+Add page 17 to `allowedPages` arrays:
+- `revops_admin`: add `17` to array (line 16)
+- `admin`: add `17` to array (line 23)
+- `manager`: add `17` to array (line 30)
+- `sgm`: add `17` to array (line 37)
+- `sga`: add `17` to array (line 44)
+- `viewer`: add `17` to array (line 51)
+- `recruiter`: do NOT add (blocked)
+- `capital_partner`: do NOT add (blocked)
+
+Add `canEditForecast` to ROLE_PERMISSIONS:
+- `revops_admin`: `canEditForecast: true`
+- `admin`: `canEditForecast: true`
+- All others: `canEditForecast: false`
+
+## Step 7.2: Update `UserPermissions` type
+**File**: `src/types/user.ts`
+
+Add to `UserPermissions` interface:
+```typescript
+canEditForecast: boolean;
+```
+
+## Step 7.3: Add sidebar navigation
+**File**: `src/components/layout/Sidebar.tsx`
+
+Add to `PAGES` array (before Settings, which is id 7):
+```typescript
+{ id: 17, name: 'Forecast', href: '/dashboard/forecast', icon: TrendingUp },
+```
+
+Add `TrendingUp` to the lucide-react import.
+
+## PHASE 7 — VALIDATION GATE
+
+```bash
+npx tsc --noEmit 2>&1 | grep -c "error TS"
+npm run build 2>&1 | tail -10
+```
+
+**Expected**: Build passes. The `canEditForecast` property must be added to all places that construct `UserPermissions` objects (check `getPermissionsFromToken` and `getUserPermissions` in permissions.ts — they spread from `ROLE_PERMISSIONS` so they should auto-inherit if added there, but verify the type satisfies the interface).
+
+**STOP AND REPORT**: Tell the user:
+- "Forecast page (id=17) added to permissions for 6 roles"
+- "`canEditForecast` permission added (revops_admin + admin only)"
+- "Sidebar nav entry added with TrendingUp icon"
+- "Ready to proceed to Phase 8?"
+
+---
+
+# PHASE 8: UI — Forecast Page & Components
+
+## Context
+Create the forecast page and core UI components. Follows the server page + client content split pattern from SGA Hub.
+
+## Step 8.1: Create server page
+**File**: `src/app/dashboard/forecast/page.tsx` (new file)
+
+```typescript
+import { getServerSession } from 'next-auth';
+import { redirect } from 'next/navigation';
+import { authOptions } from '@/lib/auth';
+import { getSessionPermissions } from '@/types/auth';
+import ForecastContent from './ForecastContent';
+
+export const dynamic = 'force-dynamic';
+
+export default async function ForecastPage() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) redirect('/login');
+  const permissions = getSessionPermissions(session);
+  if (!permissions) redirect('/login');
+  if (!['admin', 'manager', 'sga', 'sgm', 'revops_admin', 'viewer'].includes(permissions.role)) {
+    redirect('/dashboard');
+  }
+  return <ForecastContent />;
+}
+```
+
+## Step 8.2: Create client content component
+**File**: `src/app/dashboard/forecast/ForecastContent.tsx` (new file)
+
+Pattern: `"use client"` + `useEffect` + `useState` + `forecastApi.*`
+- State: `forecasts`, `selectedForecast`, `activeTab`, `loading`, `error`
+- Fetch forecasts on mount via `forecastApi.list()`
+- When forecast selected, parallel fetch: `Promise.all([getLineItems, getRateItems, getSources, getActuals, getAssumptions, getTargets])`
+- Tabs: Summary, Channel Detail, Targets, Assumptions, History
+- Admin controls (create, sync, calculate rates) conditionally rendered based on `canEditForecast`
+
+## Step 8.3: Create tab component
+**File**: `src/components/forecast/ForecastTabs.tsx` (new file)
+
+Follow `GCHubTabs` pattern (full ARIA + keyboard nav):
+```typescript
+const TABS = [
+  { id: 'summary', label: 'Summary' },
+  { id: 'channel-detail', label: 'Channel Detail' },
+  { id: 'targets', label: 'Targets' },
+  { id: 'assumptions', label: 'Assumptions' },
+  { id: 'history', label: 'History' },
+] as const;
+```
+
+## Step 8.4: Create ForecastHeader component
+**File**: `src/components/forecast/ForecastHeader.tsx` (new file)
+
+- Quarter selector dropdown
+- Status badge (DRAFT/ACTIVE/ARCHIVED)
+- Action buttons: Calculate Rates, Sync to BQ, Export to Sheets (conditional on `canEditForecast`)
+- Create New Forecast button
+
+## Step 8.5: Create ForecastSummaryTable component
+**File**: `src/components/forecast/ForecastSummaryTable.tsx` (new file)
+
+Tremor Table: channels × stages with quarterly totals.
+- Channels are collapsible group headers (Finance_View__c)
+- Sources nested under channel groups
+- "Show inactive" toggle at top
+- Sort: `useMemo` + sort fn outside component (AdminSGATable pattern)
+
+## Step 8.6: Create ChannelDetailTable component
+**File**: `src/components/forecast/ChannelDetailTable.tsx` (new file)
+
+- Per-channel drill-down: sub-sources × stages × 3 monthly columns
+- Waterfall display: volume = prev_volume × rate
+- Rate cells editable (click to override)
+- Lock/unlock icons on cells
+
+## Step 8.7: Create ForecastCell component
+**File**: `src/components/forecast/ForecastCell.tsx` (new file)
+
+- Editable cell with lock/unlock indicator
+- Override tooltip (hover shows history)
+- Click to edit (if unlocked and `canEditForecast`)
+- Visual: locked cells have lock icon + different background
+
+## Step 8.8: Create OverrideModal component
+**File**: `src/components/forecast/OverrideModal.tsx` (new file)
+
+Follow `GCHubOverrideModal` pattern:
+- Props: `{ isOpen, onClose, onSaved, currentValue, fieldType }`
+- Guard: `if (!isOpen) return null`
+- Override value input + required reason textarea
+- `useCallback` for submit, `disabled={submitting}`
+
+## Step 8.9: Create TargetsPanel component
+**File**: `src/components/forecast/TargetsPanel.tsx` (new file)
+
+- Finance minimum, gap filler allocation per channel × month × stage
+- Monthly distribution percentages
+- Clear separation: forecast (expected) vs. target (needed) vs. gap (delta)
+
+## Step 8.10: Create AssumptionsPanel component
+**File**: `src/components/forecast/AssumptionsPanel.tsx` (new file)
+
+- SGA count, lead list size, custom assumptions
+- Editable key-value pairs
+
+## Step 8.11: Create ActualsComparisonColumns component
+**File**: `src/components/forecast/ActualsComparisonColumns.tsx` (new file)
+
+- Forecast vs. actual side-by-side with variance
+- Color coding: green (ahead), red (behind), yellow (close)
+
+## Step 8.12: Create ExportForecastButton component
+**File**: `src/components/forecast/ExportForecastButton.tsx` (new file)
+
+Follow `ExportToSheetsButton` pattern:
+- Props: `{ forecastId, canExport, disabled? }`
+- State: `isExporting`, `error`, `spreadsheetUrl`
+- Calls `forecastApi.exportToSheets(forecastId)`
+- Opens new tab on success
+
+## PHASE 8 — VALIDATION GATE
+
+```bash
+npm run build 2>&1 | tail -20
+npx tsc --noEmit 2>&1 | grep -c "error TS"
+```
+
+**Expected**: Zero TypeScript errors. Build passes.
+
+```bash
+find src/components/forecast -name "*.tsx" | wc -l
+```
+
+**Expected**: 9 component files.
+
+**STOP AND REPORT**: Tell the user:
+- "Forecast page + 9 UI components created"
+- "Source-first UI with channel grouping, lock/unlock cells, override modals"
+- "Build passes with zero errors"
+- "Ready to proceed to Phase 9?"
+
+---
+
+# PHASE 9: Google Sheets Export
+
+## Context
+Create forecast-specific Sheets exporter class. Separate from existing `GoogleSheetsExporter` to avoid coupling.
+
+## Step 9.1: Create forecast sheets types
+**File**: `src/lib/sheets/forecast-sheets-types.ts` (new file)
+
+```typescript
+export interface ForecastSheetsExportResult {
+  success: boolean;
+  spreadsheetId?: string;
+  spreadsheetUrl?: string;
+  error?: string;
+}
+```
+
+## Step 9.2: Create forecast sheets exporter
+**File**: `src/lib/sheets/forecast-sheets-exporter.ts` (new file)
+
+Class `ForecastSheetsExporter`:
+- Constructor: same auth pattern as `GoogleSheetsExporter` (JWT service account from env)
+- `exportToSheets(data: ForecastExportData)`: main public method
+  1. `copyTemplate()` — POST to Apps Script web app (new template for forecast)
+  2. `populateSummarySheet()` — channels × stages with totals
+  3. `populateChannelDetailSheets()` — one tab per channel with sub-sources × months
+  4. `populateTargetsSheet()` — targets + gap tracking
+  5. `populateAssumptionsSheet()` — key-value pairs
+  6. `populateOverrideLogSheet()` — all overrides with timestamps
+- Waterfall formulas: `=D{row}*D{row+1}` pattern
+- Quarterly totals: `=SUM(D{row},G{row},J{row})`
+- Variance: `=E{row}-D{row}`
+- Conditional formatting: green (ahead), red (behind), yellow (close)
+- Cell notes on overridden cells: original value, reason, who/when
+- `writeInChunks()` for large data (1000 rows + 100ms delay)
+- `valueInputOption: 'USER_ENTERED'` to support formulas
+- ALWAYS explicit column mapping
+
+## PHASE 9 — VALIDATION GATE
+
+```bash
+npx tsc --noEmit 2>&1 | grep -c "error TS"
+npm run build 2>&1 | tail -10
+```
+
+**Expected**: Zero errors. Build passes.
+
+**STOP AND REPORT**: Tell the user:
+- "Forecast Sheets exporter created with 6 populate methods"
+- "Waterfall formulas, conditional formatting, override annotations"
+- "Ready to proceed to Phase 10?"
+
+---
+
+# PHASE 10: Documentation Sync
+
+## Context
+Run documentation generators and agent-guard sync to update architecture docs.
+
+## Step 10.1: Regenerate inventories
+```bash
+npm run gen:all
+```
+
+## Step 10.2: Run agent-guard sync
+```bash
+npx agent-guard sync
+```
+
+Review changes to `ARCHITECTURE.md` and generated inventories. Stage if correct.
+
+## PHASE 10 — VALIDATION GATE
+
+```bash
+npm run build 2>&1 | tail -10
+```
+
+**Expected**: Clean build.
+
+```bash
+git diff --stat
+```
+
+**Expected**: Updated docs showing new API routes, models, and env vars.
+
+**STOP AND REPORT**: Tell the user:
+- "Documentation synced: API routes, Prisma models, architecture docs updated"
+- "Ready to proceed to Phase 11 (UI validation)?"
+
+---
+
+# PHASE 11: UI/UX Validation (Requires User)
+
+## Context
+This phase requires the user to verify the forecast module in the browser.
+
+## Test Group 1: Forecast Creation & Source Discovery
+1. Navigate to `/dashboard/forecast`
+2. Click "Create New Forecast" for Q2 2026
+3. Verify source discovery runs automatically
+4. Check that sources are grouped under Finance_View__c channel headers
+5. **Verify**: "Do you see sources grouped under channel headers (Outbound, Marketing, etc.)?"
+
+## Test Group 2: Rate Calculation
+1. Click "Calculate Rates" on the new forecast
+2. Verify rates populate for all active sources
+3. Check Outbound rates: ~82% Created→Contacted, ~3% Contacted→MQL
+4. Check SQO→Joined shows ~15% (business assumption, not 0%)
+5. **Verify**: "Do rates look reasonable? SQO→Joined should show ~15%."
+
+## Test Group 3: Override System
+1. Click a rate cell to lock it
+2. Enter override value + reason
+3. Verify lock icon appears
+4. Hover to see override tooltip
+5. Click again to unlock
+6. **Verify**: "Does lock/unlock round-trip correctly? Does the tooltip show the override reason?"
+
+## Test Group 4: Waterfall Calculations
+1. Change a "Created" volume for a source
+2. Verify downstream stages recalculate (Contacted = Created × rate, etc.)
+3. **Verify**: "Do downstream volumes update when you change Created?"
+
+## Test Group 5: Targets & Assumptions
+1. Switch to Targets tab
+2. Enter finance minimums for Outbound
+3. Verify gap calculation = forecast - finance minimum
+4. Switch to Assumptions tab
+5. Enter SGA count
+6. **Verify**: "Do target gaps calculate correctly?"
+
+## Test Group 6: Sheets Export (if Apps Script template ready)
+1. Click "Export to Sheets"
+2. Verify new tab opens with Google Sheet
+3. Check: waterfall formulas work, conditional formatting applied, override annotations present
+4. **Verify**: "Does the exported Sheet have working formulas and formatting?"
+
+## Test Group 7: BQ Sync (if native table ready)
+1. Click "Sync to BQ"
+2. Verify success message
+3. Check `vw_daily_forecast` shows forecast data for the new quarter
+4. **Verify**: "Does BQ sync succeed? Do scorecards show forecast goals?"
+
+## Test Group 8: Role-Based Access
+1. Log in as a `viewer` role user
+2. Verify forecast page is accessible (read-only)
+3. Verify edit controls (create, calculate, sync, lock) are hidden
+4. **Verify**: "Are edit controls hidden for non-admin roles?"
+
+**STOP AND REPORT**: Tell the user:
+- "UI validation checklist complete"
+- "All test groups passed / [list any failures]"
+- "Implementation complete!"
+
+---
+
+# Troubleshooting Appendix
+
+## Common TypeScript Errors
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Property 'canEditForecast' does not exist on type 'UserPermissions'` | Missing from `UserPermissions` interface | Add to `src/types/user.ts` |
+| `Type 'ForecastStatus' is not assignable to type 'string'` | Prisma enum vs string mismatch | Use string literal union type in `src/types/forecast.ts`, not Prisma enum directly |
+| `Cannot find module '@/types/forecast'` | File not created or wrong path | Verify file exists at `src/types/forecast.ts` |
+| `Argument of type 'X' is not assignable to parameter of type 'Y'` in query transforms | BQ raw type mismatch | Use `toNumber()` / `toString()` coercers |
+
+## BigQuery Query Errors
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `No matching signature for operator >= for argument types: DATE, TIMESTAMP` | `converted_date_raw` is DATE | Use `TIMESTAMP(v.converted_date_raw)` |
+| `Permission denied while getting Drive credentials` | EXTERNAL table requires Drive access | Use native `forecast_data` table instead |
+| `Table not found: forecast_data` | Native table not yet created | Russell must create it in BQ console |
+
+## Data Edge Cases
+
+| Issue | Details | Handling |
+|-------|---------|----------|
+| SQO→Joined rate = 0% in 90-day window | Lag exceeds window | Use ~15% business assumption via `ForecastAssumption` |
+| NULL rates for small channels | Partnerships (4), Employee Referral (2) | Show "insufficient data" warning; fall back to channel-level average |
+| Outbound Q4 2025 prospect surge (80% QoQ) | 17,905 vs 9,930 | Investigate before using as baseline; use Q1-Q3 2025 |
+| `forecast_value` must be INT64 | BQ table constraint | Round to integer before writing |
+| Fintrx quarterly rates = 0% | AVERAGE of 3 empty quarters | Monthly rates are the real forecast; quarterly G column is display-only (SUM of monthly volumes) |
+| Duplicate Direct Traffic sections | Sheet has rows 227 AND 253 | Dashboard unique constraint prevents this; use row 253 data (has forecast) |
+| Google Ads + LinkedIn Ads combined | No single BQ Original_source | Use bqSourceMapping ["Google Ads", "LinkedIn Ads"] to sum actuals |
+| SUMPRODUCT double-counting | Sheet matches QTD+QUARTERLY | Dashboard uses QUARTERLY only for completed quarters, QTD only for current |
+| Re-Engagement rate divergence | Quarterly avg=25% but monthly=92% for SQL→SQO | Monthly-first waterfall handles this correctly; quarterly rate is display-only |
 
 ## Known Limitations
 
 | Limitation | Rationale |
-|---|---|
-| Qualifying days = days since opp created | No `Stage_Entered_Qualifying__c` in Salesforce; `Opp_CreatedDate` is the standard proxy used throughout the codebase |
-| On Hold always appears in stale alerts | Deliberate pause state, not a stuck deal; shown in distinct section with "deliberate pause" label |
-| 5 records (2.9%) show N/A badge | Stage entry date missing from Salesforce for these records |
-| Thresholds hardcoded | No admin UI for threshold configuration — consistent with existing codebase pattern; change values in `STALE_PIPELINE_THRESHOLDS` in `constants.ts` |
-| Section only on By Stage tab | On Hold records are excluded from `OPEN_PIPELINE_STAGES` so By SGM tab doesn't reflect them; stale alerts is a stage-centric view |
-
----
-
-## Appendix: Troubleshooting
-
-### Records show `daysInCurrentStage: null` for all records
-
-**Cause:** Wrong API endpoint. `GET /api/dashboard/pipeline-overview` → `getOpenPipelineRecords` hardcodes `null`.
-
-**Fix:** Confirm `fetchStaleRecords` calls `dashboardApi.getPipelineDrilldown()` which hits `POST /api/dashboard/pipeline-drilldown`. Check the network tab in browser devtools — should see `POST /api/dashboard/pipeline-drilldown` calls, NOT `GET /api/dashboard/pipeline-overview`.
-
-### Stale alerts section never appears
-
-**Check 1:** Is `activeTab === 'byStage'`? The section only renders on By Stage tab.
-
-**Check 2:** Is `staleRecords.length === 0` AND `staleLoading === false`? The component returns `null` when both are true. Open browser devtools Network tab — are the pipeline-drilldown POST requests being made?
-
-**Check 3:** Is `sgmOptionsLoading` stuck `true`? The fetch guard `if (sgmOptionsLoading || selectedSgms.length === 0) return;` prevents fetching until SGM options load. Check if SGM options fetch is failing silently.
-
-### On Hold records not appearing
-
-**Check:** `ON_HOLD_STAGE` must be in `stagesToFetch` in `fetchStaleRecords`. Verify: `const stagesToFetch = [...selectedStages, ON_HOLD_STAGE];`
-
-### TypeScript error: `advisorName` not found
-
-The exact advisor display name field may differ. Run:
-```bash
-grep -n "advisorName\|advisor_name\|fullName\|displayName" src/types/dashboard.ts
-```
-Update the `StageSection` component's record row to use the correct field name.
-
-### Build error: duplicate import from `@/config/constants`
-
-If there are two `import { ... } from '@/config/constants'` lines, merge them:
-```bash
-grep -n "from '@/config/constants'" src/app/dashboard/pipeline/page.tsx
-```
-Use the Edit tool to combine them into one import statement.
-
-### Stage color dot shows grey for a stage
-
-`STAGE_COLORS` in `constants.ts` is keyed by exact Salesforce `StageName` values (case-sensitive). If a stage name doesn't match, the component falls back to `#94a3b8` (grey). The actual stage values confirmed by data-verifier: `Qualifying`, `Discovery`, `Sales Process`, `Negotiating`, `On Hold`.
+|-----------|-----------|
+| `contacted` stage not exported to BQ | `vw_daily_forecast` schema has no `contacted_daily` column |
+| `month_key_test` written as empty string | Legacy artifact; preserved for backward compatibility |
+| Source→channel mapping not 1:1 | `LinkedIn (Self Sourced)` maps to both Outbound and Other; source-first architecture handles this naturally |
+| No velocity metric | Does not exist as aggregate query in codebase; would need to be built from scratch |
+| `recordtypeid` hardcoded | `012Dn000000mrO3IAI` — verify still active in Salesforce org |
+| Q1 2026 excluded from sheet's rate average | Sheet uses AVERAGE(Q2-Q4 2025), skipping Q1 2026. Dashboard uses trailing 90-day instead. |
+| Fintrx rate labels use ">" not "→" | Sheet inconsistency. Dashboard normalizes all labels. Not a data issue. |
+| Lauren Overlay assumption | 0.5 SGA adjustment for a specific person. Supported via person_overlay assumption key. |
+| 3 Outbound sub-sources share SGA counts | SGA counts (14.5/16/16) are per-month, shared across Provided List, LinkedIn SS, and Fintrx. Each has its own sourcing_rate_per_sga. |
