@@ -122,6 +122,7 @@ export function RevenueChart({ data, isLoading = false }: RevenueChartProps) {
               strokeWidth={2.5}
               dot={{ r: 4, fill: GC_CHART_COLORS.revenue }}
               activeDot={{ r: 6 }}
+              isAnimationActive={false}
             />
             <Line
               type="monotone"
@@ -130,6 +131,7 @@ export function RevenueChart({ data, isLoading = false }: RevenueChartProps) {
               strokeWidth={2.5}
               dot={{ r: 4, fill: GC_CHART_COLORS.amountEarned }}
               activeDot={{ r: 6 }}
+              isAnimationActive={false}
             />
           </LineChart>
         </ResponsiveContainer>

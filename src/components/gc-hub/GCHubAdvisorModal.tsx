@@ -250,9 +250,9 @@ export function GCHubAdvisorModal({ advisorName, onClose, canEdit = false }: GCH
                           formatter={(value) => [formatCurrency(value as number), '']}
                         />
                         <Legend wrapperStyle={{ color: isDark ? '#d1d5db' : '#374151' }} />
-                        <Line type="monotone" dataKey="Revenue" stroke={GC_CHART_COLORS.revenue} strokeWidth={2} dot={{ r: 3 }} />
-                        <Line type="monotone" dataKey="Commissions" stroke={GC_CHART_COLORS.commissions} strokeWidth={2} dot={{ r: 3 }} />
-                        <Line type="monotone" dataKey="Amount Earned" stroke={GC_CHART_COLORS.amountEarned} strokeWidth={2} dot={{ r: 3 }} />
+                        <Line type="monotone" dataKey="Revenue" stroke={GC_CHART_COLORS.revenue} strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
+                        <Line type="monotone" dataKey="Commissions" stroke={GC_CHART_COLORS.commissions} strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
+                        <Line type="monotone" dataKey="Amount Earned" stroke={GC_CHART_COLORS.amountEarned} strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>

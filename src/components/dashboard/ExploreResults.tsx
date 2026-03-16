@@ -1526,10 +1526,11 @@ function renderBarChart(result: QueryResultData, isDark: boolean = false, onBarC
               color: isDark ? '#f9fafb' : '#111827'
             }} 
           />
-          <Bar 
-            dataKey="value" 
-            fill="#3B82F6" 
+          <Bar
+            dataKey="value"
+            fill="#3B82F6"
             radius={[0, 4, 4, 0]}
+            isAnimationActive={false}
             onClick={(data: any, index: number) => {
               if (onBarClick && data && data.value > 0) {
                 // data is the clicked data point, index is the index
@@ -1645,11 +1646,12 @@ function renderLineChart(result: QueryResultData, isDark: boolean = false, onPoi
             }} 
           />
           <Legend />
-          <Line 
-            type="monotone" 
-            dataKey="value" 
-            stroke="#3B82F6" 
+          <Line
+            type="monotone"
+            dataKey="value"
+            stroke="#3B82F6"
             strokeWidth={2}
+            isAnimationActive={false}
             dot={onPointClick ? (props: any) => {
               const { cx, cy, payload, value } = props;
               // payload contains the data point from the data array, including the index we stored
@@ -1684,14 +1686,15 @@ function renderLineChart(result: QueryResultData, isDark: boolean = false, onPoi
             name="Value"
           />
           {data.some(d => d.rollingAvg !== undefined) && (
-            <Line 
-              type="monotone" 
-              dataKey="rollingAvg" 
-              stroke="#10B981" 
+            <Line
+              type="monotone"
+              dataKey="rollingAvg"
+              stroke="#10B981"
               strokeWidth={2}
               strokeDasharray="5 5"
               dot={false}
               name="Rolling Avg"
+              isAnimationActive={false}
             />
           )}
         </LineChart>

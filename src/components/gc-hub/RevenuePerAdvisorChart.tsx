@@ -97,6 +97,7 @@ export function RevenuePerAdvisorChart({ data, isLoading = false }: RevenuePerAd
               strokeWidth={2.5}
               dot={{ r: 4, fill: GC_CHART_COLORS.revenuePerAdvisor }}
               activeDot={{ r: 6 }}
+              isAnimationActive={false}
             />
           </LineChart>
         </ResponsiveContainer>

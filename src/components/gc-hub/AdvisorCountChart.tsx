@@ -95,6 +95,7 @@ export function AdvisorCountChart({ data, isLoading = false }: AdvisorCountChart
               fill={GC_CHART_COLORS.advisorCount}
               radius={[4, 4, 0, 0]}
               maxBarSize={40}
+              isAnimationActive={false}
             />
           </BarChart>
         </ResponsiveContainer>

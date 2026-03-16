@@ -144,6 +144,7 @@ export function QuarterlyProgressChart({
               fill={CHART_COLORS.sqoToJoined}
               radius={[4, 4, 0, 0]}
               maxBarSize={60}
+              isAnimationActive={false}
             />
             {/* Goal Line (if any quarter has a goal) */}
             {hasAnyGoal && (
@@ -154,6 +155,7 @@ export function QuarterlyProgressChart({
                 radius={[4, 4, 0, 0]}
                 maxBarSize={60}
                 opacity={0.6}
+                isAnimationActive={false}
               />
             )}
           </BarChart>

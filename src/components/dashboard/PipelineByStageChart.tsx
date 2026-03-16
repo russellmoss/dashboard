@@ -268,6 +268,7 @@ export function PipelineByStageChart({
             fill={COLORS.aum}
             radius={[4, 4, 0, 0]}
             cursor="pointer"
+            isAnimationActive={false}
             onClick={(data: any) => {
               if (data && data.stage) {
                 onBarClick(data.stage, 'aum');
@@ -290,6 +291,7 @@ export function PipelineByStageChart({
             fill={COLORS.count}
             radius={[4, 4, 0, 0]}
             cursor="pointer"
+            isAnimationActive={false}
             onClick={(data: any) => {
               if (data && data.stage) {
                 onBarClick(data.stage, 'count');
