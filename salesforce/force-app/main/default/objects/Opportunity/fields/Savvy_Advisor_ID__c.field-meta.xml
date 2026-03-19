@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Savvy_Advisor_ID__c</fullName>
+    <description>The Savvy Advisor ID in the Savvy advisor database, used to sync data to this Salesforce from the advisor database.</description>
+    <externalId>false</externalId>
+    <label>Savvy Advisor ID</label>
+    <precision>10</precision>
+    <required>false</required>
+    <scale>0</scale>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Number</type>
+    <unique>false</unique>
+</CustomField>

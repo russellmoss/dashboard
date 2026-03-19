@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ListView xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>FP_San_Diego_Los_Angeles_David</fullName>
+    <booleanFilter>(1 OR 3) AND 2</booleanFilter>
+    <columns>City_State__c</columns>
+    <columns>OPPORTUNITY.NAME</columns>
+    <columns>OPPORTUNITY.STAGE_NAME</columns>
+    <columns>OPPORTUNITY.AMOUNT</columns>
+    <columns>OPPORTUNITY.LAST_ACTIVITY</columns>
+    <columns>CORE.USERS.FULL_NAME</columns>
+    <filterScope>Everything</filterScope>
+    <filters>
+        <field>City_State__c</field>
+        <operation>contains</operation>
+        <value>Los Angeles,Santa Monica,Beverly Hills,Glendale,Pasadena,Burbank,Inglewood,Culver City,West Hollywood,Long Beach,Anaheim,Irvine,Costa Mesa,Huntington Beach,Santa Ana,Newport Beach,Fullerton,Torrance,Lakewood,Pomona</value>
+    </filters>
+    <filters>
+        <field>OPPORTUNITY.WON</field>
+        <operation>notEqual</operation>
+        <value>1</value>
+    </filters>
+    <filters>
+        <field>City_State__c</field>
+        <operation>contains</operation>
+        <value>San Diego,La Jolla,Chula Vista,National City,El Cajon,La Mesa,Escondido,Carlsbad,Oceanside,Encinitas,San Marcos,Vista,Poway,Coronado,Dana Point,San Clemente,Mission Viejo,Laguna Beach,Aliso Viejo</value>
+    </filters>
+    <label>FP - San Diego &amp; Los Angeles (David W)</label>
+</ListView>

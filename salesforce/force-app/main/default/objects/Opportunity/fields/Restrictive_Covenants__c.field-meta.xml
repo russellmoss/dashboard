@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Restrictive_Covenants__c</fullName>
+    <label>Restrictive Covenants</label>
+    <required>false</required>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Picklist</type>
+    <valueSet>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>Non-Compete</fullName>
+                <default>false</default>
+                <label>Non-Compete</label>
+            </value>
+            <value>
+                <fullName>Non-Solicit</fullName>
+                <default>false</default>
+                <label>Non-Solicit</label>
+            </value>
+            <value>
+                <fullName>Non-Compete + Non-Solicit</fullName>
+                <default>false</default>
+                <label>Non-Compete + Non-Solicit</label>
+            </value>
+            <value>
+                <fullName>Other Restrictive Covenants</fullName>
+                <default>false</default>
+                <label>Other Restrictive Covenants</label>
+            </value>
+            <value>
+                <fullName>None</fullName>
+                <default>false</default>
+                <label>None</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

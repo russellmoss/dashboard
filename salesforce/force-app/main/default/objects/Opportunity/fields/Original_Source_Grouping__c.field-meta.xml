@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Original_Source_Grouping__c</fullName>
+    <externalId>false</externalId>
+    <formula>CASE(
+TEXT(LeadSource),
+
+/* --- Organic --- */
+&quot;Blog&quot;, &quot;Organic&quot;,
+&quot;Search&quot;, &quot;Organic&quot;,
+&quot;LinkedIn Savvy&quot;, &quot;Organic&quot;,
+&quot;LinkedIn Social&quot;, &quot;Organic&quot;,
+&quot;Direct Traffic&quot;, &quot;Organic&quot;,
+
+/* --- Paid Media --- */
+&quot;Google Ads&quot;, &quot;Paid Media&quot;,
+&quot;Meta&quot;, &quot;Paid Media&quot;,
+&quot;LinkedIn Ads&quot;, &quot;Paid Media&quot;,
+&quot;Advertisement&quot;, &quot;Paid Media&quot;,
+
+/* --- Return same value --- */
+&quot;Events&quot;, &quot;Event&quot;,
+&quot;Direct Mail&quot;, &quot;Direct Mail&quot;,
+&quot;Webinar&quot;, &quot;Webinar&quot;,
+&quot;Provided Lead List&quot;, &quot;Provided Lead List&quot;,
+&quot;Re-Engagement&quot;, &quot;Re-Engagement&quot;,
+&quot;Recruitment Firm&quot;, &quot;Recruitment Firm&quot;,
+&quot;Advisor Referral&quot;, &quot;Advisor Referral&quot;,
+
+/* --- Self Sourced --- */
+&quot;LinkedIn (Self Sourced)&quot;, &quot;Self Sourced&quot;,
+
+/* --- Deprecated ones ---*/
+&quot;Partner&quot;, &quot;Recruitment Firm&quot;,
+&quot;Apollo&quot;, &quot;Provided Lead List&quot;,
+&quot;LinkedIn Lead Gen Form&quot;, &quot;Organic&quot;,
+&quot;Reddit&quot;, &quot;Organic&quot;,
+&quot;Trade Show&quot;, &quot;Event&quot;,
+
+/* --- Default --- */
+&quot;Other&quot;
+)</formula>
+    <formulaTreatBlanksAs>BlankAsZero</formulaTreatBlanksAs>
+    <label>Original Source (Grouping)</label>
+    <required>false</required>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

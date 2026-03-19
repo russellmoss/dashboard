@@ -111,3 +111,52 @@ This is an automated message from the Savvy Dashboard.
 
   return sendEmail({ to, subject, text, html });
 }
+
+export async function sendReportReadyEmail(
+  to: string,
+  reportTitle: string,
+  executiveSummary: string,
+  reportUrl: string
+): Promise<boolean> {
+  const subject = `${reportTitle} — Your report is ready`;
+
+  const text = `
+${reportTitle}
+
+${executiveSummary}
+
+View the full interactive report:
+${reportUrl}
+
+- The Savvy Dashboard Team
+  `.trim();
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+    <h1 style="color: white; margin: 0; font-size: 24px;">Savvy Dashboard</h1>
+    <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Intelligence Report Ready</p>
+  </div>
+  <div style="background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; border: 1px solid #e5e7eb; border-top: none;">
+    <h2 style="margin-top: 0;">${reportTitle}</h2>
+    <p>${executiveSummary}</p>
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${reportUrl}" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 14px 30px; text-decoration: none; border-radius: 6px; font-weight: 600; display: inline-block;">View Full Report</a>
+    </div>
+  </div>
+  <div style="text-align: center; padding: 20px; color: #9ca3af; font-size: 11px;">
+    <p style="margin: 0;">Savvy Wealth | New York, NY</p>
+    <p style="margin: 5px 0 0 0;">This is an automated message from the Savvy Dashboard.</p>
+  </div>
+</body>
+</html>
+  `.trim();
+
+  return sendEmail({ to, subject, text, html });
+}

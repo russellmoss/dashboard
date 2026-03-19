@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Equity_Grant_2_Value__c</fullName>
+    <description>Dollar value of the second equity grant.</description>
+    <inlineHelpText>Dollar value of the second equity grant.</inlineHelpText>
+    <label>Equity Grant 2 - Value</label>
+    <precision>9</precision>
+    <required>false</required>
+    <scale>0</scale>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Currency</type>
+</CustomField>

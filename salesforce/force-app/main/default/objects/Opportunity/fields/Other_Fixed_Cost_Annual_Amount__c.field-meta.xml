@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Other_Fixed_Cost_Annual_Amount__c</fullName>
+    <description>Total annual amount of additional expense provisions.</description>
+    <inlineHelpText>Total annual amount of additional expense provisions.</inlineHelpText>
+    <label>Additional Expenses - Annual Amount</label>
+    <precision>7</precision>
+    <required>false</required>
+    <scale>0</scale>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Currency</type>
+</CustomField>

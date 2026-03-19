@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>FINRA</fullName>
+    <active>false</active>
+    <description>FINRA check required to move from Sales Process to Negotiating</description>
+    <errorConditionFormula>PRIORVALUE(StageName) = &quot;Sales Process&quot; &amp;&amp;
+ ISPICKVAL(StageName, &quot;Negotiating&quot;) &amp;&amp;
+ FINRA__c = FALSE</errorConditionFormula>
+    <errorDisplayField>StageName</errorDisplayField>
+    <errorMessage>FINRA check is required to move from Sales Process to Negotiating.</errorMessage>
+</ValidationRule>

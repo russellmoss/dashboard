@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Broker_Protocol_Notes__c</fullName>
+    <description>Are there any notes related to their existing firm&apos;s participation in Broker Protocol?</description>
+    <inlineHelpText>Are there any notes related to their existing firm&apos;s participation in Broker Protocol?</inlineHelpText>
+    <label>Broker Protocol Notes</label>
+    <length>10000</length>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>LongTextArea</type>
+    <visibleLines>3</visibleLines>
+</CustomField>

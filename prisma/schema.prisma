@@ -32,6 +32,10 @@ model User {
   uploadedAttachments RequestAttachment[]   @relation("UploadedAttachments")
   requestEdits        RequestEditHistory[]  @relation("RequestEdits")
   notifications       RequestNotification[] @relation("UserNotifications")
+
+  // Agentic Reporting relations
+  reportJobs              ReportJob[]
+  reportShares            ReportShare[]   @relation("ReportShareRecipient")
 }
 
 model PasswordResetToken {
@@ -423,4 +427,75 @@ model GcSyncLog {
   @@index([syncType])
   @@index([status])
   @@index([startedAt])
+}
+
+// =============================================================================
+// AGENTIC REPORTING MODELS
+// AI-generated intelligence reports with conversational follow-up
+// =============================================================================
+
+model ReportJob {
+  id             String    @id @default(cuid())
+  type           String    // "analyze-wins" | "sga-performance" | "sgm-analysis" | "competitive-intel"
+  status         String    @default("pending") // pending | running | complete | failed
+
+  // Who requested it
+  requestedById  String
+  requestedBy    User      @relation(fields: [requestedById], references: [id])
+
+  // Input
+  customPrompt   String?   // null = default report
+  parameters     Json?     // { "name": "Corey Marcello" } for SGM-analysis
+
+  // Output
+  reportJson     Json?     // ReportOutput schema — structured data for frontend rendering
+  queryLog       Json?     // QueryLogEntry[] — full query results for conversational follow-up
+  extractedMetrics Json?   // KeyMetric[] — copied from reportJson.keyMetrics for fast temporal diffing
+  verificationResult Json? // VerificationResult — Pass 1.5 data audit (verified: bool, issues[])
+
+  // Sharing
+  visibility     String    @default("private") // private | shared | all
+  sharedWith     ReportShare[]
+
+  // Follow-up conversations
+  conversations  ReportConversation[]
+
+  // Metadata
+  stepsCompleted Int       @default(0)  // tool calls completed (for progress UI)
+  totalTokens    Int?      // cost tracking (Pass 1 + Pass 2 combined)
+  durationMs     Int?      // how long generation took
+  error          String?   // error message if failed
+  promptVersion  String?   // hash of the prompt version used
+
+  createdAt      DateTime  @default(now())
+  completedAt    DateTime?
+
+  @@index([type, requestedById, createdAt(sort: Desc)])
+  @@index([requestedById])
+  @@index([status])
+  @@index([type])
+}
+
+model ReportShare {
+  id           String    @id @default(cuid())
+  reportId     String
+  report       ReportJob @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  sharedWithId String
+  sharedWith   User      @relation("ReportShareRecipient", fields: [sharedWithId], references: [id])
+  createdAt    DateTime  @default(now())
+
+  @@unique([reportId, sharedWithId])
+  @@index([reportId])
+  @@index([sharedWithId])
+}
+
+model ReportConversation {
+  id        String   @id @default(cuid())
+  reportId  String
+  report    ReportJob @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  role      String   // "user" | "assistant"
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([reportId, createdAt])
 }

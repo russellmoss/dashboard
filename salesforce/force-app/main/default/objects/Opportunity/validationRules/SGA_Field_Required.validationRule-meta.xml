@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>SGA_Field_Required</fullName>
+    <active>false</active>
+    <description>An SGA (or SGM if Self-Sourced) is required on all opportunities.</description>
+    <errorConditionFormula>AND(
+     ISBlank(SGA__r.Id)
+     ,RecordType.Id=&apos;012Dn000000mrO3IAI&apos;)</errorConditionFormula>
+    <errorDisplayField>SGA__c</errorDisplayField>
+    <errorMessage>An SGA (or SGM if Self-Sourced) is required on all opportunities, please add a user to the SGA field for this opportunity.</errorMessage>
+</ValidationRule>

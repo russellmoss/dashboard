@@ -20,20 +20,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Trigger the transfer
+    // Trigger all transfers in parallel
     const result = await triggerDataTransfer();
 
-    logger.info('[Cron Transfer] Scheduled transfer triggered', {
+    logger.info('[Cron Transfer] Scheduled transfers triggered', {
       success: result.success,
-      runId: result.runId,
+      runIds: result.runIds,
       timestamp: new Date().toISOString(),
     });
 
     if (result.success) {
       return NextResponse.json({
         success: true,
-        message: 'Transfer triggered successfully',
-        runId: result.runId,
+        message: 'Transfers triggered successfully',
+        runIds: result.runIds,
       });
     } else {
       // Don't fail cron job if cooldown is active - that's expected

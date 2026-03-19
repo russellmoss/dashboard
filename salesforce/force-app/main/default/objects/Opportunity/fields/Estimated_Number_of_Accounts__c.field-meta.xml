@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Estimated_Number_of_Accounts__c</fullName>
+    <description>The estimated number of accounts the advisor is going to be moving over.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>The estimated number of accounts the advisor is going to be moving over.</inlineHelpText>
+    <label>Estimated Number of Accounts</label>
+    <precision>5</precision>
+    <required>false</required>
+    <scale>0</scale>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Number</type>
+    <unique>false</unique>
+</CustomField>

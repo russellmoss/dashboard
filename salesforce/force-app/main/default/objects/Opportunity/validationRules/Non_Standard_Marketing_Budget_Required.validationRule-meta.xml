@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Non_Standard_Marketing_Budget_Required</fullName>
+    <active>true</active>
+    <description>If the Non-Standard Marketing Checkbox is checked, then the other fields are required.</description>
+    <errorConditionFormula>And(
+     Non_Standard_Marketing_Offer__c,
+     OR(
+          ISBLANK(Non__c)
+     ),
+     OR(
+          ISPICKVAL( StageName, &quot;Joined&quot;),
+          ISPICKVAL( StageName, &quot;Signed&quot;)
+     )
+)</errorConditionFormula>
+    <errorMessage>If there is a non-standard marketing budget as part of the advisor agreements, all of the details must be populated.</errorMessage>
+</ValidationRule>

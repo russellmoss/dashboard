@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Most_Recent_Closed_Date__c</fullName>
+    <label>Most Recent Closed Lost Date</label>
+    <type>Summary</type>
+    <summaryOperation>max</summaryOperation>
+    <summarizedField>Opportunity.Stage_Entered_Closed__c</summarizedField>
+    <summaryForeignKey>Opportunity.AccountId</summaryForeignKey>
+    <summaryFilterItems>
+        <field>Opportunity.StageName</field>
+        <operation>equals</operation>
+        <value>Closed Lost</value>
+    </summaryFilterItems>
+    <description>Most recent Stage_Entered_Closed__c date across all Closed Lost Opportunities (both Recruiting and Re-Engagement) on this Account. Used to calculate days since the advisor was most recently lost. NULL values are ignored by MAX — for older records where Stage_Entered_Closed__c is null, the formula falls back to the opp's own dates.</description>
+    <inlineHelpText>The most recent date any opportunity for this advisor entered Closed Lost stage.</inlineHelpText>
+</CustomField>

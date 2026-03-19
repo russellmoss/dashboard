@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>No_SQO_on_ReEngagement_Opps</fullName>
+    <active>true</active>
+    <description>Prevents Re-Engegament Opportunities to be marked as SQO</description>
+    <errorConditionFormula>AND(
+  ISPICKVAL(SQL__c, &quot;Yes&quot;),
+  RecordTypeId = &quot;012VS000009Voxr&quot;
+)</errorConditionFormula>
+    <errorMessage>Re-Engagement Opportunities cannot be marked as SQO.</errorMessage>
+</ValidationRule>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Advisor_Split__c</fullName>
+    <description>Base revenue share percentage — Tier 1 of the advisor&apos;s split grid.</description>
+    <inlineHelpText>Base revenue share percentage — Tier 1 of the advisor&apos;s split grid.</inlineHelpText>
+    <label>Tier 1 Split</label>
+    <precision>4</precision>
+    <required>false</required>
+    <scale>2</scale>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Percent</type>
+</CustomField>

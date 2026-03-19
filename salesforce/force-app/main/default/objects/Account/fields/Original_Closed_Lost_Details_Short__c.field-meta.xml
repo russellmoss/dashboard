@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Original_Closed_Lost_Details_Short__c</fullName>
+    <label>Original Closed Lost Details (Short)</label>
+    <type>Text</type>
+    <length>255</length>
+    <required>false</required>
+    <externalId>false</externalId>
+    <unique>false</unique>
+    <description>Truncated (255-char) copy of Original_Closed_Lost_Details__c for use in Opportunity formula fields and list views. Full details remain in the LongTextArea field on Account.</description>
+    <inlineHelpText>First 255 characters of the original Closed Lost Details. See the Account record for full details.</inlineHelpText>
+</CustomField>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Signed_Advisor_Split</fullName>
+    <active>true</active>
+    <description>Require an Advisor Split % to move to Signed.</description>
+    <errorConditionFormula>AND (
+     OR(ISPICKVAL(StageName, &quot;Joined&quot;),
+        ISPICKVAL(StageName, &quot;Signed&quot;)
+     ),
+     ISBLANK(Advisor_Split__c)
+)</errorConditionFormula>
+    <errorDisplayField>Advisor_Split__c</errorDisplayField>
+    <errorMessage>An Advisor Split is required to move this Opportunity to Signed.</errorMessage>
+</ValidationRule>

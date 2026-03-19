@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Closed_Lost_Time_Bucket__c</fullName>
+    <description>Time bucket for how long since this opportunity was closed lost. Used in the Re-Engagement Eligible list view.</description>
+    <externalId>false</externalId>
+    <formula>IF(
+  ISBLANK(Days_Since_Closed_Lost__c), NULL,
+  IF(Days_Since_Closed_Lost__c &lt; 30, &quot;&lt;1 month&quot;,
+  IF(Days_Since_Closed_Lost__c &lt; 60, &quot;1 month since lost&quot;,
+  IF(Days_Since_Closed_Lost__c &lt; 90, &quot;2 months since lost&quot;,
+  IF(Days_Since_Closed_Lost__c &lt; 120, &quot;3 months since lost&quot;,
+  IF(Days_Since_Closed_Lost__c &lt; 150, &quot;4 months since lost&quot;,
+  IF(Days_Since_Closed_Lost__c &lt; 180, &quot;5 months since lost&quot;,
+  &quot;6+ months since lost&quot;))))))
+)</formula>
+    <inlineHelpText>Categorizes how long ago the opportunity was closed lost into monthly buckets.</inlineHelpText>
+    <label>Closed Lost Time Bucket</label>
+    <required>false</required>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

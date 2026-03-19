@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Revenue_Aggregation__c</fullName>
+    <description>Whether revenue is counted individually or pooled with the advisor&apos;s team for tier determination.</description>
+    <inlineHelpText>Whether revenue is counted individually or pooled with the advisor&apos;s team for tier determination. Values: Individual, Team.</inlineHelpText>
+    <label>Revenue Aggregation</label>
+    <required>false</required>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Picklist</type>
+    <valueSet>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>Individual</fullName>
+                <default>false</default>
+                <label>Individual</label>
+            </value>
+            <value>
+                <fullName>Team</fullName>
+                <default>false</default>
+                <label>Team</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

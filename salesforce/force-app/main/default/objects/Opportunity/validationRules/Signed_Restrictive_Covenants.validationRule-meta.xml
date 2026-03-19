@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Signed_Restrictive_Covenants</fullName>
+    <active>true</active>
+    <description>Require Restrictive Covenants to move to Signed.</description>
+    <errorConditionFormula>AND (RecordTypeId = &apos;012Dn000000mrO3IAI&apos;,
+     OR(ISPICKVAL(StageName, &quot;Joined&quot;),
+        ISPICKVAL(StageName, &quot;Signed&quot;)
+     ),
+     ISPICKVAL(Restrictive_Covenants__c ,&quot;&quot;)
+)</errorConditionFormula>
+    <errorDisplayField>Restrictive_Covenants__c</errorDisplayField>
+    <errorMessage>Please select the type of Restrictive Covenants for this deal to move this Opportunity to Signed.</errorMessage>
+</ValidationRule>

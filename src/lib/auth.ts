@@ -129,8 +129,8 @@ export const authOptions: NextAuthOptions = {
     },
     async session({ session, token }) {
       if (session.user) {
-        // Set user ID from token
-        (session.user as { id?: string }).id = (token.sub ?? token.id) as string;
+        // Use Prisma User id when present (token.id); fall back to token.sub for legacy JWTs
+        (session.user as { id?: string }).id = (token.id ?? token.sub) as string;
 
         // Derive permissions from token data (NO DATABASE QUERY)
         // All required data is stored in the JWT at sign-in time

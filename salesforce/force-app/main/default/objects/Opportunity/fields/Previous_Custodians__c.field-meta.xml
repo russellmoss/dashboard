@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Previous_Custodians__c</fullName>
+    <description>The previous custodians the advisor is using where assets may be coming from.</description>
+    <inlineHelpText>The previous custodians the advisor is using where assets may be coming from.</inlineHelpText>
+    <label>Previous Custodians</label>
+    <required>false</required>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>MultiselectPicklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetName>Previous_Custodians</valueSetName>
+    </valueSet>
+    <visibleLines>5</visibleLines>
+</CustomField>

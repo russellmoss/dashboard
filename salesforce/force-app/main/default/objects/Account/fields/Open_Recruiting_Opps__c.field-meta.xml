@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Open_Recruiting_Opps__c</fullName>
+    <label>Open Recruiting Opps</label>
+    <type>Summary</type>
+    <summaryOperation>count</summaryOperation>
+    <summaryForeignKey>Opportunity.AccountId</summaryForeignKey>
+    <summaryFilterItems>
+        <field>Opportunity.RecordTypeId</field>
+        <operation>equals</operation>
+        <value>Recruiting</value>
+    </summaryFilterItems>
+    <summaryFilterItems>
+        <field>Opportunity.StageName</field>
+        <operation>notEqual</operation>
+        <value>Closed Lost</value>
+    </summaryFilterItems>
+    <summaryFilterItems>
+        <field>Opportunity.StageName</field>
+        <operation>notEqual</operation>
+        <value>Joined</value>
+    </summaryFilterItems>
+    <description>Count of open Recruiting Opportunities on this Account (excludes Closed Lost and Joined). Used to prevent re-engagement when an active recruiting opp already exists.</description>
+    <inlineHelpText>Number of active Recruiting Opportunities (not Closed Lost or Joined) for this advisor.</inlineHelpText>
+</CustomField>

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Re_Engagement_Reason__c</fullName>
+    <description>The reason for nurture (Timing, Budget, etc.) which might help us send specific content later on to the advisor to address this.</description>
+    <inlineHelpText>The reason for nurture (Timing, Budget, etc.) which might help us send specific content later on to the advisor to address this.</inlineHelpText>
+    <label>Re-Engagement Reason</label>
+    <required>false</required>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>Lost Touch</fullName>
+                <default>false</default>
+                <label>Lost Touch</label>
+            </value>
+            <value>
+                <fullName>Compensation Concerns</fullName>
+                <default>false</default>
+                <label>Compensation Concerns</label>
+            </value>
+            <value>
+                <fullName>Timing (too early)</fullName>
+                <default>false</default>
+                <label>Timing (too early)</label>
+            </value>
+            <value>
+                <fullName>Recent Transition</fullName>
+                <default>false</default>
+                <label>Recent Transition</label>
+            </value>
+            <value>
+                <fullName>Building Stronger Client Relationships</fullName>
+                <default>false</default>
+                <label>Building Stronger Client Relationships</label>
+            </value>
+            <value>
+                <fullName>Nervous about litigation</fullName>
+                <default>false</default>
+                <label>Nervous about litigation</label>
+            </value>
+            <value>
+                <fullName>Other</fullName>
+                <default>false</default>
+                <label>Other</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

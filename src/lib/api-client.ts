@@ -823,14 +823,14 @@ export const dashboardApi = {
    */
   async triggerDataTransfer(): Promise<{
     success: boolean;
-    runId?: string;
+    runIds?: string[];
     message: string;
     estimatedDuration?: string;
     cooldownMinutes?: number;
   }> {
     return apiFetch<{
       success: boolean;
-      runId?: string;
+      runIds?: string[];
       message: string;
       estimatedDuration?: string;
       cooldownMinutes?: number;
@@ -840,24 +840,27 @@ export const dashboardApi = {
   },
 
   /**
-   * Check the status of a transfer run
+   * Check the aggregated status of all transfer runs
    */
-  async getTransferStatus(runId: string): Promise<{
-    runId: string;
+  async getTransferStatus(runIds: string[]): Promise<{
+    runIds: string[];
     state: string;
     isComplete: boolean;
     success: boolean;
     errorMessage?: string;
     cacheInvalidated?: boolean;
+    runs?: Array<{ runId: string; state: string; success: boolean }>;
   }> {
+    const idsParam = runIds.map(id => encodeURIComponent(id)).join(',');
     return apiFetch<{
-      runId: string;
+      runIds: string[];
       state: string;
       isComplete: boolean;
       success: boolean;
       errorMessage?: string;
       cacheInvalidated?: boolean;
-    }>(`/api/admin/trigger-transfer?runId=${encodeURIComponent(runId)}`);
+      runs?: Array<{ runId: string; state: string; success: boolean }>;
+    }>(`/api/admin/trigger-transfer?runIds=${idsParam}`);
   },
 
   /**

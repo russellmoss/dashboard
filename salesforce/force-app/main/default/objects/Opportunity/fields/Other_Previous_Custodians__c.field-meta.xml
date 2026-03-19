@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Other_Previous_Custodians__c</fullName>
+    <description>If &apos;other&apos; is selected on previous custodians, the other previous custodians used.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>If &apos;other&apos; is selected on previous custodians, the other previous custodians used. Please insert a semicolon (;) between custodians if multiple need to be listed.</inlineHelpText>
+    <label>Other Previous Custodians</label>
+    <length>255</length>
+    <required>false</required>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

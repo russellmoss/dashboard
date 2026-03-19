@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Office_Address__c</fullName>
+    <defaultValue>&quot;WFH&quot;</defaultValue>
+    <description>The office address of the advisor, defaults to &quot;WFH&quot; if they are remote.</description>
+    <inlineHelpText>The office address of the advisor, defaults to &quot;WFH&quot; if they are remote.</inlineHelpText>
+    <label>Office Address</label>
+    <required>false</required>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>TextArea</type>
+</CustomField>

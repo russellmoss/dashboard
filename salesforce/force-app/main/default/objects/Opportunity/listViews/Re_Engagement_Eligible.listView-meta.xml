@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ListView xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Re_Engagement_Eligible</fullName>
+    <columns>OPPORTUNITY.NAME</columns>
+    <columns>SGA__c</columns>
+    <columns>Was_Re_Engaged__c</columns>
+    <columns>Re_Engagement_Opp_Count__c</columns>
+    <columns>Stage_Entered_Closed__c</columns>
+    <columns>Days_Since_Closed_Lost__c</columns>
+    <columns>Closed_Lost_Time_Bucket__c</columns>
+    <columns>SQL__c</columns>
+    <columns>Original_Closed_Lost_Reason__c</columns>
+    <columns>Original_Closed_Lost_Details__c</columns>
+    <columns>Closed_Lost_Reason__c</columns>
+    <columns>Closed_Lost_Details__c</columns>
+    <filterScope>Everything</filterScope>
+    <filters>
+        <field>OPPORTUNITY.RECORDTYPE</field>
+        <operation>equals</operation>
+        <value>Opportunity.Recruiting</value>
+    </filters>
+    <filters>
+        <field>OPPORTUNITY.STAGE_NAME</field>
+        <operation>equals</operation>
+        <value>Closed Lost</value>
+    </filters>
+    <filters>
+        <field>Days_Since_Closed_Lost__c</field>
+        <operation>greaterOrEqual</operation>
+        <value>30</value>
+    </filters>
+    <filters>
+        <field>Open_Re_Engagement_Opps__c</field>
+        <operation>equals</operation>
+        <value>0</value>
+    </filters>
+    <filters>
+        <field>Is_Latest_Closed_Lost__c</field>
+        <operation>equals</operation>
+        <value>1</value>
+    </filters>
+    <filters>
+        <field>Closed_Lost_Reason__c</field>
+        <operation>notEqual</operation>
+        <value>Savvy Declined - No Book of Business</value>
+    </filters>
+    <filters>
+        <field>Closed_Lost_Reason__c</field>
+        <operation>notEqual</operation>
+        <value>Savvy Declined - Insufficient Revenue</value>
+    </filters>
+    <filters>
+        <field>Closed_Lost_Reason__c</field>
+        <operation>notEqual</operation>
+        <value>Savvy Declined – Book Not Transferable</value>
+    </filters>
+    <filters>
+        <field>Closed_Lost_Reason__c</field>
+        <operation>notEqual</operation>
+        <value>Savvy Declined - Poor Culture Fit</value>
+    </filters>
+    <filters>
+        <field>Closed_Lost_Reason__c</field>
+        <operation>notEqual</operation>
+        <value>Savvy Declined - Compliance</value>
+    </filters>
+    <label>Re-Engagement Eligible</label>
+    <sharedTo>
+        <allInternalUsers></allInternalUsers>
+    </sharedTo>
+</ListView>

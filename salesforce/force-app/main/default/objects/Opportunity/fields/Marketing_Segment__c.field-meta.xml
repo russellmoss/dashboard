@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Marketing_Segment__c</fullName>
+    <description>Advisor segment for paid ads targeting. Auto-populated via Hightouch from BigQuery advisor_segments table. Values: CAPTIVE_W2 (wirehouse/captive), RIA_OWNER (any ownership stake), INDEPENDENT_PLATFORM (non-owner at IBD/platform firm).</description>
+    <label>Marketing Segment</label>
+    <required>false</required>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>CAPTIVE_W2</fullName>
+                <default>false</default>
+                <label>CAPTIVE_W2</label>
+            </value>
+            <value>
+                <fullName>RIA_OWNER</fullName>
+                <default>false</default>
+                <label>RIA_OWNER</label>
+            </value>
+            <value>
+                <fullName>INDEPENDENT_PLATFORM</fullName>
+                <default>false</default>
+                <label>INDEPENDENT_PLATFORM</label>
+            </value>
+            <value>
+                <fullName>OTHER</fullName>
+                <default>false</default>
+                <label>OTHER</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

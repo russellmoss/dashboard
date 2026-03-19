@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Final_Comp_UW_ARR__c</fullName>
+    <description>The Underwritten ARR adjusted by the Margin Adjustment for compensation purposes.</description>
+    <formula>IF(OR(ISBLANK(Underwritten_ARR__c), ISBLANK(Margin_Adjustment__c)), null, Underwritten_ARR__c * (Margin_Adjustment__c))</formula>
+    <inlineHelpText>The Underwritten ARR adjusted by the Margin Adjustment for compensation purposes.</inlineHelpText>
+    <label>Final Comp UW ARR</label>
+    <precision>18</precision>
+    <required>false</required>
+    <scale>2</scale>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Currency</type>
+</CustomField>

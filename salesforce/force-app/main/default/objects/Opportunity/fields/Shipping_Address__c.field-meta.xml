@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Shipping_Address__c</fullName>
+    <description>The shipping of address of the advisor, primarily to send them a laptop and any other Savvy goods.</description>
+    <inlineHelpText>The shipping of address of the advisor, primarily to send them a laptop and any other Savvy goods.</inlineHelpText>
+    <label>Shipping Address</label>
+    <required>false</required>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>TextArea</type>
+</CustomField>

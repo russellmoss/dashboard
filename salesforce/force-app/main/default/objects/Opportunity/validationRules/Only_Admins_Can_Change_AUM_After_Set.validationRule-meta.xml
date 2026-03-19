@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Only_Admins_Can_Change_AUM_After_Set</fullName>
+    <active>true</active>
+    <description>Only let administrators change the Underwritten AUM value on an opportunity once it is set by an SGM and the Opportunity is in Signed or Joined.</description>
+    <errorConditionFormula>AND(
+     OR(
+          ISPICKVAL(StageName, &quot;Joined&quot;),
+          ISPICKVAL(StageName, &quot;Signed&quot;)
+     ),
+   IsChanged( Underwritten_AUM__c),
+   $Profile.Name &lt;&gt; &quot;System Administrator&quot;
+)</errorConditionFormula>
+    <errorMessage>Once an Opportunity is Signed or in Joined, only an admin can change the Underwritten AUM. Please speak to an administrator for this.</errorMessage>
+</ValidationRule>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Is_Latest_Closed_Lost__c</fullName>
+    <description>TRUE only for the most recent Closed Lost recruiting opportunity per account, AND only if the account has no open recruiting opps. Used to dedup the Re-Engagement Eligible list view and replace the Open_Recruiting_Opps list view filter (to stay within the 10-filter limit). Null Stage_Entered_Closed__c defaults to TRUE only if the account rollup is also null (all opps lack timestamps); otherwise false so the opp with a real timestamp wins.</description>
+    <formula>IF(
+  NOT(ISPICKVAL(StageName, &quot;Closed Lost&quot;)),
+  false,
+  IF(
+    Account.Open_Recruiting_Opps__c &gt; 0,
+    false,
+    IF(
+      ISBLANK(Stage_Entered_Closed__c),
+      ISBLANK(Account.Most_Recent_Recruiting_Closed_Date__c),
+      Stage_Entered_Closed__c = Account.Most_Recent_Recruiting_Closed_Date__c
+    )
+  )
+)</formula>
+    <formulaTreatBlanksAs>BlankAsZero</formulaTreatBlanksAs>
+    <inlineHelpText>Indicates this is the most recent Closed Lost recruiting opportunity on this account and no active recruiting opp exists.</inlineHelpText>
+    <label>Is Latest Closed Lost</label>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Checkbox</type>
+</CustomField>

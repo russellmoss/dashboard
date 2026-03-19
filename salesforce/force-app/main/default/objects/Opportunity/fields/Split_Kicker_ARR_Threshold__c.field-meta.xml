@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Split_Kicker_ARR_Threshold__c</fullName>
+    <description>The annual book recurring revenue required to change the advisor split (if a split kicker is in place).</description>
+    <inlineHelpText>The annual book recurring revenue required to change the advisor split (if a split kicker is in place).</inlineHelpText>
+    <label>Split Kicker ARR Threshold</label>
+    <precision>7</precision>
+    <required>false</required>
+    <scale>0</scale>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Currency</type>
+</CustomField>

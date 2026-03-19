@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Source_Channel_Mapping__c</fullName>
+    <externalId>false</externalId>
+    <formula>CASE(
+  TEXT(Final_Source__c),
+
+  /* -----------------------------------
+     MARKETING
+  ----------------------------------- */
+  &quot;Blog&quot;, &quot;Marketing&quot;,
+  &quot;Search&quot;, &quot;Marketing&quot;,
+  &quot;LinkedIn Savvy&quot;, &quot;Marketing&quot;,
+  &quot;LinkedIn Social&quot;, &quot;Marketing&quot;,
+  &quot;Direct Traffic&quot;, &quot;Marketing&quot;,
+  &quot;Google Ads&quot;, &quot;Marketing&quot;,
+  &quot;Meta&quot;, &quot;Marketing&quot;,
+  &quot;LinkedIn Ads&quot;, &quot;Marketing&quot;,
+
+  /* -----------------------------------
+     OUTBOUND + MARKETING
+  ----------------------------------- */
+  &quot;Events&quot;, &quot;Outbound + Marketing&quot;,
+  &quot;Direct Mail&quot;, &quot;Outbound + Marketing&quot;,
+  &quot;Webinar&quot;, &quot;Outbound + Marketing&quot;,
+  &quot;Provided List (Marketing)&quot;, &quot;Outbound + Marketing&quot;,
+
+  /* -----------------------------------
+     OUTBOUND
+  ----------------------------------- */
+  &quot;LinkedIn (Self Sourced)&quot;, &quot;Outbound&quot;,
+  &quot;Provided List (Lead Scoring)&quot;, &quot;Outbound&quot;,
+  &quot;Fintrx (Self-Sourced)&quot;, &quot;Outbound&quot;,
+
+  /* -----------------------------------
+     SAME VALUES
+  ----------------------------------- */
+  &quot;Re-Engagement&quot;, &quot;Re-Engagement&quot;,
+  &quot;Recruitment Firm&quot;, &quot;Recruitment Firm&quot;,
+  &quot;Advisor Referral&quot;, &quot;Advisor Referral&quot;,
+  &quot;Employee Referral&quot;, &quot;Employee Referral&quot;,
+&quot;Partnerships&quot;, &quot;Partnerships&quot;,
+&quot;Job Applications&quot;, &quot;Job Applications&quot;,
+
+  /* -----------------------------------
+     DEPRECATED → MAPPED
+     (Leaving this logic intact)
+  ----------------------------------- */
+  &quot;Partner&quot;, &quot;Recruitment Firm&quot;,
+&quot;LinkedIn (Automation)&quot;, &quot;Outbound + Marketing&quot;,
+  &quot;Apollo&quot;, &quot;Outbound&quot;,
+  &quot;LinkedIn Lead Gen Form&quot;, &quot;Marketing&quot;,
+  &quot;Advertisement&quot;, &quot;Marketing&quot;,
+  &quot;Reddit&quot;, &quot;Marketing&quot;,
+&quot;Ashby&quot;, &quot;Job Applications&quot;,
+&quot;Dover&quot;, &quot;Job Applications&quot;,
+&quot;Manatal&quot;, &quot;Job Applications&quot;,
+  &quot;Trade Show&quot;, &quot;Marketing&quot;,
+
+  /* -----------------------------------
+     DEFAULT
+  ----------------------------------- */
+  &quot;Other&quot;
+)</formula>
+    <formulaTreatBlanksAs>BlankAsZero</formulaTreatBlanksAs>
+    <label>Source Channel Mapping</label>
+    <required>false</required>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

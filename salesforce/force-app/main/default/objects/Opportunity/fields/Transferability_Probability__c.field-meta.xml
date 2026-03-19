@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Transferability_Probability__c</fullName>
+    <description>The probability that the prospect&apos;s transferable AUM actually would move with them if they were to change firms. Note that this only applies to their estimated transferable AUM, not their total AUM.</description>
+    <inlineHelpText>The probability that the prospect&apos;s transferable AUM actually would move with them if they were to change firms. Note that this only applies to their estimated transferable AUM, not their total AUM.</inlineHelpText>
+    <label>Transferability Probability</label>
+    <required>false</required>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetName>Transferability_Probability</valueSetName>
+    </valueSet>
+</CustomField>

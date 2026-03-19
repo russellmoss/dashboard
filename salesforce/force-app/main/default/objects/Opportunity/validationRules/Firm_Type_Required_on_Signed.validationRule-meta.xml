@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Firm_Type_Required_on_Signed</fullName>
+    <active>true</active>
+    <description>The Firm Type is required to move the Opportunity into the &quot;Signed&quot; stage.</description>
+    <errorConditionFormula>AND (
+     ISPICKVAL(StageName, &quot;Signed&quot;),
+     ISPICKVAL(Firm_Type__c, &quot;&quot;)
+)</errorConditionFormula>
+    <errorDisplayField>Firm_Type__c</errorDisplayField>
+    <errorMessage>Please confirm the Firm Type before moving the Opportunity to Signed.</errorMessage>
+</ValidationRule>

@@ -1,0 +1,5 @@
+SELECT Id, Days_Since_Closed_Lost__c, Closed_Lost_Time_Bucket__c
+FROM Opportunity
+WHERE StageName = 'Closed Lost'
+AND RecordType.DeveloperName = 'Recruiting'
+LIMIT 5

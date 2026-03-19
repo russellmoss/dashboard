@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Created_Recruiting_Opportunity_ID__c</fullName>
+    <deleteConstraint>SetNull</deleteConstraint>
+    <description>Links the Re-Engagement opportunity to the new Recruiting opportunity it created</description>
+    <label>Created Recruiting Opportunity ID</label>
+    <referenceTo>Opportunity</referenceTo>
+    <relationshipLabel>Source Re-Engagement Opportunity</relationshipLabel>
+    <relationshipName>Source_Re_Engagement_Opportunities</relationshipName>
+    <required>false</required>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Lookup</type>
+</CustomField>

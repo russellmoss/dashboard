@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Open_Recruiting_Opps__c</fullName>
+    <description>Surfaces the Account-level Open Recruiting Opps rollup on Opportunity. Used in the Re-Engagement Eligible list view to exclude advisors with an active recruiting opportunity.</description>
+    <externalId>false</externalId>
+    <formula>Account.Open_Recruiting_Opps__c</formula>
+    <formulaTreatBlanksAs>BlankAsZero</formulaTreatBlanksAs>
+    <inlineHelpText>Number of active Recruiting Opportunities (not Closed Lost or Joined) on this advisor&apos;s Account.</inlineHelpText>
+    <label>Open Recruiting Opps</label>
+    <precision>18</precision>
+    <required>false</required>
+    <scale>0</scale>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Number</type>
+    <unique>false</unique>
+</CustomField>

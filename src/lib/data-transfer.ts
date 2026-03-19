@@ -1,8 +1,15 @@
 import { DataTransferServiceClient } from '@google-cloud/bigquery-data-transfer';
 import { logger } from './logger';
 
-// Transfer configuration
-const TRANSFER_CONFIG_ID = 'projects/154995667624/locations/northamerica-northeast2/transferConfigs/68d12521-0000-207a-b4fa-ac3eb14e17d8';
+// Transfer configurations — one per Salesforce object
+const TRANSFER_CONFIGS = [
+  { id: 'projects/154995667624/locations/northamerica-northeast2/transferConfigs/69ba87ea-0000-2a91-9630-5c337bbe1213', label: 'Lead' },
+  { id: 'projects/154995667624/locations/northamerica-northeast2/transferConfigs/69ba8764-0000-2a91-9630-5c337bbe1213', label: 'Opportunity' },
+  { id: 'projects/154995667624/locations/northamerica-northeast2/transferConfigs/69bd1cab-0000-2f23-a3d2-ac3eb15e6930', label: 'Campaign History' },
+  { id: 'projects/154995667624/locations/northamerica-northeast2/transferConfigs/68d12521-0000-207a-b4fa-ac3eb14e17d8', label: 'Contact' },
+  { id: 'projects/154995667624/locations/northamerica-northeast2/transferConfigs/69bbd8c0-0000-2b19-9d1c-9898fbb3ccd5', label: 'Task' },
+  { id: 'projects/154995667624/locations/northamerica-northeast2/transferConfigs/69ba8889-0000-2a91-9630-5c337bbe1213', label: 'Campaign' },
+];
 
 // Cooldown tracking (in-memory for now)
 let lastTransferTime: number | null = null;
@@ -78,11 +85,11 @@ export function isWithinCooldown(): { withinCooldown: boolean; minutesRemaining:
 }
 
 /**
- * Trigger a manual data transfer run
+ * Trigger all data transfer runs in parallel
  */
 export async function triggerDataTransfer(): Promise<{
   success: boolean;
-  runId?: string;
+  runIds?: string[];
   message: string;
 }> {
   // Check cooldown
@@ -96,88 +103,163 @@ export async function triggerDataTransfer(): Promise<{
 
   try {
     const client = getDataTransferClient();
-    
-    logger.info('[Data Transfer] Triggering manual transfer run', {
-      configId: TRANSFER_CONFIG_ID,
+    const requestedRunTime = { seconds: Math.floor(Date.now() / 1000) };
+
+    logger.info('[Data Transfer] Triggering all transfer runs in parallel', {
+      configs: TRANSFER_CONFIGS.map(c => c.label),
     });
 
-    const [response] = await client.startManualTransferRuns({
-      parent: TRANSFER_CONFIG_ID,
-      requestedRunTime: {
-        seconds: Math.floor(Date.now() / 1000),
-      },
-    });
+    const results = await Promise.allSettled(
+      TRANSFER_CONFIGS.map(async (config) => {
+        const [response] = await client.startManualTransferRuns({
+          parent: config.id,
+          requestedRunTime,
+        });
 
-    if (response.runs && response.runs.length > 0) {
-      const run = response.runs[0];
-      const runId = run.name || '';
-      
-      // Update cooldown tracker
-      lastTransferTime = Date.now();
-      
-      logger.info('[Data Transfer] Transfer triggered successfully', {
-        runId,
-        state: run.state,
-      });
+        if (response.runs && response.runs.length > 0) {
+          const runId = response.runs[0].name || '';
+          logger.info(`[Data Transfer] ${config.label} triggered`, { runId });
+          return { label: config.label, runId };
+        }
+        throw new Error(`${config.label}: no run ID returned`);
+      })
+    );
 
+    const succeeded = results
+      .filter((r): r is PromiseFulfilledResult<{ label: string; runId: string }> => r.status === 'fulfilled')
+      .map(r => r.value);
+
+    const failed = results
+      .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+      .map(r => String(r.reason));
+
+    if (succeeded.length === 0) {
       return {
-        success: true,
-        runId,
-        message: 'Data transfer started successfully. This typically takes 3-5 minutes.',
+        success: false,
+        message: `All transfers failed: ${failed.join('; ')}`,
       };
     }
 
+    // Start cooldown only after triggering (will be refreshed on completion)
+    lastTransferTime = Date.now();
+
+    const runIds = succeeded.map(s => s.runId);
+
+    logger.info('[Data Transfer] Transfers triggered', {
+      succeeded: succeeded.map(s => s.label),
+      failed,
+      runIds,
+    });
+
     return {
-      success: false,
-      message: 'Transfer triggered but no run ID returned',
+      success: true,
+      runIds,
+      message: failed.length > 0
+        ? `${succeeded.length}/${TRANSFER_CONFIGS.length} transfers started. Failed: ${failed.join('; ')}`
+        : `All ${TRANSFER_CONFIGS.length} transfers started successfully.`,
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('[Data Transfer] Failed to trigger transfer', { error: errorMessage });
-    
+    logger.error('[Data Transfer] Failed to trigger transfers', { error: errorMessage });
+
     return {
       success: false,
-      message: `Failed to trigger transfer: ${errorMessage}`,
+      message: `Failed to trigger transfers: ${errorMessage}`,
     };
   }
 }
 
 /**
- * Get the status of a transfer run
+ * Get the aggregated status of multiple transfer runs.
+ * Complete only when ALL runs reach a terminal state.
+ * Success only if ALL completed runs succeeded.
  */
-export async function getTransferRunStatus(runId: string): Promise<{
+export async function getTransferRunStatus(runIds: string | string[]): Promise<{
   state: string;
   isComplete: boolean;
   success: boolean;
   errorMessage?: string;
   startTime?: string;
   endTime?: string;
+  runs?: Array<{ runId: string; state: string; success: boolean }>;
 }> {
+  const ids = Array.isArray(runIds) ? runIds : [runIds];
+
   try {
     const client = getDataTransferClient();
-    
-    const [run] = await client.getTransferRun({ name: runId });
-    
-    const state = run.state as string;
-    const isComplete = ['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(state);
-    const success = state === 'SUCCEEDED';
-    
+
+    const statuses = await Promise.all(
+      ids.map(async (runId) => {
+        try {
+          const [run] = await client.getTransferRun({ name: runId });
+          const state = run.state as string;
+          return {
+            runId,
+            state,
+            isComplete: ['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(state),
+            success: state === 'SUCCEEDED',
+            errorMessage: run.errorStatus?.message ?? undefined,
+            startTime: run.runTime?.seconds
+              ? new Date(Number(run.runTime.seconds) * 1000).toISOString()
+              : undefined,
+            endTime: run.endTime?.seconds
+              ? new Date(Number(run.endTime.seconds) * 1000).toISOString()
+              : undefined,
+          };
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : 'Unknown error';
+          return {
+            runId,
+            state: 'UNKNOWN',
+            isComplete: true,
+            success: false,
+            errorMessage: msg,
+            startTime: undefined,
+            endTime: undefined,
+          };
+        }
+      })
+    );
+
+    const allComplete = statuses.every(s => s.isComplete);
+    const allSuccess = allComplete && statuses.every(s => s.success);
+    const failedRuns = statuses.filter(s => s.isComplete && !s.success);
+
+    // Reset cooldown to now when all complete so the 15-min window
+    // starts from actual completion, not from trigger time.
+    if (allComplete) {
+      lastTransferTime = Date.now();
+    }
+
+    // Aggregate state
+    let aggregateState: string;
+    if (!allComplete) {
+      aggregateState = 'RUNNING';
+    } else if (allSuccess) {
+      aggregateState = 'SUCCEEDED';
+    } else {
+      aggregateState = 'PARTIALLY_FAILED';
+    }
+
+    // Earliest start, latest end
+    const startTimes = statuses.map(s => s.startTime).filter(Boolean) as string[];
+    const endTimes = statuses.map(s => s.endTime).filter(Boolean) as string[];
+
     return {
-      state,
-      isComplete,
-      success,
-      errorMessage: run.errorStatus?.message ?? undefined,
-      startTime: run.runTime?.seconds 
-        ? new Date(Number(run.runTime.seconds) * 1000).toISOString() 
+      state: aggregateState,
+      isComplete: allComplete,
+      success: allSuccess,
+      errorMessage: failedRuns.length > 0
+        ? `${failedRuns.length} transfer(s) failed: ${failedRuns.map(r => r.errorMessage || r.state).join('; ')}`
         : undefined,
-      endTime: run.endTime?.seconds 
-        ? new Date(Number(run.endTime.seconds) * 1000).toISOString() 
-        : undefined,
+      startTime: startTimes.length > 0 ? startTimes.sort()[0] : undefined,
+      endTime: endTimes.length > 0 ? endTimes.sort().reverse()[0] : undefined,
+      runs: statuses.map(s => ({ runId: s.runId, state: s.state, success: s.success })),
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('[Data Transfer] Failed to get transfer status', { runId, error: errorMessage });
-    
+    logger.error('[Data Transfer] Failed to get transfer statuses', { runIds: ids, error: errorMessage });
+
     return {
       state: 'UNKNOWN',
       isComplete: true,
@@ -188,10 +270,11 @@ export async function getTransferRunStatus(runId: string): Promise<{
 }
 
 /**
- * Get recent transfer runs for display
+ * Get recent transfer runs for display (across all configs)
  */
 export async function getRecentTransferRuns(limit: number = 5): Promise<Array<{
   runId: string;
+  label: string;
   state: string;
   startTime: string;
   endTime?: string;
@@ -199,33 +282,45 @@ export async function getRecentTransferRuns(limit: number = 5): Promise<Array<{
 }>> {
   try {
     const client = getDataTransferClient();
-    
-    const [runs] = await client.listTransferRuns({
-      parent: TRANSFER_CONFIG_ID,
-      pageSize: limit,
-    });
 
-    return runs.map(run => {
-      const startTime = run.runTime?.seconds 
-        ? new Date(Number(run.runTime.seconds) * 1000).toISOString() 
-        : '';
-      const endTime = run.endTime?.seconds 
-        ? new Date(Number(run.endTime.seconds) * 1000).toISOString() 
-        : undefined;
-      
-      let durationSeconds: number | undefined;
-      if (run.runTime?.seconds && run.endTime?.seconds) {
-        durationSeconds = Number(run.endTime.seconds) - Number(run.runTime.seconds);
-      }
+    const allRuns = await Promise.all(
+      TRANSFER_CONFIGS.map(async (config) => {
+        try {
+          const [runs] = await client.listTransferRuns({
+            parent: config.id,
+            pageSize: limit,
+          });
+          return runs.map(run => {
+            const startTime = run.runTime?.seconds
+              ? new Date(Number(run.runTime.seconds) * 1000).toISOString()
+              : '';
+            const endTime = run.endTime?.seconds
+              ? new Date(Number(run.endTime.seconds) * 1000).toISOString()
+              : undefined;
+            let durationSeconds: number | undefined;
+            if (run.runTime?.seconds && run.endTime?.seconds) {
+              durationSeconds = Number(run.endTime.seconds) - Number(run.runTime.seconds);
+            }
+            return {
+              runId: run.name || '',
+              label: config.label,
+              state: run.state as string,
+              startTime,
+              endTime,
+              durationSeconds,
+            };
+          });
+        } catch {
+          return [];
+        }
+      })
+    );
 
-      return {
-        runId: run.name || '',
-        state: run.state as string,
-        startTime,
-        endTime,
-        durationSeconds,
-      };
-    });
+    // Flatten and sort by start time descending, take top N
+    return allRuns
+      .flat()
+      .sort((a, b) => (b.startTime || '').localeCompare(a.startTime || ''))
+      .slice(0, limit);
   } catch (error) {
     logger.error('[Data Transfer] Failed to list transfer runs', { error });
     return [];

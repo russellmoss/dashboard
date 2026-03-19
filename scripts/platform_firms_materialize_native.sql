@@ -1,0 +1,15 @@
+-- platform_firms is now a native BigQuery table (no longer Sheet-backed).
+-- This script is for reference: how to refresh platform_firms from the Google Sheet
+-- if you re-link the Sheet as an external table (e.g. platform_firms_sheet).
+--
+-- To refresh native platform_firms from a Sheet (run in BigQuery Console with Drive access):
+--
+-- 1. Create external table pointing at the Sheet (one-time or after re-link):
+--    (Use Console UI: Create Table → Drive/Sheets, or re-create the original external table.)
+-- 2. Then run:
+--    TRUNCATE TABLE `savvy-gtm-analytics.FinTrx_data_CA.platform_firms`;
+--    INSERT `savvy-gtm-analytics.FinTrx_data_CA.platform_firms`
+--    SELECT * FROM `savvy-gtm-analytics.FinTrx_data_CA.platform_firms`;  -- or the external table name
+--
+-- Or to overwrite from another source (e.g. CSV load), replace the table and load into
+-- `savvy-gtm-analytics.FinTrx_data_CA.platform_firms`.

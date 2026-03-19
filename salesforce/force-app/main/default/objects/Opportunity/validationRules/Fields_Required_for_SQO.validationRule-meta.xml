@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Fields_Required_for_SQO</fullName>
+    <active>true</active>
+    <description>If an opportunity is marked as an SQO it needs to certain fields filled out.</description>
+    <errorConditionFormula>And(
+   ISPICKVAL(SQL__c,&quot;Yes&quot;)
+   ,OR(Amount=0, Isnull(Amount)
+   ,RecordType.Id=&apos;012Dn000000mrO3IAI&apos;) 
+   )</errorConditionFormula>
+    <errorDisplayField>Amount</errorDisplayField>
+    <errorMessage>In order to mark an Opportunity as an SQO, you must have filled out the AUM (Amount) on the Opportunity.</errorMessage>
+</ValidationRule>

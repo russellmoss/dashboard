@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Days_Since_Closed_Lost__c</fullName>
+    <label>Days Since Closed Lost</label>
+    <type>Number</type>
+    <precision>18</precision>
+    <scale>0</scale>
+    <formula>IF(
+  ISPICKVAL(StageName, &quot;Closed Lost&quot;),
+  TODAY() - DATEVALUE(
+    IF(
+      ISBLANK(Stage_Entered_Closed__c),
+      DATETIMEVALUE(TEXT(CloseDate) + &quot; 00:00:00&quot;),
+      Stage_Entered_Closed__c
+    )
+  ),
+  NULL
+)</formula>
+    <formulaTreatBlanksAs>BlankAsZero</formulaTreatBlanksAs>
+    <required>false</required>
+    <unique>false</unique>
+    <externalId>false</externalId>
+    <trackHistory>false</trackHistory>
+    <description>Number of days since this opportunity was marked Closed Lost. Uses Stage_Entered_Closed__c (actual closed timestamp) with CloseDate fallback for older records (pre-mid-2024). Only populated when Stage = Closed Lost.</description>
+    <inlineHelpText>Days since this opportunity was closed lost. Based on Stage Entered Closed date when available, otherwise Close Date.</inlineHelpText>
+</CustomField>

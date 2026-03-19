@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Tier_1_Max_ARR__c</fullName>
+    <description>Upper ARR bound for Tier 1. Revenue above this falls into Tier 2.</description>
+    <inlineHelpText>Upper ARR bound for Tier 1. Revenue above this falls into Tier 2.</inlineHelpText>
+    <label>Tier 1 Max ARR</label>
+    <precision>9</precision>
+    <required>false</required>
+    <scale>0</scale>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Currency</type>
+</CustomField>

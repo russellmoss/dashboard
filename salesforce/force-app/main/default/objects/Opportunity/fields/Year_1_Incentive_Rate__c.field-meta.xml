@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Year_1_Incentive_Rate__c</fullName>
+    <description>The enhanced split percentage during the Year 1 incentive period.</description>
+    <inlineHelpText>The enhanced split percentage during the Year 1 incentive period.</inlineHelpText>
+    <label>Year 1 Incentive Rate</label>
+    <precision>4</precision>
+    <required>false</required>
+    <scale>2</scale>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Percent</type>
+</CustomField>

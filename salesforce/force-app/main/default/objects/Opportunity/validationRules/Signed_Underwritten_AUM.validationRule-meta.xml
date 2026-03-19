@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Signed_Underwritten_AUM</fullName>
+    <active>true</active>
+    <description>Require the Underwritten AUM to move to Signed.</description>
+    <errorConditionFormula>AND (
+     OR(ISPICKVAL(StageName, &quot;Joined&quot;),
+        ISPICKVAL(StageName, &quot;Signed&quot;)
+     ),
+     ISBLANK( Underwritten_AUM__c )
+)</errorConditionFormula>
+    <errorDisplayField>Underwritten_AUM__c</errorDisplayField>
+    <errorMessage>An Underwritten AUM is required to move this Opportunity to Signed.</errorMessage>
+</ValidationRule>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Other_Custodian_Display_Filter__c</fullName>
+    <description>A field made to dynamically display the Other Custodian text field on the opportunity page because a lightning page cannot have a multi-picklist as a filter on whether or not to display another field.</description>
+    <formula>INCLUDES(Previous_Custodians__c , &quot;Other (Please Specify)&quot;)</formula>
+    <formulaTreatBlanksAs>BlankAsZero</formulaTreatBlanksAs>
+    <label>Other Custodian Display Filter</label>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Checkbox</type>
+</CustomField>

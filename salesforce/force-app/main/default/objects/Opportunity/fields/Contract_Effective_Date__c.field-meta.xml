@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Contract_Effective_Date__c</fullName>
+    <description>The effective date stated in the signed contract. May differ from Advisor Join Date.</description>
+    <inlineHelpText>The effective date stated in the signed contract. May differ from Advisor Join Date.</inlineHelpText>
+    <label>Contract Effective Date</label>
+    <required>false</required>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Date</type>
+</CustomField>

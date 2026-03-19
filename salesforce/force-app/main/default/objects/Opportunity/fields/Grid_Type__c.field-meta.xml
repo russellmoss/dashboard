@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Grid_Type__c</fullName>
+    <description>How the revenue share tiers are applied. Waterfall: each tier rate applies only within its ARR range. Flat: one rate for all revenue. Time-Based Then Tiered: enhanced rate for initial period, then standard tiers.</description>
+    <inlineHelpText>How the revenue share tiers are applied. Values: Waterfall (each tier rate applies only within its ARR range), Flat (one rate for all revenue), Time-Based Then Tiered (enhanced rate for initial period, then standard tiers).</inlineHelpText>
+    <label>Grid Type</label>
+    <required>false</required>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Picklist</type>
+    <valueSet>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>Waterfall</fullName>
+                <default>false</default>
+                <label>Waterfall</label>
+            </value>
+            <value>
+                <fullName>Flat</fullName>
+                <default>false</default>
+                <label>Flat</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

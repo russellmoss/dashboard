@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Draw_Duration_Months__c</fullName>
+    <description>How many months does this draw go on for?</description>
+    <externalId>false</externalId>
+    <inlineHelpText>How many months does this draw go on for (if all thresholds are met)?</inlineHelpText>
+    <label>Draw Duration (Months)</label>
+    <precision>3</precision>
+    <required>false</required>
+    <scale>0</scale>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Number</type>
+    <unique>false</unique>
+</CustomField>

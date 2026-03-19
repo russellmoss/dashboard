@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Estimated_Average_Client_Fee__c</fullName>
+    <defaultValue>0.0085</defaultValue>
+    <description>The estimated or stated client fee for this advisor. Default is 0.85% if nothing is provided.</description>
+    <inlineHelpText>The estimated or stated client fee for this advisor. Default is 0.85% if nothing is provided.</inlineHelpText>
+    <label>Estimated Average Client Fee</label>
+    <precision>4</precision>
+    <required>false</required>
+    <scale>3</scale>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Percent</type>
+</CustomField>

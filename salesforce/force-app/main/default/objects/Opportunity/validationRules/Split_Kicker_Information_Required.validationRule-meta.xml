@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Split_Kicker_Information_Required</fullName>
+    <active>true</active>
+    <description>If the Split Kicker Checkbox is checked, then the other fields are required.</description>
+    <errorConditionFormula>And(
+          Split_Kicker__c ,
+     OR(
+          ISBLANK(   Split_Kicker_ARR_Threshold__c ),
+/*          ISBLANK(   Split_Kicker_Duration_months__c ),*/
+          ISBLANK(   Split_Kicker_Advisor_Take_Rate__c )
+
+     ),
+     OR(
+          ISPICKVAL( StageName, &quot;Joined&quot;),
+          ISPICKVAL( StageName, &quot;Signed&quot;)
+     )
+)</errorConditionFormula>
+    <errorMessage>If there is a Split Kicker as part of the advisor agreement, all of the details must be populated.</errorMessage>
+</ValidationRule>

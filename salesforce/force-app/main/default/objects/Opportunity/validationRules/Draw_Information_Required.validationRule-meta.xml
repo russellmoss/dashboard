@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Draw_Information_Required</fullName>
+    <active>true</active>
+    <description>If the Draw Checkbox is checked, then the other fields are required.</description>
+    <errorConditionFormula>And(
+        Draw__c ,
+     OR(
+          ISBLANK( Draw_Amount_12_Month__c ),
+          ISBLANK( Draw_Breakeven_Gate__c ),
+          ISBLANK( Draw_Duration_Months__c ),
+          ISBLANK( Draw_First_Gate__c )
+
+     ),
+     OR(
+          ISPICKVAL( StageName, &quot;Joined&quot;),
+          ISPICKVAL( StageName, &quot;Signed&quot;)
+     )
+)</errorConditionFormula>
+    <errorMessage>If there is a Draw as part of the advisor agreement, all of the details must be populated.</errorMessage>
+</ValidationRule>

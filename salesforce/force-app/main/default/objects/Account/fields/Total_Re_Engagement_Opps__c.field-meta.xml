@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Total_Re_Engagement_Opps__c</fullName>
+    <label>Total Re-Engagement Opps</label>
+    <type>Summary</type>
+    <summaryOperation>count</summaryOperation>
+    <summaryForeignKey>Opportunity.AccountId</summaryForeignKey>
+    <summaryFilterItems>
+        <field>Opportunity.RecordTypeId</field>
+        <operation>equals</operation>
+        <value>Re-Engagement</value>
+    </summaryFilterItems>
+    <description>Total count of all Re-Engagement Opportunities on this Account, regardless of stage. Used to determine if an advisor was previously re-engaged.</description>
+    <inlineHelpText>Total number of Re-Engagement Opportunities ever created for this advisor (any stage).</inlineHelpText>
+</CustomField>

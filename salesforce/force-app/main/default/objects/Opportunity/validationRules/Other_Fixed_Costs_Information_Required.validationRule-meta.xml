@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Other_Fixed_Costs_Information_Required</fullName>
+    <active>true</active>
+    <description>If the Other Fixed Costs Checkbox is checked, then the other fields are required.</description>
+    <errorConditionFormula>And(
+       Other_Fixed_Costs__c ,
+     OR(
+          ISBLANK(  Other_Fixed_Cost_Annual_Amount__c )
+     ),
+     OR(
+          ISPICKVAL( StageName, &quot;Joined&quot;),
+          ISPICKVAL( StageName, &quot;Signed&quot;)
+     )
+)</errorConditionFormula>
+    <errorMessage>If there is are Other Costs as part of the advisor agreement, all of the details must be populated.</errorMessage>
+</ValidationRule>

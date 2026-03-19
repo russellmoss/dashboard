@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Re_Engagement_Reason_Details__c</fullName>
+    <description>Details expanding upon the Re-Engagement Reason.</description>
+    <inlineHelpText>Details expanding upon the Re-Engagement Reason.</inlineHelpText>
+    <label>Re-Engagement Reason Details</label>
+    <length>1000</length>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>LongTextArea</type>
+    <visibleLines>3</visibleLines>
+</CustomField>

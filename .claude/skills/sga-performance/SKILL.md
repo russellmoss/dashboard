@@ -5,7 +5,7 @@ description: "Deep-dive into SGA team performance. Analyzes activity patterns, S
 
 # SGA Performance Analysis — Agent Team
 
-You are analyzing Sales Growth Advisor (SGA) performance at Savvy Wealth to answer: **What do our best SGAs do? How do we learn from them and replicate their success?**
+You are analyzing Strategic Growth Associate (SGA) performance at Savvy Wealth to answer: **What do our best SGAs do? How do we learn from them and replicate their success?**
 
 ## Data Sources
 

@@ -43,7 +43,7 @@ export function TransferConfirmModal({
 
         <div className="p-4">
           <p className="text-gray-700 dark:text-gray-300 mb-3">
-            This will trigger a data sync from Salesforce to BigQuery. The process typically takes 3-5 minutes.
+            This will trigger 6 data syncs from Salesforce to BigQuery in parallel. The process typically takes 3-7 minutes.
           </p>
           
           {cooldownMinutes > 0 && (
@@ -60,7 +60,7 @@ export function TransferConfirmModal({
             <div className="text-sm text-blue-800 dark:text-blue-200">
               <p className="font-medium mb-1">Note:</p>
               <ul className="list-disc list-inside space-y-1">
-                <li>Data will be synced for Lead, Opportunity, and Task objects</li>
+                <li>Data will be synced for Lead, Opportunity, Contact, Task, Campaign, and Campaign History</li>
                 <li>The dashboard cache will refresh automatically after completion</li>
                 <li>You can continue using the dashboard during the sync</li>
               </ul>

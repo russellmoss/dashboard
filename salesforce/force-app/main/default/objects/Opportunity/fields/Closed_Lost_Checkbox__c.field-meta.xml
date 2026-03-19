@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Closed_Lost_Checkbox__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>This checkbox is required to mark the opportunity closed lost. It isn&apos;t visible to the user, it is marked as true by the Closed Lost Opportunity flow.</description>
+    <label>Closed Lost Checkbox</label>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Checkbox</type>
+</CustomField>

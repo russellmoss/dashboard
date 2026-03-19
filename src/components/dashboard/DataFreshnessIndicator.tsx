@@ -51,7 +51,7 @@ export function DataFreshnessIndicator({
   // Transfer state
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferState, setTransferState] = useState<'idle' | 'triggering' | 'polling' | 'success' | 'error'>('idle');
-  const [transferRunId, setTransferRunId] = useState<string | null>(null);
+  const [transferRunIds, setTransferRunIds] = useState<string[] | null>(null);
   const [transferMessage, setTransferMessage] = useState<string>('');
   const [cooldownMinutes, setCooldownMinutes] = useState<number>(0);
 
@@ -115,21 +115,21 @@ export function DataFreshnessIndicator({
 
     try {
       const response = await dashboardApi.triggerDataTransfer();
-      
-      if (response.success && response.runId) {
-        setTransferRunId(response.runId);
+
+      if (response.success && response.runIds && response.runIds.length > 0) {
+        setTransferRunIds(response.runIds);
         setTransferState('polling');
-        setTransferMessage('Syncing data from Salesforce... (3-5 min)');
+        setTransferMessage(`Syncing ${response.runIds.length} objects from Salesforce... (3-7 min)`);
       } else {
         setTransferState('error');
-        setTransferMessage(response.message || 'Failed to start transfer');
+        setTransferMessage(response.message || 'Failed to start transfers');
         if (response.cooldownMinutes) {
           setCooldownMinutes(response.cooldownMinutes);
         }
       }
     } catch (err) {
       setTransferState('error');
-      setTransferMessage(err instanceof Error ? err.message : 'Failed to trigger transfer');
+      setTransferMessage(err instanceof Error ? err.message : 'Failed to trigger transfers');
     }
   };
 
@@ -141,29 +141,28 @@ export function DataFreshnessIndicator({
     return () => clearInterval(interval);
   }, []);
 
-  // Poll for transfer completion
+  // Poll for transfer completion (all runs must finish)
   useEffect(() => {
-    if (transferState !== 'polling' || !transferRunId) return;
+    if (transferState !== 'polling' || !transferRunIds || transferRunIds.length === 0) return;
 
     const pollInterval = setInterval(async () => {
       try {
-        const status = await dashboardApi.getTransferStatus(transferRunId);
+        const status = await dashboardApi.getTransferStatus(transferRunIds);
 
         if (status.isComplete) {
           clearInterval(pollInterval);
-          
+
           if (status.success) {
             setTransferState('success');
-            setTransferMessage('Data synced successfully! Refreshing...');
-            // Refresh freshness data
+            setTransferMessage('All data synced successfully! Refreshing...');
             setTimeout(() => {
               fetchFreshness();
               setTransferState('idle');
-              setTransferRunId(null);
+              setTransferRunIds(null);
             }, 2000);
           } else {
             setTransferState('error');
-            setTransferMessage(status.errorMessage || 'Transfer failed');
+            setTransferMessage(status.errorMessage || 'One or more transfers failed');
           }
         }
       } catch (err) {
@@ -171,18 +170,18 @@ export function DataFreshnessIndicator({
       }
     }, 10000); // Poll every 10 seconds
 
-    // Timeout after 10 minutes
+    // Timeout after 12 minutes (longer for 6 parallel transfers)
     const timeout = setTimeout(() => {
       clearInterval(pollInterval);
       setTransferState('error');
-      setTransferMessage('Transfer timed out. Please check BigQuery console.');
-    }, 10 * 60 * 1000);
+      setTransferMessage('Transfers timed out. Please check BigQuery console.');
+    }, 12 * 60 * 1000);
 
     return () => {
       clearInterval(pollInterval);
       clearTimeout(timeout);
     };
-  }, [transferState, transferRunId]);
+  }, [transferState, transferRunIds]);
 
   // Don't render anything if error or no data
   if (error || (!loading && !freshness)) {

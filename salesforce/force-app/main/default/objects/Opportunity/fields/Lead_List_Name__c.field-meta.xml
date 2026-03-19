@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Lead_List_Name__c</fullName>
+    <description>The Lead List this Prospect was a part of.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>The Lead List this Prospect was a part of.</inlineHelpText>
+    <label>Lead List Name</label>
+    <length>255</length>
+    <required>false</required>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

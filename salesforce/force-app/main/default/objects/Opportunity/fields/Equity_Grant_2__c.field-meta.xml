@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Equity_Grant_2__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Does the advisor receive a second equity grant?</description>
+    <inlineHelpText>Does the advisor receive a second equity grant?</inlineHelpText>
+    <label>Equity Grant 2?</label>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Checkbox</type>
+</CustomField>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Underwritten_ARR__c</fullName>
+    <description>The Underwritten ARR of the deal as based on the UW AUM and Estimated Client Fee.</description>
+    <formula>IF(OR(ISBLANK(Underwritten_AUM__c), ISBLANK(Estimated_Average_Client_Fee__c)), null, Underwritten_AUM__c * Estimated_Average_Client_Fee__c)</formula>
+    <inlineHelpText>The Underwritten ARR of the deal as based on the UW AUM and Estimated Client Fee.</inlineHelpText>
+    <label>Underwritten ARR</label>
+    <precision>18</precision>
+    <required>false</required>
+    <scale>2</scale>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Currency</type>
+</CustomField>

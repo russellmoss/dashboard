@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Covenant_Duration_Contract_Language__c</fullName>
+    <description>If the State in the City and State field is not &quot;CA&quot; or &quot;California&quot; then return &quot;twenty-four (24)&quot; for contract language, otherwise &quot;twelve (12)&quot; for CA. Used in PandaDoc</description>
+    <externalId>false</externalId>
+    <formula>IF(
+  ISBLANK(City_State__c) || NOT(CONTAINS(City_State__c, &quot;,&quot;)),
+  &quot;&quot;,
+  CASE(
+    UPPER(
+      TRIM(
+        MID(
+          City_State__c,
+          FIND(&quot;,&quot;, City_State__c) + 1,
+          LEN(City_State__c)
+        )
+      )
+    ),
+    &quot;CA&quot;, &quot;twelve (12)&quot;,
+    &quot;CALIFORNIA&quot;, &quot;twelve (12)&quot;,
+    &quot;twenty-four (24)&quot;
+  )
+)</formula>
+    <label>Covenant Duration Contract Language</label>
+    <required>false</required>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

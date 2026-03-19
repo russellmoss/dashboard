@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Primary_Phone_Number__c</fullName>
+    <description>The primary phone number of the opportunity. This is passed from the mobile phone #1 formatted field as there isn&apos;t mapping for mobile phone 1 to the opportunity object directly.</description>
+    <label>Primary Phone Number</label>
+    <required>false</required>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Phone</type>
+</CustomField>

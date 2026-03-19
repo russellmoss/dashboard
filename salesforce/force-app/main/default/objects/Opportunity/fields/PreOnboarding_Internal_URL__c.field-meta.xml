@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>PreOnboarding_Internal_URL__c</fullName>
+    <description>The internal pre-onboarding sheet filled out after the pre-onboarding call. Used to provide information to the investment ops and CSA team to help smoothly transition an advisor.</description>
+    <label>PreOnboarding Internal URL</label>
+    <required>false</required>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Url</type>
+</CustomField>

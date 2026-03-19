@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ListView xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Dinner_Series_Outreach</fullName>
+    <columns>OPPORTUNITY.NAME</columns>
+    <columns>OPPORTUNITY.STAGE_NAME</columns>
+    <columns>OPPORTUNITY.AMOUNT</columns>
+    <columns>Primary_Phone_Number__c</columns>
+    <columns>Personal_Email__c</columns>
+    <columns>LinkedIn_Profile_URL__c</columns>
+    <columns>OPPORTUNITY.NEXT_STEP</columns>
+    <columns>City_State__c</columns>
+    <filterScope>Mine</filterScope>
+    <filters>
+        <field>utm_campaign__c</field>
+        <operation>equals</operation>
+        <value>dinner_series26_or</value>
+    </filters>
+    <label>Dinner Series Outreach - SGA</label>
+</ListView>

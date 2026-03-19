@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Split_Kicker_Advisor_Take_Rate__c</fullName>
+    <description>The new advisor take rate with a kicker in effect. If a waterfall, list the first non-standard rate on the waterfall.</description>
+    <inlineHelpText>The new advisor take rate with a kicker in effect. If a waterfall, list the first non-standard rate on the waterfall.</inlineHelpText>
+    <label>Split Kicker Advisor Take Rate</label>
+    <precision>5</precision>
+    <required>false</required>
+    <scale>3</scale>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Percent</type>
+</CustomField>

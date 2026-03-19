@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BusinessProcess xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Recruiting</fullName>
+    <isActive>true</isActive>
+    <values>
+        <fullName>Closed Lost</fullName>
+        <default>false</default>
+    </values>
+    <values>
+        <fullName>Discovery</fullName>
+        <default>false</default>
+    </values>
+    <values>
+        <fullName>Joined</fullName>
+        <default>false</default>
+    </values>
+    <values>
+        <fullName>Negotiating</fullName>
+        <default>false</default>
+    </values>
+    <values>
+        <fullName>On Hold</fullName>
+        <default>false</default>
+    </values>
+    <values>
+        <fullName>Qualifying</fullName>
+        <default>false</default>
+    </values>
+    <values>
+        <fullName>Sales Process</fullName>
+        <default>false</default>
+    </values>
+    <values>
+        <fullName>Signed</fullName>
+        <default>false</default>
+    </values>
+</BusinessProcess>

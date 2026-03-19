@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Qualification_Call_Date_Required_for_REO</fullName>
+    <active>true</active>
+    <description>The qualification call date is required to be able to mark a re-engagement opportunity as re-engaged.</description>
+    <errorConditionFormula>AND(
+ RecordType.Id = &quot;012VS000009VoxrYAC&quot;,
+  ISCHANGED(StageName),
+  ISPICKVAL(StageName, &quot;Re-Engaged&quot;),
+  ISNULL(Qualification_Call_Date__c )
+)</errorConditionFormula>
+    <errorDisplayField>Qualification_Call_Date__c</errorDisplayField>
+    <errorMessage>A qualification call day is required to mark the re-engagement opportunity as re-engaged</errorMessage>
+</ValidationRule>

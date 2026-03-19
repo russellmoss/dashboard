@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Margin_AUM__c</fullName>
+    <description>The Net AUM of the advisor, primarily calculated for compensation purposes.</description>
+    <formula>If(
+     Not(
+          OR( Isnull(Final_Compensation_Margin__c) , 
+               Final_Compensation_Margin__c = 0)
+     ),
+     
+     Final_Compensation_Margin__c * Underwritten_AUM__c,
+
+     IF(Advisor_Split__c=0, 0, (1-  Advisor_Split__c ) *   Underwritten_AUM__c)
+)</formula>
+    <formulaTreatBlanksAs>BlankAsZero</formulaTreatBlanksAs>
+    <inlineHelpText>The calculated Net AUM (NAUM) of the advisor.</inlineHelpText>
+    <label>Margin AUM</label>
+    <precision>18</precision>
+    <required>false</required>
+    <scale>0</scale>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Currency</type>
+</CustomField>

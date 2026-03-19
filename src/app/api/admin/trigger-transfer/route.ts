@@ -44,21 +44,21 @@ export async function POST(request: NextRequest) {
       }, { status: 429 });
     }
 
-    // Trigger the transfer
+    // Trigger all transfers in parallel
     const result = await triggerDataTransfer();
 
     logger.info('[API] Transfer trigger requested', {
       user: session.user?.email,
       success: result.success,
-      runId: result.runId,
+      runIds: result.runIds,
     });
 
     if (result.success) {
       return NextResponse.json({
         success: true,
-        runId: result.runId,
+        runIds: result.runIds,
         message: result.message,
-        estimatedDuration: '3-5 minutes',
+        estimatedDuration: '3-7 minutes',
       });
     } else {
       return NextResponse.json({
@@ -94,10 +94,10 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const runId = searchParams.get('runId');
+    const runIdsParam = searchParams.get('runIds');
 
-    if (!runId) {
-      // Return cooldown status if no runId
+    if (!runIdsParam) {
+      // Return cooldown status if no runIds
       const cooldown = isWithinCooldown();
       return NextResponse.json({
         cooldown: cooldown.withinCooldown,
@@ -105,23 +105,24 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Get status of specific run
+    // Get aggregated status of all runs
+    const runIds = runIdsParam.split(',').map(id => decodeURIComponent(id.trim()));
     const { getTransferRunStatus } = await import('@/lib/data-transfer');
-    const status = await getTransferRunStatus(runId);
+    const status = await getTransferRunStatus(runIds);
 
-    // If transfer completed successfully, invalidate cache
+    // If all transfers completed successfully, invalidate cache
     if (status.isComplete && status.success) {
       revalidateTag(CACHE_TAGS.DASHBOARD);
       revalidateTag(CACHE_TAGS.SGA_HUB);
-      
-      logger.info('[API] Cache invalidated after successful transfer', {
-        runId,
+
+      logger.info('[API] Cache invalidated after successful transfers', {
+        runIds,
         tags: [CACHE_TAGS.DASHBOARD, CACHE_TAGS.SGA_HUB],
       });
     }
 
     return NextResponse.json({
-      runId,
+      runIds,
       ...status,
       cacheInvalidated: status.isComplete && status.success,
     });

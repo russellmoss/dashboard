@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Join_Date_Required_on_Join</fullName>
+    <active>true</active>
+    <description>The Advisor Join Date is required to move the Opportunity into the &quot;Joined&quot; stage.</description>
+    <errorConditionFormula>AND (
+     ISPICKVAL(StageName, &quot;Joined&quot;),
+     ISBLANK(Advisor_Join_Date__c)
+)</errorConditionFormula>
+    <errorDisplayField>Advisor_Join_Date__c</errorDisplayField>
+    <errorMessage>Please enter an Advisor Join Date before moving the Opportunity to Joined.</errorMessage>
+</ValidationRule>

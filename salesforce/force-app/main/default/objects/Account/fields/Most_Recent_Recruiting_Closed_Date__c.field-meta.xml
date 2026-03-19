@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Most_Recent_Recruiting_Closed_Date__c</fullName>
+    <label>Most Recent Recruiting Closed Date</label>
+    <type>Summary</type>
+    <summaryOperation>max</summaryOperation>
+    <summarizedField>Opportunity.Stage_Entered_Closed__c</summarizedField>
+    <summaryForeignKey>Opportunity.AccountId</summaryForeignKey>
+    <summaryFilterItems>
+        <field>Opportunity.RecordTypeId</field>
+        <operation>equals</operation>
+        <value>Recruiting</value>
+    </summaryFilterItems>
+    <summaryFilterItems>
+        <field>Opportunity.StageName</field>
+        <operation>equals</operation>
+        <value>Closed Lost</value>
+    </summaryFilterItems>
+    <description>MAX Stage_Entered_Closed__c across Recruiting Closed Lost opps only. Used to determine which opp is the most recent for the Re-Engagement Eligible list view.</description>
+    <inlineHelpText>The most recent Closed Lost date among all Recruiting opportunities on this account.</inlineHelpText>
+</CustomField>

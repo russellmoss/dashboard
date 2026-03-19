@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Non_Standard_Marketing_Offer__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Does this advisor have a non-standard marketing offer?</description>
+    <label>Non-Standard Marketing Offer</label>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Checkbox</type>
+</CustomField>

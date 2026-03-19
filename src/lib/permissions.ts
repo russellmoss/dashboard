@@ -13,14 +13,14 @@ export interface TokenUserData {
 export const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmFilter' | 'recruiterFilter' | 'capitalPartnerFilter' | 'userId'>> = {
   revops_admin: {
     role: 'revops_admin',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],  // All pages + 14 = Chart Builder, 15 = Advisor Map, 16 = GC Hub
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],  // All pages + 14 = Chart Builder, 15 = Advisor Map, 16 = GC Hub, 17 = Reports
     canExport: true,
     canManageUsers: true,
     canManageRequests: true,  // Only role that can manage requests
   },
   admin: {
     role: 'admin',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 16],  // 15 = Advisor Map, 16 = GC Hub (Chart Builder restricted to revops_admin)
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17],  // 15 = Advisor Map, 16 = GC Hub, 17 = Reports (Chart Builder restricted to revops_admin)
     canExport: true,
     canManageUsers: true,
     canManageRequests: false,

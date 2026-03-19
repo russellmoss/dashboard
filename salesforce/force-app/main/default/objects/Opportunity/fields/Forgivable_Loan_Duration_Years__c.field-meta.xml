@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Forgivable_Loan_Duration_Years__c</fullName>
+    <description>Number of years over which the loan is forgiven.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Number of years over which the loan is forgiven.</inlineHelpText>
+    <label>Forgivable Loan Duration (Years)</label>
+    <precision>2</precision>
+    <required>false</required>
+    <scale>0</scale>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Number</type>
+    <unique>false</unique>
+</CustomField>

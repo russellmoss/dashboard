@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>SGM_Estimated_ARR__c</fullName>
+    <description>The estimated ARR of the advisor before underwriting as inputted by the SGM.</description>
+    <inlineHelpText>The estimated ARR of the advisor before underwriting as inputted by the SGM.</inlineHelpText>
+    <label>SGM Estimated ARR</label>
+    <precision>11</precision>
+    <required>false</required>
+    <scale>2</scale>
+    <trackFeedHistory>false</trackFeedHistory>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Currency</type>
+</CustomField>
