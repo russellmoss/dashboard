@@ -46,9 +46,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!metric || !['sql', 'sqo', 'joined'].includes(metric)) {
+    if (!metric || !['sql', 'sqo', 'joined', 'sqlToSqoEligible', 'sqoToJoinedEligible'].includes(metric)) {
       return NextResponse.json(
-        { error: 'metric must be one of: sql, sqo, joined' },
+        { error: 'metric must be one of: sql, sqo, joined, sqlToSqoEligible, sqoToJoinedEligible' },
         { status: 400 }
       );
     }

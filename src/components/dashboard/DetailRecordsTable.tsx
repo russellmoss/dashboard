@@ -161,6 +161,8 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
   
   // Determine which date columns to show based on active advanced filters
   const showInitialCallColumn = advancedFilters?.initialCallScheduled?.enabled ?? false;
+  const showConvertedColumns = records.some(r => r.converted != null);
+  const showEligibleColumns = records.some(r => r.conversionRateEligible != null);
   const showQualCallColumn = advancedFilters?.qualificationCallDate?.enabled ?? false;
   
   // Helper function to get the display date based on stage filter
@@ -550,13 +552,25 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
                 <SortableHeader column="aum" alignRight>
                   AUM
                 </SortableHeader>
+                {showEligibleColumns && (
+                  <>
+                    <TableHeaderCell className="text-gray-600 dark:text-gray-400">SQL</TableHeaderCell>
+                    <TableHeaderCell className="text-gray-600 dark:text-gray-400">Rate Eligible</TableHeaderCell>
+                  </>
+                )}
+                {showConvertedColumns && (
+                  <>
+                    <TableHeaderCell className="text-gray-600 dark:text-gray-400">Converted</TableHeaderCell>
+                    <TableHeaderCell className="text-gray-600 dark:text-gray-400">Closed Lost</TableHeaderCell>
+                  </>
+                )}
                 <TableHeaderCell className="text-gray-600 dark:text-gray-400">Actions</TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
             {paginatedRecords.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={11 + (showInitialCallColumn ? 1 : 0) + (showQualCallColumn ? 1 : 0)} className="text-center text-gray-500 dark:text-gray-400 py-8">
+                <TableCell colSpan={11 + (showInitialCallColumn ? 1 : 0) + (showQualCallColumn ? 1 : 0) + (showEligibleColumns ? 2 : 0) + (showConvertedColumns ? 2 : 0)} className="text-center text-gray-500 dark:text-gray-400 py-8">
                   {searchQuery ? 'No records found matching your search' : 'No records found'}
                 </TableCell>
               </TableRow>
@@ -598,6 +612,34 @@ export function DetailRecordsTable({ records, title = 'Detail Records', filterDe
                   <TableCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">{record.sga || '-'}</TableCell>
                   <TableCell className="border-r border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">{record.sgm || '-'}</TableCell>
                   <TableCell className="text-right font-semibold border-r border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white">{record.aumFormatted}</TableCell>
+                  {showEligibleColumns && (
+                    <>
+                      <TableCell className={`border-r border-gray-200 dark:border-gray-700 font-medium ${
+                        record.isSqlLabel === 'Yes' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'
+                      }`}>
+                        {record.isSqlLabel || '-'}
+                      </TableCell>
+                      <TableCell className={`border-r border-gray-200 dark:border-gray-700 font-medium ${
+                        record.conversionRateEligible === 'Yes' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'
+                      }`}>
+                        {record.conversionRateEligible || '-'}
+                      </TableCell>
+                    </>
+                  )}
+                  {showConvertedColumns && (
+                    <>
+                      <TableCell className={`border-r border-gray-200 dark:border-gray-700 font-medium ${
+                        record.converted === 'Yes' ? 'text-green-600 dark:text-green-400' : 'text-gray-400 dark:text-gray-500'
+                      }`}>
+                        {record.converted || '-'}
+                      </TableCell>
+                      <TableCell className={`border-r border-gray-200 dark:border-gray-700 font-medium ${
+                        record.closedLost === 'Yes' ? 'text-red-600 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'
+                      }`}>
+                        {record.closedLost || '-'}
+                      </TableCell>
+                    </>
+                  )}
                   <TableCell>
                     {record.salesforceUrl && (
                       <a

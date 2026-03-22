@@ -23,6 +23,7 @@ import {
   SQLDrillDownRecord,
   LeadsSourcedRecord,
   LeadsContactedRecord,
+  JoinedDrillDownRecord,
   DrillDownRecord
 } from '@/types/drill-down';
 import { formatDate } from '@/lib/utils/format-helpers';
@@ -59,6 +60,10 @@ function isLeadsSourcedRecord(record: DrillDownRecord): record is LeadsSourcedRe
 
 function isLeadsContactedRecord(record: DrillDownRecord): record is LeadsContactedRecord {
   return 'contactedDate' in record;
+}
+
+function isJoinedDrillDownRecord(record: DrillDownRecord): record is JoinedDrillDownRecord {
+  return 'joinDate' in record && 'sgmName' in record;
 }
 
 // Column configurations
@@ -130,6 +135,16 @@ const COLUMN_CONFIGS: Record<MetricType, { key: string; label: string; width?: s
     { key: 'contactedDate', label: 'Contacted Date', width: 'w-32' },
     { key: 'source', label: 'Source', width: 'w-32' },
     { key: 'channel', label: 'Channel', width: 'w-32' },
+    { key: 'actions', label: '', width: 'w-20' },
+  ],
+  'joined': [
+    { key: 'advisorName', label: 'Advisor Name', width: 'w-44' },
+    { key: 'joinDate', label: 'Join Date', width: 'w-28' },
+    { key: 'source', label: 'Source', width: 'w-28' },
+    { key: 'channel', label: 'Channel', width: 'w-28' },
+    { key: 'aumFormatted', label: 'AUM', width: 'w-28' },
+    { key: 'aumTier', label: 'Tier', width: 'w-20' },
+    { key: 'stageName', label: 'Stage', width: 'w-24' },
     { key: 'actions', label: '', width: 'w-20' },
   ],
 };
@@ -253,6 +268,18 @@ export function MetricDrillDownModal({
         'Source': record.source,
         'Channel': record.channel,
         'Salesforce URL': record.leadUrl || '',
+      }));
+    } else if (metricType === 'joined') {
+      return (records as JoinedDrillDownRecord[]).map(record => ({
+        'Advisor Name': record.advisorName,
+        'Join Date': formatDate(record.joinDate) || '',
+        'Source': record.source,
+        'Channel': record.channel,
+        'AUM': record.aumFormatted,
+        'Tier': record.aumTier || '',
+        'Stage': record.stageName || record.tofStage,
+        'SGM Name': record.sgmName || '',
+        'Salesforce URL': record.opportunityUrl || record.leadUrl || '',
       }));
     } else {
       return (records as SQODrillDownRecord[]).map(record => {

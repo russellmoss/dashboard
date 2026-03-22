@@ -5,7 +5,7 @@
  */
 
 // Metric type for drill-down
-export type MetricType = 'initial-calls' | 'qualification-calls' | 'sqos' | 'open-sqls' | 'mqls' | 'sqls' | 'leads-sourced' | 'leads-contacted';
+export type MetricType = 'initial-calls' | 'qualification-calls' | 'sqos' | 'open-sqls' | 'mqls' | 'sqls' | 'leads-sourced' | 'leads-contacted' | 'joined';
 
 // Base interface with common fields
 export interface DrillDownRecordBase {
@@ -82,6 +82,16 @@ export interface LeadsSourcedRecord {
   leadUrl: string | null;
 }
 
+// Joined Advisor Drill-Down Record (SGM Hub leaderboard)
+export interface JoinedDrillDownRecord extends DrillDownRecordBase {
+  joinDate: string;
+  sgmName: string;
+  aum: number;
+  aumFormatted: string;
+  aumTier: string | null;
+  stageName: string | null;
+}
+
 // Leads Contacted Record
 export interface LeadsContactedRecord {
   primaryKey: string;
@@ -93,7 +103,7 @@ export interface LeadsContactedRecord {
 }
 
 // Union type for all drill-down records
-export type DrillDownRecord = InitialCallRecord | QualificationCallRecord | SQODrillDownRecord | OpenSQLDrillDownRecord | MQLDrillDownRecord | SQLDrillDownRecord | LeadsSourcedRecord | LeadsContactedRecord;
+export type DrillDownRecord = InitialCallRecord | QualificationCallRecord | SQODrillDownRecord | OpenSQLDrillDownRecord | MQLDrillDownRecord | SQLDrillDownRecord | LeadsSourcedRecord | LeadsContactedRecord | JoinedDrillDownRecord;
 
 // Props for MetricDrillDownModal
 export interface MetricDrillDownModalProps {
@@ -241,6 +251,23 @@ export interface RawLeadsSourcedRecord {
   SGA_Owner_Name__c: string;
 }
 
+export interface RawJoinedDrillDownRecord {
+  primary_key: string;
+  advisor_name: string;
+  advisor_join_date__c: string | { value: string } | null;
+  Original_source: string;
+  Channel_Grouping_Name: string | null;
+  SGM_Owner_Name__c: string | null;
+  Opportunity_AUM: number | null;
+  aum_tier: string | null;
+  TOF_Stage: string;
+  StageName: string | null;
+  lead_url: string | null;
+  opportunity_url: string | null;
+  Next_Steps__c: string | null;
+  NextStep: string | null;
+}
+
 export interface RawLeadsContactedRecord {
   primary_key: string;
   advisor_name: string;
@@ -256,6 +283,7 @@ export interface DrillDownContext {
   metricType: MetricType;
   title: string;
   sgaName: string | null; // null for team-level drill-down
+  sgmName?: string | null;
   weekStartDate?: string;
   weekEndDate?: string;
   quarter?: string;

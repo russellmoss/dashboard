@@ -26,6 +26,7 @@ interface PipelineFiltersProps {
   sgmOptionsLoading: boolean;
   // State
   disabled?: boolean;
+  hideSgmFilter?: boolean;
 }
 
 export function PipelineFilters({
@@ -35,6 +36,7 @@ export function PipelineFilters({
   sgmOptions,
   sgmOptionsLoading,
   disabled = false,
+  hideSgmFilter = false,
 }: PipelineFiltersProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [sgmSearch, setSgmSearch] = useState('');
@@ -282,6 +284,7 @@ export function PipelineFilters({
             </div>
 
             {/* SGM Filter */}
+            {!hideSgmFilter && (
             <div>
               <div className="flex items-center justify-between mb-3">
                 <label className="text-base font-medium text-gray-700 dark:text-gray-300">
@@ -313,7 +316,7 @@ export function PipelineFilters({
                   </button>
                 </div>
               </div>
-              
+
               {/* Search */}
               <input
                 type="text"
@@ -323,7 +326,7 @@ export function PipelineFilters({
                 disabled={disabled || sgmOptionsLoading}
                 className="w-full px-3 py-2 text-base border border-gray-300 dark:border-gray-600 rounded-lg mb-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 disabled:opacity-50"
               />
-              
+
               <div className="space-y-1 max-h-48 overflow-y-auto">
                 {sgmOptionsLoading ? (
                   <div className="flex items-center justify-center py-4 text-gray-400">
@@ -341,8 +344,8 @@ export function PipelineFilters({
                         key={sgm.value}
                         className={`
                           flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors
-                          ${isSelected 
-                            ? 'bg-green-50 dark:bg-green-900/30' 
+                          ${isSelected
+                            ? 'bg-green-50 dark:bg-green-900/30'
                             : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
                           }
                           ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
@@ -350,8 +353,8 @@ export function PipelineFilters({
                       >
                         <div className={`
                           w-4 h-4 rounded border-2 flex items-center justify-center transition-colors
-                          ${isSelected 
-                            ? 'bg-green-600 border-green-600' 
+                          ${isSelected
+                            ? 'bg-green-600 border-green-600'
                             : 'border-gray-300 dark:border-gray-600'
                           }
                         `}>
@@ -378,6 +381,7 @@ export function PipelineFilters({
                 )}
               </div>
             </div>
+            )}
           </div>
           
           {/* Footer with Apply and Reset buttons */}

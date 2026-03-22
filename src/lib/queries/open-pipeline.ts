@@ -802,7 +802,14 @@ const _getSgmConversionData = async (
       SUM(v.is_sqo_unique) as sqos_count,
       SUM(v.is_joined_unique) as sqo_to_joined_numer,
       SUM(v.is_joined_unique) + COUNTIF(v.StageName = 'Closed Lost' AND v.is_sqo_unique = 1) as sqo_to_joined_denom,
-      SUM(v.is_joined_unique) as joined_count
+      SUM(v.is_joined_unique) as joined_count,
+      ROUND(AVG(
+        CASE WHEN v.is_joined_unique = 1
+          AND v.Stage_Entered_Joined__c IS NOT NULL
+          AND v.Date_Became_SQO__c IS NOT NULL
+        THEN DATE_DIFF(DATE(v.Stage_Entered_Joined__c), DATE(v.Date_Became_SQO__c), DAY)
+        END
+      ), 1) as avg_days_sqo_to_joined
     FROM \`${FULL_TABLE}\` v
     INNER JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` u
       ON v.SGM_Owner_Name__c = u.Name
@@ -822,6 +829,7 @@ const _getSgmConversionData = async (
     sqo_to_joined_numer: number | null;
     sqo_to_joined_denom: number | null;
     joined_count: number | null;
+    avg_days_sqo_to_joined: number | null;
   }>(query, params);
 
   const safeDiv = (n: number, d: number) => d === 0 ? 0 : n / d;
@@ -837,6 +845,7 @@ const _getSgmConversionData = async (
     sqoToJoinedDenom: toNumber(r.sqo_to_joined_denom),
     sqoToJoinedRate: safeDiv(toNumber(r.sqo_to_joined_numer), toNumber(r.sqo_to_joined_denom)),
     joinedCount: toNumber(r.joined_count),
+    avgDaysSqoToJoined: r.avg_days_sqo_to_joined != null ? toNumber(r.avg_days_sqo_to_joined) : undefined,
   }));
 };
 
@@ -846,8 +855,8 @@ export const getSgmConversionData = cachedQuery(
   CACHE_TAGS.DASHBOARD
 );
 
-/** Metric type for SGM conversion table drill-down (SQLs, SQO'd, Joined) */
-export type SgmConversionDrilldownMetric = 'sql' | 'sqo' | 'joined';
+/** Metric type for SGM conversion table drill-down (SQLs, SQO'd, Joined, or eligible denominator pools) */
+export type SgmConversionDrilldownMetric = 'sql' | 'sqo' | 'joined' | 'sqlToSqoEligible' | 'sqoToJoinedEligible';
 
 interface SgmConversionDrilldownFilters {
   sgms?: string[];
@@ -883,15 +892,29 @@ const _getSgmConversionDrilldownRecords = async (
     case 'joined':
       conditions.push('v.is_joined_unique = 1');
       break;
+    case 'sqlToSqoEligible':
+      // eligible_for_sql_conversions: resolved SQLs + orphan SQOs
+      conditions.push('v.eligible_for_sql_conversions = 1');
+      break;
+    case 'sqoToJoinedEligible':
+      // eligible_for_sqo_conversions: SQOs that resolved (joined or closed lost)
+      conditions.push('v.eligible_for_sqo_conversions = 1');
+      break;
   }
 
   // Date filter on converted_date_raw (SQL date) — scopes to same period as conversion table
+  // For eligible metrics, use OR to include orphan opps (no converted_date_raw) that still qualify
   if (filters?.dateRange?.startDate && filters?.dateRange?.endDate) {
-    conditions.push('v.converted_date_raw IS NOT NULL');
-    conditions.push('DATE(v.converted_date_raw) >= DATE(@startDate)');
-    conditions.push('DATE(v.converted_date_raw) <= DATE(@endDate)');
     params.startDate = filters.dateRange.startDate;
     params.endDate = filters.dateRange.endDate;
+    if (metric === 'sqlToSqoEligible' || metric === 'sqoToJoinedEligible') {
+      // Include records with converted_date_raw in range OR orphan opps without it
+      conditions.push('(DATE(v.converted_date_raw) BETWEEN DATE(@startDate) AND DATE(@endDate) OR v.converted_date_raw IS NULL)');
+    } else {
+      conditions.push('v.converted_date_raw IS NOT NULL');
+      conditions.push('DATE(v.converted_date_raw) >= DATE(@startDate)');
+      conditions.push('DATE(v.converted_date_raw) <= DATE(@endDate)');
+    }
   }
 
   if (filters?.sgms && filters.sgms.length > 0) {
@@ -940,7 +963,13 @@ const _getSgmConversionDrilldownRecords = async (
       v.Stage_Entered_Negotiating__c as negotiating_date,
       v.Stage_Entered_Signed__c as signed_date,
       v.Stage_Entered_On_Hold__c as on_hold_date,
-      v.Stage_Entered_Closed__c as closed_date
+      v.Stage_Entered_Closed__c as closed_date,
+      v.sql_to_sqo_progression,
+      v.is_sql,
+      v.eligible_for_sql_conversions,
+      v.eligible_for_sqo_conversions,
+      CASE WHEN v.StageName = 'Closed Lost' THEN 'Yes' ELSE 'No' END as is_closed_lost,
+      CASE WHEN v.advisor_join_date__c IS NOT NULL OR v.StageName = 'Joined' THEN 'Yes' ELSE 'No' END as is_joined_outcome
     FROM \`${FULL_TABLE}\` v
     INNER JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` u
       ON v.SGM_Owner_Name__c = u.Name
@@ -1054,6 +1083,23 @@ const _getSgmConversionDrilldownRecords = async (
       opportunityId: r.opportunity_id ? toString(r.opportunity_id) : null,
       nextSteps: r.next_steps ? toString(r.next_steps) : null,
       opportunityNextStep: r.opportunity_next_step ? toString(r.opportunity_next_step) : null,
+      // Converted / Closed Lost / Eligible indicators for eligible drilldowns
+      converted: metric === 'sqlToSqoEligible'
+        ? ((r as any).sql_to_sqo_progression === 1 ? 'Yes' : 'No')
+        : metric === 'sqoToJoinedEligible'
+          ? (toString((r as any).is_joined_outcome) || 'No')
+          : null,
+      closedLost: (metric === 'sqlToSqoEligible' || metric === 'sqoToJoinedEligible')
+        ? (toString((r as any).is_closed_lost) || null)
+        : null,
+      conversionRateEligible: metric === 'sqlToSqoEligible'
+        ? ((r as any).eligible_for_sql_conversions === 1 ? 'Yes' : 'No')
+        : metric === 'sqoToJoinedEligible'
+          ? ((r as any).eligible_for_sqo_conversions === 1 ? 'Yes' : 'No')
+          : null,
+      isSqlLabel: (metric === 'sqlToSqoEligible' || metric === 'sqoToJoinedEligible')
+        ? ((r as any).is_sql === 1 ? 'Yes' : 'No')
+        : null,
     };
   });
 };

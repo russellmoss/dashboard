@@ -172,6 +172,10 @@ export interface DetailRecord {
   originOpportunityUrl?: string | null;  // URL to original closed-lost opp
   nextSteps: string | null;              // Lead.Next_Steps__c
   opportunityNextStep: string | null;    // Opportunity.NextStep
+  converted?: string | null;             // "Yes" / "No" — did this record convert to next stage (SQO or Joined)
+  closedLost?: string | null;            // "Yes" / "No" — is stage Closed Lost
+  conversionRateEligible?: string | null; // "Yes" / "No" — is this record in the conversion rate denominator
+  isSqlLabel?: string | null;            // "Yes" / "No" — is_sql flag for eligible drilldowns
 }
 
 export interface ForecastData {
@@ -269,6 +273,7 @@ export interface SgmConversionData {
   sqlToSqoDenom?: number;
   sqoToJoinedNumer?: number;
   sqoToJoinedDenom?: number;
+  avgDaysSqoToJoined?: number;
 }
 
 /**

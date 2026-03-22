@@ -41,7 +41,13 @@ import {
   SQLDrillDownRecord,
   LeadsSourcedRecord,
   LeadsContactedRecord,
+  JoinedDrillDownRecord,
 } from '@/types/drill-down';
+import {
+  SGMLeaderboardEntry, SGMDashboardMetrics, SGMConversionTrend,
+  SGMQuotaEntry, SGMQuotaProgress, SGMOpenOpp, SGMHistoricalQuarter,
+  SGMAdminBreakdown, SGMTeamProgress, SGMQuotaFilters,
+} from '@/types/sgm-hub';
 import type { AgentRequest, AgentResponse, StreamChunk } from '@/types/agent';
 import {
   SavedReport,
@@ -434,7 +440,7 @@ export const dashboardApi = {
    */
   getSgmConversionDrilldown: async (
     sgm: string,
-    metric: 'sql' | 'sqo' | 'joined',
+    metric: 'sql' | 'sqo' | 'joined' | 'sqlToSqoEligible' | 'sqoToJoinedEligible',
     sgms?: string[],
     dateRange?: { startDate: string; endDate: string } | null
   ): Promise<{ records: DetailRecord[] }> => {
@@ -647,6 +653,82 @@ export const dashboardApi = {
   getLeaderboardSGAOptions: () =>
     apiFetch<{ sgaOptions: Array<{ value: string; label: string; isActive: boolean }> }>(
       '/api/sga-hub/leaderboard-sga-options'
+    ),
+
+  // ============================================
+  // SGM Hub methods
+  // ============================================
+
+  getSGMLeaderboard: (filters: {
+    startDate: string;
+    endDate: string;
+    channels: string[];
+    sources?: string[];
+    sgmNames?: string[];
+  }) =>
+    apiFetch<{ entries: SGMLeaderboardEntry[] }>('/api/sgm-hub/leaderboard', {
+      method: 'POST',
+      body: JSON.stringify(filters),
+    }),
+
+  getLeaderboardSGMOptions: () =>
+    apiFetch<{ sgmOptions: Array<{ value: string; label: string; isActive: boolean }> }>(
+      '/api/sgm-hub/sgm-options'
+    ),
+
+  getJoinedDrillDown: (
+    sgmName: string,
+    options: { quarter: string },
+    channels?: string[],
+    sources?: string[],
+  ) => {
+    const params = new URLSearchParams({
+      sgmName,
+      quarter: options.quarter,
+    });
+    if (channels && channels.length > 0) {
+      channels.forEach(ch => params.append('channels', ch));
+    }
+    if (sources && sources.length > 0) {
+      sources.forEach(src => params.append('sources', src));
+    }
+    return apiFetch<{ records: JoinedDrillDownRecord[] }>(
+      `/api/sgm-hub/drill-down/joined?${params.toString()}`
+    );
+  },
+
+  // SGM Hub Dashboard methods
+  getSGMDashboardMetrics: (filters: {
+    startDate: string;
+    endDate: string;
+    channels: string[];
+    sources?: string[];
+    sgmNames?: string[];
+  }) =>
+    apiFetch<{ metrics: SGMDashboardMetrics }>(
+      '/api/sgm-hub/dashboard-metrics',
+      { method: 'POST', body: JSON.stringify(filters) }
+    ),
+
+  getSGMConversions: (filters: {
+    sgmNames?: string[];
+    dateRange?: { startDate: string; endDate: string } | null;
+  }) =>
+    apiFetch<{ data: SgmConversionData[] }>(
+      '/api/sgm-hub/conversions',
+      { method: 'POST', body: JSON.stringify(filters) }
+    ),
+
+  getSGMConversionTrend: (filters: {
+    startDate: string;
+    endDate: string;
+    channels?: string[];
+    sources?: string[];
+    sgmNames?: string[];
+  }) =>
+    apiFetch<{ data: SGMConversionTrend[] }>(
+      '/api/sgm-hub/conversion-trend',
+      { method: 'POST', body: JSON.stringify(filters) }
     ),
 
   // Drill-down functions
@@ -875,6 +957,41 @@ export const dashboardApi = {
       cooldownMinutes: number;
     }>('/api/admin/trigger-transfer');
   },
+
+  // SGM Hub Quota Tracking methods
+  getSGMQuotas: (year?: string) => {
+    const params = year ? `?year=${year}` : '';
+    return apiFetch<{ quotas: SGMQuotaEntry[] }>(`/api/sgm-hub/quota${params}`);
+  },
+
+  saveSGMQuota: (data: { userEmail: string; quarter: string; arrGoal: number }) =>
+    apiFetch<{ quota: SGMQuotaEntry }>('/api/sgm-hub/quota', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  getSGMQuotaProgress: (sgmName: string, quarter?: string) => {
+    const params = new URLSearchParams({ sgmName });
+    if (quarter) params.set('quarter', quarter);
+    return apiFetch<{ progress: SGMQuotaProgress }>(`/api/sgm-hub/quota-progress?${params}`);
+  },
+
+  getSGMOpenOpps: (sgmName: string) =>
+    apiFetch<{ opps: SGMOpenOpp[] }>(`/api/sgm-hub/open-opps?sgmName=${encodeURIComponent(sgmName)}`),
+
+  getSGMHistoricalQuarters: (sgmName: string, numQuarters?: number) => {
+    const params = new URLSearchParams({ sgmName });
+    if (numQuarters) params.set('numQuarters', String(numQuarters));
+    return apiFetch<{ quarters: SGMHistoricalQuarter[] }>(`/api/sgm-hub/historical-quarters?${params}`);
+  },
+
+  getSGMAdminBreakdown: (filters: SGMQuotaFilters) =>
+    apiFetch<{ breakdown: SGMAdminBreakdown[] }>('/api/sgm-hub/admin-breakdown', {
+      method: 'POST', body: JSON.stringify(filters),
+    }),
+
+  getSGMTeamProgress: (quarter: string) =>
+    apiFetch<{ progress: SGMTeamProgress }>(`/api/sgm-hub/team-progress?quarter=${quarter}`),
 };
 
 /**

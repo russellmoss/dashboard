@@ -131,6 +131,7 @@ export function SGAManagementContent({}: SGAManagementContentProps) {
       'sqls': 'SQLs',
       'leads-sourced': 'Leads Sourced',
       'leads-contacted': 'Leads Contacted',
+      'joined': 'Joined',
     };
 
     // Determine if this is a quarterly or weekly metric

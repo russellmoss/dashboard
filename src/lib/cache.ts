@@ -11,6 +11,7 @@ import { logger } from '@/lib/logger';
 export const CACHE_TAGS = {
   DASHBOARD: 'dashboard',
   SGA_HUB: 'sga-hub',
+  SGM_HUB: 'sgm-hub',
 } as const;
 
 /**

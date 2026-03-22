@@ -22,19 +22,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Invalidate both cache tags
+    // Invalidate all cache tags
     revalidateTag(CACHE_TAGS.DASHBOARD);
     revalidateTag(CACHE_TAGS.SGA_HUB);
+    revalidateTag(CACHE_TAGS.SGM_HUB);
 
     logger.info('[Cron] Scheduled cache refresh', {
-      tags: [CACHE_TAGS.DASHBOARD, CACHE_TAGS.SGA_HUB],
+      tags: [CACHE_TAGS.DASHBOARD, CACHE_TAGS.SGA_HUB, CACHE_TAGS.SGM_HUB],
       timestamp: new Date().toISOString(),
     });
 
     return NextResponse.json({
       success: true,
       message: 'Cache invalidated successfully',
-      tags: [CACHE_TAGS.DASHBOARD, CACHE_TAGS.SGA_HUB],
+      tags: [CACHE_TAGS.DASHBOARD, CACHE_TAGS.SGA_HUB, CACHE_TAGS.SGM_HUB],
     });
   } catch (error) {
     logger.error('Error in cron refresh:', error);

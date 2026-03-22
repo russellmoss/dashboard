@@ -13,28 +13,28 @@ export interface TokenUserData {
 export const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmFilter' | 'recruiterFilter' | 'capitalPartnerFilter' | 'userId'>> = {
   revops_admin: {
     role: 'revops_admin',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],  // All pages + 14 = Chart Builder, 15 = Advisor Map, 16 = GC Hub, 17 = Reports
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],  // All pages + 14 = Chart Builder, 15 = Advisor Map, 16 = GC Hub, 17 = Reports, 18 = SGM Hub
     canExport: true,
     canManageUsers: true,
     canManageRequests: true,  // Only role that can manage requests
   },
   admin: {
     role: 'admin',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17],  // 15 = Advisor Map, 16 = GC Hub, 17 = Reports (Chart Builder restricted to revops_admin)
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18],  // 15 = Advisor Map, 16 = GC Hub, 17 = Reports, 18 = SGM Hub (Chart Builder restricted to revops_admin)
     canExport: true,
     canManageUsers: true,
     canManageRequests: false,
   },
   manager: {
     role: 'manager',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15],  // 15 = Advisor Map (Chart Builder restricted to revops_admin)
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 18],  // 15 = Advisor Map, 18 = SGM Hub (Chart Builder restricted to revops_admin)
     canExport: true,
     canManageUsers: false,
     canManageRequests: false,
   },
   sgm: {
     role: 'sgm',
-    allowedPages: [1, 3, 7, 10, 13, 15],  // 15 = Advisor Map (Chart Builder restricted to revops_admin)
+    allowedPages: [1, 3, 7, 10, 13, 15, 18],  // 15 = Advisor Map, 18 = SGM Hub (Chart Builder restricted to revops_admin)
     canExport: true,
     canManageUsers: false,
     canManageRequests: false,

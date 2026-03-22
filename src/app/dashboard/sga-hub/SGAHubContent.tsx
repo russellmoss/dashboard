@@ -460,6 +460,7 @@ export function SGAHubContent() {
       'sqls': 'SQLs',
       'leads-sourced': 'Leads Sourced',
       'leads-contacted': 'Leads Contacted',
+      'joined': 'Joined',
     };
 
     const title = `${metricLabels[metricType]} - Week of ${formatDate(weekStartDate)}`;

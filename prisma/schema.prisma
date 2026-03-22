@@ -1,7 +1,7 @@
 generator client {
   provider      = "prisma-client-js"
-  engineType    = "library"
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
+  engineType    = "library"
 }
 
 datasource db {
@@ -10,42 +10,36 @@ datasource db {
 }
 
 model User {
-  id             String   @id @default(cuid())
-  email          String   @unique
-  name           String
-  passwordHash   String? // Optional for OAuth-only users
-  role           String   @default("viewer")
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  createdBy      String?
-  externalAgency String? // Links recruiter to their External Agency (matches External_Agency__c in Salesforce)
-
-  // Relations (keep existing relations as-is)
-  savedReports        SavedReport[]
+  id                  String                @id @default(cuid())
+  email               String                @unique
+  name                String
+  passwordHash        String?
+  role                String                @default("viewer")
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  createdBy           String?
+  isActive            Boolean               @default(true)
+  externalAgency      String?
+  submittedRequests   DashboardRequest[]    @relation("SubmittedRequests")
   gameScores          GameScore[]
   passwordResetTokens PasswordResetToken[]
-
-  // Dashboard Requests relations
-  submittedRequests   DashboardRequest[]    @relation("SubmittedRequests")
-  requestComments     RequestComment[]      @relation("RequestComments")
+  reportJobs          ReportJob[]
+  reportShares        ReportShare[]         @relation("ReportShareRecipient")
   uploadedAttachments RequestAttachment[]   @relation("UploadedAttachments")
+  requestComments     RequestComment[]      @relation("RequestComments")
   requestEdits        RequestEditHistory[]  @relation("RequestEdits")
   notifications       RequestNotification[] @relation("UserNotifications")
-
-  // Agentic Reporting relations
-  reportJobs              ReportJob[]
-  reportShares            ReportShare[]   @relation("ReportShareRecipient")
+  savedReports        SavedReport[]
 }
 
 model PasswordResetToken {
   id        String    @id @default(cuid())
   token     String    @unique
   userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([token])
   @@index([userId])
@@ -53,19 +47,19 @@ model PasswordResetToken {
 
 model WeeklyGoal {
   id                     String   @id @default(cuid())
-  userEmail              String // Links to User.email - matches SGA_Owner_Name__c via User.name
-  weekStartDate          DateTime @db.Date // Monday of the week (DATE only)
+  userEmail              String
+  weekStartDate          DateTime @db.Date
   initialCallsGoal       Int      @default(0)
   qualificationCallsGoal Int      @default(0)
   sqoGoal                Int      @default(0)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  createdBy              String?
+  updatedBy              String?
   mqlGoal                Int      @default(0)
   sqlGoal                Int      @default(0)
   leadsSourcedGoal       Int      @default(0)
   leadsContactedGoal     Int      @default(0)
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
-  createdBy              String? // Email of user who created
-  updatedBy              String? // Email of user who last updated
 
   @@unique([userEmail, weekStartDate])
   @@index([userEmail])
@@ -74,13 +68,13 @@ model WeeklyGoal {
 
 model QuarterlyGoal {
   id        String   @id @default(cuid())
-  userEmail String // Links to User.email
-  quarter   String // Format: "2026-Q1", "2026-Q2", etc.
+  userEmail String
+  quarter   String
   sqoGoal   Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  createdBy String? // Email of admin who set it
-  updatedBy String? // Email of admin who last updated
+  createdBy String?
+  updatedBy String?
 
   @@unique([userEmail, quarter])
   @@index([userEmail])
@@ -89,33 +83,30 @@ model QuarterlyGoal {
 
 model ManagerQuarterlyGoal {
   id        String   @id @default(cuid())
-  quarter   String // Format: "2026-Q1", "2026-Q2", etc. (matches QuarterlyGoal format)
+  quarter   String   @unique
   sqoGoal   Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  createdBy String? // Email of admin/manager who created
-  updatedBy String? // Email of admin/manager who last updated
+  createdBy String?
+  updatedBy String?
 
-  @@unique([quarter])
   @@index([quarter])
   @@map("manager_quarterly_goals")
 }
 
 model ExploreFeedback {
-  id         String   @id @default(cuid())
-  userId     String? // User email (from session.user.email)
-  question   String // The user's question
-  questionId String // Unique ID for the question (timestamp or UUID)
-  templateId String // Template that was selected
-  feedback   String // 'positive' or 'negative'
-  comment    String? // Required comment for negative feedback, optional for positive
-  createdAt  DateTime @default(now())
-
-  // Store the full query context for debugging
-  compiledQuery Json? // Store the compiled SQL and params as JSON
-  executableSql String? // Store the executable SQL (with parameters substituted) for BigQuery
-  resultSummary Json? // Store row count, execution time, visualization type, etc. as JSON
-  error         String? // Store error message if query failed (parsing error, execution error, etc.)
+  id            String   @id @default(cuid())
+  userId        String?
+  question      String
+  questionId    String
+  templateId    String
+  feedback      String
+  comment       String?
+  createdAt     DateTime @default(now())
+  compiledQuery Json?
+  resultSummary Json?
+  error         String?
+  executableSql String?
 
   @@index([userId])
   @@index([templateId])
@@ -124,31 +115,19 @@ model ExploreFeedback {
   @@index([error])
 }
 
-// Pipeline Catcher Game Leaderboard
 model GameScore {
-  id String @id @default(cuid())
+  id             String   @id @default(cuid())
+  userId         String
+  score          BigInt
+  advisorsCaught Int
+  joinedCaught   Int
+  ghostsHit      Int
+  quarter        String
+  gameDuration   Int
+  message        String?  @db.VarChar(100)
+  playedAt       DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // User relation
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Score data
-  score          BigInt // Total AUM caught (stored in dollars)
-  advisorsCaught Int // Number of SQOs caught
-  joinedCaught   Int // Number of Joined advisors caught (bonus)
-  ghostsHit      Int // Number of ghosts/stop signs hit
-
-  // Game context
-  quarter      String // e.g., "2025-Q1", "2025-Q2"
-  gameDuration Int // Seconds played (max 180)
-
-  // Leaderboard message
-  message String? @db.VarChar(100)
-
-  // Timestamps
-  playedAt DateTime @default(now())
-
-  // Indexes for fast leaderboard queries
   @@index([quarter, score(sort: Desc)])
   @@index([userId])
   @@index([playedAt])
@@ -156,24 +135,20 @@ model GameScore {
 
 model SavedReport {
   id               String   @id @default(cuid())
-  userId           String? // NULL for admin templates
+  userId           String?
   name             String   @db.VarChar(255)
   description      String?  @db.VarChar(500)
-  filters          Json // Complete DashboardFilters object
-  featureSelection Json? // Optional FeatureSelection object (null = show all)
-  viewMode         String?  @default("focused") // 'focused' | 'fullFunnel'
+  filters          Json
+  featureSelection Json?
+  viewMode         String?  @default("focused")
   dashboard        String   @default("funnel_performance")
-  reportType       String   @default("user") // 'user' | 'admin_template'
+  reportType       String   @default("user")
   isDefault        Boolean  @default(false)
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
-  createdBy        String? // Email of creator
-
-  // Relations
-  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // Note: Unique constraint for one default per user must be enforced in application logic
-  // Prisma doesn't support WHERE clauses in @@unique constraints
+  createdBy        String?
+  user             User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([reportType])
@@ -182,7 +157,400 @@ model SavedReport {
   @@index([dashboard])
 }
 
-// Dashboard Request Enums
+model DashboardRequest {
+  id              String                @id @default(cuid())
+  title           String
+  description     String
+  requestType     RequestType
+  status          RequestStatus         @default(SUBMITTED)
+  priority        RequestPriority?
+  affectedPage    String?
+  filtersApplied  String?
+  valueSeen       String?
+  valueExpected   String?
+  errorOccurredAt DateTime?
+  isPrivate       Boolean               @default(false)
+  wrikeTaskId     String?               @unique
+  wrikePermalink  String?
+  lastSyncedAt    DateTime?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  statusChangedAt DateTime              @default(now())
+  submitterId     String
+  submitter       User                  @relation("SubmittedRequests", fields: [submitterId], references: [id])
+  attachments     RequestAttachment[]
+  comments        RequestComment[]
+  editHistory     RequestEditHistory[]
+  notifications   RequestNotification[]
+
+  @@index([submitterId])
+  @@index([status])
+  @@index([requestType])
+  @@index([wrikeTaskId])
+}
+
+model RequestComment {
+  id             String           @id @default(cuid())
+  content        String
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  requestId      String
+  authorId       String
+  wrikeCommentId String?          @unique
+  author         User             @relation("RequestComments", fields: [authorId], references: [id])
+  request        DashboardRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@index([authorId])
+}
+
+model RequestAttachment {
+  id                String           @id @default(cuid())
+  filename          String
+  mimeType          String
+  size              Int
+  wrikeAttachmentId String?          @unique
+  wrikeDownloadUrl  String?
+  createdAt         DateTime         @default(now())
+  requestId         String
+  uploadedById      String
+  data              String?
+  request           DashboardRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  uploadedBy        User             @relation("UploadedAttachments", fields: [uploadedById], references: [id])
+
+  @@index([requestId])
+}
+
+model RequestEditHistory {
+  id         String           @id @default(cuid())
+  fieldName  String
+  oldValue   String?
+  newValue   String?
+  createdAt  DateTime         @default(now())
+  requestId  String
+  editedById String
+  editedBy   User             @relation("RequestEdits", fields: [editedById], references: [id])
+  request    DashboardRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+}
+
+model RequestNotification {
+  id        String           @id @default(cuid())
+  message   String
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  requestId String
+  userId    String
+  request   DashboardRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  user      User             @relation("UserNotifications", fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+  @@index([requestId])
+}
+
+model AdvisorAddressOverride {
+  id         String   @id @default(cuid())
+  primaryKey String   @unique
+  street1    String?
+  street2    String?
+  city       String?
+  state      String?
+  postalCode String?
+  country    String?
+  lat        Float?
+  lng        Float?
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  createdBy  String
+  updatedBy  String
+
+  @@index([primaryKey])
+  @@index([createdAt])
+  @@map("advisor_address_overrides")
+}
+
+model GcAdvisorPeriodData {
+  id                      String    @id @default(cuid())
+  advisorNormalizedName   String
+  orionRepresentativeId   String?
+  accountName             String?
+  period                  String
+  periodStart             DateTime  @db.Date
+  grossRevenue            Float?
+  commissionsPaid         Float?
+  amountEarned            Float?
+  aum                     Float?
+  billingFrequency        String?
+  billingStyle            String?
+  sourceWorkbookId        String?
+  sourceTab               String?
+  dataSource              String    @default("historical_etl")
+  isManuallyOverridden    Boolean   @default(false)
+  originalGrossRevenue    Float?
+  originalCommissionsPaid Float?
+  overrideReason          String?
+  overriddenBy            String?
+  overriddenAt            DateTime?
+  importedAt              DateTime  @default(now())
+  lastSyncedAt            DateTime?
+
+  @@unique([advisorNormalizedName, period])
+  @@index([advisorNormalizedName])
+  @@index([period])
+  @@index([periodStart])
+  @@index([accountName])
+  @@index([dataSource])
+  @@index([orionRepresentativeId])
+}
+
+model GcAdvisorMapping {
+  id                    String   @id @default(cuid())
+  advisorNormalizedName String   @unique
+  orionRepresentativeId String?  @unique
+  accountName           String?
+  anonymousAdvisorId    String   @unique
+  anonymousAccountName  String?
+  billingFrequency      String?
+  billingStyle          String?
+  billingType           String?
+  glTreatment           String?
+  isChurned             Boolean  @default(false)
+  isExcluded            Boolean  @default(false)
+  exclusionReason       String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([accountName])
+  @@index([isExcluded])
+}
+
+model GcSyncLog {
+  id               String    @id @default(cuid())
+  syncType         String
+  sourceWorkbookId String?
+  status           String
+  recordsProcessed Int       @default(0)
+  recordsInserted  Int       @default(0)
+  recordsUpdated   Int       @default(0)
+  recordsSkipped   Int       @default(0)
+  errorMessage     String?
+  errorDetails     Json?
+  startedAt        DateTime  @default(now())
+  completedAt      DateTime?
+  triggeredBy      String?
+
+  @@index([syncType])
+  @@index([status])
+  @@index([startedAt])
+}
+
+model ReportJob {
+  id                 String               @id @default(cuid())
+  type               String
+  status             String               @default("pending")
+  requestedById      String
+  customPrompt       String?
+  parameters         Json?
+  reportJson         Json?
+  queryLog           Json?
+  extractedMetrics   Json?
+  verificationResult Json?
+  visibility         String               @default("private")
+  stepsCompleted     Int                  @default(0)
+  totalTokens        Int?
+  durationMs         Int?
+  error              String?
+  promptVersion      String?
+  createdAt          DateTime             @default(now())
+  completedAt        DateTime?
+  conversations      ReportConversation[]
+  requestedBy        User                 @relation(fields: [requestedById], references: [id])
+  sharedWith         ReportShare[]
+
+  @@index([type, requestedById, createdAt(sort: Desc)])
+  @@index([requestedById])
+  @@index([status])
+  @@index([type])
+}
+
+model ReportShare {
+  id           String    @id @default(cuid())
+  reportId     String
+  sharedWithId String
+  createdAt    DateTime  @default(now())
+  report       ReportJob @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  sharedWith   User      @relation("ReportShareRecipient", fields: [sharedWithId], references: [id])
+
+  @@unique([reportId, sharedWithId])
+  @@index([reportId])
+  @@index([sharedWithId])
+}
+
+model ReportConversation {
+  id        String    @id @default(cuid())
+  reportId  String
+  role      String
+  content   String
+  createdAt DateTime  @default(now())
+  report    ReportJob @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId, createdAt])
+}
+
+model Forecast {
+  id                 String               @id
+  quarter            String               @unique
+  year               Int
+  status             ForecastStatus       @default(DRAFT)
+  notes              String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime
+  createdBy          String?
+  updatedBy          String?
+  ForecastAssumption ForecastAssumption[]
+  ForecastLineItem   ForecastLineItem[]
+  ForecastRateItem   ForecastRateItem[]
+  ForecastSource     ForecastSource[]
+  ForecastTarget     ForecastTarget[]
+
+  @@index([quarter])
+  @@index([status])
+}
+
+model ForecastAssumption {
+  id              String   @id
+  forecastId      String
+  channel         String?
+  subSource       String?
+  month           String?
+  assumptionKey   String
+  assumptionValue String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime
+  updatedBy       String?
+  Forecast        Forecast @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+
+  @@unique([forecastId, channel, subSource, month, assumptionKey], map: "ForecastAssumption_forecastId_channel_subSource_month_assumptio")
+  @@index([forecastId])
+}
+
+model ForecastLineItem {
+  id               String             @id
+  forecastId       String
+  channel          String
+  subSource        String
+  month            String
+  stage            FunnelStage
+  calculatedVolume Int                @default(0)
+  finalVolume      Int                @default(0)
+  isLocked         Boolean            @default(false)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime
+  Forecast         Forecast           @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+  ForecastOverride ForecastOverride[]
+
+  @@unique([forecastId, subSource, month, stage])
+  @@index([channel])
+  @@index([forecastId])
+  @@index([month])
+  @@index([subSource])
+}
+
+model ForecastOverride {
+  id               String            @id
+  lineItemId       String?
+  rateItemId       String?
+  fieldType        String
+  originalValue    Float
+  overrideValue    Float
+  reason           String
+  overriddenBy     String
+  createdAt        DateTime          @default(now())
+  ForecastLineItem ForecastLineItem? @relation(fields: [lineItemId], references: [id], onDelete: Cascade)
+  ForecastRateItem ForecastRateItem? @relation(fields: [rateItemId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([lineItemId])
+  @@index([overriddenBy])
+  @@index([rateItemId])
+}
+
+model ForecastRateItem {
+  id               String             @id
+  forecastId       String
+  channel          String
+  subSource        String
+  month            String
+  transition       StageTransition
+  calculatedRate   Float              @default(0)
+  finalRate        Float              @default(0)
+  isLocked         Boolean            @default(false)
+  rateSource       String             @default("calculated")
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime
+  ForecastOverride ForecastOverride[]
+  Forecast         Forecast           @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+
+  @@unique([forecastId, subSource, month, transition])
+  @@index([channel])
+  @@index([forecastId])
+  @@index([subSource])
+}
+
+model ForecastSource {
+  id         String   @id
+  forecastId String
+  subSource  String
+  channel    String
+  isActive   Boolean  @default(true)
+  isManual   Boolean  @default(false)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime
+  Forecast   Forecast @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+
+  @@unique([forecastId, subSource])
+  @@index([channel])
+  @@index([forecastId])
+}
+
+model ForecastTarget {
+  id                  String      @id
+  forecastId          String
+  channel             String
+  month               String
+  stage               FunnelStage
+  minimumForecast     Int         @default(0)
+  financeMinimum      Int         @default(0)
+  gapFillerAllocation Int         @default(0)
+  comments            String?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime
+  updatedBy           String?
+  Forecast            Forecast    @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+
+  @@unique([forecastId, channel, month, stage])
+  @@index([channel])
+  @@index([forecastId])
+}
+
+model SGMQuarterlyGoal {
+  id        String   @id @default(dbgenerated("gen_random_uuid()"))
+  userEmail String
+  quarter   String
+  arrGoal   Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime
+  createdBy String?
+  updatedBy String?
+
+  @@unique([userEmail, quarter])
+  @@index([quarter])
+  @@index([userEmail])
+}
+
 enum RequestStatus {
   SUBMITTED
   PLANNED
@@ -203,299 +571,25 @@ enum RequestPriority {
   IMMEDIATE
 }
 
-// Main Dashboard Request Model
-model DashboardRequest {
-  id              String                @id @default(cuid())
-  title           String
-  description     String                @db.Text
-  requestType     RequestType
-  status          RequestStatus         @default(SUBMITTED)
-  priority        RequestPriority?
-  affectedPage    String?
-  filtersApplied  String?               @db.Text
-  valueSeen       String?
-  valueExpected   String?
-  errorOccurredAt DateTime?
-  isPrivate       Boolean               @default(false)
-  wrikeTaskId     String?               @unique
-  wrikePermalink  String?
-  lastSyncedAt    DateTime?
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
-  statusChangedAt DateTime              @default(now())
-  submitterId     String
-  submitter       User                  @relation("SubmittedRequests", fields: [submitterId], references: [id])
-  comments        RequestComment[]
-  attachments     RequestAttachment[]
-  editHistory     RequestEditHistory[]
-  notifications   RequestNotification[]
-
-  @@index([submitterId])
-  @@index([status])
-  @@index([requestType])
-  @@index([wrikeTaskId])
+enum ForecastStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
 }
 
-model RequestComment {
-  id             String           @id @default(cuid())
-  content        String           @db.Text
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  requestId      String
-  request        DashboardRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  authorId       String
-  author         User             @relation("RequestComments", fields: [authorId], references: [id])
-  wrikeCommentId String?          @unique
-
-  @@index([requestId])
-  @@index([authorId])
+enum FunnelStage {
+  CREATED
+  CONTACTED
+  MQL
+  SQL
+  SQO
+  JOINED
 }
 
-model RequestAttachment {
-  id                String           @id @default(cuid())
-  filename          String
-  mimeType          String
-  size              Int
-  data              String?          @db.Text // Base64 encoded file data for local storage
-  wrikeAttachmentId String?          @unique
-  wrikeDownloadUrl  String?
-  createdAt         DateTime         @default(now())
-  requestId         String
-  request           DashboardRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  uploadedById      String
-  uploadedBy        User             @relation("UploadedAttachments", fields: [uploadedById], references: [id])
-
-  @@index([requestId])
-}
-
-model RequestEditHistory {
-  id         String           @id @default(cuid())
-  fieldName  String
-  oldValue   String?          @db.Text
-  newValue   String?          @db.Text
-  createdAt  DateTime         @default(now())
-  requestId  String
-  request    DashboardRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  editedById String
-  editedBy   User             @relation("RequestEdits", fields: [editedById], references: [id])
-
-  @@index([requestId])
-}
-
-model RequestNotification {
-  id        String           @id @default(cuid())
-  message   String
-  isRead    Boolean          @default(false)
-  createdAt DateTime         @default(now())
-  requestId String
-  request   DashboardRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User             @relation("UserNotifications", fields: [userId], references: [id])
-
-  @@index([userId, isRead])
-  @@index([requestId])
-}
-
-// Advisor Address Override - allows manual correction of advisor locations
-model AdvisorAddressOverride {
-  id         String   @id @default(cuid())
-  primaryKey String   @unique // The advisor's primary_key from BigQuery (vw_funnel_master)
-
-  // Address fields (all optional - only override what's needed)
-  street1    String?
-  street2    String?
-  city       String?
-  state      String?  // Should be 2-letter abbreviation
-  postalCode String?
-  country    String?
-
-  // Coordinates (optional - will trigger re-geocoding if not provided)
-  lat        Float?
-  lng        Float?
-
-  // Metadata
-  notes      String?  @db.Text // Why the override was made
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  createdBy  String   // Email of user who created
-  updatedBy  String   // Email of user who last updated
-
-  @@index([primaryKey])
-  @@index([createdAt])
-  @@map("advisor_address_overrides")
-}
-
-// =============================================================================
-// GC HUB MODELS
-// Financial data for Growth Collective advisors (Q4 2022 → present)
-// =============================================================================
-
-model GcAdvisorPeriodData {
-  id                      String    @id @default(cuid())
-
-  // Advisor identity
-  advisorNormalizedName   String    // Canonical name from normalization table (e.g., "Eric Kirste")
-  orionRepresentativeId   String?   // Orion Rep ID (e.g., "3", "2073") — nullable for historical records without mapping
-  accountName             String?   // Team/practice roll-up (e.g., "Joshua Barone & Team", "Perspective 6")
-
-  // Period
-  period                  String    // "Q4 2022", "Q1 2023", ... "Q4 2025", "Jan 2026", "Feb 2026"
-  periodStart             DateTime  @db.Date // First day of period (e.g., 2022-10-01 for Q4 2022, 2026-01-01 for Jan 2026)
-
-  // Financial data
-  grossRevenue            Float?    // Nullable — null means "advisor not active this period" (NOT $0)
-  commissionsPaid         Float?    // Nullable — null means "not applicable"
-  amountEarned            Float?    // Derived: grossRevenue - commissionsPaid. Stored for query performance.
-  aum                     Float?    // Assets Under Management — only available Jan 2026+
-
-  // Billing metadata
-  billingFrequency        String?   // "quarterly" | "monthly"
-  billingStyle            String?   // "arrear" | "advanced"
-
-  // Source tracking
-  sourceWorkbookId        String?   // Google Sheets spreadsheet ID
-  sourceTab               String?   // Tab name within the workbook
-  dataSource              String    @default("historical_etl") // "historical_etl" | "live_sync" | "manual_override" | "cfo_provided"
-
-  // Override / audit trail (for Admin/RevOps inline edits)
-  isManuallyOverridden    Boolean   @default(false)
-  originalGrossRevenue    Float?    // Pre-override value
-  originalCommissionsPaid Float?    // Pre-override value
-  overrideReason          String?
-  overriddenBy            String?   // User email who made the override
-  overriddenAt            DateTime?
-
-  // Timestamps
-  importedAt              DateTime  @default(now())
-  lastSyncedAt            DateTime?
-
-  @@unique([advisorNormalizedName, period])
-  @@index([advisorNormalizedName])
-  @@index([period])
-  @@index([periodStart])
-  @@index([accountName])
-  @@index([dataSource])
-  @@index([orionRepresentativeId])
-}
-
-model GcAdvisorMapping {
-  id                      String    @id @default(cuid())
-
-  // Identity
-  advisorNormalizedName   String    @unique // Canonical name — matches GcAdvisorPeriodData
-  orionRepresentativeId   String?   @unique // Orion Rep ID
-  accountName             String?   // Team roll-up name
-
-  // Anonymization
-  anonymousAdvisorId      String    @unique // "Advisor 001", "Advisor 002", etc.
-  anonymousAccountName    String?   // "Team A", "Team B", etc.
-
-  // Billing metadata (current)
-  billingFrequency        String?   // "quarterly" | "monthly"
-  billingStyle            String?   // "arrear" | "advanced"
-  billingType             String?   // Combined: "arrearquarterly", "advancedmonthly"
-  glTreatment             String?   // "Accrue" | "No Accrual"
-
-  // Status
-  isChurned               Boolean   @default(false)
-  isExcluded              Boolean   @default(false) // For system accounts, churned, etc.
-  exclusionReason         String?
-
-  // Timestamps
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
-
-  @@index([accountName])
-  @@index([isExcluded])
-}
-
-model GcSyncLog {
-  id                String    @id @default(cuid())
-  syncType          String    // "historical_etl" | "live_sync" | "manual_refresh"
-  sourceWorkbookId  String?   // Which spreadsheet was synced
-  status            String    // "started" | "completed" | "failed"
-  recordsProcessed  Int       @default(0)
-  recordsInserted   Int       @default(0)
-  recordsUpdated    Int       @default(0)
-  recordsSkipped    Int       @default(0)
-  errorMessage      String?   @db.Text
-  errorDetails      Json?     // Structured error details
-  startedAt         DateTime  @default(now())
-  completedAt       DateTime?
-  triggeredBy       String?   // "cron" | "manual" | user email
-
-  @@index([syncType])
-  @@index([status])
-  @@index([startedAt])
-}
-
-// =============================================================================
-// AGENTIC REPORTING MODELS
-// AI-generated intelligence reports with conversational follow-up
-// =============================================================================
-
-model ReportJob {
-  id             String    @id @default(cuid())
-  type           String    // "analyze-wins" | "sga-performance" | "sgm-analysis" | "competitive-intel"
-  status         String    @default("pending") // pending | running | complete | failed
-
-  // Who requested it
-  requestedById  String
-  requestedBy    User      @relation(fields: [requestedById], references: [id])
-
-  // Input
-  customPrompt   String?   // null = default report
-  parameters     Json?     // { "name": "Corey Marcello" } for SGM-analysis
-
-  // Output
-  reportJson     Json?     // ReportOutput schema — structured data for frontend rendering
-  queryLog       Json?     // QueryLogEntry[] — full query results for conversational follow-up
-  extractedMetrics Json?   // KeyMetric[] — copied from reportJson.keyMetrics for fast temporal diffing
-  verificationResult Json? // VerificationResult — Pass 1.5 data audit (verified: bool, issues[])
-
-  // Sharing
-  visibility     String    @default("private") // private | shared | all
-  sharedWith     ReportShare[]
-
-  // Follow-up conversations
-  conversations  ReportConversation[]
-
-  // Metadata
-  stepsCompleted Int       @default(0)  // tool calls completed (for progress UI)
-  totalTokens    Int?      // cost tracking (Pass 1 + Pass 2 combined)
-  durationMs     Int?      // how long generation took
-  error          String?   // error message if failed
-  promptVersion  String?   // hash of the prompt version used
-
-  createdAt      DateTime  @default(now())
-  completedAt    DateTime?
-
-  @@index([type, requestedById, createdAt(sort: Desc)])
-  @@index([requestedById])
-  @@index([status])
-  @@index([type])
-}
-
-model ReportShare {
-  id           String    @id @default(cuid())
-  reportId     String
-  report       ReportJob @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  sharedWithId String
-  sharedWith   User      @relation("ReportShareRecipient", fields: [sharedWithId], references: [id])
-  createdAt    DateTime  @default(now())
-
-  @@unique([reportId, sharedWithId])
-  @@index([reportId])
-  @@index([sharedWithId])
-}
-
-model ReportConversation {
-  id        String   @id @default(cuid())
-  reportId  String
-  report    ReportJob @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  role      String   // "user" | "assistant"
-  content   String   @db.Text
-  createdAt DateTime @default(now())
-
-  @@index([reportId, createdAt])
+enum StageTransition {
+  CREATED_TO_CONTACTED
+  CONTACTED_TO_MQL
+  MQL_TO_SQL
+  SQL_TO_SQO
+  SQO_TO_JOINED
 }

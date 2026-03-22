@@ -114,10 +114,11 @@ export async function GET(request: NextRequest) {
     if (status.isComplete && status.success) {
       revalidateTag(CACHE_TAGS.DASHBOARD);
       revalidateTag(CACHE_TAGS.SGA_HUB);
+      revalidateTag(CACHE_TAGS.SGM_HUB);
 
       logger.info('[API] Cache invalidated after successful transfers', {
         runIds,
-        tags: [CACHE_TAGS.DASHBOARD, CACHE_TAGS.SGA_HUB],
+        tags: [CACHE_TAGS.DASHBOARD, CACHE_TAGS.SGA_HUB, CACHE_TAGS.SGM_HUB],
       });
     }
 

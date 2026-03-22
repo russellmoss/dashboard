@@ -9,22 +9,24 @@
 ## Table of Contents
 
 1. [System Overview](#1-system-overview)
-2. [Data Layer](#2-data-layer)
-3. [Caching Strategy](#3-caching-strategy)
-4. [Data Freshness](#4-data-freshness)
-5. [Authentication & Permissions](#5-authentication--permissions)
-6. [Core Dashboard Features](#6-core-dashboard-features)
-7. [Advanced Features](#7-advanced-features)
-8. [SGA Hub & Management](#8-sga-hub--management)
-9. [Self-Serve Analytics (Explore)](#9-self-serve-analytics-explore)
-10. [Deployment & Operations](#10-deployment--operations)
-11. [GC Hub](#11-gc-hub)
-12. [Dashboard Requests](#12-dashboard-requests)
-13. [Recruiter Hub](#13-recruiter-hub)
-14. [Advisor Map](#14-advisor-map)
-15. [Pipeline Catcher Game](#15-pipeline-catcher-game)
-16. [SGA Activity](#16-sga-activity)
-17. [Saved Reports](#17-saved-reports)
+2. [Data Pipeline](#2-data-pipeline)
+3. [Data Layer](#3-data-layer)
+4. [Caching Strategy](#4-caching-strategy)
+5. [Data Freshness](#5-data-freshness)
+6. [Authentication & Permissions](#6-authentication--permissions)
+7. [Core Dashboard Features](#7-core-dashboard-features)
+8. [Advanced Features](#8-advanced-features)
+9. [SGA Hub & Management](#9-sga-hub--management)
+10. [Self-Serve Analytics (Explore)](#10-self-serve-analytics-explore)
+11. [Deployment & Operations](#11-deployment--operations)
+12. [GC Hub](#12-gc-hub)
+13. [Dashboard Requests](#13-dashboard-requests)
+14. [Recruiter Hub](#14-recruiter-hub)
+15. [Advisor Map](#15-advisor-map)
+16. [Pipeline Catcher Game](#16-pipeline-catcher-game)
+17. [SGA Activity](#17-sga-activity)
+18. [Saved Reports](#18-saved-reports)
+19. [SGM Hub](#19-sgm-hub)
 
 ---
 
@@ -50,10 +52,18 @@ Replaces Tableau for Savvy Wealth's **recruiting funnel analytics**. Tracks fina
 ### Data Flow
 
 ```
-Salesforce → BigQuery (daily sync) → Next.js API → React Dashboard
-                ↓
-         vw_funnel_master (pre-computed view)
+Salesforce ──► BigQuery (every 6 hours) ──► Next.js API ──► React Dashboard
+  ▲                  │
+  │                  ▼
+  │           vw_funnel_master (pre-computed view)
+  │                  │
+  │                  ▼
+  └──── Hightouch (daily, Marketing_Segment__c writeback via Bulk API v2)
 ```
+
+**Inbound (Salesforce → BigQuery):** 6 BigQuery Data Transfer Service jobs run every 6 hours, pulling incremental changes from 6 Salesforce objects into the `SavvyGTMData` dataset.
+
+**Outbound (BigQuery → Salesforce):** 3 Hightouch syncs run daily, writing computed `Marketing_Segment__c` values back to Lead, Contact, and Opportunity records via Salesforce Bulk API v2.
 
 ### Key Principle: Single Source of Truth
 
@@ -65,7 +75,77 @@ All funnel metrics derive from the `vw_funnel_master` BigQuery view, which:
 
 ---
 
-## 2. Data Layer
+## 2. Data Pipeline
+
+### Inbound: Salesforce → BigQuery (Data Transfer Service)
+
+Six incremental transfers run **every 6 hours** via Google BigQuery Data Transfer Service. They pull changed records (based on `SystemModstamp`) from Salesforce into the `SavvyGTMData` dataset in the `northamerica-northeast2` region.
+
+| Transfer Name | Salesforce Object | Typical Incremental Size | Notes |
+|---------------|-------------------|--------------------------|-------|
+| SavvyTransferLead | Lead | ~76 MB | Largest object (~87K records total) |
+| SavvyTransferContact | Contact | ~121 KB | |
+| SavvyTransferOpportunity | Opportunity | ~33 KB | |
+| SavvyTransferTask | Task | ~262 KB | SMS + call activity records |
+| SavvyTransferCampaign | Campaign | ~2 KB | |
+| SavvyTransferCampaignHistory | CampaignHistory | 0–small | Often zero changes |
+
+**How it works:** Each transfer creates a Salesforce Bulk API v1 query job, loads results into a staging table, then MERGEs into the final table. Total time for all 6: ~3 minutes. Total Salesforce API calls: ~30–36 per cycle (5–6 REST calls per object for job lifecycle).
+
+**Schedule:** Every 6 hours. Next run times visible in BigQuery console under Data Transfers.
+
+### Outbound: BigQuery → Salesforce (Hightouch)
+
+Three Hightouch syncs run **daily**, writing the computed `advisor_segment` (from `FinTrx_data_CA.advisor_segments`) back to Salesforce as `Marketing_Segment__c`.
+
+| Sync | Salesforce Object | Model Rows | Match Key | Hightouch Sync ID |
+|------|-------------------|------------|-----------|-------------------|
+| Marketing Segments - Lead | Lead | ~87,000 | `salesforce_lead_id` → `Id` | 2711387 |
+| Marketing Segments - Contacts | Contact | ~1,100 | `salesforce_contact_id` → `Id` | 2711389 |
+| Marketing Segments - Opportunity | Opportunity | ~2,200 | `salesforce_opp_id` → `Id` | 2711001 |
+
+**Sync configuration (all three):**
+
+| Setting | Value |
+|---------|-------|
+| Mode | `update` |
+| Bulk API v2 | Enabled |
+| Rows per batch | 10,000 |
+| Split batch retry | Enabled |
+| Field synced | `advisor_segment` → `Marketing_Segment__c` |
+
+**Diff-based syncing:** On each run, Hightouch queries BigQuery for the full result set, compares against the cached results from the previous run, and only sends **changed rows** to Salesforce. A typical daily run pushes 0–50 changed rows, not the full dataset.
+
+**Full resync** is only needed when the model primary key changes or data gets out of sync. It sends all rows.
+
+**Model SQL pattern** (all three follow this structure):
+```sql
+SELECT DISTINCT
+  l.Id AS salesforce_lead_id,
+  seg.advisor_segment
+FROM `savvy-gtm-analytics.SavvyGTMData.Lead` l
+INNER JOIN `savvy-gtm-analytics.FinTrx_data_CA.advisor_segments` seg
+  ON SAFE_CAST(REGEXP_REPLACE(CAST(l.FA_CRD__c AS STRING), r'[^0-9]', '') AS INT64)
+     = seg.RIA_CONTACT_CRD_ID
+WHERE l.IsDeleted = false
+  AND l.FA_CRD__c IS NOT NULL
+```
+
+**Match key design:** Syncs match on native Salesforce `Id` (returned directly from the BigQuery source tables). This eliminates per-row REST lookups that would otherwise be needed to resolve external IDs like `FA_CRD__c`.
+
+### Salesforce API Budget
+
+| | Daily Limit | All 6 BQ Transfers (×4 cycles) | All 3 Hightouch Syncs (incremental) | Combined |
+|--|-------------|-------------------------------|--------------------------------------|----------|
+| REST API Calls | 240,000 | ~120–144 | ~45–75 | **< 0.1%** |
+| Bulk API v1 Batches | 15,000 | ~24 | 0 | < 0.2% |
+| Bulk API v2 Jobs | 10,000 | 0 | ~3–11 | < 0.1% |
+
+The data pipeline consumes negligible API budget, leaving headroom for Salesforce UI users, integrations, and ad-hoc tooling.
+
+---
+
+## 3. Data Layer
 
 ### BigQuery Connection
 
@@ -212,7 +292,7 @@ WHERE recordtypeid = '012Dn000000mrO3IAI'  -- Recruiting
 
 ---
 
-## 3. Caching Strategy
+## 4. Caching Strategy
 
 ### Approach
 
@@ -229,7 +309,7 @@ Uses Next.js `unstable_cache()` with tag-based invalidation. Chosen over Redis f
 
 | Query Type | TTL | Rationale |
 |------------|-----|-----------|
-| Standard queries | 12 hours | Aligns with daily BigQuery sync |
+| Standard queries | 12 hours | Aligns with 6-hour BigQuery sync cycle (2× interval) |
 | Detail records | 6 hours | Large payloads (up to 95k rows) |
 
 ### Cache Key Generation
@@ -282,7 +362,7 @@ export const getFunnelMetrics = cachedQuery(
 - Validates `CRON_SECRET` from Authorization header (auto-injected by Vercel)
 - Calls `revalidateTag()` for both `dashboard` and `sga-hub` tags
 
-**Rationale**: Runs after 11:30 PM BigQuery daily sync, ensures morning users get fresh data.
+**Rationale**: Runs after the late-night BigQuery sync cycle, ensures morning users get fresh data.
 
 ### Cache Miss Logging
 
@@ -302,7 +382,7 @@ If caching causes issues:
 
 ---
 
-## 4. Data Freshness
+## 5. Data Freshness
 
 ### Purpose
 
@@ -350,7 +430,7 @@ Visible only to admin users in the detailed variant. Calls cache refresh endpoin
 
 ---
 
-## 5. Authentication & Permissions
+## 6. Authentication & Permissions
 
 ### Authentication Method
 
@@ -444,7 +524,7 @@ Unauthenticated requests redirect to `/login`.
 
 ---
 
-## 6. Core Dashboard Features
+## 7. Core Dashboard Features
 
 ### Funnel Stages
 
@@ -598,7 +678,7 @@ const response = await fetch('/api/dashboard/funnel-metrics?channel=Web');
 
 ---
 
-## 7. Advanced Features
+## 8. Advanced Features
 
 ### 7.1 Full Funnel View Toggle
 
@@ -701,7 +781,7 @@ User clicks Export → API copies template → Populates data → Shares with us
 
 ---
 
-## 8. SGA Hub & Management
+## 9. SGA Hub & Management
 
 ### Overview
 
@@ -950,7 +1030,7 @@ All tabs support CSV export via `src/lib/utils/sga-hub-csv-export.ts`:
 
 ---
 
-## 9. Self-Serve Analytics (Explore)
+## 10. Self-Serve Analytics (Explore)
 
 ### Overview
 
@@ -1178,7 +1258,7 @@ Query results support drill-down to underlying records:
 
 ---
 
-## 10. Deployment & Operations
+## 11. Deployment & Operations
 
 ### Environment Variables
 
@@ -1238,7 +1318,7 @@ Query results support drill-down to underlying records:
 
 ---
 
-## 11. GC Hub
+## 12. GC Hub
 
 ### Overview
 
@@ -1284,7 +1364,7 @@ Data is synchronized from Orion into two Prisma models:
 
 ---
 
-## 12. Dashboard Requests
+## 13. Dashboard Requests
 
 ### Overview
 
@@ -1353,7 +1433,7 @@ All non-recruiter users can submit requests. `canManageRequests` (RevOps Admin) 
 
 ---
 
-## 13. Recruiter Hub
+## 14. Recruiter Hub
 
 ### Overview
 
@@ -1385,7 +1465,7 @@ Recruiter Hub (Page 12) gives recruiters and managers a view of prospect and opp
 
 ---
 
-## 14. Advisor Map
+## 15. Advisor Map
 
 ### Overview
 
@@ -1444,7 +1524,7 @@ Both `POST` and `GET` for `/api/advisor-map/locations` accept `AdvisorLocationFi
 
 ---
 
-## 15. Pipeline Catcher Game
+## 16. Pipeline Catcher Game
 
 ### Overview
 
@@ -1493,7 +1573,7 @@ model GameScore {
 
 ---
 
-## 16. SGA Activity
+## 17. SGA Activity
 
 ### Overview
 
@@ -1544,7 +1624,7 @@ Two endpoints provide paginated record-level detail:
 
 ---
 
-## 17. Saved Reports
+## 18. Saved Reports
 
 ### Overview
 
@@ -1609,6 +1689,104 @@ model SavedReport {
 | DELETE | `/api/saved-reports/[id]` | Owner or admin/manager | Soft-delete (`isActive: false`) |
 | POST | `/api/saved-reports/[id]/duplicate` | Owner, or any eligible user for admin_template | Duplicate; result is always `reportType: 'user'` |
 | POST | `/api/saved-reports/[id]/set-default` | Owner (user reports only) | Set as default; unsets previous default first |
+
+---
+
+## 19. SGM Hub
+
+### Overview
+
+SGM (Sales Growth Manager) performance tracking hub. Three tabs: Leaderboard, Dashboard, and Quota Tracking.
+
+| Tab | Purpose | Access |
+|-----|---------|--------|
+| **Leaderboard** | Ranked SGMs by Joined AUM for selected quarter | admin, manager, sgm, revops_admin |
+| **Dashboard** | Funnel metrics, conversion trends, pipeline by stage, SGM conversion table | admin, manager, sgm, revops_admin |
+| **Quota Tracking** | Quarterly ARR quota pacing, open pipeline, historical performance | admin, manager, sgm, revops_admin |
+
+**Page ID**: 18
+**Route**: `/dashboard/sgm-hub`
+**Main Component**: `src/app/dashboard/sgm-hub/SGMHubContent.tsx`
+
+### Quota Tracking Tab
+
+Two role-conditional views:
+
+#### SGM View (role=sgm)
+
+SGMs see only their own data (enforced via `sgmFilter` from session permissions). Components:
+
+| Section | Component | Data Source |
+|---------|-----------|-------------|
+| Quarter Selector | Inline dropdown | Local state |
+| Quarterly Progress | Card with pacing badge, progress bar, stats grid | `GET /api/sgm-hub/quota-progress` |
+| Historical ARR Chart | Recharts BarChart (clickable bars) + goal ReferenceLine | `GET /api/sgm-hub/historical-quarters` |
+| Open Opportunities | Sortable table with aging color coding | `GET /api/sgm-hub/open-opps` |
+
+**Pacing Logic** (`src/lib/utils/sgm-hub-helpers.ts`):
+- Tolerance band: ±15% of expected pace (vs SGA's ±0.5 SQOs)
+- `expectedArr = (arrGoal / daysInQuarter) * daysElapsed`
+- Status: `ahead` (>15%), `on-track` (±15%), `behind` (<-15%), `no-goal`
+- `projectedArr = (actualArr / daysElapsed) * daysInQuarter`
+
+**ARR COALESCE**: `COALESCE(Actual_ARR__c, Account_Total_ARR__c)` per-record with `(est)` indicator when using fallback. `Actual_ARR__c` is 0% populated for recent quarters — auto-transitions when field populates.
+
+**Open Opps Aging** (color thresholds): green (0-29d), yellow (30-59d), orange (60-89d), red (90+d)
+
+**Days in Stage**: Uses stage-specific timestamp fields. `mql_stage_entered_ts` for Qualifying (90.5% populated — shows "—" when null).
+
+#### Admin View (role=admin, revops_admin)
+
+| Section | Component | Data Source |
+|---------|-----------|-------------|
+| Filters | Quarter, SGM, Channel, Source, Pacing Status multi-selects | Local state + filter options |
+| Team Progress | Card with total Joined ARR vs total quota | `GET /api/sgm-hub/team-progress` |
+| SGM Breakdown | Sortable table: Open Opps (clickable), 90+ Days (clickable), Open AUM, Open ARR, Joined ARR, Progress % | `POST /api/sgm-hub/admin-breakdown` |
+| Quota Management | Editable grid: 12 SGMs × 4 quarters, inline edit on click | `GET/PUT /api/sgm-hub/quota` |
+
+### Quota Data Model
+
+```prisma
+model SGMQuarterlyGoal {
+  id        String   @id @default(dbgenerated("gen_random_uuid()"))
+  userEmail String
+  quarter   String   // "YYYY-QN" format
+  arrGoal   Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime // NOT @updatedAt — set explicitly
+  createdBy String?
+  updatedBy String?
+  @@unique([userEmail, quarter])
+}
+```
+
+Seeded with 48 records (12 SGMs × 4 quarters for 2026) via `scripts/seed-sgm-quotas.ts`.
+
+### API Routes
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| GET | `/api/sgm-hub/quota` | admin, manager, sgm, revops_admin | List quotas, optional `?year=` filter |
+| PUT | `/api/sgm-hub/quota` | admin, revops_admin | Upsert a single quota (userEmail + quarter + arrGoal) |
+| GET | `/api/sgm-hub/quota-progress` | admin, manager, sgm, revops_admin | Pacing data for one SGM + quarter |
+| GET | `/api/sgm-hub/open-opps` | admin, manager, sgm, revops_admin | Open opportunities for one SGM |
+| GET | `/api/sgm-hub/historical-quarters` | admin, manager, sgm, revops_admin | Historical ARR by quarter (default 8) |
+| POST | `/api/sgm-hub/admin-breakdown` | admin, revops_admin | Per-SGM breakdown with filters |
+| GET | `/api/sgm-hub/team-progress` | admin, revops_admin | Team total ARR vs total quota |
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/lib/queries/sgm-quota.ts` | BigQuery + Prisma query functions (5 exports) |
+| `src/lib/utils/sgm-hub-helpers.ts` | `calculateSGMQuarterPacing`, `getDaysAgingStatus`, `formatArrCompact` |
+| `src/hooks/useQuotaTracking.ts` | Extracted quota state + fetch logic hook |
+| `src/components/sgm-hub/SGMQuotaTrackingView.tsx` | SGM user view (progress + chart + open opps) |
+| `src/components/sgm-hub/SGMAdminQuotaView.tsx` | Admin view (team progress + breakdown + quota table) |
+| `src/components/sgm-hub/SGMOpenOppsTable.tsx` | Sortable open opps table with aging colors |
+| `src/components/sgm-hub/SGMQuotaFilters.tsx` | Admin filter panel |
+| `src/components/sgm-hub/SGMQuotaTable.tsx` | Editable quarterly quota grid |
+| `src/types/sgm-hub.ts` | All SGM Hub types (leaderboard, dashboard, quota tracking) |
 
 ---
 

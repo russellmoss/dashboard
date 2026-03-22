@@ -14,19 +14,23 @@ import { ChevronUp, ChevronDown } from 'lucide-react';
 import { SgmConversionData } from '@/types/dashboard';
 import { formatPercent, formatNumber } from '@/lib/utils/date-helpers';
 
-type SortColumn = 'sgm' | 'sqls' | 'sqlToSqo' | 'sqos' | 'sqoToJoined' | 'joined';
+type SortColumn = 'sgm' | 'sqls' | 'sqlToSqo' | 'sqos' | 'sqoToJoined' | 'joined' | 'velocity';
 type SortDirection = 'asc' | 'desc';
 
 export type SgmConversionMetricType = 'sql' | 'sqo' | 'joined';
+export type SgmConversionRateType = 'sqlToSqoEligible' | 'sqoToJoinedEligible';
 
 interface SgmConversionTableProps {
   data: SgmConversionData[];
   loading?: boolean;
   /** When provided, SQLs / SQO's / Joined numbers become clickable and open drill-down */
   onMetricClick?: (sgm: string, metric: SgmConversionMetricType) => void;
+  /** When provided, conversion rate denominators become clickable to drill into eligible records */
+  onRateClick?: (sgm: string, rateType: SgmConversionRateType) => void;
+  hideTeamAverage?: boolean;
 }
 
-export function SgmConversionTable({ data, loading = false, onMetricClick }: SgmConversionTableProps) {
+export function SgmConversionTable({ data, loading = false, onMetricClick, onRateClick, hideTeamAverage = false }: SgmConversionTableProps) {
   const [sortColumn, setSortColumn] = useState<SortColumn>('sqls');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
@@ -53,6 +57,9 @@ export function SgmConversionTable({ data, loading = false, onMetricClick }: Sgm
         case 'joined':
           comparison = a.joinedCount - b.joinedCount;
           break;
+        case 'velocity':
+          comparison = (a.avgDaysSqoToJoined ?? 999) - (b.avgDaysSqoToJoined ?? 999);
+          break;
       }
       return sortDirection === 'asc' ? comparison : -comparison;
     });
@@ -71,6 +78,11 @@ export function SgmConversionTable({ data, loading = false, onMetricClick }: Sgm
     const totalSqoToJoinedDenom = data.reduce((sum, d) => sum + (d.sqoToJoinedDenom || 0), 0);
     const totalJoined = data.reduce((sum, d) => sum + d.joinedCount, 0);
 
+    const velocityValues = data.filter(d => d.avgDaysSqoToJoined != null).map(d => d.avgDaysSqoToJoined!);
+    const avgVelocity = velocityValues.length > 0
+      ? Math.round(velocityValues.reduce((sum, v) => sum + v, 0) / velocityValues.length * 10) / 10
+      : undefined;
+
     return {
       sgm: 'Team Average',
       sqlsReceived: Math.round(totalSqls / data.length),
@@ -78,6 +90,7 @@ export function SgmConversionTable({ data, loading = false, onMetricClick }: Sgm
       sqosCount: Math.round(totalSqos / data.length),
       sqoToJoinedRate: totalSqoToJoinedDenom > 0 ? totalSqoToJoinedNumer / totalSqoToJoinedDenom : 0,
       joinedCount: Math.round(totalJoined / data.length),
+      avgDaysSqoToJoined: avgVelocity,
     };
   }, [data]);
 
@@ -140,12 +153,13 @@ export function SgmConversionTable({ data, loading = false, onMetricClick }: Sgm
         <Table className="table-fixed w-full">
           <TableHead>
             <TableRow className="bg-gray-50 dark:bg-gray-900">
-              <SortableHeader column="sgm" alignRight={false} className="w-1/6">SGM</SortableHeader>
-              <SortableHeader column="sqls" className="w-1/6">SQLs</SortableHeader>
-              <SortableHeader column="sqlToSqo" className="w-1/6">SQL→SQO %</SortableHeader>
-              <SortableHeader column="sqos" className="w-1/6">SQO&apos;s</SortableHeader>
-              <SortableHeader column="sqoToJoined" className="w-1/6">SQO→Joined %</SortableHeader>
-              <SortableHeader column="joined" className="w-1/6">Joined</SortableHeader>
+              <SortableHeader column="sgm" alignRight={false} className="w-[15%]">SGM</SortableHeader>
+              <SortableHeader column="sqls" className="w-[13%]">SQLs</SortableHeader>
+              <SortableHeader column="sqlToSqo" className="w-[14%]">SQL→SQO %</SortableHeader>
+              <SortableHeader column="sqos" className="w-[13%]">SQO&apos;s</SortableHeader>
+              <SortableHeader column="sqoToJoined" className="w-[14%]">SQO→Joined %</SortableHeader>
+              <SortableHeader column="joined" className="w-[13%]">Joined</SortableHeader>
+              <SortableHeader column="velocity" className="w-[18%]">SQO→Joined (days)</SortableHeader>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -160,10 +174,10 @@ export function SgmConversionTable({ data, loading = false, onMetricClick }: Sgm
                     ? 'bg-white dark:bg-gray-800'
                     : 'bg-gray-50 dark:bg-gray-900'}
                 >
-                  <TableCell className="w-1/6 font-medium text-gray-900 dark:text-white">
+                  <TableCell className="w-[15%] font-medium text-gray-900 dark:text-white">
                     {row.sgm}
                   </TableCell>
-                  <TableCell className="w-1/6 text-right">
+                  <TableCell className="w-[13%] text-right">
                     {makeClickable ? (
                       <button
                         type="button"
@@ -176,8 +190,29 @@ export function SgmConversionTable({ data, loading = false, onMetricClick }: Sgm
                       formatNumber(row.sqlsReceived)
                     )}
                   </TableCell>
-                  <TableCell className="w-1/6 text-right">{formatPercent(row.sqlToSqoRate)}</TableCell>
-                  <TableCell className="w-1/6 text-right">
+                  <TableCell className="w-[14%] text-right">
+                    <span
+                      className="relative group"
+                    >
+                      {makeClickable && onRateClick ? (
+                        <button
+                          type="button"
+                          onClick={() => onRateClick(row.sgm, 'sqlToSqoEligible')}
+                          className="cursor-pointer hover:underline hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-1"
+                        >
+                          {formatPercent(row.sqlToSqoRate)}
+                        </button>
+                      ) : (
+                        formatPercent(row.sqlToSqoRate)
+                      )}
+                      {row.sqlToSqoDenom != null && (
+                        <span className="invisible group-hover:visible absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 text-xs bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded shadow-lg whitespace-nowrap z-10">
+                          {formatNumber(row.sqlToSqoNumer || 0)} of {formatNumber(row.sqlToSqoDenom)} eligible
+                        </span>
+                      )}
+                    </span>
+                  </TableCell>
+                  <TableCell className="w-[13%] text-right">
                     {makeClickable ? (
                       <button
                         type="button"
@@ -190,8 +225,29 @@ export function SgmConversionTable({ data, loading = false, onMetricClick }: Sgm
                       formatNumber(row.sqosCount)
                     )}
                   </TableCell>
-                  <TableCell className="w-1/6 text-right">{formatPercent(row.sqoToJoinedRate)}</TableCell>
-                  <TableCell className="w-1/6 text-right">
+                  <TableCell className="w-[14%] text-right">
+                    <span
+                      className="relative group"
+                    >
+                      {makeClickable && onRateClick ? (
+                        <button
+                          type="button"
+                          onClick={() => onRateClick(row.sgm, 'sqoToJoinedEligible')}
+                          className="cursor-pointer hover:underline hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-1"
+                        >
+                          {formatPercent(row.sqoToJoinedRate)}
+                        </button>
+                      ) : (
+                        formatPercent(row.sqoToJoinedRate)
+                      )}
+                      {row.sqoToJoinedDenom != null && (
+                        <span className="invisible group-hover:visible absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 text-xs bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded shadow-lg whitespace-nowrap z-10">
+                          {formatNumber(row.sqoToJoinedNumer || 0)} of {formatNumber(row.sqoToJoinedDenom)} eligible
+                        </span>
+                      )}
+                    </span>
+                  </TableCell>
+                  <TableCell className="w-[13%] text-right">
                     {makeClickable ? (
                       <button
                         type="button"
@@ -204,21 +260,27 @@ export function SgmConversionTable({ data, loading = false, onMetricClick }: Sgm
                       formatNumber(row.joinedCount)
                     )}
                   </TableCell>
+                  <TableCell className="w-[18%] text-right text-gray-600 dark:text-gray-400">
+                    {row.avgDaysSqoToJoined != null ? `${row.avgDaysSqoToJoined}d` : '\u2014'}
+                  </TableCell>
                 </TableRow>
               );
             })}
 
             {/* Team Average Row — pinned to bottom with visual separation (not clickable) */}
-            {teamAverage && (
+            {teamAverage && !hideTeamAverage && (
               <TableRow className="border-t-2 border-gray-300 dark:border-gray-600 bg-blue-50 dark:bg-blue-900/20">
-                <TableCell className="w-1/6 font-bold text-gray-900 dark:text-white">
+                <TableCell className="w-[15%] font-bold text-gray-900 dark:text-white">
                   {teamAverage.sgm}
                 </TableCell>
-                <TableCell className="w-1/6 text-right font-bold">{formatNumber(teamAverage.sqlsReceived)}</TableCell>
-                <TableCell className="w-1/6 text-right font-bold">{formatPercent(teamAverage.sqlToSqoRate)}</TableCell>
-                <TableCell className="w-1/6 text-right font-bold">{formatNumber(teamAverage.sqosCount)}</TableCell>
-                <TableCell className="w-1/6 text-right font-bold">{formatPercent(teamAverage.sqoToJoinedRate)}</TableCell>
-                <TableCell className="w-1/6 text-right font-bold">{formatNumber(teamAverage.joinedCount)}</TableCell>
+                <TableCell className="w-[13%] text-right font-bold">{formatNumber(teamAverage.sqlsReceived)}</TableCell>
+                <TableCell className="w-[14%] text-right font-bold">{formatPercent(teamAverage.sqlToSqoRate)}</TableCell>
+                <TableCell className="w-[13%] text-right font-bold">{formatNumber(teamAverage.sqosCount)}</TableCell>
+                <TableCell className="w-[14%] text-right font-bold">{formatPercent(teamAverage.sqoToJoinedRate)}</TableCell>
+                <TableCell className="w-[13%] text-right font-bold">{formatNumber(teamAverage.joinedCount)}</TableCell>
+                <TableCell className="w-[18%] text-right font-bold">
+                  {teamAverage.avgDaysSqoToJoined != null ? `${teamAverage.avgDaysSqoToJoined}d` : '\u2014'}
+                </TableCell>
               </TableRow>
             )}
           </TableBody>
