@@ -5,6 +5,14 @@ import { Card, Text } from '@tremor/react';
 import { ChevronDown, ChevronUp, Trash2, Share2, Eye } from 'lucide-react';
 import { dashboardApi } from '@/lib/api-client';
 
+interface QuarterData {
+  label: string;
+  p10: number;
+  p50: number;
+  p90: number;
+  mean: number;
+}
+
 interface Scenario {
   id: string;
   name: string;
@@ -18,12 +26,7 @@ interface Scenario {
   rateOverride_sp_to_neg: number;
   rateOverride_neg_to_signed: number;
   rateOverride_signed_to_joined: number;
-  q2_p10_aum: number | null;
-  q2_p50_aum: number | null;
-  q2_p90_aum: number | null;
-  q3_p10_aum: number | null;
-  q3_p50_aum: number | null;
-  q3_p90_aum: number | null;
+  quartersJson: QuarterData[] | null;
   trialCount: number;
   pipelineOppCount: number | null;
   pipelineTotalAum: number | null;
@@ -111,72 +114,73 @@ export function SavedScenariosList({ canRunScenarios, onLoadScenario }: SavedSce
             <p className="text-sm text-gray-500 py-4 text-center">No saved scenarios yet</p>
           ) : (
             <div className="space-y-3">
-              {scenarios.map(scenario => (
-                <div
-                  key={scenario.id}
-                  className="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <span className="font-medium text-gray-900 dark:text-gray-100 text-sm">
-                        {scenario.name}
-                      </span>
-                      <span className="ml-2 text-xs text-gray-500">
-                        by {scenario.createdByName} on{' '}
-                        {new Date(scenario.createdAt).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => onLoadScenario(scenario)}
-                        className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors"
-                        title="Load scenario"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleShare(scenario.shareToken)}
-                        className="p-1.5 text-gray-400 hover:text-green-600 transition-colors"
-                        title="Copy share link"
-                      >
-                        <Share2 className="w-4 h-4" />
-                      </button>
-                      {canRunScenarios && (
+              {scenarios.map(scenario => {
+                const quarters = scenario.quartersJson ?? [];
+                return (
+                  <div
+                    key={scenario.id}
+                    className="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <span className="font-medium text-gray-900 dark:text-gray-100 text-sm">
+                          {scenario.name}
+                        </span>
+                        <span className="ml-2 text-xs text-gray-500">
+                          by {scenario.createdByName} on{' '}
+                          {new Date(scenario.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
                         <button
-                          onClick={() => handleDelete(scenario.id)}
-                          className="p-1.5 text-gray-400 hover:text-red-600 transition-colors"
-                          title="Delete scenario"
+                          onClick={() => onLoadScenario(scenario)}
+                          className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors"
+                          title="Load scenario"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Eye className="w-4 h-4" />
                         </button>
-                      )}
+                        <button
+                          onClick={() => handleShare(scenario.shareToken)}
+                          className="p-1.5 text-gray-400 hover:text-green-600 transition-colors"
+                          title="Copy share link"
+                        >
+                          <Share2 className="w-4 h-4" />
+                        </button>
+                        {canRunScenarios && (
+                          <button
+                            onClick={() => handleDelete(scenario.id)}
+                            className="p-1.5 text-gray-400 hover:text-red-600 transition-colors"
+                            title="Delete scenario"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {scenario.description && (
+                      <p className="text-xs text-gray-500 mb-2">{scenario.description}</p>
+                    )}
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                      {quarters.map(q => (
+                        <div key={q.label}>
+                          <span className="text-gray-500">{q.label} P50:</span>{' '}
+                          <span className="font-mono">{formatAum(q.p50)}</span>
+                        </div>
+                      ))}
+                      <div>
+                        <span className="text-gray-500">Opps:</span>{' '}
+                        <span className="font-mono">{scenario.pipelineOppCount ?? '-'}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Trials:</span>{' '}
+                        <span className="font-mono">{scenario.trialCount.toLocaleString()}</span>
+                      </div>
                     </div>
                   </div>
-
-                  {scenario.description && (
-                    <p className="text-xs text-gray-500 mb-2">{scenario.description}</p>
-                  )}
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                    <div>
-                      <span className="text-gray-500">Q2 P50:</span>{' '}
-                      <span className="font-mono">{formatAum(scenario.q2_p50_aum)}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-500">Q3 P50:</span>{' '}
-                      <span className="font-mono">{formatAum(scenario.q3_p50_aum)}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-500">Opps:</span>{' '}
-                      <span className="font-mono">{scenario.pipelineOppCount ?? '-'}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-500">Trials:</span>{' '}
-                      <span className="font-mono">{scenario.trialCount.toLocaleString()}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

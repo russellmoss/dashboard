@@ -30,25 +30,26 @@ export interface ForecastPipelineRecord {
   Earliest_Anticipated_Start_Date__c: string | null;
   final_projected_join_date: string | null;
   date_source: 'Anticipated' | 'Model';
-  is_q2_2026: boolean;
-  is_q3_2026: boolean;
-  expected_aum_q2: number;
-  expected_aum_q3: number;
+  projected_quarter: string | null;
+  expected_aum_weighted: number;
   rate_sqo_to_sp: number | null;
   rate_sp_to_neg: number | null;
   rate_neg_to_signed: number | null;
   rate_signed_to_joined: number | null;
 }
 
+export interface QuarterSummary {
+  label: string;
+  opp_count: number;
+  expected_aum: number;
+}
+
 export interface ForecastSummary {
   total_opps: number;
-  q2_expected_aum: number;
-  q3_expected_aum: number;
-  q2_opp_count: number;
-  q3_opp_count: number;
+  pipeline_total_aum: number;
   zero_aum_count: number;
   anticipated_date_count: number;
-  pipeline_total_aum: number;
+  quarters: QuarterSummary[];
 }
 
 const FORECAST_P2_VIEW = 'savvy-gtm-analytics.Tableau_Views.vw_forecast_p2';
@@ -77,7 +78,7 @@ const _getForecastPipeline = async (
     SELECT *
     FROM \`${FORECAST_P2_VIEW}\`
     ${whereClause}
-    ORDER BY expected_aum_q2 + expected_aum_q3 DESC
+    ORDER BY expected_aum_weighted DESC
   `;
 
   const raw = await runQuery<any>(query, params);
@@ -99,25 +100,43 @@ const _getForecastPipeline = async (
     Earliest_Anticipated_Start_Date__c: extractDateValue(r.Earliest_Anticipated_Start_Date__c),
     final_projected_join_date: extractDateValue(r.final_projected_join_date),
     date_source: toString(r.date_source) as 'Anticipated' | 'Model',
-    is_q2_2026: toNumber(r.is_q2_2026) === 1,
-    is_q3_2026: toNumber(r.is_q3_2026) === 1,
-    expected_aum_q2: toNumber(r.expected_aum_q2),
-    expected_aum_q3: toNumber(r.expected_aum_q3),
+    projected_quarter: r.projected_quarter ? toString(r.projected_quarter) : null,
+    expected_aum_weighted: toNumber(r.expected_aum_weighted),
     rate_sqo_to_sp: r.rate_sqo_to_sp != null ? toNumber(r.rate_sqo_to_sp) : null,
     rate_sp_to_neg: r.rate_sp_to_neg != null ? toNumber(r.rate_sp_to_neg) : null,
     rate_neg_to_signed: r.rate_neg_to_signed != null ? toNumber(r.rate_neg_to_signed) : null,
     rate_signed_to_joined: r.rate_signed_to_joined != null ? toNumber(r.rate_signed_to_joined) : null,
   }));
 
+  // Build quarters array by grouping on projected_quarter
+  const quarterMap = new Map<string, { opp_count: number; expected_aum: number }>();
+  for (const r of records) {
+    if (r.projected_quarter) {
+      const existing = quarterMap.get(r.projected_quarter);
+      if (existing) {
+        existing.opp_count += 1;
+        existing.expected_aum += r.expected_aum_weighted;
+      } else {
+        quarterMap.set(r.projected_quarter, { opp_count: 1, expected_aum: r.expected_aum_weighted });
+      }
+    }
+  }
+
+  // Sort quarters chronologically (Q1 2026 < Q2 2026 < Q3 2026 etc.)
+  const quarters: QuarterSummary[] = Array.from(quarterMap.entries())
+    .map(([label, data]) => ({ label, ...data }))
+    .sort((a, b) => {
+      const [aq, ay] = a.label.replace('Q', '').split(' ').map(Number);
+      const [bq, by] = b.label.replace('Q', '').split(' ').map(Number);
+      return ay !== by ? ay - by : aq - bq;
+    });
+
   const summary: ForecastSummary = {
     total_opps: records.length,
-    q2_expected_aum: records.reduce((sum, r) => sum + r.expected_aum_q2, 0),
-    q3_expected_aum: records.reduce((sum, r) => sum + r.expected_aum_q3, 0),
-    q2_opp_count: records.filter(r => r.is_q2_2026).length,
-    q3_opp_count: records.filter(r => r.is_q3_2026).length,
+    pipeline_total_aum: records.reduce((sum, r) => sum + r.Opportunity_AUM_M, 0),
     zero_aum_count: records.filter(r => r.is_zero_aum).length,
     anticipated_date_count: records.filter(r => r.date_source === 'Anticipated').length,
-    pipeline_total_aum: records.reduce((sum, r) => sum + r.Opportunity_AUM_M, 0),
+    quarters,
   };
 
   return { records, summary };

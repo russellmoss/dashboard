@@ -31,7 +31,7 @@ interface RawRatesResult {
 const FORECAST_VIEW = 'savvy-gtm-analytics.Tableau_Views.vw_funnel_master';
 
 const _getForecastRates = async (
-  conversionWindowDays: 90 | 180 | 365 | null = null
+  conversionWindowDays: 180 | 365 | 730 | null = null
 ): Promise<ForecastRates> => {
   const windowStart = conversionWindowDays
     ? `DATE_SUB(CURRENT_DATE(), INTERVAL @windowDays DAY)`

@@ -5,8 +5,8 @@ import { Card } from '@tremor/react';
 import { Play, Download, Loader2 } from 'lucide-react';
 
 interface ForecastTopBarProps {
-  windowDays: 90 | 180 | 365 | null;
-  onWindowChange: (days: 90 | 180 | 365 | null) => void;
+  windowDays: 180 | 365 | 730 | null;
+  onWindowChange: (days: 180 | 365 | 730 | null) => void;
   canRunScenarios: boolean;
   onRunMonteCarlo: () => void;
   onExport: () => void;
@@ -15,10 +15,10 @@ interface ForecastTopBarProps {
   exportStatus: string | null;
 }
 
-const WINDOW_OPTIONS: { label: string; value: 90 | 180 | 365 | null }[] = [
-  { label: '90d', value: 90 },
+const WINDOW_OPTIONS: { label: string; value: 180 | 365 | 730 | null }[] = [
   { label: '180d', value: 180 },
   { label: '1yr', value: 365 },
+  { label: '2yr', value: 730 },
   { label: 'All time', value: null },
 ];
 

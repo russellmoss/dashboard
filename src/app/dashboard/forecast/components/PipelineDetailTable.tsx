@@ -41,8 +41,8 @@ export function PipelineDetailTable({ records, onRowClick }: PipelineDetailTable
       let aVal: number | string;
       let bVal: number | string;
       if (sortField === 'expected_aum') {
-        aVal = a.expected_aum_q2 + a.expected_aum_q3;
-        bVal = b.expected_aum_q2 + b.expected_aum_q3;
+        aVal = a.expected_aum_weighted;
+        bVal = b.expected_aum_weighted;
       } else if (sortField === 'final_projected_join_date') {
         aVal = a.final_projected_join_date || '';
         bVal = b.final_projected_join_date || '';
@@ -126,7 +126,7 @@ export function PipelineDetailTable({ records, onRowClick }: PipelineDetailTable
           </thead>
           <tbody>
             {sortedRecords.map(r => {
-              const totalExpected = r.expected_aum_q2 + r.expected_aum_q3;
+              const totalExpected = r.expected_aum_weighted;
               return (
                 <tr
                   key={r.Full_Opportunity_ID__c}

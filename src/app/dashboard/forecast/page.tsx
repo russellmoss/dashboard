@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { useSearchParams } from 'next/navigation';
 import nextDynamic from 'next/dynamic';
@@ -10,7 +10,7 @@ import { Loader2 } from 'lucide-react';
 import { dashboardApi } from '@/lib/api-client';
 import { getSessionPermissions } from '@/types/auth';
 import { ForecastRates } from '@/lib/queries/forecast-rates';
-import { ForecastPipelineRecord, ForecastSummary } from '@/lib/queries/forecast-pipeline';
+import { ForecastPipelineRecord, ForecastSummary, QuarterSummary } from '@/lib/queries/forecast-pipeline';
 import { MonteCarloResponse } from '@/lib/queries/forecast-monte-carlo';
 
 import { ForecastTopBar } from './components/ForecastTopBar';
@@ -43,7 +43,7 @@ export default function ForecastPage() {
   const permissions = getSessionPermissions(session);
   const canRunScenarios = permissions?.canRunScenarios ?? false;
 
-  const [windowDays, setWindowDays] = useState<90 | 180 | 365 | null>(365);
+  const [windowDays, setWindowDays] = useState<180 | 365 | 730 | null>(365);
   const [rates, setRates] = useState<ForecastRates | null>(null);
   const [pipeline, setPipeline] = useState<ForecastPipelineRecord[]>([]);
   const [summary, setSummary] = useState<ForecastSummary | null>(null);
@@ -54,6 +54,120 @@ export default function ForecastPage() {
   const [mcLoading, setMcLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const hasSharedScenario = useRef(!!searchParams.get('scenario'));
+
+  // Recompute p_join, expected_aum_weighted, projected dates, and summary
+  // using the active window's rates (instead of the view's baked-in rates)
+  const { adjustedPipeline, adjustedSummary } = useMemo(() => {
+    if (!rates || pipeline.length === 0) {
+      return { adjustedPipeline: pipeline, adjustedSummary: summary };
+    }
+
+    const { sqo_to_sp, sp_to_neg, neg_to_signed, signed_to_joined,
+            avg_days_in_sp, avg_days_in_neg, avg_days_in_signed } = rates;
+
+    const adjusted: ForecastPipelineRecord[] = pipeline.map(r => {
+      // Recalculate p_join from active rates
+      let pJoin = 0;
+      switch (r.StageName) {
+        case 'Discovery':
+        case 'Qualifying':
+          pJoin = sqo_to_sp * sp_to_neg * neg_to_signed * signed_to_joined;
+          break;
+        case 'Sales Process':
+          pJoin = sp_to_neg * neg_to_signed * signed_to_joined;
+          break;
+        case 'Negotiating':
+          pJoin = neg_to_signed * signed_to_joined;
+          break;
+        case 'Signed':
+          pJoin = signed_to_joined;
+          break;
+      }
+
+      // Recalculate expected days remaining
+      let totalDaysFromStage = 0;
+      switch (r.StageName) {
+        case 'Discovery':
+        case 'Qualifying':
+          totalDaysFromStage = avg_days_in_sp + avg_days_in_neg + avg_days_in_signed;
+          break;
+        case 'Sales Process':
+          totalDaysFromStage = avg_days_in_neg + avg_days_in_signed;
+          break;
+        case 'Negotiating':
+          totalDaysFromStage = avg_days_in_signed;
+          break;
+        case 'Signed':
+          totalDaysFromStage = 0;
+          break;
+      }
+      const daysRemaining = Math.max(0, totalDaysFromStage - r.days_in_current_stage);
+
+      // Recalculate projected join date (use anticipated if set, else model)
+      let finalDate = r.Earliest_Anticipated_Start_Date__c;
+      let dateSource: 'Anticipated' | 'Model' = 'Anticipated';
+      if (!finalDate) {
+        const projected = new Date();
+        projected.setDate(projected.getDate() + daysRemaining);
+        finalDate = projected.toISOString().split('T')[0];
+        dateSource = 'Model';
+      }
+
+      // Compute projected quarter from final date
+      let projectedQuarter: string | null = null;
+      if (finalDate) {
+        const d = new Date(finalDate);
+        const q = Math.ceil((d.getMonth() + 1) / 3);
+        projectedQuarter = `Q${q} ${d.getFullYear()}`;
+      }
+
+      // Compute expected AUM weighted
+      const aumRaw = r.Opportunity_AUM_M * 1e6;
+      const expectedAum = r.is_zero_aum ? 0 : aumRaw * pJoin;
+
+      return {
+        ...r,
+        p_join: pJoin,
+        expected_days_remaining: daysRemaining,
+        final_projected_join_date: finalDate,
+        date_source: dateSource,
+        projected_quarter: projectedQuarter,
+        expected_aum_weighted: expectedAum,
+      };
+    });
+
+    // Build summary with dynamic quarters
+    const quarterMap = new Map<string, { opp_count: number; expected_aum: number }>();
+    for (const r of adjusted) {
+      if (r.projected_quarter) {
+        const existing = quarterMap.get(r.projected_quarter);
+        if (existing) {
+          existing.opp_count += 1;
+          existing.expected_aum += r.expected_aum_weighted;
+        } else {
+          quarterMap.set(r.projected_quarter, { opp_count: 1, expected_aum: r.expected_aum_weighted });
+        }
+      }
+    }
+    const quarters: QuarterSummary[] = Array.from(quarterMap.entries())
+      .map(([label, data]) => ({ label, ...data }))
+      .sort((a, b) => {
+        const [aq, ay] = a.label.replace('Q', '').split(' ').map(Number);
+        const [bq, by] = b.label.replace('Q', '').split(' ').map(Number);
+        return ay !== by ? ay - by : aq - bq;
+      });
+
+    const adjSummary: ForecastSummary = {
+      total_opps: adjusted.length,
+      pipeline_total_aum: adjusted.reduce((sum, r) => sum + r.Opportunity_AUM_M, 0),
+      zero_aum_count: adjusted.filter(r => r.is_zero_aum).length,
+      anticipated_date_count: adjusted.filter(r => r.date_source === 'Anticipated').length,
+      quarters,
+    };
+
+    return { adjustedPipeline: adjusted, adjustedSummary: adjSummary };
+  }, [pipeline, rates, summary]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -80,6 +194,18 @@ export default function ForecastPage() {
     }
   }, [status, fetchData]);
 
+  // Auto-run Monte Carlo after data loads (on first load and when window changes)
+  useEffect(() => {
+    if (!loading && rates && !hasSharedScenario.current) {
+      handleRunMonteCarlo();
+    }
+    // Clear the shared scenario flag after first load so window changes still auto-run
+    if (!loading && hasSharedScenario.current && rates) {
+      hasSharedScenario.current = false;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, rates]);
+
   // Auto-load shared scenario from URL
   useEffect(() => {
     const scenarioToken = searchParams.get('scenario');
@@ -87,19 +213,10 @@ export default function ForecastPage() {
       dashboardApi.getSharedScenario(scenarioToken)
         .then(({ scenario }) => {
           if (scenario) {
+            const quarters = scenario.quartersJson ?? [];
             setMonteCarloResults({
-              q2: {
-                p10: scenario.q2_p10_aum || 0,
-                p50: scenario.q2_p50_aum || 0,
-                p90: scenario.q2_p90_aum || 0,
-                mean: scenario.q2_p50_aum || 0,
-              },
-              q3: {
-                p10: scenario.q3_p10_aum || 0,
-                p50: scenario.q3_p50_aum || 0,
-                p90: scenario.q3_p90_aum || 0,
-                mean: scenario.q3_p50_aum || 0,
-              },
+              quarters,
+              perOpp: [],
               trialCount: scenario.trialCount,
               ratesUsed: {
                 sqo_to_sp: scenario.rateOverride_sqo_to_sp,
@@ -182,7 +299,7 @@ export default function ForecastPage() {
         onRunMonteCarlo={() => handleRunMonteCarlo()}
         onExport={handleExport}
         mcLoading={mcLoading}
-        totalOpps={summary?.total_opps ?? 0}
+        totalOpps={adjustedSummary?.total_opps ?? 0}
         exportStatus={exportStatus}
       />
 
@@ -201,14 +318,14 @@ export default function ForecastPage() {
       ) : (
         <>
           <ForecastMetricCards
-            summary={summary}
+            summary={adjustedSummary}
             windowDays={windowDays}
             rates={rates}
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
-              <ExpectedAumChart pipeline={pipeline} />
+              <ExpectedAumChart pipeline={adjustedPipeline} />
             </div>
             <div>
               <ConversionRatesPanel rates={rates} />
@@ -216,13 +333,13 @@ export default function ForecastPage() {
           </div>
 
           {monteCarloResults && (
-            <MonteCarloPanel results={monteCarloResults} pipeline={pipeline} onOppClick={handleOppClick} />
+            <MonteCarloPanel results={monteCarloResults} pipeline={adjustedPipeline} onOppClick={handleOppClick} />
           )}
 
           {canRunScenarios && (
             <ScenarioRunner
               rates={rates}
-              summary={summary}
+              summary={adjustedSummary}
               monteCarloResults={monteCarloResults}
               onRunMonteCarlo={handleRunMonteCarlo}
               mcLoading={mcLoading}
@@ -232,19 +349,10 @@ export default function ForecastPage() {
           <SavedScenariosList
             canRunScenarios={canRunScenarios}
             onLoadScenario={(scenario) => {
+              const quarters = scenario.quartersJson ?? [];
               setMonteCarloResults({
-                q2: {
-                  p10: scenario.q2_p10_aum || 0,
-                  p50: scenario.q2_p50_aum || 0,
-                  p90: scenario.q2_p90_aum || 0,
-                  mean: scenario.q2_p50_aum || 0,
-                },
-                q3: {
-                  p10: scenario.q3_p10_aum || 0,
-                  p50: scenario.q3_p50_aum || 0,
-                  p90: scenario.q3_p90_aum || 0,
-                  mean: scenario.q3_p50_aum || 0,
-                },
+                quarters,
+                perOpp: [],
                 trialCount: scenario.trialCount,
                 ratesUsed: {
                   sqo_to_sp: scenario.rateOverride_sqo_to_sp,
@@ -257,7 +365,7 @@ export default function ForecastPage() {
           />
 
           <PipelineDetailTable
-            records={pipeline}
+            records={adjustedPipeline}
             onRowClick={handleOppClick}
           />
         </>

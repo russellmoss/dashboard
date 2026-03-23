@@ -48,10 +48,8 @@ interface ForecastPipelineRecordClient {
   Earliest_Anticipated_Start_Date__c: string | null;
   final_projected_join_date: string | null;
   date_source: 'Anticipated' | 'Model';
-  is_q2_2026: boolean;
-  is_q3_2026: boolean;
-  expected_aum_q2: number;
-  expected_aum_q3: number;
+  projected_quarter: string | null;
+  expected_aum_weighted: number;
   rate_sqo_to_sp: number | null;
   rate_sp_to_neg: number | null;
   rate_neg_to_signed: number | null;
@@ -59,13 +57,10 @@ interface ForecastPipelineRecordClient {
 }
 interface ForecastSummaryClient {
   total_opps: number;
-  q2_expected_aum: number;
-  q3_expected_aum: number;
-  q2_opp_count: number;
-  q3_opp_count: number;
+  pipeline_total_aum: number;
   zero_aum_count: number;
   anticipated_date_count: number;
-  pipeline_total_aum: number;
+  quarters: Array<{ label: string; opp_count: number; expected_aum: number }>;
 }
 interface MonteCarloRequestClient {
   conversionRates?: {
@@ -75,12 +70,11 @@ interface MonteCarloRequestClient {
     signed_to_joined: number;
   };
   avgDays?: { in_sp: number; in_neg: number; in_signed: number };
-  conversionWindowDays?: 90 | 180 | 365 | null;
+  conversionWindowDays?: 180 | 365 | 730 | null;
 }
 interface MonteCarloResponseClient {
-  q2: { p10: number; p50: number; p90: number; mean: number };
-  q3: { p10: number; p50: number; p90: number; mean: number };
-  perOpp?: Array<{ oppId: string; pJoin: number; q2AumP50: number; q3AumP50: number }>;
+  quarters: Array<{ label: string; p10: number; p50: number; p90: number; mean: number }>;
+  perOpp: Array<{ oppId: string; quarterLabel: string; winPct: number; avgAum: number }>;
   trialCount: number;
   ratesUsed: {
     sqo_to_sp: number;
@@ -1065,7 +1059,7 @@ export const dashboardApi = {
     apiFetch<{ progress: SGMTeamProgress }>(`/api/sgm-hub/team-progress?quarter=${quarter}`),
 
   // Forecast methods
-  getForecastRates: (windowDays?: 90 | 180 | 365 | null) => {
+  getForecastRates: (windowDays?: 180 | 365 | 730 | null) => {
     const params = new URLSearchParams();
     if (windowDays != null) params.set('windowDays', windowDays.toString());
     return apiFetch<{ rates: ForecastRatesClient }>(`/api/forecast/rates?${params.toString()}`);

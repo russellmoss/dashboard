@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const windowDaysParam = searchParams.get('windowDays');
     const windowDays = windowDaysParam
-      ? (parseInt(windowDaysParam) as 90 | 180 | 365)
+      ? (parseInt(windowDaysParam) as 180 | 365 | 730)
       : null;
 
     const rates = await getForecastRates(windowDays);

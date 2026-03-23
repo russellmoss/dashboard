@@ -87,12 +87,7 @@ export function ScenarioRunner({
         historicalRate_signed_to_joined: rates.signed_to_joined,
         pipelineOppCount: summary?.total_opps ?? null,
         pipelineTotalAum: summary?.pipeline_total_aum ?? null,
-        q2_p10_aum: monteCarloResults?.q2.p10 ?? null,
-        q2_p50_aum: monteCarloResults?.q2.p50 ?? null,
-        q2_p90_aum: monteCarloResults?.q2.p90 ?? null,
-        q3_p10_aum: monteCarloResults?.q3.p10 ?? null,
-        q3_p50_aum: monteCarloResults?.q3.p50 ?? null,
-        q3_p90_aum: monteCarloResults?.q3.p90 ?? null,
+        quartersJson: monteCarloResults?.quarters ?? null,
       });
       setSaveStatus(`Saved! Share: /dashboard/forecast?scenario=${scenario.shareToken}`);
     } catch (err) {

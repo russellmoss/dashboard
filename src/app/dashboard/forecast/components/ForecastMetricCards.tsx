@@ -8,7 +8,7 @@ import { ForecastSummary } from '@/lib/queries/forecast-pipeline';
 
 interface ForecastMetricCardsProps {
   summary: ForecastSummary | null;
-  windowDays: 90 | 180 | 365 | null;
+  windowDays: 180 | 365 | 730 | null;
   rates: ForecastRates | null;
 }
 
@@ -18,13 +18,13 @@ function formatAum(value: number): string {
   return `$${value.toFixed(0)}`;
 }
 
-function getWindowLabel(days: 90 | 180 | 365 | null): string {
+function getWindowLabel(days: 180 | 365 | 730 | null): string {
   if (days === null) return 'Jun 2025 - Dec 2025 (all-time)';
   const end = new Date();
   const start = new Date();
   start.setDate(start.getDate() - days);
   const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-  const label = days === 90 ? '90d' : days === 180 ? '180d' : '1yr';
+  const label = days === 180 ? '180d' : days === 365 ? '1yr' : '2yr';
   return `${fmt(start)} - ${fmt(end)} (${label} window active)`;
 }
 
@@ -50,35 +50,34 @@ function Tooltip({ text }: { text: string }) {
 export function ForecastMetricCards({ summary, windowDays, rates }: ForecastMetricCardsProps) {
   if (!summary) return null;
 
-  const cards = [
-    {
-      title: 'Open Pipeline AUM',
-      value: formatAum(summary.pipeline_total_aum * 1e6),
-      subtitle: `${summary.total_opps} opps (${summary.zero_aum_count} zero-AUM)`,
-      tooltip: null,
-    },
-    {
-      title: 'Expected Q2 AUM',
-      value: formatAum(summary.q2_expected_aum),
-      subtitle: `${summary.q2_opp_count} opps projected Q2 2026`,
-      tooltip: 'Sum of each opp\'s AUM multiplied by its deterministic P(Join) — the product of historical stage-to-stage conversion rates for its remaining stages. Only opps whose projected join date falls in Q2 2026 are included. This is NOT a Monte Carlo estimate.',
-    },
-    {
-      title: 'Expected Q3 AUM',
-      value: formatAum(summary.q3_expected_aum),
-      subtitle: `${summary.q3_opp_count} opps projected Q3 2026`,
-      tooltip: 'Sum of each opp\'s AUM multiplied by its deterministic P(Join) — the product of historical stage-to-stage conversion rates for its remaining stages. Only opps whose projected join date falls in Q3 2026 are included. This is NOT a Monte Carlo estimate.',
-    },
-    {
-      title: 'Conversion Window',
-      value: rates ? `${rates.cohort_count} SQOs` : '-',
-      subtitle: getWindowLabel(windowDays),
-      tooltip: null,
-    },
-  ];
+  const pipelineCard = {
+    title: 'Open Pipeline AUM',
+    value: formatAum(summary.pipeline_total_aum * 1e6),
+    subtitle: `${summary.total_opps} opps (${summary.zero_aum_count} zero-AUM)`,
+    tooltip: null as string | null,
+  };
+
+  const quarterCards = (summary.quarters ?? []).map(q => ({
+    title: `Expected ${q.label} AUM`,
+    value: formatAum(q.expected_aum),
+    subtitle: `${q.opp_count} opps projected ${q.label}`,
+    tooltip: `Sum of each opp's AUM multiplied by its deterministic P(Join) — the product of historical stage-to-stage conversion rates for its remaining stages. Only opps whose projected join date falls in ${q.label} are included. This is NOT a Monte Carlo estimate.`,
+  }));
+
+  const windowCard = {
+    title: 'Conversion Window',
+    value: rates ? `${rates.cohort_count} SQOs` : '-',
+    subtitle: getWindowLabel(windowDays),
+    tooltip: null as string | null,
+  };
+
+  const cards = [pipelineCard, ...quarterCards, windowCard];
+
+  // Dynamic grid: 2 cols on md, up to 4 on lg, wraps naturally
+  const gridCols = cards.length <= 3 ? 'lg:grid-cols-3' : cards.length <= 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-5';
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className={`grid grid-cols-1 md:grid-cols-2 ${gridCols} gap-4`}>
       {cards.map(card => (
         <Card key={card.title} className="p-4">
           <Text>

@@ -625,14 +625,7 @@ model ForecastScenario {
 
   // Monte Carlo results summary
   trialCount       Int     @default(5000)
-  q2_p10_aum       Float?
-  q2_p50_aum       Float?
-  q2_p90_aum       Float?
-  q2_p50_joiners   Int?
-  q3_p10_aum       Float?
-  q3_p50_aum       Float?
-  q3_p90_aum       Float?
-  q3_p50_joiners   Int?
+  quartersJson     Json?   // Array of { label, p10, p50, p90, mean }
 
   // Pipeline snapshot metadata
   pipelineOppCount Int?

@@ -30,10 +30,8 @@ export interface ForecastExportP2Row {
   Earliest_Anticipated_Start_Date__c: string | null;
   final_projected_join_date: string | null;
   date_source: string;
-  is_q2_2026: number;
-  is_q3_2026: number;
-  expected_aum_q2: number;
-  expected_aum_q3: number;
+  projected_quarter: string | null;
+  expected_aum_weighted: number;
   rate_sqo_to_sp: number | null;
   rate_sp_to_neg: number | null;
   rate_neg_to_signed: number | null;
@@ -78,7 +76,7 @@ export async function getForecastExportP2(): Promise<ForecastExportP2Row[]> {
   const query = `
     SELECT *
     FROM \`savvy-gtm-analytics.Tableau_Views.vw_forecast_p2\`
-    ORDER BY expected_aum_q2 + expected_aum_q3 DESC
+    ORDER BY expected_aum_weighted DESC
   `;
   const raw = await runQuery<any>(query);
   return raw.map(r => ({
@@ -99,10 +97,8 @@ export async function getForecastExportP2(): Promise<ForecastExportP2Row[]> {
     Earliest_Anticipated_Start_Date__c: extractDateValue(r.Earliest_Anticipated_Start_Date__c),
     final_projected_join_date: extractDateValue(r.final_projected_join_date),
     date_source: toString(r.date_source),
-    is_q2_2026: toNumber(r.is_q2_2026),
-    is_q3_2026: toNumber(r.is_q3_2026),
-    expected_aum_q2: toNumber(r.expected_aum_q2),
-    expected_aum_q3: toNumber(r.expected_aum_q3),
+    projected_quarter: r.projected_quarter ? toString(r.projected_quarter) : null,
+    expected_aum_weighted: toNumber(r.expected_aum_weighted),
     rate_sqo_to_sp: r.rate_sqo_to_sp != null ? toNumber(r.rate_sqo_to_sp) : null,
     rate_sp_to_neg: r.rate_sp_to_neg != null ? toNumber(r.rate_sp_to_neg) : null,
     rate_neg_to_signed: r.rate_neg_to_signed != null ? toNumber(r.rate_neg_to_signed) : null,

@@ -1,7 +1,8 @@
--- vw_forecast_p2 — created 2026-03-23
+-- vw_forecast_p2 — created 2026-03-23, updated 2026-03-23
 -- Deterministic expected-value pipeline forecast
 -- Sources from vw_funnel_master
 -- Cohorts for rate estimation: Jun 2025 - Dec 2025 (ALL SQOs, not just closed)
+-- DYNAMIC QUARTERS: projected_quarter + expected_aum_weighted replace hardcoded Q2/Q3
 
 CREATE OR REPLACE VIEW `savvy-gtm-analytics.Tableau_Views.vw_forecast_p2` AS
 
@@ -221,37 +222,25 @@ forecast_results AS (
 SELECT
   f.*,
 
-  -- Q2/Q3 flags
+  -- Dynamic quarter label from projected join date
   CASE
-    WHEN f.final_projected_join_date BETWEEN '2026-04-01' AND '2026-06-30' THEN 1
-    ELSE 0
-  END AS is_q2_2026,
-  CASE
-    WHEN f.final_projected_join_date BETWEEN '2026-07-01' AND '2026-09-30' THEN 1
-    ELSE 0
-  END AS is_q3_2026,
+    WHEN f.final_projected_join_date IS NOT NULL
+    THEN CONCAT('Q', CAST(EXTRACT(QUARTER FROM f.final_projected_join_date) AS STRING),
+                ' ', CAST(EXTRACT(YEAR FROM f.final_projected_join_date) AS STRING))
+    ELSE NULL
+  END AS projected_quarter,
 
-  -- Expected AUM per quarter
+  -- Probability-weighted expected AUM (quarter-agnostic)
   CASE
-    WHEN f.final_projected_join_date BETWEEN '2026-04-01' AND '2026-06-30'
-      AND f.is_zero_aum = 0
+    WHEN f.is_zero_aum = 0 AND f.final_projected_join_date IS NOT NULL
     THEN f.Opportunity_AUM * f.p_join
     ELSE 0
-  END AS expected_aum_q2,
-  CASE
-    WHEN f.final_projected_join_date BETWEEN '2026-07-01' AND '2026-09-30'
-      AND f.is_zero_aum = 0
-    THEN f.Opportunity_AUM * f.p_join
-    ELSE 0
-  END AS expected_aum_q3
+  END AS expected_aum_weighted
 
 FROM forecast_results f
 ORDER BY
   CASE
-    WHEN f.final_projected_join_date BETWEEN '2026-04-01' AND '2026-06-30'
-      AND f.is_zero_aum = 0 THEN f.Opportunity_AUM * f.p_join ELSE 0
-  END
-  + CASE
-    WHEN f.final_projected_join_date BETWEEN '2026-07-01' AND '2026-09-30'
-      AND f.is_zero_aum = 0 THEN f.Opportunity_AUM * f.p_join ELSE 0
+    WHEN f.is_zero_aum = 0 AND f.final_projected_join_date IS NOT NULL
+    THEN f.Opportunity_AUM * f.p_join
+    ELSE 0
   END DESC

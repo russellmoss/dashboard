@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Card, Text } from '@tremor/react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { MonteCarloResponse } from '@/lib/queries/forecast-monte-carlo';
+import { MonteCarloResponse, MonteCarloQuarterResult, MonteCarloPerOpp } from '@/lib/queries/forecast-monte-carlo';
 import { ForecastPipelineRecord } from '@/lib/queries/forecast-pipeline';
-import { ChevronDown, ChevronUp, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, X, Download } from 'lucide-react';
+import { exportToCSV } from '@/lib/utils/export-csv';
 
 interface MonteCarloPanelProps {
   results: MonteCarloResponse;
@@ -26,121 +27,195 @@ function formatAumShort(value: number): string {
   return `$${value.toFixed(0)}`;
 }
 
-type ScenarioKey = 'q2_p10' | 'q2_p50' | 'q2_p90' | 'q3_p10' | 'q3_p50' | 'q3_p90' | null;
+type ScenarioKey = string | null;
 
-const SCENARIO_META: Record<Exclude<ScenarioKey, null>, { quarter: 'Q2' | 'Q3'; label: string; color: string }> = {
-  q2_p10: { quarter: 'Q2', label: 'Q2 P10 (Bear)', color: 'text-red-600' },
-  q2_p50: { quarter: 'Q2', label: 'Q2 P50 (Base)', color: 'text-blue-600' },
-  q2_p90: { quarter: 'Q2', label: 'Q2 P90 (Bull)', color: 'text-green-600' },
-  q3_p10: { quarter: 'Q3', label: 'Q3 P10 (Bear)', color: 'text-red-600' },
-  q3_p50: { quarter: 'Q3', label: 'Q3 P50 (Base)', color: 'text-blue-600' },
-  q3_p90: { quarter: 'Q3', label: 'Q3 P90 (Bull)', color: 'text-green-600' },
+const PERCENTILE_META: Record<string, { suffix: string; label: string; color: string; ring: string }> = {
+  p10: { suffix: 'P10 (Bear)', label: 'P10 (Bear)', color: 'text-red-600', ring: 'ring-red-400' },
+  p50: { suffix: 'P50 (Base)', label: 'P50 (Base)', color: 'text-blue-600', ring: 'ring-blue-400' },
+  p90: { suffix: 'P90 (Bull)', label: 'P90 (Bull)', color: 'text-green-600', ring: 'ring-green-400' },
 };
 
-function getScenarioValue(results: MonteCarloResponse, key: Exclude<ScenarioKey, null>): number {
-  const map: Record<string, number> = {
-    q2_p10: results.q2.p10, q2_p50: results.q2.p50, q2_p90: results.q2.p90,
-    q3_p10: results.q3.p10, q3_p50: results.q3.p50, q3_p90: results.q3.p90,
-  };
-  return map[key];
+const QUARTER_COLORS = ['#3b82f6', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#6366f1'];
+
+interface DrilldownRow {
+  record: ForecastPipelineRecord;
+  rawAum: number;
+  simWinPct: number;
+  expectedAum: number;
+  cumulative: number;
+  inScenario: boolean;
+  inP10: boolean;
+  inP50: boolean;
+  inP90: boolean;
 }
 
 export default function MonteCarloPanel({ results, pipeline, onOppClick }: MonteCarloPanelProps) {
   const [showRates, setShowRates] = useState(false);
   const [activeScenario, setActiveScenario] = useState<ScenarioKey>(null);
 
-  const chartData = [
-    { name: 'Q2 P10', value: results.q2.p10, quarter: 'Q2', scenario: 'q2_p10' as ScenarioKey },
-    { name: 'Q2 P50', value: results.q2.p50, quarter: 'Q2', scenario: 'q2_p50' as ScenarioKey },
-    { name: 'Q2 P90', value: results.q2.p90, quarter: 'Q2', scenario: 'q2_p90' as ScenarioKey },
-    { name: 'Q3 P10', value: results.q3.p10, quarter: 'Q3', scenario: 'q3_p10' as ScenarioKey },
-    { name: 'Q3 P50', value: results.q3.p50, quarter: 'Q3', scenario: 'q3_p50' as ScenarioKey },
-    { name: 'Q3 P90', value: results.q3.p90, quarter: 'Q3', scenario: 'q3_p90' as ScenarioKey },
-  ];
+  // Parse active scenario into quarter label + percentile
+  const activeQuarter = useMemo(() => {
+    if (!activeScenario) return null;
+    const lastUnderscore = activeScenario.lastIndexOf('_');
+    const quarterLabel = activeScenario.substring(0, lastUnderscore);
+    const percentile = activeScenario.substring(lastUnderscore + 1) as 'p10' | 'p50' | 'p90';
+    const qData = results.quarters.find(q => q.label === quarterLabel);
+    if (!qData) return null;
+    return { quarterLabel, percentile, qData, targetAum: qData[percentile] };
+  }, [activeScenario, results.quarters]);
 
-  // Build the drilldown: deals sorted by P(Close) desc with running total
-  // Deals "in" the scenario = those whose cumulative AUM ≤ scenario target
-  const drilldownData = useMemo(() => {
-    if (!activeScenario || !pipeline) return null;
-
-    const meta = SCENARIO_META[activeScenario];
-    const targetAum = getScenarioValue(results, activeScenario);
-    const quarter = meta.quarter;
-
-    // Get all deals projected for this quarter, sorted by P(Close) desc
-    const deals = pipeline
-      .filter(r => quarter === 'Q2' ? r.is_q2_2026 : r.is_q3_2026)
-      .filter(r => !r.is_zero_aum)
-      .sort((a, b) => b.p_join - a.p_join);
-
-    // Walk through deals, accumulating AUM until we reach the target
-    let cumulative = 0;
-    const rows = deals.map(r => {
-      const rawAum = r.Opportunity_AUM_M * 1e6;
-      cumulative += rawAum;
-      return {
-        record: r,
-        rawAum,
-        cumulative,
-        inScenario: cumulative <= targetAum * 1.05, // 5% tolerance for rounding
-      };
-    });
-
-    // If cumulative never reaches target (P90 exceeds total raw AUM),
-    // mark all deals as in-scenario
-    if (targetAum > 0 && cumulative < targetAum * 0.95) {
-      rows.forEach(r => r.inScenario = true);
+  // Build chart data from dynamic quarters
+  const chartData = useMemo(() => {
+    const data: Array<{ name: string; value: number; quarter: string; scenario: string; qIndex: number }> = [];
+    for (let qi = 0; qi < results.quarters.length; qi++) {
+      const q = results.quarters[qi];
+      for (const pKey of ['p10', 'p50', 'p90'] as const) {
+        data.push({
+          name: `${q.label} ${PERCENTILE_META[pKey].suffix.split(' ')[0]}`,
+          value: q[pKey],
+          quarter: q.label,
+          scenario: `${q.label}_${pKey}`,
+          qIndex: qi,
+        });
+      }
     }
+    return data;
+  }, [results.quarters]);
 
-    return { deals: rows, targetAum, meta, totalDeals: deals.length };
-  }, [activeScenario, pipeline, results]);
+  // Build per-opp lookup
+  const perOppMap = useMemo(() => {
+    const map = new Map<string, MonteCarloPerOpp>();
+    if (results.perOpp) {
+      for (const opp of results.perOpp) {
+        map.set(`${opp.oppId}_${opp.quarterLabel}`, opp);
+      }
+    }
+    return map;
+  }, [results.perOpp]);
 
-  const toggleScenario = (key: ScenarioKey) => {
+  // Drilldown with P10/P50/P90 membership for all three scenarios
+  const drilldownData = useMemo(() => {
+    if (!activeQuarter || !pipeline) return null;
+
+    const { quarterLabel, qData } = activeQuarter;
+    const meta = PERCENTILE_META[activeQuarter.percentile];
+    const targetAum = activeQuarter.targetAum;
+
+    const baseDealsList = pipeline
+      .filter(r => r.projected_quarter === quarterLabel)
+      .filter(r => !r.is_zero_aum)
+      .map(r => {
+        const sim = perOppMap.get(`${r.Full_Opportunity_ID__c}_${quarterLabel}`);
+        const winPct = sim?.winPct ?? 0;
+        const rawAum = r.Opportunity_AUM_M * 1e6;
+        return { record: r, rawAum, simWinPct: winPct, expectedAum: winPct * rawAum };
+      })
+      .sort((a, b) => b.simWinPct - a.simWinPct || b.rawAum - a.rawAum);
+
+    // First pass: compute cumulative AUM for the sorted list
+    let cumulative = 0;
+    const dealsWithCum = baseDealsList.map(d => {
+      cumulative += d.rawAum;
+      return { ...d, cumulative };
+    });
+    const totalAum = cumulative;
+
+    // Membership: deal is "in" a scenario if its cumulative AUM <= target * 1.05
+    // OR if total AUM never reaches the target (all deals are in)
+    const isIn = (cum: number, target: number): boolean => {
+      if (target > 0 && totalAum < target * 0.95) return true;
+      return cum <= target * 1.05;
+    };
+
+    const deals: DrilldownRow[] = dealsWithCum.map(d => ({
+      ...d,
+      inScenario: isIn(d.cumulative, targetAum),
+      inP10: isIn(d.cumulative, qData.p10),
+      inP50: isIn(d.cumulative, qData.p50),
+      inP90: isIn(d.cumulative, qData.p90),
+    }));
+
+    return {
+      deals,
+      targetAum,
+      label: `${quarterLabel} ${meta.label}`,
+      color: meta.color,
+      quarterLabel,
+      totalDeals: deals.length,
+    };
+  }, [activeQuarter, pipeline, perOppMap]);
+
+  const toggleScenario = (key: string) => {
     setActiveScenario(prev => prev === key ? null : key);
   };
 
-  const scenarioCards = (quarter: 'Q2' | 'Q3') => {
-    const items = quarter === 'Q2'
-      ? [
-          { key: 'q2_p10' as ScenarioKey, label: 'P10 (Bear)', value: results.q2.p10, color: 'text-red-600', ring: 'ring-red-400' },
-          { key: 'q2_p50' as ScenarioKey, label: 'P50 (Base)', value: results.q2.p50, color: 'text-blue-600', ring: 'ring-blue-400' },
-          { key: 'q2_p90' as ScenarioKey, label: 'P90 (Bull)', value: results.q2.p90, color: 'text-green-600', ring: 'ring-green-400' },
-        ]
-      : [
-          { key: 'q3_p10' as ScenarioKey, label: 'P10 (Bear)', value: results.q3.p10, color: 'text-red-600', ring: 'ring-red-400' },
-          { key: 'q3_p50' as ScenarioKey, label: 'P50 (Base)', value: results.q3.p50, color: 'text-blue-600', ring: 'ring-blue-400' },
-          { key: 'q3_p90' as ScenarioKey, label: 'P90 (Bull)', value: results.q3.p90, color: 'text-green-600', ring: 'ring-green-400' },
-        ];
+  const handleExportCSV = useCallback(() => {
+    if (!drilldownData) return;
 
-    return (
-      <div>
-        <Text className="font-medium mb-2">{quarter} 2026</Text>
-        <div className="grid grid-cols-3 gap-3">
-          {items.map(item => (
-            <div
-              key={item.key}
-              onClick={() => toggleScenario(item.key)}
-              className={`bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-center cursor-pointer transition-all hover:shadow-md ${
-                activeScenario === item.key ? `ring-2 ${item.ring} shadow-md` : ''
-              }`}
-            >
-              <p className="text-xs text-gray-500 mb-1">{item.label}</p>
-              <p className={`text-sm font-bold ${item.color}`}>{formatAum(item.value)}</p>
-              <p className="text-[10px] text-gray-400 mt-0.5">click to see deals</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
+    const csvRows = drilldownData.deals.map((row, i) => ({
+      '#': i + 1,
+      'Opp ID': row.record.Full_Opportunity_ID__c,
+      'Advisor': row.record.advisor_name,
+      'SGM': row.record.SGM_Owner_Name__c ?? '',
+      'SGA': row.record.SGA_Owner_Name__c ?? '',
+      'Stage': row.record.StageName,
+      'Days in Stage': row.record.days_in_current_stage,
+      'AUM ($M)': row.record.Opportunity_AUM_M,
+      'AUM Tier': row.record.aum_tier,
+      'P(Join)': (row.record.p_join * 100).toFixed(1) + '%',
+      'Won in (MC)': (row.simWinPct * 100).toFixed(1) + '%',
+      'Expected AUM': Math.round(row.expectedAum),
+      'Running Total': Math.round(row.cumulative),
+      'In P10 (Bear)': row.inP10 ? 'YES' : 'NO',
+      'In P50 (Base)': row.inP50 ? 'YES' : 'NO',
+      'In P90 (Bull)': row.inP90 ? 'YES' : 'NO',
+      'Projected Quarter': row.record.projected_quarter ?? '',
+      'Model Join Date': row.record.model_projected_join_date ?? '',
+      'Anticipated Join Date': row.record.Earliest_Anticipated_Start_Date__c ?? '',
+      'Final Projected Join Date': row.record.final_projected_join_date ?? '',
+      'Date Source': row.record.date_source,
+      'Expected Days Remaining': row.record.expected_days_remaining,
+      'Rate SQO→SP': row.record.rate_sqo_to_sp != null ? (row.record.rate_sqo_to_sp * 100).toFixed(1) + '%' : '',
+      'Rate SP→Neg': row.record.rate_sp_to_neg != null ? (row.record.rate_sp_to_neg * 100).toFixed(1) + '%' : '',
+      'Rate Neg→Signed': row.record.rate_neg_to_signed != null ? (row.record.rate_neg_to_signed * 100).toFixed(1) + '%' : '',
+      'Rate Signed→Joined': row.record.rate_signed_to_joined != null ? (row.record.rate_signed_to_joined * 100).toFixed(1) + '%' : '',
+      'Salesforce URL': row.record.salesforce_url,
+    }));
+
+    const filename = `forecast_${drilldownData.quarterLabel.replace(' ', '_')}_drilldown`;
+    exportToCSV(csvRows, filename);
+  }, [drilldownData]);
 
   return (
     <Card className="p-4">
       <Text className="font-semibold mb-4">Monte Carlo Simulation ({results.trialCount.toLocaleString()} trials)</Text>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        {scenarioCards('Q2')}
-        {scenarioCards('Q3')}
+      {/* Dynamic quarter cards */}
+      <div className={`grid grid-cols-1 ${results.quarters.length <= 2 ? 'md:grid-cols-2' : results.quarters.length <= 3 ? 'md:grid-cols-3' : 'md:grid-cols-2 lg:grid-cols-4'} gap-6 mb-6`}>
+        {results.quarters.map(q => (
+          <div key={q.label}>
+            <Text className="font-medium mb-2">{q.label}</Text>
+            <div className="grid grid-cols-3 gap-3">
+              {(['p10', 'p50', 'p90'] as const).map(pKey => {
+                const scenarioKey = `${q.label}_${pKey}`;
+                const meta = PERCENTILE_META[pKey];
+                return (
+                  <div
+                    key={scenarioKey}
+                    onClick={() => toggleScenario(scenarioKey)}
+                    className={`bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-center cursor-pointer transition-all hover:shadow-md ${
+                      activeScenario === scenarioKey ? `ring-2 ${meta.ring} shadow-md` : ''
+                    }`}
+                  >
+                    <p className="text-xs text-gray-500 mb-1">{meta.label}</p>
+                    <p className={`text-sm font-bold ${meta.color}`}>{formatAum(q[pKey])}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">click to see deals</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Drilldown table */}
@@ -148,16 +223,27 @@ export default function MonteCarloPanel({ results, pipeline, onOppClick }: Monte
         <div className="mb-6 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
           <div className="bg-gray-50 dark:bg-gray-800 px-4 py-3">
             <div className="flex items-center justify-between">
-              <span className={`font-semibold text-sm ${drilldownData.meta.color}`}>
-                {drilldownData.meta.label} — {formatAum(drilldownData.targetAum)}
+              <span className={`font-semibold text-sm ${drilldownData.color}`}>
+                {drilldownData.label} — {formatAum(drilldownData.targetAum)}
               </span>
-              <button onClick={() => setActiveScenario(null)} className="p-1 text-gray-400 hover:text-gray-600">
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleExportCSV}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600"
+                  title="Export drilldown as CSV"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Export CSV
+                </button>
+                <button onClick={() => setActiveScenario(null)} className="p-1 text-gray-400 hover:text-gray-600">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Deals sorted by probability of closing (highest first). The running total shows how the AUM accumulates to reach the {drilldownData.meta.label.split(' ')[1]} scenario value.
-              Deals above the line are the ones most likely to make up this outcome.
+              Sorted by simulation win rate (most reliable closers first).
+              &quot;Won in&quot; = % of {results.trialCount.toLocaleString()} trials where this deal closed.
+              Running total shows cumulative AUM if these deals close, top-down.
             </p>
           </div>
           <div className="overflow-x-auto max-h-[28rem] overflow-y-auto">
@@ -168,7 +254,12 @@ export default function MonteCarloPanel({ results, pipeline, onOppClick }: Monte
                   <th className="py-2 px-3 font-medium text-gray-500">Advisor</th>
                   <th className="py-2 px-3 font-medium text-gray-500">Stage</th>
                   <th className="py-2 px-3 text-right font-medium text-gray-500">AUM if Won</th>
-                  <th className="py-2 px-3 text-right font-medium text-gray-500">P(Close)</th>
+                  <th className="py-2 px-3 text-right font-medium text-gray-500">Won in</th>
+                  <th className="py-2 px-3 text-right font-medium text-gray-500">Expected AUM</th>
+                  <th className="py-2 px-3 font-medium text-gray-500">Proj. Join</th>
+                  <th className="py-2 px-3 text-center font-medium text-gray-500">P10</th>
+                  <th className="py-2 px-3 text-center font-medium text-gray-500">P50</th>
+                  <th className="py-2 px-3 text-center font-medium text-gray-500">P90</th>
                   <th className="py-2 px-3 text-right font-medium text-gray-500">Running Total</th>
                 </tr>
               </thead>
@@ -201,11 +292,38 @@ export default function MonteCarloPanel({ results, pipeline, onOppClick }: Monte
                             {row.record.StageName}
                           </span>
                         </td>
-                        <td className="py-2 px-3 text-right font-mono font-medium text-gray-900 dark:text-gray-100">
+                        <td className="py-2 px-3 text-right font-mono text-gray-500">
                           {formatAumShort(row.rawAum)}
                         </td>
                         <td className="py-2 px-3 text-right font-mono font-bold">
-                          {(row.record.p_join * 100).toFixed(1)}%
+                          {(row.simWinPct * 100).toFixed(1)}%
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono font-medium text-gray-900 dark:text-gray-100">
+                          {formatAumShort(row.expectedAum)}
+                        </td>
+                        <td className="py-2 px-3 text-gray-500 text-xs whitespace-nowrap">
+                          {row.record.final_projected_join_date?.substring(0, 10) || '-'}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          {row.inP10 ? (
+                            <span className="inline-block w-2 h-2 rounded-full bg-red-500" title="In P10" />
+                          ) : (
+                            <span className="text-gray-300 text-xs">-</span>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          {row.inP50 ? (
+                            <span className="inline-block w-2 h-2 rounded-full bg-blue-500" title="In P50" />
+                          ) : (
+                            <span className="text-gray-300 text-xs">-</span>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          {row.inP90 ? (
+                            <span className="inline-block w-2 h-2 rounded-full bg-green-500" title="In P90" />
+                          ) : (
+                            <span className="text-gray-300 text-xs">-</span>
+                          )}
                         </td>
                         <td className={`py-2 px-3 text-right font-mono ${
                           row.inScenario ? 'text-blue-600 dark:text-blue-400 font-semibold' : 'text-gray-400'
@@ -215,11 +333,11 @@ export default function MonteCarloPanel({ results, pipeline, onOppClick }: Monte
                       </tr>
                       {isLastIn && (
                         <tr>
-                          <td colSpan={6} className="px-3 py-1">
+                          <td colSpan={11} className="px-3 py-1">
                             <div className="flex items-center gap-2">
                               <div className="flex-1 border-t-2 border-dashed border-blue-400" />
                               <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                                {drilldownData.meta.label} target: {formatAum(drilldownData.targetAum)} — {i + 1} deals above this line
+                                {drilldownData.label} target: {formatAum(drilldownData.targetAum)}
                               </span>
                               <div className="flex-1 border-t-2 border-dashed border-blue-400" />
                             </div>
@@ -233,8 +351,8 @@ export default function MonteCarloPanel({ results, pipeline, onOppClick }: Monte
             </table>
           </div>
           <div className="bg-gray-50 dark:bg-gray-800 px-4 py-2 text-xs text-gray-500">
-            Deals above the dashed line are the highest-probability wins that accumulate to the scenario total.
-            In the Monte Carlo, each deal independently closes or doesn&apos;t — so the actual mix varies per trial, but these are the most likely contributors.
+            Sorted by simulation win rate — most reliable closers first. In bear scenarios, these are the deals most likely to have actually closed.
+            Each deal closes independently per trial, so the exact mix varies. Win rates change each simulation run.
           </div>
         </div>
       )}
@@ -243,7 +361,7 @@ export default function MonteCarloPanel({ results, pipeline, onOppClick }: Monte
       <ResponsiveContainer width="100%" height={200}>
         <BarChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-          <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+          <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={50} />
           <YAxis tickFormatter={(v) => formatAum(Number(v))} tick={{ fontSize: 11 }} />
           <Tooltip formatter={(value) => formatAum(Number(value))} />
           <Bar
@@ -259,7 +377,7 @@ export default function MonteCarloPanel({ results, pipeline, onOppClick }: Monte
             {chartData.map((entry, index) => (
               <Cell
                 key={`cell-${index}`}
-                fill={entry.quarter === 'Q2' ? '#3b82f6' : '#8b5cf6'}
+                fill={QUARTER_COLORS[entry.qIndex % QUARTER_COLORS.length]}
                 opacity={activeScenario && activeScenario !== entry.scenario ? 0.3 : 1}
               />
             ))}

@@ -112,7 +112,7 @@ function buildP2Values(rows: ForecastExportP2Row[]): any[][] {
     'Rate SQO\u2192SP', 'Rate SP\u2192Neg', 'Rate Neg\u2192Signed', 'Rate Signed\u2192Joined',
     'Stages Remaining', 'P(Join) Workings', 'P(Join)', 'Days Remaining',
     'Model Join Date', 'Anticipated Date', 'Final Join Date', 'Date Source',
-    'Q2 2026', 'Q3 2026', 'Expected AUM Q2', 'Expected AUM Q3',
+    'Projected Quarter', 'Expected AUM',
   ];
 
   const dataRows = rows.map((r, i) => {
@@ -140,10 +140,8 @@ function buildP2Values(rows: ForecastExportP2Row[]): any[][] {
       r.Earliest_Anticipated_Start_Date__c || '',
       r.final_projected_join_date || '',
       r.date_source,
-      r.is_q2_2026 ? 'YES' : 'NO',
-      r.is_q3_2026 ? 'YES' : 'NO',
-      `=IF(W${row}="YES",G${row}*Q${row},0)`,
-      `=IF(X${row}="YES",G${row}*Q${row},0)`,
+      r.projected_quarter || '',
+      `=IF(AND(W${row}<>"",J${row}="NO"),G${row}*Q${row},0)`,
     ];
   });
 

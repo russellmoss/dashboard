@@ -24,19 +24,39 @@ function formatAumShort(value: number): string {
   return `$${value.toFixed(0)}`;
 }
 
+// Stable color palette for dynamic quarters
+const QUARTER_COLORS = ['#3b82f6', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#6366f1'];
+
 export default function ExpectedAumChart({ pipeline }: ExpectedAumChartProps) {
+  // Discover all quarters from the data
+  const quarters = useMemo(() => {
+    const qSet = new Set<string>();
+    for (const r of pipeline) {
+      if (r.projected_quarter) qSet.add(r.projected_quarter);
+    }
+    return Array.from(qSet).sort((a, b) => {
+      const [aq, ay] = a.replace('Q', '').split(' ').map(Number);
+      const [bq, by] = b.replace('Q', '').split(' ').map(Number);
+      return ay !== by ? ay - by : aq - bq;
+    });
+  }, [pipeline]);
+
   const chartData = useMemo(() => {
     const stages = ['Discovery', 'Qualifying', 'Sales Process', 'Negotiating', 'Signed'];
     return stages.map(stage => {
       const stageRecords = pipeline.filter(r => r.StageName === stage);
-      return {
+      const entry: Record<string, any> = {
         stage: stage === 'Sales Process' ? 'SP' : stage === 'Negotiating' ? 'Neg' : stage,
-        Q2: stageRecords.reduce((sum, r) => sum + r.expected_aum_q2, 0),
-        Q3: stageRecords.reduce((sum, r) => sum + r.expected_aum_q3, 0),
         count: stageRecords.length,
       };
+      for (const q of quarters) {
+        entry[q] = stageRecords
+          .filter(r => r.projected_quarter === q)
+          .reduce((sum, r) => sum + r.expected_aum_weighted, 0);
+      }
+      return entry;
     }).filter(d => d.count > 0);
-  }, [pipeline]);
+  }, [pipeline, quarters]);
 
   return (
     <Card className="p-4">
@@ -51,8 +71,15 @@ export default function ExpectedAumChart({ pipeline }: ExpectedAumChartProps) {
             labelFormatter={(label) => `Stage: ${label}`}
           />
           <Legend />
-          <Bar dataKey="Q2" name="Q2 2026" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-          <Bar dataKey="Q3" name="Q3 2026" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+          {quarters.map((q, i) => (
+            <Bar
+              key={q}
+              dataKey={q}
+              name={q}
+              fill={QUARTER_COLORS[i % QUARTER_COLORS.length]}
+              radius={[4, 4, 0, 0]}
+            />
+          ))}
         </BarChart>
       </ResponsiveContainer>
     </Card>
