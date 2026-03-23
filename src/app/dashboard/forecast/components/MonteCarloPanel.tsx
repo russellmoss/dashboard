@@ -250,8 +250,10 @@ export default function MonteCarloPanel({ results, pipeline, onOppClick }: Monte
             dataKey="value"
             radius={[4, 4, 0, 0]}
             cursor="pointer"
-            onClick={(data) => {
-              if (data?.scenario) toggleScenario(data.scenario);
+            onClick={(_data, index) => {
+              if (typeof index === 'number' && chartData[index]?.scenario) {
+                toggleScenario(chartData[index].scenario);
+              }
             }}
           >
             {chartData.map((entry, index) => (
