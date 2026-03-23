@@ -30,6 +30,7 @@ model User {
   requestEdits        RequestEditHistory[]  @relation("RequestEdits")
   notifications       RequestNotification[] @relation("UserNotifications")
   savedReports        SavedReport[]
+  forecastScenarios   ForecastScenario[]
 }
 
 model PasswordResetToken {
@@ -592,4 +593,62 @@ enum StageTransition {
   MQL_TO_SQL
   SQL_TO_SQO
   SQO_TO_JOINED
+}
+
+model ForecastScenario {
+  id                  String   @id @default(cuid())
+  name                String
+  description         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  createdById         String
+  createdByName       String
+  conversionWindowDays Int?
+  isBaseForecast      Boolean  @default(false)
+
+  // Rate overrides (decimals 0.0–1.0, NOT percentages)
+  rateOverride_sqo_to_sp        Float
+  rateOverride_sp_to_neg        Float
+  rateOverride_neg_to_signed    Float
+  rateOverride_signed_to_joined Float
+
+  // Avg days overrides
+  avgDaysOverride_in_sp     Float
+  avgDaysOverride_in_neg    Float
+  avgDaysOverride_in_signed Float
+
+  // Historical rates snapshot (audit trail)
+  historicalRate_sqo_to_sp        Float
+  historicalRate_sp_to_neg        Float
+  historicalRate_neg_to_signed    Float
+  historicalRate_signed_to_joined Float
+
+  // Monte Carlo results summary
+  trialCount       Int     @default(5000)
+  q2_p10_aum       Float?
+  q2_p50_aum       Float?
+  q2_p90_aum       Float?
+  q2_p50_joiners   Int?
+  q3_p10_aum       Float?
+  q3_p50_aum       Float?
+  q3_p90_aum       Float?
+  q3_p50_joiners   Int?
+
+  // Pipeline snapshot metadata
+  pipelineOppCount Int?
+  pipelineTotalAum Float?
+
+  // Sharing
+  shareToken String  @unique @default(cuid())
+  isPublic   Boolean @default(false)
+
+  // Per-opp results (JSON blob, ~30KB per scenario)
+  perOppResults Json?
+
+  // Relation to User
+  createdBy User @relation(fields: [createdById], references: [id])
+
+  @@index([createdById])
+  @@index([shareToken])
+  @@index([createdAt])
 }

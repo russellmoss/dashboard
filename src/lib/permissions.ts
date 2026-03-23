@@ -13,59 +13,67 @@ export interface TokenUserData {
 export const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmFilter' | 'recruiterFilter' | 'capitalPartnerFilter' | 'userId'>> = {
   revops_admin: {
     role: 'revops_admin',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],  // All pages + 14 = Chart Builder, 15 = Advisor Map, 16 = GC Hub, 17 = Reports, 18 = SGM Hub
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
     canExport: true,
     canManageUsers: true,
-    canManageRequests: true,  // Only role that can manage requests
+    canManageRequests: true,
+    canRunScenarios: true,
   },
   admin: {
     role: 'admin',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18],  // 15 = Advisor Map, 16 = GC Hub, 17 = Reports, 18 = SGM Hub (Chart Builder restricted to revops_admin)
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19],
     canExport: true,
     canManageUsers: true,
     canManageRequests: false,
+    canRunScenarios: true,
   },
   manager: {
     role: 'manager',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 18],  // 15 = Advisor Map, 18 = SGM Hub (Chart Builder restricted to revops_admin)
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 18, 19],
     canExport: true,
     canManageUsers: false,
     canManageRequests: false,
+    canRunScenarios: false,
   },
   sgm: {
     role: 'sgm',
-    allowedPages: [1, 3, 7, 10, 13, 15, 18],  // 15 = Advisor Map, 18 = SGM Hub (Chart Builder restricted to revops_admin)
+    allowedPages: [1, 3, 7, 10, 13, 15, 18],
     canExport: true,
     canManageUsers: false,
     canManageRequests: false,
+    canRunScenarios: false,
   },
   sga: {
     role: 'sga',
-    allowedPages: [1, 3, 7, 8, 10, 11, 13, 15],  // 15 = Advisor Map (Chart Builder restricted to revops_admin)
+    allowedPages: [1, 3, 7, 8, 10, 11, 13, 15],
     canExport: true,
     canManageUsers: false,
     canManageRequests: false,
+    canRunScenarios: false,
   },
   viewer: {
     role: 'viewer',
-    allowedPages: [1, 3, 7, 10, 13, 15],  // 13 = Dashboard Requests, 15 = Advisor Map
+    allowedPages: [1, 3, 7, 10, 13, 15],
     canExport: false,
     canManageUsers: false,
     canManageRequests: false,
+    canRunScenarios: false,
   },
   recruiter: {
     role: 'recruiter',
-    allowedPages: [7, 12],  // Settings (7) + Recruiter Hub (12) only - NO Dashboard Requests, NO Advisor Map
+    allowedPages: [7, 12],
     canExport: true,
     canManageUsers: false,
     canManageRequests: false,
+    canRunScenarios: false,
   },
   capital_partner: {
     role: 'capital_partner',
-    allowedPages: [7, 16],  // Settings (7) + GC Hub (16) only
-    canExport: true,         // Can export anonymized CSV
+    allowedPages: [7, 16],
+    canExport: true,
     canManageUsers: false,
     canManageRequests: false,
+    canRunScenarios: false,
   },
 };
 
@@ -106,6 +114,7 @@ export async function getUserPermissions(email: string): Promise<UserPermissions
       canExport: false,
       canManageUsers: false,
       canManageRequests: false,
+      canRunScenarios: false,
       userId: null,
     };
   }

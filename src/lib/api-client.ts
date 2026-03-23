@@ -18,6 +18,77 @@ import {
   SgmConversionData
 } from '@/types/dashboard';
 import { RecordDetailFull } from '@/types/record-detail';
+// Forecast types (defined here to avoid importing server-side query modules)
+interface ForecastRatesClient {
+  sqo_to_sp: number;
+  sp_to_neg: number;
+  neg_to_signed: number;
+  signed_to_joined: number;
+  avg_days_in_sp: number;
+  avg_days_in_neg: number;
+  avg_days_in_signed: number;
+  window_start: string;
+  window_end: string;
+  cohort_count: number;
+}
+interface ForecastPipelineRecordClient {
+  Full_Opportunity_ID__c: string;
+  advisor_name: string;
+  salesforce_url: string;
+  SGM_Owner_Name__c: string | null;
+  SGA_Owner_Name__c: string | null;
+  StageName: string;
+  days_in_current_stage: number;
+  Opportunity_AUM_M: number;
+  aum_tier: string;
+  is_zero_aum: boolean;
+  p_join: number;
+  expected_days_remaining: number;
+  model_projected_join_date: string | null;
+  Earliest_Anticipated_Start_Date__c: string | null;
+  final_projected_join_date: string | null;
+  date_source: 'Anticipated' | 'Model';
+  is_q2_2026: boolean;
+  is_q3_2026: boolean;
+  expected_aum_q2: number;
+  expected_aum_q3: number;
+  rate_sqo_to_sp: number | null;
+  rate_sp_to_neg: number | null;
+  rate_neg_to_signed: number | null;
+  rate_signed_to_joined: number | null;
+}
+interface ForecastSummaryClient {
+  total_opps: number;
+  q2_expected_aum: number;
+  q3_expected_aum: number;
+  q2_opp_count: number;
+  q3_opp_count: number;
+  zero_aum_count: number;
+  anticipated_date_count: number;
+  pipeline_total_aum: number;
+}
+interface MonteCarloRequestClient {
+  conversionRates?: {
+    sqo_to_sp: number;
+    sp_to_neg: number;
+    neg_to_signed: number;
+    signed_to_joined: number;
+  };
+  avgDays?: { in_sp: number; in_neg: number; in_signed: number };
+  conversionWindowDays?: 90 | 180 | 365 | null;
+}
+interface MonteCarloResponseClient {
+  q2: { p10: number; p50: number; p90: number; mean: number };
+  q3: { p10: number; p50: number; p90: number; mean: number };
+  perOpp?: Array<{ oppId: string; pJoin: number; q2AumP50: number; q3AumP50: number }>;
+  trialCount: number;
+  ratesUsed: {
+    sqo_to_sp: number;
+    sp_to_neg: number;
+    neg_to_signed: number;
+    signed_to_joined: number;
+  };
+}
 import { 
   WeeklyGoal, 
   WeeklyGoalInput, 
@@ -992,6 +1063,50 @@ export const dashboardApi = {
 
   getSGMTeamProgress: (quarter: string) =>
     apiFetch<{ progress: SGMTeamProgress }>(`/api/sgm-hub/team-progress?quarter=${quarter}`),
+
+  // Forecast methods
+  getForecastRates: (windowDays?: 90 | 180 | 365 | null) => {
+    const params = new URLSearchParams();
+    if (windowDays != null) params.set('windowDays', windowDays.toString());
+    return apiFetch<{ rates: ForecastRatesClient }>(`/api/forecast/rates?${params.toString()}`);
+  },
+
+  getForecastPipeline: () =>
+    apiFetch<{ records: ForecastPipelineRecordClient[]; summary: ForecastSummaryClient }>('/api/forecast/pipeline'),
+
+  runMonteCarlo: (request: MonteCarloRequestClient) =>
+    apiFetch<MonteCarloResponseClient>('/api/forecast/monte-carlo', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    }),
+
+  getForecastRecord: (oppId: string) =>
+    apiFetch<{ record: any }>(`/api/forecast/record/${encodeURIComponent(oppId)}`),
+
+  getScenarios: () =>
+    apiFetch<{ scenarios: any[] }>('/api/forecast/scenarios'),
+
+  createScenario: (data: any) =>
+    apiFetch<{ id: string; shareToken: string; shareUrl: string }>('/api/forecast/scenarios', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  deleteScenario: (id: string) =>
+    apiFetch<{ success: boolean }>(`/api/forecast/scenarios/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  getSharedScenario: (shareToken: string) =>
+    apiFetch<{ scenario: any }>(`/api/forecast/scenarios/share/${encodeURIComponent(shareToken)}`),
+
+  exportForecastToSheets: () =>
+    apiFetch<{
+      success: boolean;
+      spreadsheetUrl: string;
+      p2RowCount: number;
+      auditRowCount: number;
+    }>('/api/forecast/export', { method: 'POST' }),
 };
 
 /**

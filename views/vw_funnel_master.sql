@@ -221,6 +221,7 @@ Combined AS (
     o.Stage_Entered_On_Hold__c,
     o.Stage_Entered_Closed__c,
     o.Stage_Entered_Joined__c,
+    o.Earliest_Anticipated_Start_Date__c,
     l.lead_closed_date,
     CASE WHEN l.stage_entered_contacting__c IS NOT NULL THEN 1 ELSE 0 END AS is_contacted,
     CASE WHEN l.mql_stage_entered_ts IS NOT NULL THEN 1 ELSE 0 END AS is_mql,
