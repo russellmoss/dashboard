@@ -16,9 +16,12 @@ backfilled AS (
   SELECT
     *,
     -- Backfilled stage timestamps (SQO -> SP -> Neg -> Signed -> Joined, no Discovery)
-    COALESCE(Stage_Entered_Sales_Process__c, Stage_Entered_Negotiating__c, Stage_Entered_Signed__c, Stage_Entered_Joined__c, Stage_Entered_Closed__c) AS eff_sp_ts,
-    COALESCE(Stage_Entered_Negotiating__c, Stage_Entered_Signed__c, Stage_Entered_Joined__c, Stage_Entered_Closed__c) AS eff_neg_ts,
-    COALESCE(Stage_Entered_Signed__c, Stage_Entered_Joined__c, Stage_Entered_Closed__c) AS eff_signed_ts,
+    -- IMPORTANT: Do NOT include Stage_Entered_Closed__c — Closed Lost is a terminal state,
+    -- not a stage progression. Including it backfills fake timestamps for deals that never
+    -- actually reached SP/Neg/Signed, inflating apparent conversion rates.
+    COALESCE(Stage_Entered_Sales_Process__c, Stage_Entered_Negotiating__c, Stage_Entered_Signed__c, Stage_Entered_Joined__c) AS eff_sp_ts,
+    COALESCE(Stage_Entered_Negotiating__c, Stage_Entered_Signed__c, Stage_Entered_Joined__c) AS eff_neg_ts,
+    COALESCE(Stage_Entered_Signed__c, Stage_Entered_Joined__c) AS eff_signed_ts,
     COALESCE(Stage_Entered_Joined__c, TIMESTAMP(advisor_join_date__c)) AS eff_joined_ts,
     -- Current stage entry timestamp for days_in_current_stage
     CASE StageName

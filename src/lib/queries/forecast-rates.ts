@@ -7,6 +7,7 @@ export interface ForecastRates {
   sp_to_neg: number;
   neg_to_signed: number;
   signed_to_joined: number;
+  avg_days_sqo_to_sp: number;
   avg_days_in_sp: number;
   avg_days_in_neg: number;
   avg_days_in_signed: number;
@@ -20,6 +21,7 @@ interface RawRatesResult {
   rate_sp_to_neg: number | null;
   rate_neg_to_signed: number | null;
   rate_signed_to_joined: number | null;
+  avg_days_sqo_to_sp: number | null;
   avg_days_in_sp: number | null;
   avg_days_in_neg: number | null;
   avg_days_in_signed: number | null;
@@ -44,6 +46,7 @@ const _getForecastRates = async (
     WITH cohort AS (
       SELECT
         StageName,
+        Date_Became_SQO__c,
         COALESCE(Stage_Entered_Sales_Process__c, Stage_Entered_Negotiating__c, Stage_Entered_Signed__c, Stage_Entered_Joined__c) AS eff_sp_ts,
         COALESCE(Stage_Entered_Negotiating__c, Stage_Entered_Signed__c, Stage_Entered_Joined__c) AS eff_neg_ts,
         COALESCE(Stage_Entered_Signed__c, Stage_Entered_Joined__c) AS eff_signed_ts,
@@ -63,6 +66,13 @@ const _getForecastRates = async (
         COUNTIF(eff_joined_ts IS NOT NULL AND StageName != 'Closed Lost'),
         COUNTIF(eff_signed_ts IS NOT NULL)
       ) AS rate_signed_to_joined,
+      SAFE_DIVIDE(
+        SUM(CASE WHEN Date_Became_SQO__c IS NOT NULL AND eff_sp_ts IS NOT NULL
+                 AND DATE(Date_Became_SQO__c) <= DATE(eff_sp_ts)
+            THEN DATE_DIFF(DATE(eff_sp_ts), DATE(Date_Became_SQO__c), DAY) END),
+        COUNTIF(Date_Became_SQO__c IS NOT NULL AND eff_sp_ts IS NOT NULL
+                AND DATE(Date_Became_SQO__c) <= DATE(eff_sp_ts))
+      ) AS avg_days_sqo_to_sp,
       SAFE_DIVIDE(
         SUM(CASE WHEN eff_sp_ts IS NOT NULL AND eff_neg_ts IS NOT NULL
                  AND DATE(eff_sp_ts) <= DATE(eff_neg_ts)
@@ -103,6 +113,7 @@ const _getForecastRates = async (
     sp_to_neg: toNumber(r.rate_sp_to_neg) || 0,
     neg_to_signed: toNumber(r.rate_neg_to_signed) || 0,
     signed_to_joined: toNumber(r.rate_signed_to_joined) || 0,
+    avg_days_sqo_to_sp: Math.round(toNumber(r.avg_days_sqo_to_sp) || 0),
     avg_days_in_sp: Math.round(toNumber(r.avg_days_in_sp) || 0),
     avg_days_in_neg: Math.round(toNumber(r.avg_days_in_neg) || 0),
     avg_days_in_signed: Math.round(toNumber(r.avg_days_in_signed) || 0),

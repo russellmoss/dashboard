@@ -9,7 +9,7 @@ interface ConversionRatesPanelProps {
 }
 
 const RATE_ROWS = [
-  { key: 'sqo_to_sp' as const, label: 'SQO → SP', daysKey: null },
+  { key: 'sqo_to_sp' as const, label: 'SQO → SP', daysKey: 'avg_days_sqo_to_sp' as const },
   { key: 'sp_to_neg' as const, label: 'SP → Neg', daysKey: 'avg_days_in_sp' as const },      // time IN SP before reaching Neg
   { key: 'neg_to_signed' as const, label: 'Neg → Signed', daysKey: 'avg_days_in_neg' as const },  // time IN Neg before reaching Signed
   { key: 'signed_to_joined' as const, label: 'Signed → Joined', daysKey: 'avg_days_in_signed' as const },  // time IN Signed before joining
@@ -49,7 +49,7 @@ export function ConversionRatesPanel({ rates }: ConversionRatesPanelProps) {
               {(combinedRate * 100).toFixed(1)}%
             </td>
             <td className="py-2 text-right font-mono text-gray-600 dark:text-gray-400">
-              {rates.avg_days_in_sp + rates.avg_days_in_neg + rates.avg_days_in_signed}d
+              {rates.avg_days_sqo_to_sp + rates.avg_days_in_sp + rates.avg_days_in_neg + rates.avg_days_in_signed}d
             </td>
           </tr>
         </tbody>

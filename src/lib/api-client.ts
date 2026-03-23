@@ -24,6 +24,7 @@ interface ForecastRatesClient {
   sp_to_neg: number;
   neg_to_signed: number;
   signed_to_joined: number;
+  avg_days_sqo_to_sp: number;
   avg_days_in_sp: number;
   avg_days_in_neg: number;
   avg_days_in_signed: number;
