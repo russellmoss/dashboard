@@ -12,7 +12,7 @@ const RATE_ROWS = [
   { key: 'sqo_to_sp' as const, label: 'SQO → SP', daysKey: 'avg_days_in_sp' as const },
   { key: 'sp_to_neg' as const, label: 'SP → Neg', daysKey: 'avg_days_in_neg' as const },
   { key: 'neg_to_signed' as const, label: 'Neg → Signed', daysKey: 'avg_days_in_signed' as const },
-  { key: 'signed_to_joined' as const, label: 'Signed → Joined', daysKey: null },
+  { key: 'signed_to_joined' as const, label: 'Signed → Joined', daysKey: 'avg_days_in_signed' as const },
 ];
 
 export function ConversionRatesPanel({ rates }: ConversionRatesPanelProps) {
