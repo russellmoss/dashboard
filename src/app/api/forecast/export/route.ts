@@ -488,21 +488,6 @@ function buildSQOTargetsValues(
       return ay !== by ? ay - by : aq - bq;
     });
 
-  /** Map "Q3 2026" → "Q2 2026" by subtracting avgDaysToJoin from quarter midpoint */
-  function getEntryQuarter(quarterLabel: string): string {
-    const m = quarterLabel.match(/^Q(\d)\s+(\d{4})$/);
-    if (!m) return '?';
-    const qNum = parseInt(m[1]);
-    const year = parseInt(m[2]);
-    const monthStart = (qNum - 1) * 3;
-    const midpoint = new Date(year, monthStart, 1);
-    midpoint.setDate(midpoint.getDate() + 45);
-    const entry = new Date(midpoint);
-    entry.setDate(entry.getDate() - avgDaysToJoin);
-    const eq = Math.floor(entry.getMonth() / 3) + 1;
-    return `Q${eq} ${entry.getFullYear()}`;
-  }
-
   // ── MODEL INPUTS (rows 1-11) ──
   const values: any[][] = [
     // Row 1
@@ -557,6 +542,20 @@ function buildSQOTargetsValues(
     'SQO Entry Quarter',    // L: when SQOs need to enter pipeline
   ]);
 
+  // Sheets formula to compute SQO Entry Quarter from a quarter label in column A and velocity in $B$13.
+  // Logic: parse "Q3 2026" → DATE(year, (q-1)*3+1, 1) + 45 days (midpoint) - $B$13 days → format back to "Q# YYYY"
+  // LET breaks it into readable steps.
+  const entryQFormula = (row: number) =>
+    `=IF($B$13=0,"",LET(` +
+      `q,VALUE(MID(A${row},2,1)),` +
+      `yr,VALUE(RIGHT(A${row},4)),` +
+      `mid,DATE(yr,(q-1)*3+1,1)+45,` +
+      `entry,mid-$B$13,` +
+      `eq,ROUNDUP(MONTH(entry)/3,0),` +
+      `ey,YEAR(entry),` +
+      `"Q"&eq&" "&ey` +
+    `))`;
+
   if (quarters.length === 0) {
     values.push(['(No data \u2014 set targets on the Pipeline Forecast dashboard)']);
   } else {
@@ -566,7 +565,6 @@ function buildSQOTargetsValues(
       const joined = joinedByQuarter[quarter]?.joined_aum ?? 0;
       const joinedCt = joinedByQuarter[quarter]?.joined_count ?? 0;
       const projected = projectedAumByQuarter[quarter] ?? 0;
-      const entryQ = avgDaysToJoin > 0 ? getEntryQuarter(quarter) : '';
 
       values.push([
         quarter,                                                    // A: Quarter
@@ -580,7 +578,7 @@ function buildSQOTargetsValues(
         `=IF(B${row}=0,"No target",IF(G${row}<=0,"On track","Gap: "&TEXT(G${row}/1000000,"#,##0")&"M"))`, // I: Status
         `=IF(B${row}=0,"",IF(G${row}<=0,0,CEILING(G${row}/$B$12,1)))`,  // J: Incremental SQOs
         `=IF(B${row}=0,"",CEILING(B${row}/$B$12,1))`,              // K: Total SQOs
-        entryQ,                                                     // L: SQO Entry Quarter
+        entryQFormula(row),                                         // L: SQO Entry Quarter (formula referencing $B$13)
       ]);
     });
   }
@@ -630,8 +628,8 @@ function buildSQOTargetsValues(
   ]);
   values.push([
     'SQO Entry Quarter (L)',
-    `Target quarter midpoint minus ${avgDaysToJoin} days (avg velocity)`,
-    'When SQOs need to become qualified to join by the target quarter. If this quarter is past, those SQOs are at risk.',
+    'Quarter midpoint (day 45) minus $B$13 days  [formula: LET-based date math]',
+    'When SQOs need to enter the pipeline. Change B13 to game out different velocities — L updates automatically.',
   ]);
   values.push([]);
   values.push([

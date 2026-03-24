@@ -44,7 +44,7 @@ export default function ForecastPage() {
   const permissions = getSessionPermissions(session);
   const canRunScenarios = permissions?.canRunScenarios ?? false;
 
-  const [windowDays, setWindowDays] = useState<180 | 365 | 730 | null>(365);
+  const [windowDays, setWindowDays] = useState<180 | 365 | 730 | null>(180);
   const [rates, setRates] = useState<TieredForecastRates | null>(null);
   const [pipeline, setPipeline] = useState<ForecastPipelineRecord[]>([]);
   const [summary, setSummary] = useState<ForecastSummary | null>(null);
