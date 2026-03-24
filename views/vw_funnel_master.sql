@@ -225,7 +225,7 @@ Combined AS (
     l.lead_closed_date,
     CASE WHEN l.stage_entered_contacting__c IS NOT NULL THEN 1 ELSE 0 END AS is_contacted,
     CASE WHEN l.mql_stage_entered_ts IS NOT NULL THEN 1 ELSE 0 END AS is_mql,
-    CASE WHEN l.IsConverted IS TRUE THEN 1 ELSE 0 END AS is_sql,
+    CASE WHEN l.IsConverted IS TRUE AND o.Full_Opportunity_ID__c IS NOT NULL THEN 1 ELSE 0 END AS is_sql,
     CASE WHEN LOWER(o.SQO_raw) = 'yes' THEN 1 ELSE 0 END AS is_sqo,
     -- FIX: Exclude Closed Lost from is_joined (advisors who joined then left should not count)
     CASE WHEN (o.advisor_join_date__c IS NOT NULL OR o.StageName = 'Joined')
