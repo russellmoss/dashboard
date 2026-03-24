@@ -112,10 +112,12 @@ export default function MonteCarloPanel({ results, pipeline, onOppClick }: Monte
       })
       .sort((a, b) => b.simWinPct - a.simWinPct || b.rawAum - a.rawAum);
 
-    // First pass: compute cumulative AUM for the sorted list
+    // First pass: compute cumulative expected AUM (probability-weighted) for the sorted list.
+    // The P10/P50/P90 targets are probability-weighted simulation outputs, so cumulative
+    // must also be probability-weighted to make the "in scenario" comparison meaningful.
     let cumulative = 0;
     const dealsWithCum = baseDealsList.map(d => {
-      cumulative += d.rawAum;
+      cumulative += d.expectedAum;
       return { ...d, cumulative };
     });
     const totalAum = cumulative;
@@ -160,9 +162,13 @@ export default function MonteCarloPanel({ results, pipeline, onOppClick }: Monte
       'SGA': row.record.SGA_Owner_Name__c ?? '',
       'Stage': row.record.StageName,
       'Days in Stage': row.record.days_in_current_stage,
+      'Duration Bucket': row.record.durationBucket ?? 'Within 1 SD',
+      'Duration Multiplier': row.record.durationMultiplier ?? 1.0,
       'AUM ($M)': row.record.Opportunity_AUM_M,
       'AUM Tier': row.record.aum_tier,
+      'AUM Tier (2-tier)': row.record.aumTier2 ?? '',
       'P(Join)': (row.record.p_join * 100).toFixed(1) + '%',
+      'Baseline P(Join)': row.record.baselinePJoin != null ? (row.record.baselinePJoin * 100).toFixed(1) + '%' : '',
       'Won in (MC)': (row.simWinPct * 100).toFixed(1) + '%',
       'Expected AUM': Math.round(row.expectedAum),
       'Running Total': Math.round(row.cumulative),
@@ -174,6 +180,8 @@ export default function MonteCarloPanel({ results, pipeline, onOppClick }: Monte
       'Anticipated Join Date': row.record.Earliest_Anticipated_Start_Date__c ?? '',
       'Final Projected Join Date': row.record.final_projected_join_date ?? '',
       'Date Source': row.record.date_source,
+      'Date Confidence': row.record.dateConfidence ?? '',
+      'Date Revisions': row.record.dateRevisionCount ?? 0,
       'Expected Days Remaining': row.record.expected_days_remaining,
       'Rate SQO→SP': row.record.rate_sqo_to_sp != null ? (row.record.rate_sqo_to_sp * 100).toFixed(1) + '%' : '',
       'Rate SP→Neg': row.record.rate_sp_to_neg != null ? (row.record.rate_sp_to_neg * 100).toFixed(1) + '%' : '',
@@ -253,6 +261,7 @@ export default function MonteCarloPanel({ results, pipeline, onOppClick }: Monte
                   <th className="py-2 px-3 font-medium text-gray-500 w-6">#</th>
                   <th className="py-2 px-3 font-medium text-gray-500">Advisor</th>
                   <th className="py-2 px-3 font-medium text-gray-500">Stage</th>
+                  <th className="py-2 px-3 font-medium text-gray-500">Duration</th>
                   <th className="py-2 px-3 text-right font-medium text-gray-500">AUM if Won</th>
                   <th className="py-2 px-3 text-right font-medium text-gray-500">Won in</th>
                   <th className="py-2 px-3 text-right font-medium text-gray-500">Expected AUM</th>
@@ -264,6 +273,21 @@ export default function MonteCarloPanel({ results, pipeline, onOppClick }: Monte
                 </tr>
               </thead>
               <tbody>
+                {/* If no deals are "in scenario" (bear case where target < any single deal's expected AUM),
+                    show the dashed line at the top to indicate the target is below the entire table */}
+                {drilldownData.deals.length > 0 && !drilldownData.deals.some(d => d.inScenario) && (
+                  <tr>
+                    <td colSpan={12} className="px-3 py-1">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 border-t-2 border-dashed border-red-400" />
+                        <span className="text-xs font-semibold text-red-600 dark:text-red-400 whitespace-nowrap">
+                          {drilldownData.label} target: {formatAum(drilldownData.targetAum)} — bear case: few deals close
+                        </span>
+                        <div className="flex-1 border-t-2 border-dashed border-red-400" />
+                      </div>
+                    </td>
+                  </tr>
+                )}
                 {drilldownData.deals.map((row, i) => {
                   const isLastIn = row.inScenario &&
                     (i === drilldownData.deals.length - 1 || !drilldownData.deals[i + 1].inScenario);
@@ -291,6 +315,19 @@ export default function MonteCarloPanel({ results, pipeline, onOppClick }: Monte
                           }`}>
                             {row.record.StageName}
                           </span>
+                        </td>
+                        <td className="py-2 px-3">
+                          {row.record.durationBucket && row.record.durationBucket !== 'Within 1 SD' ? (
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
+                              row.record.durationBucket === '2+ SD'
+                                ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                                : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+                            }`}>
+                              {row.record.durationBucket}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-400">Normal</span>
+                          )}
                         </td>
                         <td className="py-2 px-3 text-right font-mono text-gray-500">
                           {formatAumShort(row.rawAum)}
@@ -333,7 +370,7 @@ export default function MonteCarloPanel({ results, pipeline, onOppClick }: Monte
                       </tr>
                       {isLastIn && (
                         <tr>
-                          <td colSpan={11} className="px-3 py-1">
+                          <td colSpan={12} className="px-3 py-1">
                             <div className="flex items-center gap-2">
                               <div className="flex-1 border-t-2 border-dashed border-blue-400" />
                               <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap">

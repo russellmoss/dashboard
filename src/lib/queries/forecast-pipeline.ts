@@ -13,6 +13,8 @@ function extractDateValue(
   return null;
 }
 
+import type { DurationBucket } from '@/lib/forecast-config';
+
 export interface ForecastPipelineRecord {
   Full_Opportunity_ID__c: string;
   advisor_name: string;
@@ -36,6 +38,16 @@ export interface ForecastPipelineRecord {
   rate_sp_to_neg: number | null;
   rate_neg_to_signed: number | null;
   rate_signed_to_joined: number | null;
+  // Duration penalty fields (computed client-side, not from BQ)
+  durationBucket?: DurationBucket;
+  durationMultiplier?: number;
+  baselinePJoin?: number;
+  baselineExpectedAum?: number;
+  aumTier2?: 'Lower' | 'Upper';
+  // Date revision confidence fields (from OpportunityFieldHistory)
+  dateRevisionCount?: number;
+  dateConfidence?: 'High' | 'Medium' | 'Low';
+  firstDateSet?: string | null;
 }
 
 export interface QuarterSummary {

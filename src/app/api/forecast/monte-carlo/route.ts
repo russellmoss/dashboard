@@ -4,7 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
 import { canAccessPage } from '@/lib/permissions';
 import { runMonteCarlo, MonteCarloRequest } from '@/lib/queries/forecast-monte-carlo';
-import { getForecastRates } from '@/lib/queries/forecast-rates';
+import { getTieredForecastRates } from '@/lib/queries/forecast-rates';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -30,34 +30,35 @@ export async function POST(request: NextRequest) {
 
     const body: MonteCarloRequest = await request.json();
 
-    // Use provided rates or fetch historical
-    let rates;
-    let avgDays;
+    // Fetch tiered historical rates
+    const tieredRates = await getTieredForecastRates(body.conversionWindowDays ?? null);
 
+    // If manual rate overrides are provided (from ScenarioRunner), apply them
+    // to all tiers uniformly — the scenario runner uses flat overrides
+    let effectiveRates = tieredRates;
     if (body.conversionRates) {
-      rates = body.conversionRates;
-    } else {
-      const historical = await getForecastRates(body.conversionWindowDays ?? null);
-      rates = {
-        sqo_to_sp: historical.sqo_to_sp,
-        sp_to_neg: historical.sp_to_neg,
-        neg_to_signed: historical.neg_to_signed,
-        signed_to_joined: historical.signed_to_joined,
+      const overrides = body.conversionRates;
+      const overrideRateSet = {
+        ...tieredRates.flat,
+        sqo_to_sp: overrides.sqo_to_sp,
+        sp_to_neg: overrides.sp_to_neg,
+        neg_to_signed: overrides.neg_to_signed,
+        signed_to_joined: overrides.signed_to_joined,
+      };
+      effectiveRates = {
+        flat: overrideRateSet,
+        lower: overrideRateSet,
+        upper: overrideRateSet,
       };
     }
 
-    if (body.avgDays) {
-      avgDays = body.avgDays;
-    } else {
-      const historical = await getForecastRates(body.conversionWindowDays ?? null);
-      avgDays = {
-        in_sp: historical.avg_days_in_sp,
-        in_neg: historical.avg_days_in_neg,
-        in_signed: historical.avg_days_in_signed,
-      };
-    }
+    const avgDays = body.avgDays ?? {
+      in_sp: tieredRates.flat.avg_days_in_sp,
+      in_neg: tieredRates.flat.avg_days_in_neg,
+      in_signed: tieredRates.flat.avg_days_in_signed,
+    };
 
-    const results = await runMonteCarlo(rates, avgDays);
+    const results = await runMonteCarlo(effectiveRates, avgDays);
     return NextResponse.json(results);
   } catch (error) {
     console.error('Monte Carlo error:', error);

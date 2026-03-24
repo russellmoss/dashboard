@@ -12,6 +12,8 @@ function extractDateValue(
   return null;
 }
 
+import type { DurationBucket } from '@/lib/forecast-config';
+
 export interface ForecastExportP2Row {
   Full_Opportunity_ID__c: string;
   advisor_name: string;
@@ -36,6 +38,12 @@ export interface ForecastExportP2Row {
   rate_sp_to_neg: number | null;
   rate_neg_to_signed: number | null;
   rate_signed_to_joined: number | null;
+  // Duration penalty fields (populated by recomputeP2WithRates)
+  aumTier2?: 'Lower' | 'Upper';
+  durationBucket?: DurationBucket;
+  durationMultiplier?: number;
+  baselinePJoin?: number;
+  adjustedPJoin?: number;
 }
 
 export interface ForecastExportAuditRow {
@@ -70,6 +78,15 @@ export interface ForecastExportAuditRow {
   is_on_hold: number;
   has_anticipated_date: number;
   stages_skipped: number;
+  is_joined_flag: number;
+  SP_Denominator: number;
+  SP_Numerator: number;
+  Neg_Denominator: number;
+  Neg_Numerator: number;
+  Signed_Denominator: number;
+  Signed_Numerator: number;
+  Joined_Denominator: number;
+  Joined_Numerator: number;
 }
 
 export async function getForecastExportP2(): Promise<ForecastExportP2Row[]> {
@@ -106,13 +123,24 @@ export async function getForecastExportP2(): Promise<ForecastExportP2Row[]> {
   }));
 }
 
-export async function getForecastExportAudit(): Promise<ForecastExportAuditRow[]> {
+export async function getForecastExportAudit(
+  windowDays?: 180 | 365 | 730 | null
+): Promise<ForecastExportAuditRow[]> {
+  const dateFilter = windowDays
+    ? `WHERE DATE(Opp_CreatedDate) >= DATE_SUB(CURRENT_DATE(), INTERVAL @windowDays DAY)`
+    : '';
+  const params: Record<string, any> = {};
+  if (windowDays) {
+    params.windowDays = windowDays;
+  }
+
   const query = `
     SELECT *
     FROM \`savvy-gtm-analytics.Tableau_Views.vw_funnel_audit\`
+    ${dateFilter}
     ORDER BY DATE(Opp_CreatedDate) DESC, advisor_name ASC
   `;
-  const raw = await runQuery<any>(query);
+  const raw = await runQuery<any>(query, params);
   return raw.map(r => ({
     Full_Opportunity_ID__c: toString(r.Full_Opportunity_ID__c),
     salesforce_url: toString(r.salesforce_url),
@@ -145,5 +173,14 @@ export async function getForecastExportAudit(): Promise<ForecastExportAuditRow[]
     is_on_hold: toNumber(r.is_on_hold),
     has_anticipated_date: toNumber(r.has_anticipated_date),
     stages_skipped: toNumber(r.stages_skipped),
+    is_joined_flag: toNumber(r.is_joined_flag),
+    SP_Denominator: toNumber(r.SP_Denominator),
+    SP_Numerator: toNumber(r.SP_Numerator),
+    Neg_Denominator: toNumber(r.Neg_Denominator),
+    Neg_Numerator: toNumber(r.Neg_Numerator),
+    Signed_Denominator: toNumber(r.Signed_Denominator),
+    Signed_Numerator: toNumber(r.Signed_Numerator),
+    Joined_Denominator: toNumber(r.Joined_Denominator),
+    Joined_Numerator: toNumber(r.Joined_Numerator),
   }));
 }

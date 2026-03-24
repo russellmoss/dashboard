@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
-import { getForecastRates } from '@/lib/queries/forecast-rates';
+import { getTieredForecastRates } from '@/lib/queries/forecast-rates';
 
 export async function GET(request: NextRequest) {
   try {
@@ -22,8 +22,9 @@ export async function GET(request: NextRequest) {
       ? (parseInt(windowDaysParam) as 180 | 365 | 730)
       : null;
 
-    const rates = await getForecastRates(windowDays);
-    return NextResponse.json({ rates });
+    const tieredRates = await getTieredForecastRates(windowDays);
+    // Return tiered shape; flat is also available for backward-compat consumers
+    return NextResponse.json({ rates: tieredRates });
   } catch (error) {
     console.error('Forecast rates error:', error);
     return NextResponse.json(

@@ -32,6 +32,11 @@ interface ForecastRatesClient {
   window_end: string;
   cohort_count: number;
 }
+interface TieredForecastRatesClient {
+  flat: ForecastRatesClient;
+  lower: ForecastRatesClient;
+  upper: ForecastRatesClient;
+}
 interface ForecastPipelineRecordClient {
   Full_Opportunity_ID__c: string;
   advisor_name: string;
@@ -75,7 +80,7 @@ interface MonteCarloRequestClient {
 }
 interface MonteCarloResponseClient {
   quarters: Array<{ label: string; p10: number; p50: number; p90: number; mean: number }>;
-  perOpp: Array<{ oppId: string; quarterLabel: string; winPct: number; avgAum: number }>;
+  perOpp: Array<{ oppId: string; quarterLabel: string; winPct: number; avgAum: number; durationBucket?: string; durationMultiplier?: number; aumTier2?: string }>;
   trialCount: number;
   ratesUsed: {
     sqo_to_sp: number;
@@ -1063,11 +1068,14 @@ export const dashboardApi = {
   getForecastRates: (windowDays?: 180 | 365 | 730 | null) => {
     const params = new URLSearchParams();
     if (windowDays != null) params.set('windowDays', windowDays.toString());
-    return apiFetch<{ rates: ForecastRatesClient }>(`/api/forecast/rates?${params.toString()}`);
+    return apiFetch<{ rates: TieredForecastRatesClient }>(`/api/forecast/rates?${params.toString()}`);
   },
 
   getForecastPipeline: () =>
     apiFetch<{ records: ForecastPipelineRecordClient[]; summary: ForecastSummaryClient }>('/api/forecast/pipeline'),
+
+  getDateRevisions: () =>
+    apiFetch<{ revisions: Record<string, { revisionCount: number; firstDateSet: string | null; dateConfidence: string }> }>('/api/forecast/date-revisions'),
 
   runMonteCarlo: (request: MonteCarloRequestClient) =>
     apiFetch<MonteCarloResponseClient>('/api/forecast/monte-carlo', {
@@ -1095,13 +1103,16 @@ export const dashboardApi = {
   getSharedScenario: (shareToken: string) =>
     apiFetch<{ scenario: any }>(`/api/forecast/scenarios/share/${encodeURIComponent(shareToken)}`),
 
-  exportForecastToSheets: () =>
+  exportForecastToSheets: (windowDays?: 180 | 365 | 730 | null) =>
     apiFetch<{
       success: boolean;
       spreadsheetUrl: string;
       p2RowCount: number;
       auditRowCount: number;
-    }>('/api/forecast/export', { method: 'POST' }),
+    }>('/api/forecast/export', {
+      method: 'POST',
+      body: JSON.stringify({ windowDays: windowDays ?? null }),
+    }),
 };
 
 /**

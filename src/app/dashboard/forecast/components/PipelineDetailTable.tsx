@@ -18,7 +18,13 @@ const STAGE_TABS = [
   { label: 'SQO, Discovery & Qualifying', filter: ['Discovery', 'Qualifying'] },
 ];
 
-type SortField = 'advisor_name' | 'StageName' | 'Opportunity_AUM_M' | 'p_join' | 'expected_aum' | 'days_in_current_stage' | 'final_projected_join_date';
+type SortField = 'advisor_name' | 'StageName' | 'Opportunity_AUM_M' | 'p_join' | 'expected_aum' | 'days_in_current_stage' | 'durationBucket' | 'final_projected_join_date';
+
+const DURATION_BUCKET_ORDER: Record<string, number> = {
+  'Within 1 SD': 0,
+  '1-2 SD': 1,
+  '2+ SD': 2,
+};
 
 function formatAum(value: number): string {
   if (value >= 1000) return `$${(value / 1000).toFixed(1)}B`;
@@ -46,6 +52,9 @@ export function PipelineDetailTable({ records, onRowClick }: PipelineDetailTable
       } else if (sortField === 'final_projected_join_date') {
         aVal = a.final_projected_join_date || '';
         bVal = b.final_projected_join_date || '';
+      } else if (sortField === 'durationBucket') {
+        aVal = DURATION_BUCKET_ORDER[a.durationBucket ?? 'Within 1 SD'] ?? 0;
+        bVal = DURATION_BUCKET_ORDER[b.durationBucket ?? 'Within 1 SD'] ?? 0;
       } else {
         aVal = a[sortField] as number | string;
         bVal = b[sortField] as number | string;
@@ -118,6 +127,9 @@ export function PipelineDetailTable({ records, onRowClick }: PipelineDetailTable
               <th className="py-2 px-2 text-right cursor-pointer hover:text-blue-600" onClick={() => handleSort('days_in_current_stage')}>
                 Days<SortIcon field="days_in_current_stage" />
               </th>
+              <th className="py-2 px-2 cursor-pointer hover:text-blue-600" onClick={() => handleSort('durationBucket')}>
+                Duration<SortIcon field="durationBucket" />
+              </th>
               <th className="py-2 px-2 cursor-pointer hover:text-blue-600" onClick={() => handleSort('final_projected_join_date')}>
                 Proj. Join<SortIcon field="final_projected_join_date" />
               </th>
@@ -162,13 +174,37 @@ export function PipelineDetailTable({ records, onRowClick }: PipelineDetailTable
                   <td className="py-2 px-2 text-right text-gray-600 dark:text-gray-400">
                     {r.days_in_current_stage}d
                   </td>
+                  <td className="py-2 px-2">
+                    {r.durationBucket && r.durationBucket !== 'Within 1 SD' ? (
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
+                        r.durationBucket === '2+ SD'
+                          ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                          : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+                      }`}>
+                        {r.durationBucket}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-400">Normal</span>
+                    )}
+                  </td>
                   <td className="py-2 px-2 text-gray-600 dark:text-gray-400">
                     {r.final_projected_join_date?.substring(0, 10) || '-'}
                   </td>
                   <td className="py-2 px-2">
-                    {r.date_source === 'Anticipated' && (
-                      <span className="text-xs text-purple-600 dark:text-purple-400">Anticipated</span>
-                    )}
+                    {r.date_source === 'Anticipated' ? (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="text-xs text-purple-600 dark:text-purple-400">Anticipated</span>
+                        {r.dateConfidence === 'Low' && (
+                          <span className="inline-block w-2 h-2 rounded-full bg-red-500" title={`Low confidence — ${r.dateRevisionCount ?? 0} revisions`} />
+                        )}
+                        {r.dateConfidence === 'Medium' && (
+                          <span className="inline-block w-2 h-2 rounded-full bg-amber-500" title={`Medium confidence — ${r.dateRevisionCount ?? 0} revisions`} />
+                        )}
+                        {r.dateConfidence === 'High' && (
+                          <span className="inline-block w-2 h-2 rounded-full bg-green-500" title={`High confidence — ${r.dateRevisionCount ?? 0} revisions`} />
+                        )}
+                      </span>
+                    ) : null}
                   </td>
                 </tr>
               );

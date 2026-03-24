@@ -9,7 +9,8 @@ import { Loader2 } from 'lucide-react';
 
 import { dashboardApi } from '@/lib/api-client';
 import { getSessionPermissions } from '@/types/auth';
-import { ForecastRates } from '@/lib/queries/forecast-rates';
+import { TieredForecastRates } from '@/lib/queries/forecast-rates';
+import { computeAdjustedDeal } from '@/lib/forecast-penalties';
 import { ForecastPipelineRecord, ForecastSummary, QuarterSummary } from '@/lib/queries/forecast-pipeline';
 import { MonteCarloResponse } from '@/lib/queries/forecast-monte-carlo';
 
@@ -44,7 +45,7 @@ export default function ForecastPage() {
   const canRunScenarios = permissions?.canRunScenarios ?? false;
 
   const [windowDays, setWindowDays] = useState<180 | 365 | 730 | null>(365);
-  const [rates, setRates] = useState<ForecastRates | null>(null);
+  const [rates, setRates] = useState<TieredForecastRates | null>(null);
   const [pipeline, setPipeline] = useState<ForecastPipelineRecord[]>([]);
   const [summary, setSummary] = useState<ForecastSummary | null>(null);
   const [monteCarloResults, setMonteCarloResults] = useState<MonteCarloResponse | null>(null);
@@ -54,6 +55,7 @@ export default function ForecastPage() {
   const [mcLoading, setMcLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const [dateRevisions, setDateRevisions] = useState<Record<string, { revisionCount: number; firstDateSet: string | null; dateConfidence: string }>>({});
   const hasSharedScenario = useRef(!!searchParams.get('scenario'));
 
   // Recompute p_join, expected_aum_weighted, projected dates, and summary
@@ -63,29 +65,22 @@ export default function ForecastPage() {
       return { adjustedPipeline: pipeline, adjustedSummary: summary };
     }
 
-    const { sqo_to_sp, sp_to_neg, neg_to_signed, signed_to_joined,
-            avg_days_in_sp, avg_days_in_neg, avg_days_in_signed } = rates;
+    const { avg_days_in_sp, avg_days_in_neg, avg_days_in_signed } = rates.flat;
+
+    // Build tiered rates shape for computeAdjustedDeal
+    const tieredRates = {
+      flat: rates.flat,
+      lower: rates.lower,
+      upper: rates.upper,
+    };
 
     const adjusted: ForecastPipelineRecord[] = pipeline.map(r => {
-      // Recalculate p_join from active rates
-      let pJoin = 0;
-      switch (r.StageName) {
-        case 'Discovery':
-        case 'Qualifying':
-          pJoin = sqo_to_sp * sp_to_neg * neg_to_signed * signed_to_joined;
-          break;
-        case 'Sales Process':
-          pJoin = sp_to_neg * neg_to_signed * signed_to_joined;
-          break;
-        case 'Negotiating':
-          pJoin = neg_to_signed * signed_to_joined;
-          break;
-        case 'Signed':
-          pJoin = signed_to_joined;
-          break;
-      }
+      const aumRaw = r.Opportunity_AUM_M * 1e6;
 
-      // Recalculate expected days remaining
+      // Compute duration-penalized, tier-adjusted P(Join)
+      const deal = computeAdjustedDeal(r.StageName, r.days_in_current_stage, aumRaw, tieredRates);
+
+      // Recalculate expected days remaining (uses flat avg_days — doesn't vary by tier)
       let totalDaysFromStage = 0;
       switch (r.StageName) {
         case 'Discovery':
@@ -122,18 +117,35 @@ export default function ForecastPage() {
         projectedQuarter = `Q${q} ${d.getFullYear()}`;
       }
 
-      // Compute expected AUM weighted
-      const aumRaw = r.Opportunity_AUM_M * 1e6;
-      const expectedAum = r.is_zero_aum ? 0 : aumRaw * pJoin;
+      // Adjusted expected AUM (primary display value)
+      const expectedAum = r.is_zero_aum ? 0 : aumRaw * deal.adjustedPJoin;
+      // Baseline expected AUM (for comparison)
+      const baselineExpectedAum = r.is_zero_aum ? 0 : aumRaw * deal.baselinePJoin;
+
+      // Date revision confidence
+      const rev = dateRevisions[r.Full_Opportunity_ID__c];
+      const dateRevisionCount = rev?.revisionCount ?? 0;
+      const dateConfidence = (rev?.dateConfidence as 'High' | 'Medium' | 'Low') ?? 'High';
+      const firstDateSet = rev?.firstDateSet ?? null;
 
       return {
         ...r,
-        p_join: pJoin,
+        p_join: deal.adjustedPJoin,
         expected_days_remaining: daysRemaining,
         final_projected_join_date: finalDate,
         date_source: dateSource,
         projected_quarter: projectedQuarter,
         expected_aum_weighted: expectedAum,
+        // Duration penalty fields
+        durationBucket: deal.durationBucket,
+        durationMultiplier: deal.durationMultiplier,
+        baselinePJoin: deal.baselinePJoin,
+        baselineExpectedAum,
+        aumTier2: deal.tier,
+        // Date revision confidence
+        dateRevisionCount,
+        dateConfidence: r.Earliest_Anticipated_Start_Date__c ? dateConfidence : undefined,
+        firstDateSet,
       };
     });
 
@@ -167,19 +179,21 @@ export default function ForecastPage() {
     };
 
     return { adjustedPipeline: adjusted, adjustedSummary: adjSummary };
-  }, [pipeline, rates, summary]);
+  }, [pipeline, rates, summary, dateRevisions]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [ratesRes, pipelineRes] = await Promise.all([
+      const [ratesRes, pipelineRes, revisionsRes] = await Promise.all([
         dashboardApi.getForecastRates(windowDays),
         dashboardApi.getForecastPipeline(),
+        dashboardApi.getDateRevisions().catch(() => ({ revisions: {} })),
       ]);
       setRates(ratesRes.rates);
       setPipeline(pipelineRes.records);
       setSummary(pipelineRes.summary);
+      setDateRevisions(revisionsRes.revisions);
     } catch (err) {
       console.error('Forecast data fetch error:', err);
       setError('Failed to load forecast data');
@@ -255,7 +269,7 @@ export default function ForecastPage() {
   const handleExport = useCallback(async () => {
     setExportStatus('Exporting...');
     try {
-      const data = await dashboardApi.exportForecastToSheets();
+      const data = await dashboardApi.exportForecastToSheets(windowDays);
       if (data.success) {
         setExportStatus(`Exported ${data.p2RowCount} forecast + ${data.auditRowCount} audit rows`);
         window.open(data.spreadsheetUrl, '_blank');
@@ -266,7 +280,7 @@ export default function ForecastPage() {
       setExportStatus('Export failed');
     }
     setTimeout(() => setExportStatus(null), 5000);
-  }, []);
+  }, [windowDays]);
 
   const handleOppClick = useCallback((oppId: string) => {
     setSelectedOppId(oppId);
@@ -320,7 +334,7 @@ export default function ForecastPage() {
           <ForecastMetricCards
             summary={adjustedSummary}
             windowDays={windowDays}
-            rates={rates}
+            rates={rates?.flat ?? null}
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -328,7 +342,7 @@ export default function ForecastPage() {
               <ExpectedAumChart pipeline={adjustedPipeline} />
             </div>
             <div>
-              <ConversionRatesPanel rates={rates} />
+              <ConversionRatesPanel rates={rates?.flat ?? null} />
             </div>
           </div>
 
@@ -338,7 +352,7 @@ export default function ForecastPage() {
 
           {canRunScenarios && (
             <ScenarioRunner
-              rates={rates}
+              rates={rates?.flat ?? null}
               summary={adjustedSummary}
               monteCarloResults={monteCarloResults}
               onRunMonteCarlo={handleRunMonteCarlo}
