@@ -12,6 +12,7 @@ import { computeAdjustedDeal } from '@/lib/forecast-penalties';
 import { getDateRevisionMap } from '@/lib/queries/forecast-date-revisions';
 import { runMonteCarlo, type MonteCarloResponse } from '@/lib/queries/forecast-monte-carlo';
 import { getJoinedAumByQuarter } from '@/lib/queries/forecast-pipeline';
+import { prisma } from '@/lib/prisma';
 
 const TARGET_SHEET_ID = '1Iz9X6HY-bsAGBNkuQWH-SYoB7Xzy-9Hkg2Kk8ipxKQY';
 const FORECAST_TAB = 'BQ Forecast P2';
@@ -467,12 +468,18 @@ function buildSQOTargetsValues(
   const joinedDealCount = flatRates.joined_deal_count;
   const avgDaysToJoin = flatRates.avg_days_sqo_to_sp + flatRates.avg_days_in_sp + flatRates.avg_days_in_neg + flatRates.avg_days_in_signed;
 
-  // Collect all quarters that have either a target, joined AUM, or projected AUM
+  // Only show quarters that have a target OR have projected pipeline (current/future relevance)
+  // Skip old quarters with only joined AUM and no target — they clutter the sheet
   const allQuarters = new Set([
     ...Object.keys(targetAumByQuarter),
-    ...Object.keys(joinedByQuarter),
     ...Object.keys(projectedAumByQuarter),
   ]);
+  // Also include any quarter with joined AUM if it's in the current year or later
+  const currentYear = new Date().getFullYear();
+  for (const q of Object.keys(joinedByQuarter)) {
+    const m = q.match(/^Q\d\s+(\d{4})$/);
+    if (m && parseInt(m[1]) >= currentYear) allQuarters.add(q);
+  }
   const quarters = Array.from(allQuarters)
     .filter(q => /^Q\d \d{4}$/.test(q))
     .sort((a, b) => {
@@ -508,14 +515,14 @@ function buildSQOTargetsValues(
     ['MODEL INPUTS', '', '', ''],
     // Row 5
     ['Input', 'Value', 'Source', 'Description'],
-    // Row 6
-    ['SQO \u2192 SP Rate', flatRates.sqo_to_sp, `=${r}!$B$5`, `${(flatRates.sqo_to_sp * 100).toFixed(1)}%`],
+    // Row 6 — Rates tab has rates at B6:B9 (row 5 is header)
+    ['SQO \u2192 SP Rate', flatRates.sqo_to_sp, `=${r}!$B$6`, `${(flatRates.sqo_to_sp * 100).toFixed(1)}%`],
     // Row 7
-    ['SP \u2192 Negotiating Rate', flatRates.sp_to_neg, `=${r}!$B$6`, `${(flatRates.sp_to_neg * 100).toFixed(1)}%`],
+    ['SP \u2192 Negotiating Rate', flatRates.sp_to_neg, `=${r}!$B$7`, `${(flatRates.sp_to_neg * 100).toFixed(1)}%`],
     // Row 8
-    ['Neg \u2192 Signed Rate', flatRates.neg_to_signed, `=${r}!$B$7`, `${(flatRates.neg_to_signed * 100).toFixed(1)}%`],
+    ['Neg \u2192 Signed Rate', flatRates.neg_to_signed, `=${r}!$B$8`, `${(flatRates.neg_to_signed * 100).toFixed(1)}%`],
     // Row 9
-    ['Signed \u2192 Joined Rate', flatRates.signed_to_joined, `=${r}!$B$8`, `${(flatRates.signed_to_joined * 100).toFixed(1)}%`],
+    ['Signed \u2192 Joined Rate', flatRates.signed_to_joined, `=${r}!$B$9`, `${(flatRates.signed_to_joined * 100).toFixed(1)}%`],
     // Row 10
     ['SQO \u2192 Joined Rate (product)', `=B6*B7*B8*B9`, '', 'Product of 4 stage rates'],
     // Row 11
@@ -523,7 +530,7 @@ function buildSQOTargetsValues(
     // Row 12
     ['Expected AUM per SQO ($)', `=B10*B11`, '', 'SQO\u2192Joined rate \u00D7 Mean Joined AUM'],
     // Row 13
-    ['Avg Days SQO \u2192 Joined', avgDaysToJoin, `=${r}!$B$35`, 'Lead time: SQOs need this many days to reach Joined'],
+    ['Avg Days SQO \u2192 Joined', avgDaysToJoin, `=${r}!$B$34`, 'Lead time: SQOs need this many days to reach Joined'],
     // Row 14
     [],
   ];
@@ -598,27 +605,27 @@ function buildSQOTargetsValues(
   ]);
   values.push([
     'Total Expected (F)',
-    '= Joined AUM + Projected AUM',
+    'Joined AUM + Projected AUM  [cell: C+E]',
     'Combined actual + expected. For past/current quarters, this is mostly joined AUM. For future quarters, mostly projected.',
   ]);
   values.push([
     'Gap (G)',
-    '= Target AUM - Total Expected',
+    'Target AUM - Total Expected  [cell: B-F]',
     'How much more AUM is needed. Negative means we\'re ahead of target.',
   ]);
   values.push([
     'Coverage % (H)',
-    '= Total Expected / Target AUM',
+    'Total Expected / Target AUM  [cell: F/B]',
     'What % of the target is covered by joined + pipeline. >100% = on track.',
   ]);
   values.push([
     'Incremental SQOs (J)',
-    '= CEILING(Gap / Expected AUM per SQO)',
+    'CEILING(Gap / Expected AUM per SQO)  [cell: CEILING(G/$B$12)]',
     'Additional SQOs needed to close the gap. Expected AUM per SQO = Mean Joined AUM \u00D7 SQO\u2192Joined Rate.',
   ]);
   values.push([
     'Total SQOs (K)',
-    '= CEILING(Target AUM / Expected AUM per SQO)',
+    'CEILING(Target AUM / Expected AUM per SQO)  [cell: CEILING(B/$B$12)]',
     'Total SQOs required to reach the full target from zero (ignoring existing pipeline).',
   ]);
   values.push([
@@ -913,15 +920,25 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
     const windowDays = body.windowDays as 180 | 365 | 730 | null | undefined;
-    const targetAumByQuarter = (body.targetAumByQuarter ?? {}) as Record<string, number>;
+    const clientTargets = (body.targetAumByQuarter ?? {}) as Record<string, number>;
 
-    const [p2RowsRaw, auditRows, tieredRates, dateRevisionMap, joinedByQuarter] = await Promise.all([
+    const [p2RowsRaw, auditRows, tieredRates, dateRevisionMap, joinedByQuarter, dbTargets] = await Promise.all([
       getForecastExportP2(),
       getForecastExportAudit(windowDays ?? null),
       getTieredForecastRates(windowDays ?? null),
       getDateRevisionMap(),
       getJoinedAumByQuarter(),
+      prisma.forecastQuarterTarget.findMany(),
     ]);
+
+    // Merge DB targets with client targets (client takes priority for latest edits)
+    const targetAumByQuarter: Record<string, number> = {};
+    for (const t of dbTargets) {
+      if (t.targetAumDollars > 0) targetAumByQuarter[t.quarter] = t.targetAumDollars;
+    }
+    for (const [q, v] of Object.entries(clientTargets)) {
+      if (v > 0) targetAumByQuarter[q] = v;
+    }
 
     // Recompute P2 rows with the dynamic tiered rates + duration penalties
     const p2Rows = recomputeP2WithRates(p2RowsRaw, tieredRates);

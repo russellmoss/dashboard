@@ -95,6 +95,18 @@ model ManagerQuarterlyGoal {
   @@map("manager_quarterly_goals")
 }
 
+model ForecastQuarterTarget {
+  id               String   @id @default(cuid())
+  quarter          String   @unique
+  targetAumDollars Float    @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  updatedBy        String?
+
+  @@index([quarter])
+  @@map("forecast_quarter_targets")
+}
+
 model ExploreFeedback {
   id            String   @id @default(cuid())
   userId        String?

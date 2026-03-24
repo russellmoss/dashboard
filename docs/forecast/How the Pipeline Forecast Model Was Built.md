@@ -104,7 +104,7 @@ We express the penalty as a multiplier: `bucket join rate / normal join rate`. T
 | Negotiating | 0.682 | 0.179 |
 | Signed | 1.0 (no penalty) | 1.0 (no penalty) |
 
-### How the multiplier is applied
+### How and why the multiplier is applied
 
 The multiplier only adjusts the **current stage** conversion rate. Subsequent stage rates are left unchanged. The logic: if a deal has been stuck in Negotiating for too long, that tells us something about the Neg→Signed transition for this deal. But if it does manage to get signed, it's back on a normal path — the Signed→Joined rate shouldn't be penalized.
 
@@ -112,6 +112,10 @@ Example: A Negotiating deal at 90 days (2+ SD):
 - `adjusted_neg_to_signed = neg_to_signed × 0.179`
 - `signed_to_joined` stays unchanged
 - `adjusted P(Join) = adjusted_neg_to_signed × signed_to_joined`
+
+A natural question is: why use a multiplier instead of just using the bucket join rates directly? After all, the multiplier is derived from those rates — for example, the 2+ SD Negotiating multiplier of 0.179 comes from dividing 10.8% by 60.4%. Mathematically, applying the multiplier to the base rate gives you the bucket rate back: `60.4% × 0.179 = 10.8%`. They are the same thing.
+
+The reason is that the bucket join rates were computed from the all-time resolved cohort, but the user can select different trailing windows on the dashboard (180 days, 1 year, 2 years, or all time). Each window produces different base rates — for example, the all-time Neg→Signed rate is 53.8% but the 1-year rate might be 50.5%. If we hardcoded the bucket join rates (10.8%), a stale Negotiating deal would always get 10.8% regardless of which window was selected. With the multiplier approach, the penalty scales with the selected window: `50.5% × 0.179 = 9.0%` for the 1-year window, `53.8% × 0.179 = 9.6%` for all-time. The multiplier encodes the relative penalty — stale deals convert at roughly 18% of the rate of fresh deals — and lets that ratio apply consistently no matter which base rates are in use.
 
 ### Why no Signed penalty
 
@@ -267,6 +271,79 @@ The remaining +91% worst case (Q3 2025) is partially driven by 15 deals that wer
 
 ---
 
+## How the SQO Target Calculator Works
+
+The forecast model tells us how much AUM the current pipeline is expected to produce. But leadership also needs to answer the reverse question: **"If we want $1B of joined AUM next quarter, how many SQOs do we need to create — and when?"**
+
+The SQO Target Calculator answers this. On the dashboard, each quarter card has a Target AUM input. When you type a number, the system immediately shows how many additional SQOs are needed to close the gap between what the pipeline is already producing and what the target requires.
+
+### The formula
+
+The core calculation is simple:
+
+```
+Expected AUM per SQO = Mean Joined AUM × SQO→Joined Rate
+
+Gap = Target AUM - (Already Joined AUM + Projected Pipeline AUM)
+
+Required SQOs = CEILING( Gap / Expected AUM per SQO )
+```
+
+**Mean Joined AUM** is the average AUM of deals that actually joined in the trailing window. **SQO→Joined Rate** is the product of the four stage conversion rates (SQO→SP × SP→Neg × Neg→Signed × Signed→Joined). Together, they tell you: for every SQO that enters the pipeline, how many dollars of AUM do you expect to eventually walk in the door?
+
+The calculation accounts for what's already in the pipeline. If Q1 2026 has $2.4B of already-joined AUM and $238M of projected pipeline AUM against a $1B target, the gap is zero — you're already ahead. Only when the target exceeds the combined joined + projected total does the calculator show incremental SQOs needed.
+
+### Why we use Joined Mean, not median
+
+This was the most important decision in building the calculator. We tested six different approaches for the "AUM per SQO" value — three populations (Joined only, all resolved, all SQOs) crossed with two statistics (mean, median). We backtested each across six historical quarters, comparing the predicted "required SQOs" against the actual number of SQOs created in the prior quarter.
+
+| Method | Mean Absolute Error | Bias |
+|--------|-------------------|------|
+| Joined Median | 74.7 SQOs | Always overestimates (2-3×) |
+| Resolved Median | 28.8 SQOs | Moderate overestimate |
+| All SQO Median | 25.3 SQOs | Moderate overestimate |
+| **Joined Mean** | **16.5 SQOs** | **Slight underestimate (-11.8)** |
+| Resolved Mean | 23.0 SQOs | Underestimates |
+| All SQO Mean | 25.2 SQOs | Underestimates |
+
+**Joined Mean won by a wide margin** — an average error of just 16.5 SQOs compared to 25-75 for every other method.
+
+The reason medians fail is whale deals. When a $1.5B deal joins (as happened in Q4 2025), it delivers the AUM equivalent of ~50 median-sized deals in a single close. The median-based formula can't account for this, so it told us we needed 225-298 SQOs when we actually had 146. The mean naturally incorporates whale variance because it reflects the average AUM that actually walks in the door — including the occasional outsized deal that dramatically shifts the quarterly total.
+
+The reason we use the Joined population (not all resolved SQOs or all SQOs) is that Closed Lost deals have *higher* median AUM ($42M) than Joined deals ($30.7M). Using the resolved pool would inflate the expected AUM per SQO, making the calculator think each SQO is worth more than it really is — leading to under-counting how many you need. Larger-book advisors are harder to close. The Joined-only mean captures what actually lands.
+
+### SQO entry quarter: when do they need to come in?
+
+Knowing you need 124 more SQOs is only half the answer. The other half is: when do those SQOs need to be created?
+
+The model uses the **average SQO→Joined velocity** (the sum of avg days at each stage for deals that successfully progressed) to work backwards from the target quarter. If the average deal takes ~80 days from SQO to Joined, and you're targeting Q3 2026 (which starts July 1), the SQOs need to enter the pipeline around mid-May — which falls in Q2 2026.
+
+The calculation takes the midpoint of the target quarter (approximately day 45 of the quarter), subtracts the avg velocity in days, and maps the resulting date to a quarter label. If that entry quarter is already in the past, the dashboard shows a red warning: those SQOs are at risk because the pipeline didn't have enough lead time.
+
+### Current-quarter awareness
+
+A subtlety that matters for practical use: the calculator is aware of what's already closed this quarter. For Q1 2026, if $2.4B of AUM has already joined and the target is $1B, the card shows "On track — exceeds target by $1.6B" rather than computing SQOs needed against only the open pipeline.
+
+The total expected AUM for any quarter is:
+
+```
+Total Expected = Already Joined AUM (actual) + Projected Pipeline AUM (from open opps × P(Join))
+```
+
+Already-joined AUM comes from `vw_funnel_master` (deals where `is_joined = 1`, grouped by the quarter of their `advisor_join_date__c`). This is real, closed business — not a forecast. Projected AUM comes from the pipeline model described in the earlier sections of this document.
+
+### Persistence and the Sheets export
+
+Targets are saved to a Postgres table (`forecast_quarter_targets`) so they persist across sessions. Any user with scenario permissions can set or edit targets. The targets are shared — there's one target per quarter for the whole organization, not per user.
+
+The Google Sheets export includes a **"BQ SQO Targets"** tab that shows the full gap analysis with Sheets formulas. Every quarter gets a row with: Target AUM, Joined AUM (actual), Projected AUM (pipeline), Total Expected, Gap, Coverage %, Status, Incremental SQOs Needed, Total SQOs for Full Target, and SQO Entry Quarter. The computed columns (Gap, Coverage, SQOs) are live formulas referencing the model inputs at the top of the sheet, which in turn reference the "BQ Rates and Days" tab. You can click any cell to trace how the number was derived.
+
+### Low confidence warnings
+
+The accuracy of the SQO calculation depends on having enough joined deals in the trailing window to produce a reliable mean AUM. When the joined deal count drops below 30, the dashboard shows a "Low confidence" warning. At the 180-day window, the sample is often just 13-14 deals and the mean AUM is volatile — a single whale deal joining or not can swing it by millions. The 1-year window (typically 45-50 joined deals) is the recommended default for target-setting.
+
+---
+
 ## Where the Code Lives
 
 | Component | File | What It Does |
@@ -278,6 +355,10 @@ The remaining +91% worst case (Q3 2025) is partially driven by 15 deals that wer
 | UI display | `src/app/dashboard/forecast/page.tsx` | `useMemo` calling `computeAdjustedDeal` per deal |
 | Sheets export | `src/app/api/forecast/export/route.ts` | `recomputeP2WithRates` + `buildP2Values` |
 | Parity tests | `src/lib/__tests__/forecast-penalties.test.ts` | 28 tests ensuring all code paths produce identical results |
+| SQO target persistence | `src/app/api/forecast/sqo-targets/route.ts` | GET + POST for saving/loading quarterly AUM targets |
+| SQO target UI | `src/app/dashboard/forecast/components/ForecastMetricCards.tsx` | Gap analysis, SQO calculator, entry quarter mapping |
+| Joined AUM query | `src/lib/queries/forecast-pipeline.ts` | `getJoinedAumByQuarter()` — actual joined AUM per quarter |
+| SQO Targets sheet export | `src/app/api/forecast/export/route.ts` | `buildSQOTargetsValues()` — full gap analysis with formulas |
 
 ---
 

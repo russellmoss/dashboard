@@ -14,6 +14,8 @@ export interface ForecastRates {
   window_start: string;
   window_end: string;
   cohort_count: number;
+  mean_joined_aum: number;
+  joined_deal_count: number;
 }
 
 export interface TieredForecastRates {
@@ -34,6 +36,8 @@ interface RawRatesResult {
   window_start: string;
   window_end: string;
   cohort_count: number;
+  mean_joined_aum: number | null;
+  joined_deal_count: number | null;
 }
 
 interface RawTieredRatesResult extends RawRatesResult {
@@ -63,7 +67,8 @@ const _getForecastRates = async (
         COALESCE(Stage_Entered_Sales_Process__c, Stage_Entered_Negotiating__c, Stage_Entered_Signed__c, Stage_Entered_Joined__c) AS eff_sp_ts,
         COALESCE(Stage_Entered_Negotiating__c, Stage_Entered_Signed__c, Stage_Entered_Joined__c) AS eff_neg_ts,
         COALESCE(Stage_Entered_Signed__c, Stage_Entered_Joined__c) AS eff_signed_ts,
-        COALESCE(Stage_Entered_Joined__c, TIMESTAMP(advisor_join_date__c)) AS eff_joined_ts
+        COALESCE(Stage_Entered_Joined__c, TIMESTAMP(advisor_join_date__c)) AS eff_joined_ts,
+        COALESCE(Underwritten_AUM__c, Amount) AS aum_dollars
       FROM \`${FORECAST_VIEW}\`
       WHERE Full_Opportunity_ID__c IS NOT NULL
         AND is_primary_opp_record = 1
@@ -126,7 +131,12 @@ const _getForecastRates = async (
       ) AS avg_days_in_signed,
       ${windowStartLabel} AS window_start,
       ${windowEndLabel} AS window_end,
-      COUNT(*) AS cohort_count
+      COUNT(*) AS cohort_count,
+      SAFE_DIVIDE(
+        SUM(CASE WHEN is_joined = 1 AND aum_dollars > 0 THEN aum_dollars END),
+        COUNTIF(is_joined = 1 AND aum_dollars > 0)
+      ) AS mean_joined_aum,
+      COUNTIF(is_joined = 1 AND aum_dollars > 0) AS joined_deal_count
     FROM flagged
   `;
 
@@ -150,6 +160,8 @@ const _getForecastRates = async (
     window_start: String(r.window_start),
     window_end: String(r.window_end),
     cohort_count: toNumber(r.cohort_count) || 0,
+    mean_joined_aum: Math.round(toNumber(r.mean_joined_aum) || 0),
+    joined_deal_count: toNumber(r.joined_deal_count) || 0,
   };
 };
 
@@ -208,7 +220,12 @@ const RATES_SELECT = `
         COUNTIF(eff_signed_ts IS NOT NULL AND eff_joined_ts IS NOT NULL
                 AND DATE(eff_signed_ts) <= DATE(eff_joined_ts))
       ) AS avg_days_in_signed,
-      COUNT(*) AS cohort_count`;
+      COUNT(*) AS cohort_count,
+      SAFE_DIVIDE(
+        SUM(CASE WHEN is_joined = 1 AND aum_dollars > 0 THEN aum_dollars END),
+        COUNTIF(is_joined = 1 AND aum_dollars > 0)
+      ) AS mean_joined_aum,
+      COUNTIF(is_joined = 1 AND aum_dollars > 0) AS joined_deal_count`;
 
 function mapRawToForecastRates(r: RawRatesResult, windowStart: string, windowEnd: string): ForecastRates {
   return {
@@ -223,13 +240,15 @@ function mapRawToForecastRates(r: RawRatesResult, windowStart: string, windowEnd
     window_start: windowStart,
     window_end: windowEnd,
     cohort_count: toNumber(r.cohort_count) || 0,
+    mean_joined_aum: Math.round(toNumber(r.mean_joined_aum) || 0),
+    joined_deal_count: toNumber(r.joined_deal_count) || 0,
   };
 }
 
 const EMPTY_RATES: ForecastRates = {
   sqo_to_sp: 0, sp_to_neg: 0, neg_to_signed: 0, signed_to_joined: 0,
   avg_days_sqo_to_sp: 0, avg_days_in_sp: 0, avg_days_in_neg: 0, avg_days_in_signed: 0,
-  window_start: '', window_end: '', cohort_count: 0,
+  window_start: '', window_end: '', cohort_count: 0, mean_joined_aum: 0, joined_deal_count: 0,
 };
 
 const _getTieredForecastRates = async (
@@ -253,6 +272,7 @@ const _getTieredForecastRates = async (
         COALESCE(Stage_Entered_Negotiating__c, Stage_Entered_Signed__c, Stage_Entered_Joined__c) AS eff_neg_ts,
         COALESCE(Stage_Entered_Signed__c, Stage_Entered_Joined__c) AS eff_signed_ts,
         COALESCE(Stage_Entered_Joined__c, TIMESTAMP(advisor_join_date__c)) AS eff_joined_ts,
+        COALESCE(Underwritten_AUM__c, Amount) AS aum_dollars,
         CASE WHEN COALESCE(Underwritten_AUM__c, Amount) < 75000000 THEN 'Lower' ELSE 'Upper' END AS aum_tier_2
       FROM \`${FORECAST_VIEW}\`
       WHERE Full_Opportunity_ID__c IS NOT NULL
