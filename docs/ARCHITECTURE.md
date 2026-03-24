@@ -27,6 +27,7 @@
 17. [SGA Activity](#17-sga-activity)
 18. [Saved Reports](#18-saved-reports)
 19. [SGM Hub](#19-sgm-hub)
+20. [Pipeline Forecast](#20-pipeline-forecast)
 
 ---
 
@@ -662,6 +663,15 @@ const response = await fetch('/api/dashboard/funnel-metrics?channel=Web');
 - `/api/sga-hub/drill-down/initial-calls` - Initial calls drill-down
 - `/api/sga-hub/drill-down/qualification-calls` - Qualification calls drill-down
 - `/api/sga-hub/drill-down/sqos` - SQOs drill-down
+
+**Forecast Routes**:
+- `/api/forecast/pipeline` - Pipeline deals with summary and joined AUM by quarter
+- `/api/forecast/rates` - Tiered conversion rates by AUM band and time window
+- `/api/forecast/monte-carlo` - Monte Carlo simulation with optional rate overrides
+- `/api/forecast/export` - Export forecast + audit data to Google Sheets
+- `/api/forecast/date-revisions` - Close date revision history and confidence scores
+- `/api/forecast/scenarios` - Save/load/share scenario snapshots
+- `/api/forecast/sqo-targets` - Quarterly SQO AUM targets (get/save)
 
 **Admin Routes**:
 - `/api/admin/refresh-cache` - Manual cache invalidation
@@ -1787,6 +1797,90 @@ Seeded with 48 records (12 SGMs × 4 quarters for 2026) via `scripts/seed-sgm-qu
 | `src/components/sgm-hub/SGMQuotaFilters.tsx` | Admin filter panel |
 | `src/components/sgm-hub/SGMQuotaTable.tsx` | Editable quarterly quota grid |
 | `src/types/sgm-hub.ts` | All SGM Hub types (leaderboard, dashboard, quota tracking) |
+
+---
+
+## 20. Pipeline Forecast
+
+### Overview
+
+The Pipeline Forecast page (`/dashboard/forecast`) provides probability-weighted AUM forecasting with Monte Carlo simulation. It combines live pipeline data with historical conversion rates to project quarterly AUM outcomes.
+
+**Page**: `src/app/dashboard/forecast/page.tsx`
+**Permission**: Page ID 19 (checked via `canAccessPage`)
+
+### Data Flow
+
+```
+Page Load -> Parallel fetch:
+  1. GET /api/forecast/rates?windowDays=N     -> Tiered conversion rates (flat + AUM bands)
+  2. GET /api/forecast/pipeline               -> Pipeline records + summary + joined AUM by quarter
+  3. GET /api/forecast/date-revisions         -> Close date revision history
+  4. GET /api/forecast/sqo-targets            -> Quarterly AUM targets
+
+Client-side recompute (useMemo):
+  Pipeline records x Rates -> adjustedPipeline (duration penalties, tier-adjusted P(Join))
+  adjustedPipeline -> adjustedSummary (dynamic quarter rollups)
+
+Auto-run after load:
+  POST /api/forecast/monte-carlo             -> Quarterly probability distributions
+```
+
+### Pipeline Route
+
+`GET /api/forecast/pipeline` returns three fields:
+- **records**: Open pipeline deals with stage, AUM, days in stage, projected dates
+- **summary**: Aggregate counts (total opps, zero-AUM count, anticipated date count, quarters)
+- **joinedByQuarter**: Actual joined AUM and count by quarter (from `getJoinedAumByQuarter`)
+
+The `joinedByQuarter` data enables gap analysis -- comparing forecasted expected AUM against actual joined AUM per quarter.
+
+### Client-Side Adjustments
+
+The page recomputes deal-level forecasts client-side using `computeAdjustedDeal()` from `src/lib/forecast-penalties.ts`:
+
+- **Duration penalties**: Deals lingering in a stage get a multiplier reduction on P(Join)
+- **AUM-tiered rates**: Conversion rates vary by AUM band (lower/flat/upper)
+- **Projected dates**: Model-based or anticipated start date, with confidence from revision history
+- **Quarter rollups**: Dynamic quarter assignment based on projected join date
+
+### Page Components
+
+| Component | Purpose |
+|-----------|---------|
+| `ForecastTopBar` | Window selector (180/365/730 days), Monte Carlo trigger, Sheets export |
+| `ForecastMetricCards` | Quarter cards with expected AUM, targets, gap analysis, joined actuals |
+| `ExpectedAumChart` | Visual AUM distribution by quarter (dynamically loaded) |
+| `ConversionRatesPanel` | Flat conversion rates for the selected window |
+| `MonteCarloPanel` | Simulation results with per-deal stats (dynamically loaded) |
+| `ScenarioRunner` | Rate override sliders for what-if scenarios (requires `canRunScenarios`) |
+| `SavedScenariosList` | Load/share saved scenario snapshots |
+| `PipelineDetailTable` | Full deal list with adjusted P(Join), AUM tier, duration bucket |
+| `AdvisorForecastModal` | Per-opportunity detail modal on row click |
+
+### API Routes
+
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/api/forecast/pipeline` | GET | Pipeline records, summary, joined AUM by quarter |
+| `/api/forecast/rates` | GET | Tiered conversion rates by time window |
+| `/api/forecast/monte-carlo` | POST | Run Monte Carlo simulation |
+| `/api/forecast/export` | POST | Export to Google Sheets |
+| `/api/forecast/date-revisions` | GET | Close date revision counts and confidence |
+| `/api/forecast/scenarios` | GET/POST | Save, list, and share scenarios |
+| `/api/forecast/sqo-targets` | GET/POST | Quarterly SQO AUM target management |
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/app/dashboard/forecast/page.tsx` | Main forecast page with state management and data orchestration |
+| `src/app/api/forecast/pipeline/route.ts` | Pipeline API route (SGM/SGA filtered) |
+| `src/lib/queries/forecast-pipeline.ts` | `getForecastPipeline` + `getJoinedAumByQuarter` query functions |
+| `src/lib/queries/forecast-rates.ts` | Tiered conversion rate queries |
+| `src/lib/queries/forecast-monte-carlo.ts` | Monte Carlo simulation logic |
+| `src/lib/forecast-penalties.ts` | `computeAdjustedDeal` -- duration penalties and AUM-tier adjustments |
+| `src/app/dashboard/forecast/components/` | All forecast UI components |
 
 ---
 

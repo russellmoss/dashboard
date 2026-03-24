@@ -12,6 +12,7 @@ This dashboard connects directly to BigQuery to visualize data from the `vw_funn
 - **Trend Visualization**: Monthly and quarterly trend charts for conversion rates and volumes
 - **Channel & Source Performance**: Drill down into performance by marketing channel and lead source
 - **Team Performance**: Filter and analyze performance by SGA (Sales Growth Advisor) and SGM (Sales Growth Manager)
+- **Pipeline Forecast**: Probability-weighted AUM forecasting with Monte Carlo simulation, scenario planning, and Google Sheets export
 - **SGA Hub**: Self-service dashboard for SGAs to track weekly goals, quarterly progress, and closed lost follow-ups
 - **SGA Management**: Admin/Manager interface to view and manage all SGAs' goals and performance
 - **Drill-Down Capabilities**: Click on any metric value to see underlying records, then click records to view full details
@@ -361,10 +362,12 @@ The SGA Management page (Admin/Manager only) provides oversight of all SGAs:
   - `src/lib/queries/quarterly-progress.ts` - Quarterly progress queries
 - **Dashboard Pages**: 
   - `src/app/dashboard/page.tsx` - Main Funnel Performance dashboard
+  - `src/app/dashboard/forecast/page.tsx` - Pipeline Forecast (probability-weighted AUM)
   - `src/app/dashboard/sga-hub/page.tsx` - SGA Hub (for SGA role)
   - `src/app/dashboard/sga-management/page.tsx` - SGA Management (for admin/manager)
 - **API Routes**: 
   - `src/app/api/dashboard/*` - Dashboard endpoints
+  - `src/app/api/forecast/*` - Forecast endpoints (pipeline, rates, monte-carlo, scenarios, export)
   - `src/app/api/sga-hub/*` - SGA Hub endpoints (weekly-goals, quarterly-progress, drill-down, etc.)
 - **Components**: 
   - `src/components/dashboard/*` - Dashboard components (Scorecards, Charts, RecordDetailModal)
@@ -447,7 +450,6 @@ _No known issues at this time._
 
 ## 🔮 Future Enhancements
 
-- Add forecast comparison charts
 - Create additional dashboard pages (Channel Drilldown, Open Pipeline, Partner Performance, Experimentation)
 - Add pagination to drill-down modals (if records exceed 100)
 - Add filtering/sorting within drill-down modals
@@ -469,5 +471,5 @@ Proprietary - Savvy Wealth Internal Use Only
 
 ---
 
-**Last Updated**: January 2026  
-**Status**: All core phases complete (1-12), Full Funnel View implemented, SGA Hub & SGA Management implemented, Drill-Down feature complete, Caching implementation complete, Password features (forgot/reset/change) and rate limiting (Upstash) implemented
+**Last Updated**: March 2026  
+**Status**: All core phases complete (1-12), Full Funnel View implemented, SGA Hub & SGA Management implemented, Drill-Down feature complete, Caching implementation complete, Pipeline Forecast with Monte Carlo simulation complete, Password features (forgot/reset/change) and rate limiting (Upstash) implemented

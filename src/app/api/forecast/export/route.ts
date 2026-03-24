@@ -7,16 +7,18 @@ import fs from 'fs';
 import path from 'path';
 import { getForecastExportP2, getForecastExportAudit } from '@/lib/queries/forecast-export';
 import type { ForecastExportP2Row, ForecastExportAuditRow } from '@/lib/queries/forecast-export';
-import { getTieredForecastRates, type TieredForecastRates } from '@/lib/queries/forecast-rates';
+import { getTieredForecastRates, type TieredForecastRates, type ForecastRates } from '@/lib/queries/forecast-rates';
 import { computeAdjustedDeal } from '@/lib/forecast-penalties';
 import { getDateRevisionMap } from '@/lib/queries/forecast-date-revisions';
 import { runMonteCarlo, type MonteCarloResponse } from '@/lib/queries/forecast-monte-carlo';
+import { getJoinedAumByQuarter } from '@/lib/queries/forecast-pipeline';
 
 const TARGET_SHEET_ID = '1Iz9X6HY-bsAGBNkuQWH-SYoB7Xzy-9Hkg2Kk8ipxKQY';
 const FORECAST_TAB = 'BQ Forecast P2';
 const AUDIT_TAB = 'BQ Audit Trail';
 const MONTE_CARLO_TAB = 'BQ Monte Carlo';
 const RATES_TAB = 'BQ Rates and Days';
+const SQO_TARGETS_TAB = 'BQ SQO Targets';
 
 // Auth pattern copied from src/lib/sheets/google-sheets-exporter.ts (lines 34-72)
 function getSheetsClient() {
@@ -267,12 +269,18 @@ function buildP2Values(rows: ForecastExportP2Row[], dateRevisionMap: Map<string,
       `=G${row}/1000000`,
       r.aum_tier,
       r.is_zero_aum ? 'YES' : 'NO',
-      r.rate_sqo_to_sp ?? '',
-      r.rate_sp_to_neg ?? '',
-      r.rate_neg_to_signed ?? '',
-      r.rate_signed_to_joined,
+      // K: Rate SQO→SP — picks tier rate via named range based on AUM tier (col Y)
+      `=IF(OR(E${row}="Discovery",E${row}="Qualifying"),IF(Y${row}="Lower (< $75M)",Lower_SQO_to_SP_rate,Upper_SQO_to_SP_rate),"")`,
+      // L: Rate SP→Neg
+      `=IF(OR(E${row}="Discovery",E${row}="Qualifying",E${row}="Sales Process"),IF(Y${row}="Lower (< $75M)",Lower_SP_to_Neg_rate,Upper_SP_to_Neg_rate),"")`,
+      // M: Rate Neg→Signed
+      `=IF(OR(E${row}="Discovery",E${row}="Qualifying",E${row}="Sales Process",E${row}="Negotiating"),IF(Y${row}="Lower (< $75M)",Lower_Neg_to_Signed_rate,Upper_Neg_to_Signed_rate),"")`,
+      // N: Rate Signed→Joined
+      `=IF(Y${row}="Lower (< $75M)",Lower_Signed_to_Joined_rate,Upper_Signed_to_Joined_rate)`,
       r.stages_remaining,
-      buildWorkings(r),
+      // P: P(Join) Workings — formula-based text showing the rate multiplication
+      `=IF(K${row}<>"",TEXT(K${row},"0.00")&" \u00d7 ","")&IF(L${row}<>"",TEXT(L${row},"0.00")&" \u00d7 ","")&IF(M${row}<>"",TEXT(M${row},"0.00")&" \u00d7 ","")&TEXT(N${row},"0.00")&" = "&TEXT(Q${row},"0.0000")`,
+      // Q: P(Join) — product of tier-selected rates from K-N
       `=IF(K${row}<>"",K${row},1)*IF(L${row}<>"",L${row},1)*IF(M${row}<>"",M${row},1)*N${row}`,
       r.expected_days_remaining,
       r.model_projected_join_date || '',
@@ -444,6 +452,193 @@ function buildAuditValues(rows: ForecastExportAuditRow[]): any[][] {
   return [headers, ...dataRows];
 }
 
+// Build the "BQ SQO Targets" tab — full gap analysis with joined AUM, projected pipeline,
+// incremental SQOs, entry quarters, and auditable formulas referencing the Rates tab.
+function buildSQOTargetsValues(
+  targetAumByQuarter: Record<string, number>,
+  flatRates: ForecastRates,
+  joinedByQuarter: Record<string, { joined_aum: number; joined_count: number }>,
+  projectedAumByQuarter: Record<string, number>,
+): any[][] {
+  const r = `'${RATES_TAB}'`;
+
+  const sqoToJoinedRate = flatRates.sqo_to_sp * flatRates.sp_to_neg * flatRates.neg_to_signed * flatRates.signed_to_joined;
+  const meanJoinedAum = flatRates.mean_joined_aum;
+  const joinedDealCount = flatRates.joined_deal_count;
+  const avgDaysToJoin = flatRates.avg_days_sqo_to_sp + flatRates.avg_days_in_sp + flatRates.avg_days_in_neg + flatRates.avg_days_in_signed;
+
+  // Collect all quarters that have either a target, joined AUM, or projected AUM
+  const allQuarters = new Set([
+    ...Object.keys(targetAumByQuarter),
+    ...Object.keys(joinedByQuarter),
+    ...Object.keys(projectedAumByQuarter),
+  ]);
+  const quarters = Array.from(allQuarters)
+    .filter(q => /^Q\d \d{4}$/.test(q))
+    .sort((a, b) => {
+      const [aq, ay] = a.replace('Q', '').split(' ').map(Number);
+      const [bq, by] = b.replace('Q', '').split(' ').map(Number);
+      return ay !== by ? ay - by : aq - bq;
+    });
+
+  /** Map "Q3 2026" → "Q2 2026" by subtracting avgDaysToJoin from quarter midpoint */
+  function getEntryQuarter(quarterLabel: string): string {
+    const m = quarterLabel.match(/^Q(\d)\s+(\d{4})$/);
+    if (!m) return '?';
+    const qNum = parseInt(m[1]);
+    const year = parseInt(m[2]);
+    const monthStart = (qNum - 1) * 3;
+    const midpoint = new Date(year, monthStart, 1);
+    midpoint.setDate(midpoint.getDate() + 45);
+    const entry = new Date(midpoint);
+    entry.setDate(entry.getDate() - avgDaysToJoin);
+    const eq = Math.floor(entry.getMonth() / 3) + 1;
+    return `Q${eq} ${entry.getFullYear()}`;
+  }
+
+  // ── MODEL INPUTS (rows 1-11) ──
+  const values: any[][] = [
+    // Row 1
+    ['SQO TARGET CALCULATOR \u2014 GAP ANALYSIS'],
+    // Row 2
+    [`Generated: ${new Date().toISOString().split('T')[0]} | Rates from "${RATES_TAB}" tab | Pipeline from "${FORECAST_TAB}" tab`],
+    // Row 3
+    [],
+    // Row 4
+    ['MODEL INPUTS', '', '', ''],
+    // Row 5
+    ['Input', 'Value', 'Source', 'Description'],
+    // Row 6
+    ['SQO \u2192 SP Rate', flatRates.sqo_to_sp, `=${r}!$B$5`, `${(flatRates.sqo_to_sp * 100).toFixed(1)}%`],
+    // Row 7
+    ['SP \u2192 Negotiating Rate', flatRates.sp_to_neg, `=${r}!$B$6`, `${(flatRates.sp_to_neg * 100).toFixed(1)}%`],
+    // Row 8
+    ['Neg \u2192 Signed Rate', flatRates.neg_to_signed, `=${r}!$B$7`, `${(flatRates.neg_to_signed * 100).toFixed(1)}%`],
+    // Row 9
+    ['Signed \u2192 Joined Rate', flatRates.signed_to_joined, `=${r}!$B$8`, `${(flatRates.signed_to_joined * 100).toFixed(1)}%`],
+    // Row 10
+    ['SQO \u2192 Joined Rate (product)', `=B6*B7*B8*B9`, '', 'Product of 4 stage rates'],
+    // Row 11
+    ['Mean Joined AUM ($)', meanJoinedAum, 'BQ query', `Avg AUM of ${joinedDealCount} joined deals${joinedDealCount < 30 ? ' \u26A0\uFE0F LOW' : ''}`],
+    // Row 12
+    ['Expected AUM per SQO ($)', `=B10*B11`, '', 'SQO\u2192Joined rate \u00D7 Mean Joined AUM'],
+    // Row 13
+    ['Avg Days SQO \u2192 Joined', avgDaysToJoin, `=${r}!$B$35`, 'Lead time: SQOs need this many days to reach Joined'],
+    // Row 14
+    [],
+  ];
+
+  // ── QUARTER ANALYSIS (row 15+) ──
+  // Row 15 = header row
+  const headerRow = values.length + 1; // 1-indexed
+  values.push([
+    'QUARTERLY GAP ANALYSIS', '', '', '', '', '', '', '', '', '', '',
+  ]);
+  // Row 16 = column headers
+  values.push([
+    'Quarter',              // A
+    'Target AUM ($)',       // B
+    'Joined AUM ($)',       // C: actual closed deals
+    'Joined Count',         // D
+    'Projected AUM ($)',    // E: open pipeline expected
+    'Total Expected ($)',   // F = C + E
+    'Gap ($)',              // G = B - F (negative = surplus)
+    'Coverage %',           // H = F / B
+    'Status',               // I
+    'Incremental SQOs',     // J = CEILING(G / $B$12)
+    'Total SQOs for Target', // K = CEILING(B / $B$12)
+    'SQO Entry Quarter',    // L: when SQOs need to enter pipeline
+  ]);
+
+  if (quarters.length === 0) {
+    values.push(['(No data \u2014 set targets on the Pipeline Forecast dashboard)']);
+  } else {
+    quarters.forEach((quarter) => {
+      const row = values.length + 1;
+      const target = targetAumByQuarter[quarter] ?? 0;
+      const joined = joinedByQuarter[quarter]?.joined_aum ?? 0;
+      const joinedCt = joinedByQuarter[quarter]?.joined_count ?? 0;
+      const projected = projectedAumByQuarter[quarter] ?? 0;
+      const entryQ = avgDaysToJoin > 0 ? getEntryQuarter(quarter) : '';
+
+      values.push([
+        quarter,                                                    // A: Quarter
+        target,                                                     // B: Target AUM
+        joined,                                                     // C: Joined AUM
+        joinedCt,                                                   // D: Joined Count
+        projected,                                                  // E: Projected AUM
+        `=C${row}+E${row}`,                                        // F: Total Expected = Joined + Projected
+        `=IF(B${row}=0,"",B${row}-F${row})`,                       // G: Gap = Target - Total Expected
+        `=IF(B${row}=0,"",F${row}/B${row})`,                       // H: Coverage %
+        `=IF(B${row}=0,"No target",IF(G${row}<=0,"On track","Gap: "&TEXT(G${row}/1000000,"#,##0")&"M"))`, // I: Status
+        `=IF(B${row}=0,"",IF(G${row}<=0,0,CEILING(G${row}/$B$12,1)))`,  // J: Incremental SQOs
+        `=IF(B${row}=0,"",CEILING(B${row}/$B$12,1))`,              // K: Total SQOs
+        entryQ,                                                     // L: SQO Entry Quarter
+      ]);
+    });
+  }
+
+  values.push([]);
+
+  // ── METHODOLOGY ──
+  values.push(['HOW THESE NUMBERS ARE CALCULATED']);
+  values.push([]);
+  values.push([
+    'Column', 'Formula', 'Explanation',
+  ]);
+  values.push([
+    'Joined AUM (C)',
+    'BigQuery: SUM(AUM) WHERE is_joined=1 for the quarter',
+    'Actual AUM from advisors who have already Joined this quarter. This is real, closed business.',
+  ]);
+  values.push([
+    'Projected AUM (E)',
+    'SUM of (Opp AUM \u00D7 adjusted P(Join)) from BQ Forecast P2 tab',
+    'Expected AUM from open pipeline deals, weighted by their probability of joining. Duration penalties and AUM-tier adjustments are applied.',
+  ]);
+  values.push([
+    'Total Expected (F)',
+    '= Joined AUM + Projected AUM',
+    'Combined actual + expected. For past/current quarters, this is mostly joined AUM. For future quarters, mostly projected.',
+  ]);
+  values.push([
+    'Gap (G)',
+    '= Target AUM - Total Expected',
+    'How much more AUM is needed. Negative means we\'re ahead of target.',
+  ]);
+  values.push([
+    'Coverage % (H)',
+    '= Total Expected / Target AUM',
+    'What % of the target is covered by joined + pipeline. >100% = on track.',
+  ]);
+  values.push([
+    'Incremental SQOs (J)',
+    '= CEILING(Gap / Expected AUM per SQO)',
+    'Additional SQOs needed to close the gap. Expected AUM per SQO = Mean Joined AUM \u00D7 SQO\u2192Joined Rate.',
+  ]);
+  values.push([
+    'Total SQOs (K)',
+    '= CEILING(Target AUM / Expected AUM per SQO)',
+    'Total SQOs required to reach the full target from zero (ignoring existing pipeline).',
+  ]);
+  values.push([
+    'SQO Entry Quarter (L)',
+    `Target quarter midpoint minus ${avgDaysToJoin} days (avg velocity)`,
+    'When SQOs need to become qualified to join by the target quarter. If this quarter is past, those SQOs are at risk.',
+  ]);
+  values.push([]);
+  values.push([
+    'SQO\u2192Joined Rate:',
+    `${(flatRates.sqo_to_sp * 100).toFixed(1)}% \u00D7 ${(flatRates.sp_to_neg * 100).toFixed(1)}% \u00D7 ${(flatRates.neg_to_signed * 100).toFixed(1)}% \u00D7 ${(flatRates.signed_to_joined * 100).toFixed(1)}% = ${(sqoToJoinedRate * 100).toFixed(1)}%`,
+  ]);
+  values.push([
+    'Note:',
+    'All formulas reference cells in this sheet and the Rates tab. Click any cell to trace the math.',
+  ]);
+
+  return values;
+}
+
 // Build the "BQ Rates and Days" tab — pure Sheets formulas referencing the Audit Trail tab.
 // All values are auditable: click any cell to see the formula and trace it back to the raw data.
 //
@@ -462,73 +657,163 @@ function buildRatesAndDaysValues(auditRowCount: number): any[][] {
   const a = `'${AUDIT_TAB}'`;
   const lastRow = auditRowCount + 1;
   const rng = (col: string) => `${a}!${col}2:${col}${lastRow}`;
+  const aumRng = rng('AG'); // AUM ($M) column for tier filtering
 
-  // --- Rate helpers (denom/numer are 0/1 flags — SUMPRODUCT gives the count) ---
+  // --- Flat rate helpers (all deals) ---
   const rate = (numerCol: string, denomCol: string) =>
     `=IFERROR(SUMPRODUCT(${rng(numerCol)})/SUMPRODUCT(${rng(denomCol)}), "N/A")`;
   const denomCount = (denomCol: string) => `=SUMPRODUCT(${rng(denomCol)})`;
   const numerCount = (numerCol: string) => `=SUMPRODUCT(${rng(numerCol)})`;
 
+  // --- Tiered rate helpers (filtered by AUM < 75 or >= 75 in col AG) ---
+  // AG is AUM in $M, so 75 = $75M boundary
+  const tierRate = (numerCol: string, denomCol: string, op: '<' | '>=') =>
+    `=IFERROR(SUMPRODUCT((${aumRng}${op}75)*(${rng(numerCol)}))/SUMPRODUCT((${aumRng}${op}75)*(${rng(denomCol)})), "N/A")`;
+  const tierDenomCount = (denomCol: string, op: '<' | '>=') =>
+    `=SUMPRODUCT((${aumRng}${op}75)*(${rng(denomCol)}))`;
+  const tierNumerCount = (numerCol: string, op: '<' | '>=') =>
+    `=SUMPRODUCT((${aumRng}${op}75)*(${rng(numerCol)}))`;
+
   // --- Days helpers ---
-  // For SP→Neg, Neg→Signed, Signed→Joined: use AVERAGEIFS on the days columns (Z, AA, AB)
-  // filtered by the NUMERATOR flag = 1 (only deals that completed this transition AND are
-  // in the resolved cohort). The numer flag is 1 only for resolved SQOs that reached the
-  // next stage, which matches the dashboard's avg_days computation.
   const avgDaysFiltered = (daysCol: string, numerCol: string) =>
     `=IFERROR(AVERAGEIFS(${rng(daysCol)}, ${rng(numerCol)}, 1, ${rng(daysCol)}, "<>"), "N/A")`;
   const daysCount = (numerCol: string, daysCol: string) =>
     `=COUNTIFS(${rng(numerCol)}, 1, ${rng(daysCol)}, "<>")`;
 
-  // SQO→SP days: col Y is now "Days SQO→SP" = DAYS(U, L) = SP(backfilled) - Date_Became_SQO.
-  // Use AVERAGEIFS filtered by AM=1 (reached SP) like the other days columns.
+  // Row layout reference (for named ranges and P2 formula references):
+  //   B6  = flat SQO→SP        B14 = Lower SQO→SP        B22 = Upper SQO→SP
+  //   B7  = flat SP→Neg        B15 = Lower SP→Neg        B23 = Upper SP→Neg
+  //   B8  = flat Neg→Signed    B16 = Lower Neg→Signed    B24 = Upper Neg→Signed
+  //   B9  = flat Signed→Joined B17 = Lower Signed→Joined B25 = Upper Signed→Joined
+  //   B10 = flat SQO→Joined    B18 = Lower SQO→Joined    B26 = Upper SQO→Joined
 
   return [
-    // Section 1: Title
+    // Section 1: Title (rows 1-3)
     ['HISTORICAL CONVERSION RATES & AVG DAYS IN STAGE'],
     [`Generated: ${new Date().toISOString().split('T')[0]} \u2014 All formulas reference the "${AUDIT_TAB}" tab. Click any cell to see the formula.`],
     [],
 
-    // Section 2: Conversion Rates (rows 4-10)
-    ['CONVERSION RATES', '', '', '', ''],
+    // Section 2: Flat Conversion Rates (rows 4-10)
+    ['CONVERSION RATES (ALL DEALS)', '', '', '', ''],
     ['Transition', 'Rate', 'Numerator', 'Denominator', 'Formula Description'],
     [
       'SQO \u2192 SP',
       rate('AM', 'AL'),
       numerCount('AM'),
       denomCount('AL'),
-      'Deals that reached SP or beyond (col AM) \u00F7 All resolved SQOs (col AL)',
+      'All deals: reached SP+ \u00F7 resolved SQOs',
     ],
     [
       'SP \u2192 Neg',
       rate('AO', 'AN'),
       numerCount('AO'),
       denomCount('AN'),
-      'Deals that reached Neg or beyond (col AO) \u00F7 Deals that reached SP+ (col AN)',
+      'All deals: reached Neg+ \u00F7 reached SP+',
     ],
     [
       'Neg \u2192 Signed',
       rate('AQ', 'AP'),
       numerCount('AQ'),
       denomCount('AP'),
-      'Deals that reached Signed or beyond (col AQ) \u00F7 Deals that reached Neg+ (col AP)',
+      'All deals: reached Signed+ \u00F7 reached Neg+',
     ],
     [
       'Signed \u2192 Joined',
       rate('AS', 'AR'),
       numerCount('AS'),
       denomCount('AR'),
-      'Deals that Joined (col AS) \u00F7 Deals that reached Signed+ (col AR)',
+      'All deals: Joined \u00F7 reached Signed+',
     ],
     [
       'SQO \u2192 Joined (product)',
       '=B6*B7*B8*B9',
       numerCount('AS'),
       denomCount('AL'),
-      'Product of all four stage rates above',
+      'Product of flat rates',
     ],
     [],
 
-    // Section 3: Average Days in Stage (rows 12-18)
+    // Section 3: Lower Tier Rates (rows 12-18)
+    ['LOWER TIER RATES (< $75M AUM)', '', '', '', ''],
+    ['Transition', 'Rate', 'Numerator', 'Denominator', 'Formula Description'],
+    [
+      'SQO \u2192 SP',
+      tierRate('AM', 'AL', '<'),
+      tierNumerCount('AM', '<'),
+      tierDenomCount('AL', '<'),
+      'Lower tier: reached SP+ \u00F7 resolved SQOs where AUM < $75M',
+    ],
+    [
+      'SP \u2192 Neg',
+      tierRate('AO', 'AN', '<'),
+      tierNumerCount('AO', '<'),
+      tierDenomCount('AN', '<'),
+      'Lower tier: reached Neg+ \u00F7 reached SP+ where AUM < $75M',
+    ],
+    [
+      'Neg \u2192 Signed',
+      tierRate('AQ', 'AP', '<'),
+      tierNumerCount('AQ', '<'),
+      tierDenomCount('AP', '<'),
+      'Lower tier: reached Signed+ \u00F7 reached Neg+ where AUM < $75M',
+    ],
+    [
+      'Signed \u2192 Joined',
+      tierRate('AS', 'AR', '<'),
+      tierNumerCount('AS', '<'),
+      tierDenomCount('AR', '<'),
+      'Lower tier: Joined \u00F7 reached Signed+ where AUM < $75M',
+    ],
+    [
+      'SQO \u2192 Joined (product)',
+      '=B14*B15*B16*B17',
+      tierNumerCount('AS', '<'),
+      tierDenomCount('AL', '<'),
+      'Product of Lower tier rates',
+    ],
+    [],
+
+    // Section 4: Upper Tier Rates (rows 20-26)
+    ['UPPER TIER RATES (\u2265 $75M AUM)', '', '', '', ''],
+    ['Transition', 'Rate', 'Numerator', 'Denominator', 'Formula Description'],
+    [
+      'SQO \u2192 SP',
+      tierRate('AM', 'AL', '>='),
+      tierNumerCount('AM', '>='),
+      tierDenomCount('AL', '>='),
+      'Upper tier: reached SP+ \u00F7 resolved SQOs where AUM \u2265 $75M',
+    ],
+    [
+      'SP \u2192 Neg',
+      tierRate('AO', 'AN', '>='),
+      tierNumerCount('AO', '>='),
+      tierDenomCount('AN', '>='),
+      'Upper tier: reached Neg+ \u00F7 reached SP+ where AUM \u2265 $75M',
+    ],
+    [
+      'Neg \u2192 Signed',
+      tierRate('AQ', 'AP', '>='),
+      tierNumerCount('AQ', '>='),
+      tierDenomCount('AP', '>='),
+      'Upper tier: reached Signed+ \u00F7 reached Neg+ where AUM \u2265 $75M',
+    ],
+    [
+      'Signed \u2192 Joined',
+      tierRate('AS', 'AR', '>='),
+      tierNumerCount('AS', '>='),
+      tierDenomCount('AR', '>='),
+      'Upper tier: Joined \u00F7 reached Signed+ where AUM \u2265 $75M',
+    ],
+    [
+      'SQO \u2192 Joined (product)',
+      '=B22*B23*B24*B25',
+      tierNumerCount('AS', '>='),
+      tierDenomCount('AL', '>='),
+      'Product of Upper tier rates',
+    ],
+    [],
+
+    // Section 5: Average Days in Stage (rows 28-34)
     ['AVERAGE DAYS IN STAGE', '', '', '', ''],
     ['Transition', 'Avg Days', 'Deals with Data', '', 'Formula Description'],
     [
@@ -536,39 +821,57 @@ function buildRatesAndDaysValues(auditRowCount: number): any[][] {
       avgDaysFiltered('Y', 'AM'),
       daysCount('AM', 'Y'),
       '',
-      'Avg of "Days SQO\u2192SP" (col Y) where SP Numer=1 (deal reached SP)',
+      'Avg of "Days SQO\u2192SP" (col Y) where SP Numer=1',
     ],
     [
       'SP \u2192 Neg (days in SP)',
       avgDaysFiltered('Z', 'AO'),
       daysCount('AO', 'Z'),
       '',
-      'Avg of "Days in SP" (col Z) where Neg Numer=1 (deal completed SP\u2192Neg)',
+      'Avg of "Days in SP" (col Z) where Neg Numer=1',
     ],
     [
       'Neg \u2192 Signed (days in Neg)',
       avgDaysFiltered('AA', 'AQ'),
       daysCount('AQ', 'AA'),
       '',
-      'Avg of "Days in Neg" (col AA) where Signed Numer=1 (deal completed Neg\u2192Signed)',
+      'Avg of "Days in Neg" (col AA) where Signed Numer=1',
     ],
     [
       'Signed \u2192 Joined (days in Signed)',
       avgDaysFiltered('AB', 'AS'),
       daysCount('AS', 'AB'),
       '',
-      'Avg of "Days in Signed" (col AB) where Joined Numer=1 (deal Joined)',
+      'Avg of "Days in Signed" (col AB) where Joined Numer=1',
     ],
     [
       'Total SQO \u2192 Joined',
-      '=SUM(B14:B17)',
+      '=SUM(B30:B33)',
       '',
       '',
       'Sum of all stage durations',
     ],
     [],
 
-    // Section 4: Methodology notes
+    // Section 6: Named Ranges Reference
+    ['NAMED RANGES (create in Sheets: Data \u2192 Named ranges)'],
+    ['Cell', 'Named Range', 'Used By'],
+    ['B6', 'SQO_to_SP_rate', 'Flat rate \u2014 BQ Forecast P2 fallback'],
+    ['B7', 'SP_to_Neg_rate', 'Flat rate'],
+    ['B8', 'Neg_to_Signed_rate', 'Flat rate'],
+    ['B9', 'Signed_to_Joined_rate', 'Flat rate'],
+    ['B10', 'SQO_to_Joined_rate', 'Flat product'],
+    ['B14', 'Lower_SQO_to_SP_rate', 'BQ Forecast P2 col K (Lower tier deals)'],
+    ['B15', 'Lower_SP_to_Neg_rate', 'BQ Forecast P2 col L'],
+    ['B16', 'Lower_Neg_to_Signed_rate', 'BQ Forecast P2 col M'],
+    ['B17', 'Lower_Signed_to_Joined_rate', 'BQ Forecast P2 col N'],
+    ['B22', 'Upper_SQO_to_SP_rate', 'BQ Forecast P2 col K (Upper tier deals)'],
+    ['B23', 'Upper_SP_to_Neg_rate', 'BQ Forecast P2 col L'],
+    ['B24', 'Upper_Neg_to_Signed_rate', 'BQ Forecast P2 col M'],
+    ['B25', 'Upper_Signed_to_Joined_rate', 'BQ Forecast P2 col N'],
+    [],
+
+    // Section 7: Methodology notes
     ['METHODOLOGY'],
     [
       'Cohort:',
@@ -576,19 +879,19 @@ function buildRatesAndDaysValues(auditRowCount: number): any[][] {
     ],
     [
       'Denominators:',
-      '"Reached or beyond" \u2014 a deal counts in the SP denominator if it has a SP, Neg, Signed, or Joined timestamp (COALESCE backfill). Flagged as 0/1 in cols AL\u2013AS.',
+      '"Reached or beyond" \u2014 COALESCE backfill. Flagged as 0/1 in cols AL\u2013AS.',
     ],
     [
-      'Numerators:',
-      'Same logic one stage further \u2014 SP numerator = deals that reached Neg or beyond. Uses the same 0/1 flags.',
+      'Tier split:',
+      'AUM < $75M = Lower, AUM \u2265 $75M = Upper. Uses COALESCE(Underwritten_AUM__c, Amount) from Audit Trail col AG.',
+    ],
+    [
+      'P2 link:',
+      'Cols K\u2013N in BQ Forecast P2 use IF formulas to pick the tier-appropriate rate from this tab based on col Y (AUM Tier 2-tier).',
     ],
     [
       'Days:',
-      'Avg days only includes cohort deals that completed the transition (filtered by numer flag = 1). SQO\u2192SP computed from timestamp diff (cols U\u2212L); others from pre-computed days columns (Z, AA, AB).',
-    ],
-    [
-      'Audit:',
-      'Click any rate or days cell to see the formula. Rates use cols AL\u2013AS (0/1 flags). Days use cols Z, AA, AB (pre-computed) and U, L (timestamps).',
+      'Filtered by numer flag = 1. SQO\u2192SP from col Y (timestamp diff); others from cols Z, AA, AB.',
     ],
   ];
 }
@@ -610,12 +913,14 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
     const windowDays = body.windowDays as 180 | 365 | 730 | null | undefined;
+    const targetAumByQuarter = (body.targetAumByQuarter ?? {}) as Record<string, number>;
 
-    const [p2RowsRaw, auditRows, tieredRates, dateRevisionMap] = await Promise.all([
+    const [p2RowsRaw, auditRows, tieredRates, dateRevisionMap, joinedByQuarter] = await Promise.all([
       getForecastExportP2(),
       getForecastExportAudit(windowDays ?? null),
       getTieredForecastRates(windowDays ?? null),
       getDateRevisionMap(),
+      getJoinedAumByQuarter(),
     ]);
 
     // Recompute P2 rows with the dynamic tiered rates + duration penalties
@@ -636,11 +941,21 @@ export async function POST(request: NextRequest) {
     const auditValues = buildAuditValues(auditRows);
     const mcValues = buildMonteCarloValues(mcResults);
     const ratesValues = buildRatesAndDaysValues(auditRows.length);
+    // Build projected AUM per quarter from recomputed P2 rows
+    const projectedAumByQuarter: Record<string, number> = {};
+    for (const row of p2Rows) {
+      const q = row.projected_quarter;
+      if (q) {
+        projectedAumByQuarter[q] = (projectedAumByQuarter[q] ?? 0) + (row.expected_aum_weighted ?? 0);
+      }
+    }
+    const sqoTargetsValues = buildSQOTargetsValues(targetAumByQuarter, tieredRates.flat, joinedByQuarter, projectedAumByQuarter);
 
     console.log(`[Forecast Export] P2 grid: ${p2Values.length} rows x ${p2Values[0]?.length || 0} cols`);
     console.log(`[Forecast Export] Audit grid: ${auditValues.length} rows x ${auditValues[0]?.length || 0} cols`);
     console.log(`[Forecast Export] MC grid: ${mcValues.length} rows x ${mcValues[0]?.length || 0} cols`);
     console.log(`[Forecast Export] Rates grid: ${ratesValues.length} rows`);
+    console.log(`[Forecast Export] SQO Targets: ${Object.keys(targetAumByQuarter).length} quarters`);
 
     // Write sequentially to avoid race conditions
     await writeTab(sheets, TARGET_SHEET_ID, FORECAST_TAB, p2Values);
@@ -651,6 +966,8 @@ export async function POST(request: NextRequest) {
     console.log(`[Forecast Export] Monte Carlo tab written`);
     await writeTab(sheets, TARGET_SHEET_ID, RATES_TAB, ratesValues);
     console.log(`[Forecast Export] Rates tab written`);
+    await writeTab(sheets, TARGET_SHEET_ID, SQO_TARGETS_TAB, sqoTargetsValues);
+    console.log(`[Forecast Export] SQO Targets tab written`);
 
     return NextResponse.json({
       success: true,
