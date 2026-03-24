@@ -1118,13 +1118,28 @@ export const dashboardApi = {
     apiFetch<{
       success: boolean;
       spreadsheetUrl: string;
+      spreadsheetName?: string;
       p2RowCount: number;
       auditRowCount: number;
     }>('/api/forecast/export', {
       method: 'POST',
       body: JSON.stringify({ windowDays: windowDays ?? null, targetAumByQuarter: targetAumByQuarter ?? {} }),
     }),
+
+  getForecastExports: () =>
+    apiFetch<{ exports: ForecastExportRecord[] }>('/api/forecast/exports'),
 };
+
+interface ForecastExportRecord {
+  id: string;
+  name: string;
+  spreadsheetUrl: string;
+  createdAt: string;
+  createdBy: string;
+  windowDays: number;
+  p2RowCount: number;
+  auditRowCount: number;
+}
 
 /**
  * Agent API client for self-serve analytics

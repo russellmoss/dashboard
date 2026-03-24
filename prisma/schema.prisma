@@ -107,6 +107,21 @@ model ForecastQuarterTarget {
   @@map("forecast_quarter_targets")
 }
 
+model ForecastExport {
+  id             String   @id @default(cuid())
+  spreadsheetId  String
+  spreadsheetUrl String
+  name           String
+  createdAt      DateTime @default(now())
+  createdBy      String
+  windowDays     Int?
+  p2RowCount     Int      @default(0)
+  auditRowCount  Int      @default(0)
+
+  @@index([createdBy])
+  @@map("forecast_exports")
+}
+
 model ExploreFeedback {
   id            String   @id @default(cuid())
   userId        String?

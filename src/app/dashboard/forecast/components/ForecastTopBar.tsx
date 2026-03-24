@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Card } from '@tremor/react';
-import { Play, Download, Loader2 } from 'lucide-react';
+import { Play, Download, Loader2, ExternalLink } from 'lucide-react';
 
 interface ForecastTopBarProps {
   windowDays: 180 | 365 | 730 | null;
@@ -11,8 +11,9 @@ interface ForecastTopBarProps {
   onRunMonteCarlo: () => void;
   onExport: () => void;
   mcLoading: boolean;
+  exporting: boolean;
   totalOpps: number;
-  exportStatus: string | null;
+  exportResult: { url: string; name: string } | null;
 }
 
 const WINDOW_OPTIONS: { label: string; value: 180 | 365 | 730 | null }[] = [
@@ -29,8 +30,9 @@ export function ForecastTopBar({
   onRunMonteCarlo,
   onExport,
   mcLoading,
+  exporting,
   totalOpps,
-  exportStatus,
+  exportResult,
 }: ForecastTopBarProps) {
   return (
     <Card className="p-4">
@@ -60,16 +62,30 @@ export function ForecastTopBar({
         </div>
 
         <div className="flex items-center gap-3">
-          {exportStatus && (
-            <span className="text-sm text-green-600 dark:text-green-400">{exportStatus}</span>
+          {/* Export result link */}
+          {exportResult && (
+            <a
+              href={exportResult.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400 hover:underline"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              {exportResult.name}
+            </a>
           )}
 
           <button
             onClick={onExport}
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
+            disabled={exporting}
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Download className="w-4 h-4" />
-            Export to Sheets
+            {exporting ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
+            {exporting ? 'Exporting...' : 'Export to Sheets'}
           </button>
 
           {canRunScenarios && (

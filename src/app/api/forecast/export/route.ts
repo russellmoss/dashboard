@@ -15,20 +15,19 @@ import { getJoinedAumByQuarter } from '@/lib/queries/forecast-pipeline';
 import { prisma } from '@/lib/prisma';
 
 const TARGET_SHEET_ID = '1Iz9X6HY-bsAGBNkuQWH-SYoB7Xzy-9Hkg2Kk8ipxKQY';
+const EXPORT_FOLDER_ID = '1rmmgf2rQ_VULLhKsC1jGdtaOc2QTrBgi'; // Shared Drive: "Forecast exports"
 const FORECAST_TAB = 'BQ Forecast P2';
 const AUDIT_TAB = 'BQ Audit Trail';
 const MONTE_CARLO_TAB = 'BQ Monte Carlo';
 const RATES_TAB = 'BQ Rates and Days';
 const SQO_TARGETS_TAB = 'BQ SQO Targets';
 
-// Auth pattern copied from src/lib/sheets/google-sheets-exporter.ts (lines 34-72)
-function getSheetsClient() {
+// Auth — returns both Sheets and Drive clients using the same service account
+function getGoogleClients() {
   let credentials: any;
 
   if (process.env.GOOGLE_SHEETS_CREDENTIALS_JSON) {
     try {
-      // Sanitize: .env files may embed literal newlines in the private_key
-      // which break JSON.parse. Replace them with escaped \\n first.
       const raw = process.env.GOOGLE_SHEETS_CREDENTIALS_JSON
         .replace(/\n/g, '\\n')
         .replace(/\r/g, '');
@@ -58,10 +57,16 @@ function getSheetsClient() {
   const auth = new google.auth.JWT({
     email: credentials.client_email,
     key: credentials.private_key,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    scopes: [
+      'https://www.googleapis.com/auth/spreadsheets',
+      'https://www.googleapis.com/auth/drive',
+    ],
   });
 
-  return google.sheets({ version: 'v4', auth });
+  return {
+    sheets: google.sheets({ version: 'v4', auth }),
+    drive: google.drive({ version: 'v3', auth }),
+  };
 }
 
 // Sanitize a cell value for Sheets API: no nulls, no objects, no undefined
@@ -951,12 +956,53 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Forecast Export] P2 rows: ${p2Rows.length}, Audit rows: ${auditRows.length}, MC per-opp: ${mcResults.perOpp.length}`);
 
-    const sheets = getSheetsClient();
+    const { sheets, drive } = getGoogleClients();
+
+    // Create a new blank spreadsheet (avoids template copy which eats service account quota)
+    const userName = session.user.name || session.user.email || 'Unknown';
+    const dateStr = new Date().toISOString().split('T')[0];
+    const windowLabel = windowDays ? `${windowDays}d` : 'all-time';
+    const newName = `Pipeline Forecast — ${dateStr} — ${userName} (${windowLabel})`;
+
+    console.log(`[Forecast Export] Creating new spreadsheet "${newName}" in shared drive...`);
+    const createResp = await drive.files.create({
+      requestBody: {
+        name: newName,
+        mimeType: 'application/vnd.google-apps.spreadsheet',
+        parents: [EXPORT_FOLDER_ID],
+      },
+      supportsAllDrives: true,
+    });
+    const newSheetId = createResp.data.id!;
+    const newSheetUrl = `https://docs.google.com/spreadsheets/d/${newSheetId}/edit`;
+    console.log(`[Forecast Export] Created new sheet: ${newSheetId}`);
+
+    // Share with the exporting user (editor access)
+    const userEmail = session.user.email;
+    if (userEmail) {
+      try {
+        await drive.permissions.create({
+          fileId: newSheetId,
+          requestBody: {
+            type: 'user',
+            role: 'writer',
+            emailAddress: userEmail,
+          },
+          supportsAllDrives: true,
+          sendNotificationEmail: false,
+        });
+        console.log(`[Forecast Export] Shared with ${userEmail}`);
+      } catch (shareErr) {
+        // Non-fatal — the export still works, user just won't have direct access
+        console.warn(`[Forecast Export] Failed to share with ${userEmail}:`, shareErr);
+      }
+    }
+
+    // Build all tab data
     const p2Values = buildP2Values(p2Rows, dateRevisionMap);
     const auditValues = buildAuditValues(auditRows);
     const mcValues = buildMonteCarloValues(mcResults);
     const ratesValues = buildRatesAndDaysValues(auditRows.length);
-    // Build projected AUM per quarter from recomputed P2 rows
     const projectedAumByQuarter: Record<string, number> = {};
     for (const row of p2Rows) {
       const q = row.projected_quarter;
@@ -966,27 +1012,98 @@ export async function POST(request: NextRequest) {
     }
     const sqoTargetsValues = buildSQOTargetsValues(targetAumByQuarter, tieredRates.flat, joinedByQuarter, projectedAumByQuarter);
 
-    console.log(`[Forecast Export] P2 grid: ${p2Values.length} rows x ${p2Values[0]?.length || 0} cols`);
-    console.log(`[Forecast Export] Audit grid: ${auditValues.length} rows x ${auditValues[0]?.length || 0} cols`);
-    console.log(`[Forecast Export] MC grid: ${mcValues.length} rows x ${mcValues[0]?.length || 0} cols`);
-    console.log(`[Forecast Export] Rates grid: ${ratesValues.length} rows`);
-    console.log(`[Forecast Export] SQO Targets: ${Object.keys(targetAumByQuarter).length} quarters`);
-
-    // Write sequentially to avoid race conditions
-    await writeTab(sheets, TARGET_SHEET_ID, FORECAST_TAB, p2Values);
+    // Write all tabs to the NEW sheet
+    await writeTab(sheets, newSheetId, FORECAST_TAB, p2Values);
     console.log(`[Forecast Export] P2 tab written`);
-    await writeTab(sheets, TARGET_SHEET_ID, AUDIT_TAB, auditValues);
+    await writeTab(sheets, newSheetId, AUDIT_TAB, auditValues);
     console.log(`[Forecast Export] Audit tab written`);
-    await writeTab(sheets, TARGET_SHEET_ID, MONTE_CARLO_TAB, mcValues);
+    await writeTab(sheets, newSheetId, MONTE_CARLO_TAB, mcValues);
     console.log(`[Forecast Export] Monte Carlo tab written`);
-    await writeTab(sheets, TARGET_SHEET_ID, RATES_TAB, ratesValues);
+    await writeTab(sheets, newSheetId, RATES_TAB, ratesValues);
     console.log(`[Forecast Export] Rates tab written`);
-    await writeTab(sheets, TARGET_SHEET_ID, SQO_TARGETS_TAB, sqoTargetsValues);
+
+    // Create named ranges that the P2 tab formulas reference
+    // These point to cells in the "BQ Rates and Days" tab
+    try {
+      const sheetMeta = await sheets.spreadsheets.get({
+        spreadsheetId: newSheetId,
+        fields: 'sheets(properties(sheetId,title))',
+      });
+      const ratesSheet = sheetMeta.data.sheets?.find(
+        (s: any) => s.properties?.title === RATES_TAB
+      );
+      const ratesSheetId = ratesSheet?.properties?.sheetId;
+
+      if (ratesSheetId != null) {
+        // Helper: create a named range pointing to a single cell in the Rates tab
+        const namedRanges: { name: string; row: number; col: number }[] = [
+          // Flat rates (rows 6-9, col B=1)
+          { name: 'SQO_to_SP_rate', row: 5, col: 1 },
+          { name: 'SP_to_Neg_rate', row: 6, col: 1 },
+          { name: 'Neg_to_Signed_rate', row: 7, col: 1 },
+          { name: 'Signed_to_Joined_rate', row: 8, col: 1 },
+          { name: 'SQO_to_Joined_rate', row: 9, col: 1 },
+          // Lower tier rates (rows 14-17, col B=1)
+          { name: 'Lower_SQO_to_SP_rate', row: 13, col: 1 },
+          { name: 'Lower_SP_to_Neg_rate', row: 14, col: 1 },
+          { name: 'Lower_Neg_to_Signed_rate', row: 15, col: 1 },
+          { name: 'Lower_Signed_to_Joined_rate', row: 16, col: 1 },
+          // Upper tier rates (rows 22-25, col B=1)
+          { name: 'Upper_SQO_to_SP_rate', row: 21, col: 1 },
+          { name: 'Upper_SP_to_Neg_rate', row: 22, col: 1 },
+          { name: 'Upper_Neg_to_Signed_rate', row: 23, col: 1 },
+          { name: 'Upper_Signed_to_Joined_rate', row: 24, col: 1 },
+        ];
+
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: newSheetId,
+          requestBody: {
+            requests: namedRanges.map(nr => ({
+              addNamedRange: {
+                namedRange: {
+                  name: nr.name,
+                  range: {
+                    sheetId: ratesSheetId,
+                    startRowIndex: nr.row,
+                    endRowIndex: nr.row + 1,
+                    startColumnIndex: nr.col,
+                    endColumnIndex: nr.col + 1,
+                  },
+                },
+              },
+            })),
+          },
+        });
+        console.log(`[Forecast Export] Created ${namedRanges.length} named ranges`);
+      }
+    } catch (nrErr) {
+      console.warn(`[Forecast Export] Failed to create named ranges:`, nrErr);
+    }
+
+    await writeTab(sheets, newSheetId, SQO_TARGETS_TAB, sqoTargetsValues);
     console.log(`[Forecast Export] SQO Targets tab written`);
+
+    // Log the export
+    try {
+      await prisma.forecastExport.create({
+        data: {
+          spreadsheetId: newSheetId,
+          spreadsheetUrl: newSheetUrl,
+          name: newName,
+          createdBy: userEmail || 'unknown',
+          windowDays: windowDays ?? 0,
+          p2RowCount: p2Rows.length,
+          auditRowCount: auditRows.length,
+        },
+      });
+    } catch (logErr) {
+      console.warn(`[Forecast Export] Failed to log export:`, logErr);
+    }
 
     return NextResponse.json({
       success: true,
-      spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${TARGET_SHEET_ID}/edit#gid=194360408`,
+      spreadsheetUrl: newSheetUrl,
+      spreadsheetName: newName,
       p2RowCount: p2Rows.length,
       auditRowCount: auditRows.length,
       mcPerOppCount: mcResults.perOpp.length,

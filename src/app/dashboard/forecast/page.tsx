@@ -21,6 +21,8 @@ import { PipelineDetailTable } from './components/PipelineDetailTable';
 import { AdvisorForecastModal } from './components/AdvisorForecastModal';
 import { ScenarioRunner } from './components/ScenarioRunner';
 import { SavedScenariosList } from './components/SavedScenariosList';
+import { ForecastTabs, type ForecastTab } from './components/ForecastTabs';
+import { ExportsPanel } from './components/ExportsPanel';
 
 const ExpectedAumChart = nextDynamic(
   () => import('./components/ExpectedAumChart'),
@@ -44,6 +46,7 @@ export default function ForecastPage() {
   const permissions = getSessionPermissions(session);
   const canRunScenarios = permissions?.canRunScenarios ?? false;
 
+  const [activeTab, setActiveTab] = useState<ForecastTab>('pipeline');
   const [windowDays, setWindowDays] = useState<180 | 365 | 730 | null>(180);
   const [rates, setRates] = useState<TieredForecastRates | null>(null);
   const [pipeline, setPipeline] = useState<ForecastPipelineRecord[]>([]);
@@ -54,7 +57,8 @@ export default function ForecastPage() {
   const [loading, setLoading] = useState(true);
   const [mcLoading, setMcLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportResult, setExportResult] = useState<{ url: string; name: string } | null>(null);
   const [dateRevisions, setDateRevisions] = useState<Record<string, { revisionCount: number; firstDateSet: string | null; dateConfidence: string }>>({});
   const [targetAumByQuarter, setTargetAumByQuarter] = useState<Record<string, number>>({});
   const [joinedAumByQuarter, setJoinedAumByQuarter] = useState<Record<string, { joined_aum: number; joined_count: number }>>({});
@@ -283,20 +287,22 @@ export default function ForecastPage() {
   }, []);
 
   const handleExport = useCallback(async () => {
-    setExportStatus('Exporting...');
+    setExporting(true);
+    setExportResult(null);
     try {
       const data = await dashboardApi.exportForecastToSheets(windowDays, targetAumByQuarter);
       if (data.success) {
-        setExportStatus(`Exported ${data.p2RowCount} forecast + ${data.auditRowCount} audit rows`);
-        window.open(data.spreadsheetUrl, '_blank');
-      } else {
-        setExportStatus('Export failed');
+        setExportResult({
+          url: data.spreadsheetUrl,
+          name: data.spreadsheetName || 'Open in Sheets',
+        });
       }
-    } catch {
-      setExportStatus('Export failed');
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      setExporting(false);
     }
-    setTimeout(() => setExportStatus(null), 5000);
-  }, [windowDays]);
+  }, [windowDays, targetAumByQuarter]);
 
   const handleOppClick = useCallback((oppId: string) => {
     setSelectedOppId(oppId);
@@ -322,85 +328,94 @@ export default function ForecastPage() {
         <Text>Probability-weighted pipeline forecast with Monte Carlo simulation</Text>
       </div>
 
-      <ForecastTopBar
-        windowDays={windowDays}
-        onWindowChange={setWindowDays}
-        canRunScenarios={canRunScenarios}
-        onRunMonteCarlo={() => handleRunMonteCarlo()}
-        onExport={handleExport}
-        mcLoading={mcLoading}
-        totalOpps={adjustedSummary?.total_opps ?? 0}
-        exportStatus={exportStatus}
-      />
+      <ForecastTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
-      {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-          <p className="text-red-700 dark:text-red-400 text-sm">{error}</p>
-        </div>
-      )}
+      {activeTab === 'exports' && <ExportsPanel />}
 
-      {loading ? (
-        <div className="space-y-4">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-32 animate-pulse bg-gray-100 dark:bg-gray-700 rounded-lg" />
-          ))}
-        </div>
-      ) : (
+      {activeTab === 'pipeline' && (
         <>
-          <ForecastMetricCards
-            summary={adjustedSummary}
+          <ForecastTopBar
             windowDays={windowDays}
-            rates={rates?.flat ?? null}
-            targetAumByQuarter={targetAumByQuarter}
-            joinedAumByQuarter={joinedAumByQuarter}
-            onTargetChange={handleTargetChange}
-          />
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              <ExpectedAumChart pipeline={adjustedPipeline} />
-            </div>
-            <div>
-              <ConversionRatesPanel rates={rates?.flat ?? null} />
-            </div>
-          </div>
-
-          {monteCarloResults && (
-            <MonteCarloPanel results={monteCarloResults} pipeline={adjustedPipeline} onOppClick={handleOppClick} />
-          )}
-
-          {canRunScenarios && (
-            <ScenarioRunner
-              rates={rates?.flat ?? null}
-              summary={adjustedSummary}
-              monteCarloResults={monteCarloResults}
-              onRunMonteCarlo={handleRunMonteCarlo}
-              mcLoading={mcLoading}
-            />
-          )}
-
-          <SavedScenariosList
+            onWindowChange={setWindowDays}
             canRunScenarios={canRunScenarios}
-            onLoadScenario={(scenario) => {
-              const quarters = scenario.quartersJson ?? [];
-              setMonteCarloResults({
-                quarters,
-                perOpp: [],
-                trialCount: scenario.trialCount,
-                ratesUsed: {
-                  sqo_to_sp: scenario.rateOverride_sqo_to_sp,
-                  sp_to_neg: scenario.rateOverride_sp_to_neg,
-                  neg_to_signed: scenario.rateOverride_neg_to_signed,
-                  signed_to_joined: scenario.rateOverride_signed_to_joined,
-                },
-              });
-            }}
+            onRunMonteCarlo={() => handleRunMonteCarlo()}
+            onExport={handleExport}
+            mcLoading={mcLoading}
+            exporting={exporting}
+            totalOpps={adjustedSummary?.total_opps ?? 0}
+            exportResult={exportResult}
           />
 
-          <PipelineDetailTable
-            records={adjustedPipeline}
-            onRowClick={handleOppClick}
-          />
+          {error && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+              <p className="text-red-700 dark:text-red-400 text-sm">{error}</p>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="space-y-4">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="h-32 animate-pulse bg-gray-100 dark:bg-gray-700 rounded-lg" />
+              ))}
+            </div>
+          ) : (
+            <>
+              <ForecastMetricCards
+                summary={adjustedSummary}
+                windowDays={windowDays}
+                rates={rates?.flat ?? null}
+                targetAumByQuarter={targetAumByQuarter}
+                joinedAumByQuarter={joinedAumByQuarter}
+                onTargetChange={handleTargetChange}
+              />
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2">
+                  <ExpectedAumChart pipeline={adjustedPipeline} />
+                </div>
+                <div>
+                  <ConversionRatesPanel rates={rates?.flat ?? null} />
+                </div>
+              </div>
+
+              {monteCarloResults && (
+                <MonteCarloPanel results={monteCarloResults} pipeline={adjustedPipeline} onOppClick={handleOppClick} />
+              )}
+
+              {canRunScenarios && (
+                <ScenarioRunner
+                  rates={rates?.flat ?? null}
+                  summary={adjustedSummary}
+                  monteCarloResults={monteCarloResults}
+                  onRunMonteCarlo={handleRunMonteCarlo}
+                  mcLoading={mcLoading}
+                />
+              )}
+
+              <SavedScenariosList
+                canRunScenarios={canRunScenarios}
+                onLoadScenario={(scenario) => {
+                  const quarters = scenario.quartersJson ?? [];
+                  setMonteCarloResults({
+                    quarters,
+                    perOpp: [],
+                    trialCount: scenario.trialCount,
+                    ratesUsed: {
+                      sqo_to_sp: scenario.rateOverride_sqo_to_sp,
+                      sp_to_neg: scenario.rateOverride_sp_to_neg,
+                      neg_to_signed: scenario.rateOverride_neg_to_signed,
+                      signed_to_joined: scenario.rateOverride_signed_to_joined,
+                    },
+                  });
+                }}
+              />
+
+              <PipelineDetailTable
+                records={adjustedPipeline}
+                onRowClick={handleOppClick}
+              />
+            </>
+          )}
         </>
       )}
 
