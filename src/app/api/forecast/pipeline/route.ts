@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
 import { canAccessPage } from '@/lib/permissions';
-import { getForecastPipeline } from '@/lib/queries/forecast-pipeline';
+import { getForecastPipeline, getJoinedAumByQuarter } from '@/lib/queries/forecast-pipeline';
 
 export async function GET() {
   try {
@@ -17,12 +17,12 @@ export async function GET() {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const { records, summary } = await getForecastPipeline(
-      permissions.sgmFilter,
-      permissions.sgaFilter
-    );
+    const [{ records, summary }, joinedByQuarter] = await Promise.all([
+      getForecastPipeline(permissions.sgmFilter, permissions.sgaFilter),
+      getJoinedAumByQuarter(),
+    ]);
 
-    return NextResponse.json({ records, summary });
+    return NextResponse.json({ records, summary, joinedByQuarter });
   } catch (error) {
     console.error('Forecast pipeline error:', error);
     return NextResponse.json(

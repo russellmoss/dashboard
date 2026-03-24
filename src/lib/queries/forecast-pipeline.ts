@@ -161,3 +161,40 @@ export const getForecastPipeline = cachedQuery(
   CACHE_TAGS.DASHBOARD,
   21600
 );
+
+// --- Joined AUM by quarter (actual closed deals) ---
+
+const _getJoinedAumByQuarter = async (): Promise<Record<string, { joined_aum: number; joined_count: number }>> => {
+  const query = `
+    SELECT
+      CONCAT('Q', EXTRACT(QUARTER FROM advisor_join_date__c), ' ', EXTRACT(YEAR FROM advisor_join_date__c)) AS quarter_label,
+      COUNT(*) AS joined_count,
+      SUM(COALESCE(Underwritten_AUM__c, Amount, 0)) AS joined_aum
+    FROM \`savvy-gtm-analytics.Tableau_Views.vw_funnel_master\`
+    WHERE is_joined = 1
+      AND is_primary_opp_record = 1
+      AND advisor_join_date__c >= DATE_SUB(CURRENT_DATE(), INTERVAL 730 DAY)
+    GROUP BY quarter_label
+  `;
+
+  const rows = await runQuery<{ quarter_label: string; joined_count: number | null; joined_aum: number | null }>(query);
+
+  const result: Record<string, { joined_aum: number; joined_count: number }> = {};
+  for (const r of rows) {
+    const label = r.quarter_label;
+    if (label) {
+      result[label] = {
+        joined_aum: toNumber(r.joined_aum) || 0,
+        joined_count: toNumber(r.joined_count) || 0,
+      };
+    }
+  }
+  return result;
+};
+
+export const getJoinedAumByQuarter = cachedQuery(
+  _getJoinedAumByQuarter,
+  'getJoinedAumByQuarter',
+  CACHE_TAGS.DASHBOARD,
+  21600
+);

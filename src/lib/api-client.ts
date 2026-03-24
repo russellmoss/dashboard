@@ -31,6 +31,8 @@ interface ForecastRatesClient {
   window_start: string;
   window_end: string;
   cohort_count: number;
+  mean_joined_aum: number;
+  joined_deal_count: number;
 }
 interface TieredForecastRatesClient {
   flat: ForecastRatesClient;
@@ -1072,10 +1074,19 @@ export const dashboardApi = {
   },
 
   getForecastPipeline: () =>
-    apiFetch<{ records: ForecastPipelineRecordClient[]; summary: ForecastSummaryClient }>('/api/forecast/pipeline'),
+    apiFetch<{ records: ForecastPipelineRecordClient[]; summary: ForecastSummaryClient; joinedByQuarter?: Record<string, { joined_aum: number; joined_count: number }> }>('/api/forecast/pipeline'),
 
   getDateRevisions: () =>
     apiFetch<{ revisions: Record<string, { revisionCount: number; firstDateSet: string | null; dateConfidence: string }> }>('/api/forecast/date-revisions'),
+
+  getSQOTargets: () =>
+    apiFetch<{ targets: Record<string, number> }>('/api/forecast/sqo-targets'),
+
+  saveSQOTarget: (quarter: string, targetAumDollars: number) =>
+    apiFetch<{ quarter: string; targetAumDollars: number }>('/api/forecast/sqo-targets', {
+      method: 'POST',
+      body: JSON.stringify({ quarter, targetAumDollars }),
+    }),
 
   runMonteCarlo: (request: MonteCarloRequestClient) =>
     apiFetch<MonteCarloResponseClient>('/api/forecast/monte-carlo', {
@@ -1103,7 +1114,7 @@ export const dashboardApi = {
   getSharedScenario: (shareToken: string) =>
     apiFetch<{ scenario: any }>(`/api/forecast/scenarios/share/${encodeURIComponent(shareToken)}`),
 
-  exportForecastToSheets: (windowDays?: 180 | 365 | 730 | null) =>
+  exportForecastToSheets: (windowDays?: 180 | 365 | 730 | null, targetAumByQuarter?: Record<string, number>) =>
     apiFetch<{
       success: boolean;
       spreadsheetUrl: string;
@@ -1111,7 +1122,7 @@ export const dashboardApi = {
       auditRowCount: number;
     }>('/api/forecast/export', {
       method: 'POST',
-      body: JSON.stringify({ windowDays: windowDays ?? null }),
+      body: JSON.stringify({ windowDays: windowDays ?? null, targetAumByQuarter: targetAumByQuarter ?? {} }),
     }),
 };
 

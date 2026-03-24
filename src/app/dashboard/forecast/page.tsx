@@ -56,6 +56,8 @@ export default function ForecastPage() {
   const [error, setError] = useState<string | null>(null);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
   const [dateRevisions, setDateRevisions] = useState<Record<string, { revisionCount: number; firstDateSet: string | null; dateConfidence: string }>>({});
+  const [targetAumByQuarter, setTargetAumByQuarter] = useState<Record<string, number>>({});
+  const [joinedAumByQuarter, setJoinedAumByQuarter] = useState<Record<string, { joined_aum: number; joined_count: number }>>({});
   const hasSharedScenario = useRef(!!searchParams.get('scenario'));
 
   // Recompute p_join, expected_aum_weighted, projected dates, and summary
@@ -185,15 +187,18 @@ export default function ForecastPage() {
     setLoading(true);
     setError(null);
     try {
-      const [ratesRes, pipelineRes, revisionsRes] = await Promise.all([
+      const [ratesRes, pipelineRes, revisionsRes, targetsRes] = await Promise.all([
         dashboardApi.getForecastRates(windowDays),
         dashboardApi.getForecastPipeline(),
         dashboardApi.getDateRevisions().catch(() => ({ revisions: {} })),
+        dashboardApi.getSQOTargets().catch(() => ({ targets: {} })),
       ]);
       setRates(ratesRes.rates);
       setPipeline(pipelineRes.records);
       setSummary(pipelineRes.summary);
+      setJoinedAumByQuarter(pipelineRes.joinedByQuarter ?? {});
       setDateRevisions(revisionsRes.revisions);
+      setTargetAumByQuarter(targetsRes.targets);
     } catch (err) {
       console.error('Forecast data fetch error:', err);
       setError('Failed to load forecast data');
@@ -266,10 +271,21 @@ export default function ForecastPage() {
     }
   }, [windowDays]);
 
+  const handleTargetChange = useCallback(async (quarter: string, value: number) => {
+    setTargetAumByQuarter(prev => ({ ...prev, [quarter]: value }));
+    if (value > 0) {
+      try {
+        await dashboardApi.saveSQOTarget(quarter, value);
+      } catch (err) {
+        console.error('Failed to save SQO target:', err);
+      }
+    }
+  }, []);
+
   const handleExport = useCallback(async () => {
     setExportStatus('Exporting...');
     try {
-      const data = await dashboardApi.exportForecastToSheets(windowDays);
+      const data = await dashboardApi.exportForecastToSheets(windowDays, targetAumByQuarter);
       if (data.success) {
         setExportStatus(`Exported ${data.p2RowCount} forecast + ${data.auditRowCount} audit rows`);
         window.open(data.spreadsheetUrl, '_blank');
@@ -335,6 +351,9 @@ export default function ForecastPage() {
             summary={adjustedSummary}
             windowDays={windowDays}
             rates={rates?.flat ?? null}
+            targetAumByQuarter={targetAumByQuarter}
+            joinedAumByQuarter={joinedAumByQuarter}
+            onTargetChange={handleTargetChange}
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

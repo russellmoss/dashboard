@@ -40,6 +40,7 @@ interface ForecastMetricCardsProps {
   windowDays: 180 | 365 | 730 | null;
   rates: RateShape | null;
   targetAumByQuarter: Record<string, number>;
+  joinedAumByQuarter: Record<string, { joined_aum: number; joined_count: number }>;
   onTargetChange: (quarter: string, value: number) => void;
 }
 
@@ -95,7 +96,7 @@ function Tooltip({ text }: { text: string }) {
   );
 }
 
-export function ForecastMetricCards({ summary, windowDays, rates, targetAumByQuarter, onTargetChange }: ForecastMetricCardsProps) {
+export function ForecastMetricCards({ summary, windowDays, rates, targetAumByQuarter, joinedAumByQuarter, onTargetChange }: ForecastMetricCardsProps) {
   if (!summary) return null;
 
   const [savedQuarter, setSavedQuarter] = useState<string | null>(null);
@@ -166,12 +167,20 @@ export function ForecastMetricCards({ summary, windowDays, rates, targetAumByQua
       {quarters.map(q => {
         const targetDollars = targetAumByQuarter[q.label] ?? 0;
         const targetMillions = targetDollars > 0 ? (targetDollars / 1e6).toString() : '';
-        const projectedAum = q.expected_aum;
+        const projectedAum = q.expected_aum; // open pipeline expected to close
 
-        // Gap: how much more AUM we need beyond current pipeline projection
-        const gapDollars = targetDollars > 0 ? targetDollars - projectedAum : 0;
+        // Already-joined AUM this quarter (actual closed deals)
+        const joinedData = joinedAumByQuarter[q.label];
+        const joinedAum = joinedData?.joined_aum ?? 0;
+        const joinedCount = joinedData?.joined_count ?? 0;
+
+        // Total expected = already joined + pipeline projected
+        const totalExpectedAum = joinedAum + projectedAum;
+
+        // Gap: target minus total expected (joined + pipeline)
+        const gapDollars = targetDollars > 0 ? targetDollars - totalExpectedAum : 0;
         const onTrack = gapDollars <= 0 && targetDollars > 0;
-        const coveragePct = targetDollars > 0 ? (projectedAum / targetDollars) * 100 : 0;
+        const coveragePct = targetDollars > 0 ? (totalExpectedAum / targetDollars) * 100 : 0;
 
         // SQO math — incremental (gap-based) and total
         const canComputeSQOs = expectedAumPerSQO > 0;
@@ -205,11 +214,22 @@ export function ForecastMetricCards({ summary, windowDays, rates, targetAumByQua
         return (
           <Card key={q.label} className="p-4">
             <Text>
-              Expected {q.label} AUM
-              <Tooltip text={`Sum of each opp's AUM × adjusted P(Join). Only opps projected to join in ${q.label} are included.`} />
+              {q.label} AUM
+              <Tooltip text={`Joined AUM (actual) + projected pipeline AUM (open opps × adjusted P(Join)) for ${q.label}.`} />
             </Text>
-            <Metric className="mt-1">{formatAum(projectedAum)}</Metric>
-            <Text className="mt-1 text-xs">{q.opp_count} opps projected {q.label}</Text>
+            <Metric className="mt-1">{formatAum(totalExpectedAum)}</Metric>
+            {joinedAum > 0 ? (
+              <div className="mt-1 space-y-0.5">
+                <Text className="text-xs text-emerald-600 dark:text-emerald-400">
+                  {formatAum(joinedAum)} joined ({joinedCount} deals)
+                </Text>
+                <Text className="text-xs text-gray-500">
+                  + {formatAum(projectedAum)} projected ({q.opp_count} open opps)
+                </Text>
+              </div>
+            ) : (
+              <Text className="mt-1 text-xs">{q.opp_count} opps projected {q.label}</Text>
+            )}
 
             {/* Target input */}
             <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
