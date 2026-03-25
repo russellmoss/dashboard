@@ -21,7 +21,7 @@ export const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' 
   },
   admin: {
     role: 'admin',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19],
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18],
     canExport: true,
     canManageUsers: true,
     canManageRequests: false,
@@ -29,7 +29,7 @@ export const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' 
   },
   manager: {
     role: 'manager',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 18, 19],
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 18],
     canExport: true,
     canManageUsers: false,
     canManageRequests: false,
