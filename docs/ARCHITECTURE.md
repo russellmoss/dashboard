@@ -1805,7 +1805,7 @@ Seeded with 48 records (12 SGMs × 4 quarters for 2026) via `scripts/seed-sgm-qu
 
 ### Overview
 
-The Pipeline Forecast page (`/dashboard/forecast`) provides probability-weighted AUM forecasting with Monte Carlo simulation. It combines live pipeline data with historical conversion rates to project quarterly AUM outcomes.
+The Pipeline Forecast page (`/dashboard/forecast`) provides probability-weighted AUM forecasting with Monte Carlo simulation, a two-component realization forecast model, and what-if scenario planning. It combines live pipeline data with historical conversion rates to project quarterly AUM outcomes.
 
 **Page**: `src/app/dashboard/forecast/page.tsx`
 **Permission**: Page ID 19 (checked via `canAccessPage`)
@@ -1851,6 +1851,9 @@ The page recomputes deal-level forecasts client-side using `computeAdjustedDeal(
 |-----------|---------|
 | `ForecastTabs` | Tab switcher between Pipeline Forecast and Exports views |
 | `ForecastTopBar` | Window selector (180/365/730 days), Monte Carlo trigger, Sheets export |
+| `RatesSummaryBar` | Compact 8-card strip showing per-stage conversion rates, avg days, end-to-end rate, velocity, avg joined AUM, and AUM/SQO for the active window |
+| `RealizationBanner` | Two-component realization forecast banner (pipeline expected AUM + surprise baseline) |
+| `WhatIfPanel` | Interactive what-if controls for targets and pipeline adjustments |
 | `ForecastMetricCards` | Quarter cards with expected AUM, targets, gap analysis, joined actuals |
 | `ExpectedAumChart` | Visual AUM distribution by quarter (dynamically loaded) |
 | `ConversionRatesPanel` | Flat conversion rates for the selected window |
@@ -1868,7 +1871,7 @@ The page recomputes deal-level forecasts client-side using `computeAdjustedDeal(
 | `/api/forecast/pipeline` | GET | Pipeline records, summary, joined AUM by quarter |
 | `/api/forecast/rates` | GET | Tiered conversion rates by time window |
 | `/api/forecast/monte-carlo` | POST | Run Monte Carlo simulation |
-| `/api/forecast/export` | POST | Export to Google Sheets |
+| `/api/forecast/export` | POST | Export to Google Sheets (7 tabs: Forecast P2, Audit Trail, Monte Carlo, Rates and Days, SQO Targets, Realization Forecast, Scenario Runner) |
 | `/api/forecast/exports` | GET | List past forecast exports |
 | `/api/forecast/date-revisions` | GET | Close date revision counts and confidence |
 | `/api/forecast/scenarios` | GET/POST | Save, list, and share scenarios |
@@ -1885,7 +1888,7 @@ The page recomputes deal-level forecasts client-side using `computeAdjustedDeal(
 | `src/lib/queries/forecast-monte-carlo.ts` | Monte Carlo simulation logic |
 | `src/lib/forecast-penalties.ts` | `computeAdjustedDeal` -- duration penalties and AUM-tier adjustments |
 | `src/app/api/forecast/exports/route.ts` | Exports list API route (reads ForecastExport model) |
-| `src/app/dashboard/forecast/components/` | All forecast UI components |
+| `src/app/dashboard/forecast/components/` | All forecast UI components (incl. RatesSummaryBar, RealizationBanner, WhatIfPanel) |
 
 ---
 
@@ -2190,6 +2193,6 @@ npm run gen:all
 
 ---
 
-*Last Updated: February 18, 2026*
+*Last Updated: March 25, 2026*
 *Validated Against Codebase: Yes*
-*Last Review: February 18, 2026 (Sections 11–17 added: GC Hub, Dashboard Requests, Recruiter Hub, Advisor Map, Pipeline Catcher Game, SGA Activity, Saved Reports)*
+*Last Review: March 25, 2026 (Section 20 updated: RatesSummaryBar, RealizationBanner, WhatIfPanel components; realization forecast + scenario runner export tabs)*

@@ -1015,7 +1015,7 @@ function buildScenarioRunnerValues(
   // Row 21
   values.push(['Mean Joined AUM ($)', flatRates.mean_joined_aum, '']);
   // Row 22
-  values.push(['Expected AUM per SQO ($)', '=B21*B20', '']);
+  values.push(['Expected Joined AUM/SQO ($)', '=B21*B20', '']);
   values.push([]);
 
   // ── Section 3: Target Analysis (rows 24+) ──
@@ -1026,10 +1026,10 @@ function buildScenarioRunnerValues(
     'Target AUM ($)',                    // B
     'Realization Forecast ($)',          // C: VLOOKUP from BQ Realization Forecast tab
     'Forecast Gap ($)',                  // D: =MAX(0, B - C)
-    'Expected AUM/SQO (Scenario)',      // E: from Section 2
+    'Expected Joined AUM/SQO (Scenario)',      // E: from Section 2
     'SQOs to Fill Gap',                 // F: =CEILING(D/E)
     'SQOs Without Forecast',            // G: =CEILING(B/E)
-    'Expected AUM/SQO (Current)',        // H: from Section 1
+    'Expected Joined AUM/SQO (Current)',        // H: from Section 1
     'SQOs (Current Rates)',             // I: =CEILING(B/H)
     'SQO Delta (Scenario vs Current)',   // J: G - I
     'Scenario Velocity (days)',          // K: total scenario days
@@ -1918,7 +1918,7 @@ export async function POST(request: NextRequest) {
       console.warn(`[Forecast Export] Failed to style Scenario Runner tab:`, styleErr);
     }
 
-    // Number formatting for ALL other tabs
+    // ── Comprehensive styling for ALL tabs (except Scenario Runner which is already styled) ──
     try {
       const allTabMeta = await sheets.spreadsheets.get({
         spreadsheetId: newSheetId,
@@ -1927,50 +1927,162 @@ export async function POST(request: NextRequest) {
       const getSheetId = (name: string) =>
         allTabMeta.data.sheets?.find((s: any) => s.properties?.title === name)?.properties?.sheetId;
 
-      const numFmt = (sheetId: number, startRow: number, endRow: number, startCol: number, endCol: number, pattern: string) => ({
+      // ── Reusable styling helpers ──
+      const darkHeader = { red: 0.2, green: 0.2, blue: 0.3 };
+      const lightGray = { red: 0.93, green: 0.93, blue: 0.93 };
+      const whiteColor = { red: 1, green: 1, blue: 1 };
+
+      const titleRow = (sid: number, row: number, cols: number) => ({
         repeatCell: {
-          range: { sheetId, startRowIndex: startRow, endRowIndex: endRow, startColumnIndex: startCol, endColumnIndex: endCol },
-          cell: { userEnteredFormat: { numberFormat: { type: 'NUMBER', pattern } } },
+          range: { sheetId: sid, startRowIndex: row, endRowIndex: row + 1, startColumnIndex: 0, endColumnIndex: cols },
+          cell: { userEnteredFormat: { backgroundColor: darkHeader, textFormat: { foregroundColor: whiteColor, bold: true, fontSize: 11 } } },
+          fields: 'userEnteredFormat(backgroundColor,textFormat)',
+        },
+      });
+
+      const sectionHeader = (sid: number, row: number, cols: number) => ({
+        repeatCell: {
+          range: { sheetId: sid, startRowIndex: row, endRowIndex: row + 1, startColumnIndex: 0, endColumnIndex: cols },
+          cell: { userEnteredFormat: { backgroundColor: darkHeader, textFormat: { foregroundColor: whiteColor, bold: true } } },
+          fields: 'userEnteredFormat(backgroundColor,textFormat)',
+        },
+      });
+
+      const colHeaders = (sid: number, row: number, cols: number) => ({
+        repeatCell: {
+          range: { sheetId: sid, startRowIndex: row, endRowIndex: row + 1, startColumnIndex: 0, endColumnIndex: cols },
+          cell: { userEnteredFormat: { backgroundColor: lightGray, textFormat: { bold: true } } },
+          fields: 'userEnteredFormat(backgroundColor,textFormat)',
+        },
+      });
+
+      const numFmt = (sid: number, sr: number, er: number, sc: number, ec: number, pat: string) => ({
+        repeatCell: {
+          range: { sheetId: sid, startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec },
+          cell: { userEnteredFormat: { numberFormat: { type: 'NUMBER', pattern: pat } } },
           fields: 'userEnteredFormat.numberFormat',
         },
       });
 
-      const allFormatRequests: any[] = [];
-      const auditCount = auditRows.length + 1; // +1 for header
+      const freeze = (sid: number, rows: number, cols?: number) => ({
+        updateSheetProperties: {
+          properties: { sheetId: sid, gridProperties: { frozenRowCount: rows, ...(cols != null ? { frozenColumnCount: cols } : {}) } },
+          fields: `gridProperties.frozenRowCount${cols != null ? ',gridProperties.frozenColumnCount' : ''}`,
+        },
+      });
+
+      const autoResize = (sid: number, startCol: number, endCol: number) => ({
+        autoResizeDimensions: { dimensions: { sheetId: sid, dimension: 'COLUMNS', startIndex: startCol, endIndex: endCol } },
+      });
+
+      const tabColor = (sid: number, color: { red: number; green: number; blue: number }) => ({
+        updateSheetProperties: {
+          properties: { sheetId: sid, tabColorStyle: { rgbColor: color } },
+          fields: 'tabColorStyle',
+        },
+      });
+
+      const banding = (sid: number, startRow: number, endRow: number, endCol: number) => ({
+        addBanding: {
+          bandedRange: {
+            range: { sheetId: sid, startRowIndex: startRow, endRowIndex: endRow, startColumnIndex: 0, endColumnIndex: endCol },
+            rowProperties: {
+              headerColor: lightGray,
+              firstBandColor: whiteColor,
+              secondBandColor: { red: 0.97, green: 0.97, blue: 0.97 },
+            },
+          },
+        },
+      });
+
+      const req: any[] = [];
+      const auditCount = auditRows.length + 1;
       const p2Count = p2Rows.length + 1;
 
-      // ── BQ Rates and Days ──
+      // ── Tab Colors ──
+      const scenId = getSheetId(SCENARIO_TAB);
       const ratesId = getSheetId(RATES_TAB);
+      const realId = getSheetId(REALIZATION_TAB);
+      const p2Id = getSheetId(FORECAST_TAB);
+      const mcId = getSheetId(MONTE_CARLO_TAB);
+      const sqoId = getSheetId(SQO_TARGETS_TAB);
+      const auditId = getSheetId(AUDIT_TAB);
+
+      const blue = { red: 0.2, green: 0.4, blue: 0.8 };
+      const gray = { red: 0.6, green: 0.6, blue: 0.6 };
+      if (scenId != null) req.push(tabColor(scenId, blue));
+      if (realId != null) req.push(tabColor(realId, blue));
+      if (sqoId != null) req.push(tabColor(sqoId, blue));
+      if (ratesId != null) req.push(tabColor(ratesId, gray));
+      if (p2Id != null) req.push(tabColor(p2Id, gray));
+      if (mcId != null) req.push(tabColor(mcId, gray));
+
+      // ════════════════════════════════════════════════════════════════
+      // BQ Rates and Days
+      // ════════════════════════════════════════════════════════════════
       if (ratesId != null) {
-        allFormatRequests.push(
-          // Flat rates % (col B=1, rows 5-9)
-          numFmt(ratesId, 5, 10, 1, 2, '0.0%'),
-          // Lower rates % (col B=1, rows 13-17)
-          numFmt(ratesId, 13, 18, 1, 2, '0.0%'),
-          // Upper rates % (col B=1, rows 21-25)
-          numFmt(ratesId, 21, 26, 1, 2, '0.0%'),
-          // Days as integer (col B=1, rows 29-34)
-          numFmt(ratesId, 29, 35, 1, 2, '#,##0'),
-          // Mean Joined AUM as $ (row 37, col B=1)
-          numFmt(ratesId, 37, 38, 1, 2, '$#,##0'),
-          // Numerator/Denominator as integer (col C-D, flat rows 5-9)
-          numFmt(ratesId, 5, 10, 2, 4, '#,##0'),
-          numFmt(ratesId, 13, 18, 2, 4, '#,##0'),
-          numFmt(ratesId, 21, 26, 2, 4, '#,##0'),
-          // Days deals count as integer (col C, rows 29-33)
-          numFmt(ratesId, 29, 34, 2, 3, '#,##0'),
+        req.push(
+          titleRow(ratesId, 0, 5),
+          // Section headers
+          sectionHeader(ratesId, 3, 5),   // CONVERSION RATES (ALL DEALS)
+          sectionHeader(ratesId, 11, 5),  // LOWER TIER RATES
+          sectionHeader(ratesId, 19, 5),  // UPPER TIER RATES
+          sectionHeader(ratesId, 27, 5),  // AVERAGE DAYS IN STAGE
+          sectionHeader(ratesId, 35, 5),  // ADDITIONAL VALUES
+          // Column headers
+          colHeaders(ratesId, 4, 5),
+          colHeaders(ratesId, 12, 5),
+          colHeaders(ratesId, 20, 5),
+          colHeaders(ratesId, 28, 5),
+          colHeaders(ratesId, 36, 5),
+          // Number formatting
+          numFmt(ratesId, 5, 10, 1, 2, '0.0%'),     // Flat rates
+          numFmt(ratesId, 13, 18, 1, 2, '0.0%'),    // Lower rates
+          numFmt(ratesId, 21, 26, 1, 2, '0.0%'),    // Upper rates
+          numFmt(ratesId, 5, 10, 2, 4, '#,##0'),     // Numer/Denom flat
+          numFmt(ratesId, 13, 18, 2, 4, '#,##0'),   // Numer/Denom lower
+          numFmt(ratesId, 21, 26, 2, 4, '#,##0'),   // Numer/Denom upper
+          numFmt(ratesId, 29, 35, 1, 2, '#,##0'),    // Days
+          numFmt(ratesId, 29, 34, 2, 3, '#,##0'),    // Days deal counts
+          numFmt(ratesId, 37, 38, 1, 2, '$#,##0'),   // Mean Joined AUM
+          // Named ranges reference header
+          ...(() => {
+            const nrIdx = realizationValues.length; // approximate — just style known rows
+            const ratesNrIdx = 40; // Named Ranges Reference typically starts ~row 41
+            return [sectionHeader(ratesId, ratesNrIdx, 5), colHeaders(ratesId, ratesNrIdx + 1, 5)];
+          })(),
+          // Freeze + auto-resize
+          freeze(ratesId, 1),
+          // Fixed width for col A (sized for "Signed → Joined (days in Signed)" not the long subtitle)
+          { updateDimensionProperties: {
+            properties: { pixelSize: 230 },
+            range: { sheetId: ratesId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 },
+            fields: 'pixelSize',
+          }},
+          // Fixed width for col B (sized for rate values like "61.1%" not the long formula descriptions)
+          { updateDimensionProperties: {
+            properties: { pixelSize: 80 },
+            range: { sheetId: ratesId, dimension: 'COLUMNS', startIndex: 1, endIndex: 2 },
+            fields: 'pixelSize',
+          }},
+          autoResize(ratesId, 2, 5),
         );
       }
 
-      // ── BQ Realization Forecast ──
-      const realId = getSheetId(REALIZATION_TAB);
+      // ════════════════════════════════════════════════════════════════
+      // BQ Realization Forecast
+      // ════════════════════════════════════════════════════════════════
       if (realId != null) {
-        // Section 1 summary (rows 5+): B=count, C=AUM $, D=band label, E=rate %, F=pipeline $, G=surprise $, H=total $
         const realQCount = realizationValues.filter((r: any[]) =>
           r[0] && typeof r[0] === 'string' && (r[0] as string).match(/^Q\d\s+\d{4}$/) && r.length >= 8
         ).length;
         const realDataEnd = 5 + realQCount;
-        allFormatRequests.push(
+
+        req.push(
+          titleRow(realId, 0, 8),
+          sectionHeader(realId, 3, 8),    // FORECAST SUMMARY
+          colHeaders(realId, 4, 8),       // Column headers
+          // Number formatting — Section 1
           numFmt(realId, 5, realDataEnd, 2, 3, '$#,##0'),   // C: Component A AUM
           numFmt(realId, 5, realDataEnd, 4, 5, '0.0%'),     // E: Realization Rate
           numFmt(realId, 5, realDataEnd, 5, 6, '$#,##0'),   // F: Pipeline Contribution
@@ -1978,187 +2090,269 @@ export async function POST(request: NextRequest) {
           numFmt(realId, 5, realDataEnd, 7, 8, '$#,##0'),   // H: Total Forecast
         );
 
-        // Section 3 quarterly summary — find it by scanning for the summary header rows
-        // The summary starts after "QUARTERLY SUMMARY" row. Let's find it.
-        const sec3SummaryIdx = realizationValues.findIndex((r: any[]) => r[0] === 'QUARTERLY SUMMARY');
-        if (sec3SummaryIdx >= 0) {
-          const sec3DataStart = sec3SummaryIdx + 2; // skip header + col headers
-          const sec3DataEnd = sec3DataStart + 5; // 4 quarters + average row
-          allFormatRequests.push(
-            numFmt(realId, sec3DataStart, sec3DataEnd, 1, 2, '$#,##0'),   // B: Total Joined AUM
-            numFmt(realId, sec3DataStart, sec3DataEnd, 2, 3, '$#,##0'),   // C: Component A AUM
-            numFmt(realId, sec3DataStart, sec3DataEnd, 3, 4, '0.0%'),     // D: Realization Rate
-            numFmt(realId, sec3DataStart, sec3DataEnd, 4, 5, '$#,##0'),   // E: Component A Pipeline
-            numFmt(realId, sec3DataStart, sec3DataEnd, 5, 6, '$#,##0'),   // F: Surprise AUM
+        // Section 2 — Component A deal detail header
+        const sec2Idx = realizationValues.findIndex((r: any[]) =>
+          r[0] && typeof r[0] === 'string' && (r[0] as string).startsWith('COMPONENT A \u2014 DEAL DETAIL'));
+        if (sec2Idx >= 0) {
+          req.push(sectionHeader(realId, sec2Idx, 9), colHeaders(realId, sec2Idx + 1, 9));
+          // AUM column (D=3) in deal detail
+          const sec2DataStart = sec2Idx + 2;
+          const sec2DataEnd = realizationValues.findIndex((r: any[], i: number) => i > sec2DataStart && r.length === 0);
+          if (sec2DataEnd > sec2DataStart) {
+            req.push(numFmt(realId, sec2DataStart, sec2DataEnd, 3, 4, '$#,##0'));
+          }
+        }
+
+        // Section 3 — Component B
+        const sec3Idx = realizationValues.findIndex((r: any[]) =>
+          r[0] && typeof r[0] === 'string' && (r[0] as string).startsWith('COMPONENT B'));
+        if (sec3Idx >= 0) req.push(sectionHeader(realId, sec3Idx, 7));
+
+        const qSumIdx = realizationValues.findIndex((r: any[]) => r[0] === 'QUARTERLY SUMMARY');
+        if (qSumIdx >= 0) {
+          req.push(sectionHeader(realId, qSumIdx, 7), colHeaders(realId, qSumIdx + 1, 7));
+          const qDataStart = qSumIdx + 2;
+          const qDataEnd = qDataStart + 5;
+          req.push(
+            numFmt(realId, qDataStart, qDataEnd, 1, 2, '$#,##0'),   // B: Total Joined
+            numFmt(realId, qDataStart, qDataEnd, 2, 3, '$#,##0'),   // C: Component A
+            numFmt(realId, qDataStart, qDataEnd, 3, 4, '0.0%'),     // D: Realization Rate
+            numFmt(realId, qDataStart, qDataEnd, 4, 5, '$#,##0'),   // E: Pipeline
+            numFmt(realId, qDataStart, qDataEnd, 5, 6, '$#,##0'),   // F: Surprise
           );
         }
 
-        // Component A detail — AUM column (col C=2)
-        const compAHeaderIdx = realizationValues.findIndex((r: any[]) =>
+        // Component A PIT detail header
+        const compAIdx = realizationValues.findIndex((r: any[]) =>
           r[0] && typeof r[0] === 'string' && (r[0] as string).startsWith('COMPONENT A DEAL DETAIL'));
-        if (compAHeaderIdx >= 0) {
-          // Data starts 5 rows after the header (header + 3 note rows + col header row)
-          const compADataStart = compAHeaderIdx + 5;
+        if (compAIdx >= 0) {
+          req.push(sectionHeader(realId, compAIdx, 9));
+          const compAColIdx = compAIdx + 4; // header + 3 note rows
+          req.push(colHeaders(realId, compAColIdx, 9));
+          const compADataStart = compAColIdx + 1;
           const compADataEnd = realizationValues.findIndex((r: any[], i: number) => i > compADataStart && r.length === 0);
           if (compADataEnd > compADataStart) {
-            numFmt(realId, compADataStart, compADataEnd, 2, 3, '$#,##0'); // AUM ($)
-            allFormatRequests.push(numFmt(realId, compADataStart, compADataEnd, 2, 3, '$#,##0'));
+            req.push(numFmt(realId, compADataStart, compADataEnd, 2, 3, '$#,##0'));
           }
         }
 
-        // Joined detail — AUM column (col C=2)
-        const joinedHeaderIdx = realizationValues.findIndex((r: any[]) =>
+        // Joined deal detail header
+        const joinedIdx = realizationValues.findIndex((r: any[]) =>
           r[0] && typeof r[0] === 'string' && (r[0] as string).startsWith('JOINED DEAL DETAIL'));
-        if (joinedHeaderIdx >= 0) {
-          const joinedDataStart = joinedHeaderIdx + 4; // header + 2 note rows + col header row
+        if (joinedIdx >= 0) {
+          req.push(sectionHeader(realId, joinedIdx, 5));
+          const joinedColIdx = joinedIdx + 3; // header + 2 note rows
+          req.push(colHeaders(realId, joinedColIdx, 5));
+          const joinedDataStart = joinedColIdx + 1;
           const joinedDataEnd = realizationValues.findIndex((r: any[], i: number) => i > joinedDataStart && r.length === 0);
           if (joinedDataEnd > joinedDataStart) {
-            allFormatRequests.push(numFmt(realId, joinedDataStart, joinedDataEnd, 2, 3, '$#,##0'));
+            req.push(numFmt(realId, joinedDataStart, joinedDataEnd, 2, 3, '$#,##0'));
           }
         }
-      }
 
-      // ── BQ Forecast P2 ──
-      const p2Id = getSheetId(FORECAST_TAB);
-      if (p2Id != null) {
-        allFormatRequests.push(
-          // Col G (6): Raw AUM — $
-          numFmt(p2Id, 1, p2Count, 6, 7, '$#,##0'),
-          // Col H (7): AUM ($M) — $M with 1 decimal
-          numFmt(p2Id, 1, p2Count, 7, 8, '$#,##0.0'),
-          // Col K-N (10-13): Rates — %
-          numFmt(p2Id, 1, p2Count, 10, 14, '0.0%'),
-          // Col Q (16): P(Join) — %
-          numFmt(p2Id, 1, p2Count, 16, 17, '0.0%'),
-          // Col X (23): Expected AUM — $
-          numFmt(p2Id, 1, p2Count, 23, 24, '$#,##0'),
-          // Col AA (26): Duration Multiplier — decimal
-          numFmt(p2Id, 1, p2Count, 26, 27, '0.00'),
-          // Col AB (27): Baseline P(Join) — %
-          numFmt(p2Id, 1, p2Count, 27, 28, '0.0%'),
-          // Col AC (28): Adjusted P(Join) — %
-          numFmt(p2Id, 1, p2Count, 28, 29, '0.0%'),
-          // Col AD (29): Baseline Expected AUM — $
-          numFmt(p2Id, 1, p2Count, 29, 30, '$#,##0'),
-          // Col AE (30): Adjusted Expected AUM — $
-          numFmt(p2Id, 1, p2Count, 30, 31, '$#,##0'),
+        // Methodology header
+        const methIdx = realizationValues.findIndex((r: any[]) => r[0] === 'MODEL METHODOLOGY');
+        if (methIdx >= 0) req.push(sectionHeader(realId, methIdx, 8));
+
+        // Fixed width for col A (sized for content like "Trailing 4Q Average" not the long subtitle)
+        req.push(
+          { updateDimensionProperties: {
+            properties: { pixelSize: 180 },
+            range: { sheetId: realId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 },
+            fields: 'pixelSize',
+          }},
+          autoResize(realId, 1, 9),
         );
       }
 
-      // ── BQ Monte Carlo ──
-      const mcId = getSheetId(MONTE_CARLO_TAB);
+      // ════════════════════════════════════════════════════════════════
+      // BQ Forecast P2
+      // ════════════════════════════════════════════════════════════════
+      if (p2Id != null) {
+        req.push(
+          colHeaders(p2Id, 0, 34),         // Header row
+          freeze(p2Id, 1, 2),              // Freeze header + Opp ID + Advisor columns
+          // Number formatting
+          numFmt(p2Id, 1, p2Count, 6, 7, '$#,##0'),       // G: Raw AUM
+          numFmt(p2Id, 1, p2Count, 7, 8, '$#,##0.0'),     // H: AUM ($M)
+          numFmt(p2Id, 1, p2Count, 10, 14, '0.0%'),       // K-N: Rates
+          numFmt(p2Id, 1, p2Count, 16, 17, '0.0%'),       // Q: P(Join)
+          numFmt(p2Id, 1, p2Count, 23, 24, '$#,##0'),     // X: Expected AUM
+          numFmt(p2Id, 1, p2Count, 26, 27, '0.000'),      // AA: Duration Multiplier
+          numFmt(p2Id, 1, p2Count, 27, 28, '0.0%'),       // AB: Baseline P(Join)
+          numFmt(p2Id, 1, p2Count, 28, 29, '0.0%'),       // AC: Adjusted P(Join)
+          numFmt(p2Id, 1, p2Count, 29, 30, '$#,##0'),     // AD: Baseline Expected AUM
+          numFmt(p2Id, 1, p2Count, 30, 31, '$#,##0'),     // AE: Adjusted Expected AUM
+          // Alternating row banding
+          banding(p2Id, 0, p2Count, 34),
+          autoResize(p2Id, 0, 34),
+        );
+
+        // Conditional formatting — Duration Bucket (col Z = 25)
+        const greenBg = { red: 0.85, green: 0.93, blue: 0.85 };
+        const amberBg = { red: 1.0, green: 0.95, blue: 0.8 };
+        const redBg = { red: 0.95, green: 0.85, blue: 0.85 };
+        const p2Range = { sheetId: p2Id, startRowIndex: 1, endRowIndex: p2Count, startColumnIndex: 25, endColumnIndex: 26 };
+
+        req.push(
+          { addConditionalFormatRule: { rule: { ranges: [p2Range], booleanRule: { condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: 'Within 1 SD' }] }, format: { backgroundColor: greenBg } } }, index: 0 } },
+          { addConditionalFormatRule: { rule: { ranges: [p2Range], booleanRule: { condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: '1-2 SD' }] }, format: { backgroundColor: amberBg } } }, index: 1 } },
+          { addConditionalFormatRule: { rule: { ranges: [p2Range], booleanRule: { condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: '2+ SD' }] }, format: { backgroundColor: redBg } } }, index: 2 } },
+        );
+
+        // Conditional formatting — Date Confidence (col AG = 32)
+        const confRange = { sheetId: p2Id, startRowIndex: 1, endRowIndex: p2Count, startColumnIndex: 32, endColumnIndex: 33 };
+        req.push(
+          { addConditionalFormatRule: { rule: { ranges: [confRange], booleanRule: { condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: 'High' }] }, format: { backgroundColor: greenBg } } }, index: 3 } },
+          { addConditionalFormatRule: { rule: { ranges: [confRange], booleanRule: { condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: 'Medium' }] }, format: { backgroundColor: amberBg } } }, index: 4 } },
+          { addConditionalFormatRule: { rule: { ranges: [confRange], booleanRule: { condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: 'Low' }] }, format: { backgroundColor: redBg } } }, index: 5 } },
+        );
+      }
+
+      // ════════════════════════════════════════════════════════════════
+      // BQ Monte Carlo
+      // ════════════════════════════════════════════════════════════════
       if (mcId != null) {
-        // Quarter summary rows (rows 4-7): cols B-E (1-4) are AUM values
         const mcQCount = mcValues.filter((r: any[]) =>
           r[0] && typeof r[0] === 'string' && (r[0] as string).match(/^Q\d\s+\d{4}$/)
         ).length;
-        if (mcQCount > 0) {
-          allFormatRequests.push(
-            numFmt(mcId, 4, 4 + mcQCount, 1, 5, '$#,##0'), // B-E: P10, P50, P90, Mean
-          );
-        }
+        const mcPerOppIdx = mcValues.findIndex((r: any[]) => r[0] === 'Opp ID');
+        const mcRatesIdx = mcValues.findIndex((r: any[]) => r[0] === 'Transition');
 
-        // Rates section (rows 10-13): col B (1) = rate as %
-        allFormatRequests.push(
-          numFmt(mcId, 10, 14, 1, 2, '0.0%'),
+        req.push(
+          titleRow(mcId, 0, 8),
+          colHeaders(mcId, 3, 5),           // Quarter summary headers
         );
+        if (mcRatesIdx >= 0) {
+          req.push(sectionHeader(mcId, mcRatesIdx - 1, 2), colHeaders(mcId, mcRatesIdx, 2));
+        }
+        if (mcPerOppIdx >= 0) {
+          req.push(sectionHeader(mcId, mcPerOppIdx - 1, 8), colHeaders(mcId, mcPerOppIdx, 8));
+        }
 
-        // Per-opp section: find header row "Opp ID"
-        const mcPerOppHeaderIdx = mcValues.findIndex((r: any[]) => r[0] === 'Opp ID');
-        if (mcPerOppHeaderIdx >= 0) {
-          const mcPerOppStart = mcPerOppHeaderIdx + 1;
-          const mcPerOppEnd = mcValues.length;
-          allFormatRequests.push(
-            // Col C (2): Win % as %
-            numFmt(mcId, mcPerOppStart, mcPerOppEnd, 2, 3, '0.0%'),
-            // Col D (3): Avg AUM if Won as $
-            numFmt(mcId, mcPerOppStart, mcPerOppEnd, 3, 4, '$#,##0'),
-            // Col E (4): Expected AUM as $
-            numFmt(mcId, mcPerOppStart, mcPerOppEnd, 4, 5, '$#,##0'),
-            // Col H (7): Duration Multiplier as decimal
-            numFmt(mcId, mcPerOppStart, mcPerOppEnd, 7, 8, '0.00'),
+        // Number formatting
+        if (mcQCount > 0) req.push(numFmt(mcId, 4, 4 + mcQCount, 1, 5, '$#,##0'));
+        if (mcRatesIdx >= 0) req.push(numFmt(mcId, mcRatesIdx + 1, mcRatesIdx + 5, 1, 2, '0.0%'));
+        if (mcPerOppIdx >= 0) {
+          const mcStart = mcPerOppIdx + 1;
+          const mcEnd = mcValues.length;
+          req.push(
+            numFmt(mcId, mcStart, mcEnd, 2, 3, '0.0%'),     // Win %
+            numFmt(mcId, mcStart, mcEnd, 3, 4, '$#,##0'),   // Avg AUM if Won
+            numFmt(mcId, mcStart, mcEnd, 4, 5, '$#,##0'),   // Expected AUM
+            numFmt(mcId, mcStart, mcEnd, 7, 8, '0.000'),    // Duration Multiplier
           );
         }
+
+        req.push(autoResize(mcId, 0, 8));
       }
 
-      // ── BQ SQO Targets ──
-      const sqoId = getSheetId(SQO_TARGETS_TAB);
+      // ════════════════════════════════════════════════════════════════
+      // BQ SQO Targets
+      // ════════════════════════════════════════════════════════════════
       if (sqoId != null) {
-        // Model inputs (rows 5-12):
-        // Rows 5-8 (0-idx): 4 stage rates as % (B col)
-        // Row 9: SQO→Joined product as %
-        // Row 10: Mean Joined AUM as $
-        // Row 11: Expected AUM per SQO as $
-        // Row 12: Avg Days as integer
-        // Also format cols C-D for rows 5-8 (Source = rate formula, Description = rate value)
-        allFormatRequests.push(
-          numFmt(sqoId, 5, 10, 1, 2, '0.0%'),     // B: Rates (rows 5-9)
-          numFmt(sqoId, 5, 9, 2, 3, '0.0%'),       // C: Source (rate formula refs)
-          numFmt(sqoId, 5, 9, 3, 4, '0.0%'),       // D: Description (rate values)
+        req.push(
+          titleRow(sqoId, 0, 12),
+          sectionHeader(sqoId, 3, 4),     // MODEL INPUTS
+          colHeaders(sqoId, 4, 4),        // Input headers
+          // Number formatting — model inputs
+          numFmt(sqoId, 5, 10, 1, 2, '0.0%'),     // B: Rates
+          numFmt(sqoId, 5, 9, 2, 3, '0.0%'),       // C: Source refs
+          numFmt(sqoId, 5, 9, 3, 4, '0.0%'),       // D: Description values
           numFmt(sqoId, 10, 12, 1, 2, '$#,##0'),   // B: Mean AUM + Expected AUM/SQO
           numFmt(sqoId, 12, 13, 1, 2, '#,##0'),    // B: Days
           numFmt(sqoId, 12, 13, 2, 3, '#,##0'),    // C: Days source
         );
 
-        // Gap analysis section (row 15 = header "QUARTERLY GAP ANALYSIS", row 16 = col headers, rows 17+ = data)
+        // Gap analysis
         const gapIdx = sqoTargetsValues.findIndex((r: any[]) =>
           r[0] && typeof r[0] === 'string' && (r[0] as string).includes('GAP ANALYSIS'));
         if (gapIdx >= 0) {
           const sqoQCount = sqoTargetsValues.filter((r: any[]) =>
             r[0] && typeof r[0] === 'string' && (r[0] as string).match(/^Q\d\s+\d{4}$/)
           ).length;
-          const gapDataStart = gapIdx + 2; // skip header + col headers
+          const gapDataStart = gapIdx + 2;
           const gapDataEnd = gapDataStart + sqoQCount;
-          allFormatRequests.push(
-            numFmt(sqoId, gapDataStart, gapDataEnd, 1, 2, '$#,##0'),   // B: Target AUM
-            numFmt(sqoId, gapDataStart, gapDataEnd, 2, 3, '$#,##0'),   // C: Joined AUM
-            numFmt(sqoId, gapDataStart, gapDataEnd, 4, 5, '$#,##0'),   // E: Projected AUM
+
+          req.push(
+            sectionHeader(sqoId, gapIdx, 12),
+            colHeaders(sqoId, gapIdx + 1, 12),
+            numFmt(sqoId, gapDataStart, gapDataEnd, 1, 2, '$#,##0'),   // B: Target
+            numFmt(sqoId, gapDataStart, gapDataEnd, 2, 3, '$#,##0'),   // C: Joined
+            numFmt(sqoId, gapDataStart, gapDataEnd, 4, 5, '$#,##0'),   // E: Projected
             numFmt(sqoId, gapDataStart, gapDataEnd, 5, 6, '$#,##0'),   // F: Total Expected
             numFmt(sqoId, gapDataStart, gapDataEnd, 6, 7, '$#,##0'),   // G: Gap
-            numFmt(sqoId, gapDataStart, gapDataEnd, 7, 8, '0%'),       // H: Coverage %
+            numFmt(sqoId, gapDataStart, gapDataEnd, 7, 8, '0%'),       // H: Coverage
+          );
+
+          // Conditional formatting on Status column (I = 8)
+          const statusRange = { sheetId: sqoId, startRowIndex: gapDataStart, endRowIndex: gapDataEnd, startColumnIndex: 8, endColumnIndex: 9 };
+          req.push(
+            { addConditionalFormatRule: { rule: { ranges: [statusRange], booleanRule: { condition: { type: 'TEXT_CONTAINS', values: [{ userEnteredValue: 'On track' }] }, format: { backgroundColor: { red: 0.85, green: 0.93, blue: 0.85 } } } }, index: 0 } },
+            { addConditionalFormatRule: { rule: { ranges: [statusRange], booleanRule: { condition: { type: 'TEXT_CONTAINS', values: [{ userEnteredValue: 'Gap' }] }, format: { backgroundColor: { red: 0.95, green: 0.85, blue: 0.85 } } } }, index: 1 } },
           );
         }
-      }
 
-      // ── BQ Audit Trail ──
-      const auditId = getSheetId(AUDIT_TAB);
-      if (auditId != null) {
-        allFormatRequests.push(
-          // Col AG (32): AUM ($M) — $M with 1 decimal
-          numFmt(auditId, 1, auditCount, 32, 33, '$#,##0.0'),
-          // Days columns Y-AB (24-27): integer
-          numFmt(auditId, 1, auditCount, 24, 28, '#,##0'),
-          // Days in Current Stage AC (28): integer
-          numFmt(auditId, 1, auditCount, 28, 29, '#,##0'),
-          // Days SQO→Joined AD (29): integer
-          numFmt(auditId, 1, auditCount, 29, 30, '#,##0'),
+        req.push(
+          freeze(sqoId, 3),
+          { updateDimensionProperties: {
+            properties: { pixelSize: 210 },
+            range: { sheetId: sqoId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 },
+            fields: 'pixelSize',
+          }},
+          autoResize(sqoId, 1, 12),
         );
       }
 
-      if (allFormatRequests.length > 0) {
-        await sheets.spreadsheets.batchUpdate({
-          spreadsheetId: newSheetId,
-          requestBody: { requests: allFormatRequests },
-        });
-        console.log(`[Forecast Export] Number formatting applied to all tabs (${allFormatRequests.length} format requests)`);
+      // ════════════════════════════════════════════════════════════════
+      // BQ Audit Trail
+      // ════════════════════════════════════════════════════════════════
+      if (auditId != null) {
+        req.push(
+          colHeaders(auditId, 0, 45),        // Header row
+          freeze(auditId, 1, 3),             // Freeze header + Opp ID + URL + Advisor
+          // Number formatting
+          numFmt(auditId, 1, auditCount, 32, 33, '$#,##0.0'),  // AG: AUM ($M)
+          numFmt(auditId, 1, auditCount, 24, 28, '#,##0'),     // Y-AB: Days
+          numFmt(auditId, 1, auditCount, 28, 29, '#,##0'),     // AC: Days in Current Stage
+          numFmt(auditId, 1, auditCount, 29, 30, '#,##0'),     // AD: Days SQO→Joined
+          // Alternating row banding
+          banding(auditId, 0, auditCount, 45),
+          autoResize(auditId, 0, 45),
+        );
       }
 
-      // Fix: explicit percentage format for SQO Targets rate cells (rows 6-10, cols B-C)
-      // Applied as a separate call after all other formatting to ensure it's not overridden
-      const sqoFixId = getSheetId(SQO_TARGETS_TAB);
-      if (sqoFixId != null) {
+      // ── Scenario Runner: freeze + auto-resize + tab color (styling already applied above) ──
+      if (scenId != null) {
+        req.push(
+          freeze(scenId, 5),
+          // Fixed width for col A (based on "Expected Joined AUM/SQO ($)" not the long subtitle)
+          { updateDimensionProperties: {
+            properties: { pixelSize: 200 },
+            range: { sheetId: scenId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 },
+            fields: 'pixelSize',
+          }},
+          autoResize(scenId, 1, 13),
+        );
+      }
+
+      if (req.length > 0) {
         await sheets.spreadsheets.batchUpdate({
           spreadsheetId: newSheetId,
-          requestBody: {
-            requests: [
-              numFmt(sqoFixId, 5, 10, 1, 3, '0.0%'),  // B6:C10 as percentage
-            ],
-          },
+          requestBody: { requests: req },
         });
-        console.log(`[Forecast Export] SQO Targets rate format fix applied`);
+        console.log(`[Forecast Export] Comprehensive styling applied (${req.length} requests across all tabs)`);
+      }
+
+      // Fix: explicit percentage format for SQO Targets rate cells
+      if (sqoId != null) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: newSheetId,
+          requestBody: { requests: [numFmt(sqoId, 5, 10, 1, 3, '0.0%')] },
+        });
       }
     } catch (fmtErr) {
-      console.warn(`[Forecast Export] Failed to apply number formatting:`, fmtErr);
+      console.warn(`[Forecast Export] Failed to apply styling:`, fmtErr);
     }
 
     // Delete the default "Sheet1" tab that Drive API creates automatically
