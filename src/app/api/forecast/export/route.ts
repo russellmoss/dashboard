@@ -509,13 +509,13 @@ function buildSQOTargetsValues(
     // Row 5
     ['Input', 'Value', 'Source', 'Description'],
     // Row 6 — Rates tab has rates at B6:B9 (row 5 is header)
-    ['SQO \u2192 SP Rate', flatRates.sqo_to_sp, `=${r}!$B$6`, `${(flatRates.sqo_to_sp * 100).toFixed(1)}%`],
+    ['SQO \u2192 SP Rate', `=${r}!$B$6`, `=${r}!$B$6`, `${(flatRates.sqo_to_sp * 100).toFixed(1)}%`],
     // Row 7
-    ['SP \u2192 Negotiating Rate', flatRates.sp_to_neg, `=${r}!$B$7`, `${(flatRates.sp_to_neg * 100).toFixed(1)}%`],
+    ['SP \u2192 Negotiating Rate', `=${r}!$B$7`, `=${r}!$B$7`, `${(flatRates.sp_to_neg * 100).toFixed(1)}%`],
     // Row 8
-    ['Neg \u2192 Signed Rate', flatRates.neg_to_signed, `=${r}!$B$8`, `${(flatRates.neg_to_signed * 100).toFixed(1)}%`],
+    ['Neg \u2192 Signed Rate', `=${r}!$B$8`, `=${r}!$B$8`, `${(flatRates.neg_to_signed * 100).toFixed(1)}%`],
     // Row 9
-    ['Signed \u2192 Joined Rate', flatRates.signed_to_joined, `=${r}!$B$9`, `${(flatRates.signed_to_joined * 100).toFixed(1)}%`],
+    ['Signed \u2192 Joined Rate', `=${r}!$B$9`, `=${r}!$B$9`, `${(flatRates.signed_to_joined * 100).toFixed(1)}%`],
     // Row 10
     ['SQO \u2192 Joined Rate (product)', `=B6*B7*B8*B9`, '', 'Product of 4 stage rates'],
     // Row 11
@@ -2141,6 +2141,21 @@ export async function POST(request: NextRequest) {
           requestBody: { requests: allFormatRequests },
         });
         console.log(`[Forecast Export] Number formatting applied to all tabs (${allFormatRequests.length} format requests)`);
+      }
+
+      // Fix: explicit percentage format for SQO Targets rate cells (rows 6-10, cols B-C)
+      // Applied as a separate call after all other formatting to ensure it's not overridden
+      const sqoFixId = getSheetId(SQO_TARGETS_TAB);
+      if (sqoFixId != null) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: newSheetId,
+          requestBody: {
+            requests: [
+              numFmt(sqoFixId, 5, 10, 1, 3, '0.0%'),  // B6:C10 as percentage
+            ],
+          },
+        });
+        console.log(`[Forecast Export] SQO Targets rate format fix applied`);
       }
     } catch (fmtErr) {
       console.warn(`[Forecast Export] Failed to apply number formatting:`, fmtErr);

@@ -23,6 +23,7 @@ import { ScenarioRunner } from './components/ScenarioRunner';
 import { SavedScenariosList } from './components/SavedScenariosList';
 import { ForecastTabs, type ForecastTab } from './components/ForecastTabs';
 import { ExportsPanel } from './components/ExportsPanel';
+import { RatesSummaryBar } from './components/RatesSummaryBar';
 import { RealizationBanner } from './components/RealizationBanner';
 import { WhatIfPanel } from './components/WhatIfPanel';
 
@@ -329,7 +330,7 @@ export default function ForecastPage() {
     <div className="space-y-6">
       <div>
         <Title>Pipeline Forecast</Title>
-        <Text>Probability-weighted pipeline forecast with Monte Carlo simulation</Text>
+        <Text>Realization forecast, what-if scenario planning, and probability-weighted pipeline analysis</Text>
       </div>
 
       <ForecastTabs activeTab={activeTab} onTabChange={setActiveTab} />
@@ -349,6 +350,8 @@ export default function ForecastPage() {
             totalOpps={adjustedSummary?.total_opps ?? 0}
             exportResult={exportResult}
           />
+
+          <RatesSummaryBar rates={rates?.flat ?? null} windowDays={windowDays} />
 
           {error && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
