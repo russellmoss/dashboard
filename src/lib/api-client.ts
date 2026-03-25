@@ -1074,7 +1074,7 @@ export const dashboardApi = {
   },
 
   getForecastPipeline: () =>
-    apiFetch<{ records: ForecastPipelineRecordClient[]; summary: ForecastSummaryClient; joinedByQuarter?: Record<string, { joined_aum: number; joined_count: number }> }>('/api/forecast/pipeline'),
+    apiFetch<{ records: ForecastPipelineRecordClient[]; summary: ForecastSummaryClient; joinedByQuarter?: Record<string, { joined_aum: number; joined_count: number }>; surpriseBaseline?: number }>('/api/forecast/pipeline'),
 
   getDateRevisions: () =>
     apiFetch<{ revisions: Record<string, { revisionCount: number; firstDateSet: string | null; dateConfidence: string }> }>('/api/forecast/date-revisions'),
@@ -1128,6 +1128,12 @@ export const dashboardApi = {
 
   getForecastExports: () =>
     apiFetch<{ exports: ForecastExportRecord[] }>('/api/forecast/exports'),
+
+  deleteForecastExport: (id: string) =>
+    apiFetch<{ success: boolean }>('/api/forecast/export', {
+      method: 'DELETE',
+      body: JSON.stringify({ id }),
+    }),
 };
 
 interface ForecastExportRecord {

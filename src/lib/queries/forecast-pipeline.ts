@@ -198,3 +198,90 @@ export const getJoinedAumByQuarter = cachedQuery(
   CACHE_TAGS.DASHBOARD,
   21600
 );
+
+// Compute the trailing 4-quarter surprise baseline from live data.
+// Uses OpportunityFieldHistory to PIT-reconstruct Component A, then:
+//   Surprise per quarter = Total Joined AUM − Component A Joined AUM
+//   Baseline = average of last 4 completed quarters
+// This replaces the hardcoded $398M constant with a live-computed value.
+const _getSurpriseBaseline = async (): Promise<number> => {
+  const rows = await runQuery<{ surprise_baseline: number | null }>(`
+    WITH completed_quarters AS (
+      -- Last 4 completed quarters (not the current quarter)
+      SELECT qtr, q_start, q_end FROM UNNEST([
+        STRUCT('Q1 2025' AS qtr, DATE '2025-01-01' AS q_start, DATE '2025-04-01' AS q_end),
+        STRUCT('Q2 2025', DATE '2025-04-01', DATE '2025-07-01'),
+        STRUCT('Q3 2025', DATE '2025-07-01', DATE '2025-10-01'),
+        STRUCT('Q4 2025', DATE '2025-10-01', DATE '2026-01-01')
+      ])
+    ),
+    -- Total joined AUM per quarter
+    joined_totals AS (
+      SELECT
+        CONCAT('Q', EXTRACT(QUARTER FROM f.advisor_join_date__c), ' ', EXTRACT(YEAR FROM f.advisor_join_date__c)) AS qtr,
+        SUM(COALESCE(f.Underwritten_AUM__c, f.Amount, 0)) AS total_joined_aum
+      FROM \`savvy-gtm-analytics.Tableau_Views.vw_funnel_master\` f
+      WHERE f.is_joined = 1 AND f.is_primary_opp_record = 1
+        AND f.advisor_join_date__c >= '2025-01-01' AND f.advisor_join_date__c < '2026-01-01'
+        AND COALESCE(f.Underwritten_AUM__c, f.Amount, 0) > 1000
+      GROUP BY qtr
+    ),
+    -- PIT-corrected Component A: Neg+Signed with anticipated date in quarter at quarter start
+    pit_date_changes AS (
+      SELECT
+        h.OpportunityId, q.qtr,
+        SAFE.PARSE_DATE('%F', h.OldValue) AS pit_date
+      FROM \`savvy-gtm-analytics.SavvyGTMData.OpportunityFieldHistory\` h
+      CROSS JOIN completed_quarters q
+      WHERE h.Field = 'Earliest_Anticipated_Start_Date__c'
+        AND DATE(h.CreatedDate) >= q.q_start
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY h.OpportunityId, q.qtr ORDER BY h.CreatedDate ASC) = 1
+    ),
+    component_a_joined AS (
+      SELECT
+        q.qtr,
+        SUM(COALESCE(f.Underwritten_AUM__c, f.Amount, 0)) AS component_a_aum
+      FROM \`savvy-gtm-analytics.Tableau_Views.vw_funnel_master\` f
+      CROSS JOIN completed_quarters q
+      LEFT JOIN pit_date_changes pd ON pd.OpportunityId = f.Full_Opportunity_ID__c AND pd.qtr = q.qtr
+      WHERE f.SQO_raw = 'Yes' AND f.is_primary_opp_record = 1
+        AND DATE(f.Date_Became_SQO__c) < q.q_start
+        AND (f.advisor_join_date__c IS NULL OR f.advisor_join_date__c >= q.q_start)
+        AND (f.Stage_Entered_Closed__c IS NULL OR DATE(f.Stage_Entered_Closed__c) >= q.q_start)
+        AND COALESCE(f.Underwritten_AUM__c, f.Amount, 0) > 1000
+        -- Stage at snapshot must be Neg or Signed
+        AND (
+          (f.Stage_Entered_Signed__c IS NOT NULL AND DATE(f.Stage_Entered_Signed__c) < q.q_start)
+          OR (f.Stage_Entered_Negotiating__c IS NOT NULL AND DATE(f.Stage_Entered_Negotiating__c) < q.q_start
+              AND (f.Stage_Entered_Signed__c IS NULL OR DATE(f.Stage_Entered_Signed__c) >= q.q_start))
+        )
+        -- PIT anticipated date falls within the quarter
+        AND COALESCE(pd.pit_date, f.Earliest_Anticipated_Start_Date__c) >= q.q_start
+        AND COALESCE(pd.pit_date, f.Earliest_Anticipated_Start_Date__c) < q.q_end
+        -- Must have actually joined in the quarter
+        AND f.StageName = 'Joined'
+        AND f.advisor_join_date__c >= q.q_start AND f.advisor_join_date__c < q.q_end
+      GROUP BY q.qtr
+    ),
+    quarterly_surprise AS (
+      SELECT
+        j.qtr,
+        j.total_joined_aum,
+        COALESCE(a.component_a_aum, 0) AS component_a_aum,
+        j.total_joined_aum - COALESCE(a.component_a_aum, 0) AS surprise_aum
+      FROM joined_totals j
+      LEFT JOIN component_a_joined a ON a.qtr = j.qtr
+    )
+    SELECT AVG(surprise_aum) AS surprise_baseline
+    FROM quarterly_surprise
+  `);
+
+  return toNumber(rows[0]?.surprise_baseline) || 398_000_000; // fallback to backtest value if query fails
+};
+
+export const getSurpriseBaseline = cachedQuery(
+  _getSurpriseBaseline,
+  'getSurpriseBaseline',
+  CACHE_TAGS.DASHBOARD,
+  86400 // 24h cache — only changes when a quarter completes
+);

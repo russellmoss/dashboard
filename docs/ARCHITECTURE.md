@@ -669,6 +669,7 @@ const response = await fetch('/api/dashboard/funnel-metrics?channel=Web');
 - `/api/forecast/rates` - Tiered conversion rates by AUM band and time window
 - `/api/forecast/monte-carlo` - Monte Carlo simulation with optional rate overrides
 - `/api/forecast/export` - Export forecast + audit data to Google Sheets
+- `/api/forecast/exports` - List past forecast exports (from ForecastExport model)
 - `/api/forecast/date-revisions` - Close date revision history and confidence scores
 - `/api/forecast/scenarios` - Save/load/share scenario snapshots
 - `/api/forecast/sqo-targets` - Quarterly SQO AUM targets (get/save)
@@ -1848,6 +1849,7 @@ The page recomputes deal-level forecasts client-side using `computeAdjustedDeal(
 
 | Component | Purpose |
 |-----------|---------|
+| `ForecastTabs` | Tab switcher between Pipeline Forecast and Exports views |
 | `ForecastTopBar` | Window selector (180/365/730 days), Monte Carlo trigger, Sheets export |
 | `ForecastMetricCards` | Quarter cards with expected AUM, targets, gap analysis, joined actuals |
 | `ExpectedAumChart` | Visual AUM distribution by quarter (dynamically loaded) |
@@ -1857,6 +1859,7 @@ The page recomputes deal-level forecasts client-side using `computeAdjustedDeal(
 | `SavedScenariosList` | Load/share saved scenario snapshots |
 | `PipelineDetailTable` | Full deal list with adjusted P(Join), AUM tier, duration bucket |
 | `AdvisorForecastModal` | Per-opportunity detail modal on row click |
+| `ExportsPanel` | Browse past Google Sheets exports with links and metadata |
 
 ### API Routes
 
@@ -1866,6 +1869,7 @@ The page recomputes deal-level forecasts client-side using `computeAdjustedDeal(
 | `/api/forecast/rates` | GET | Tiered conversion rates by time window |
 | `/api/forecast/monte-carlo` | POST | Run Monte Carlo simulation |
 | `/api/forecast/export` | POST | Export to Google Sheets |
+| `/api/forecast/exports` | GET | List past forecast exports |
 | `/api/forecast/date-revisions` | GET | Close date revision counts and confidence |
 | `/api/forecast/scenarios` | GET/POST | Save, list, and share scenarios |
 | `/api/forecast/sqo-targets` | GET/POST | Quarterly SQO AUM target management |
@@ -1880,6 +1884,7 @@ The page recomputes deal-level forecasts client-side using `computeAdjustedDeal(
 | `src/lib/queries/forecast-rates.ts` | Tiered conversion rate queries |
 | `src/lib/queries/forecast-monte-carlo.ts` | Monte Carlo simulation logic |
 | `src/lib/forecast-penalties.ts` | `computeAdjustedDeal` -- duration penalties and AUM-tier adjustments |
+| `src/app/api/forecast/exports/route.ts` | Exports list API route (reads ForecastExport model) |
 | `src/app/dashboard/forecast/components/` | All forecast UI components |
 
 ---

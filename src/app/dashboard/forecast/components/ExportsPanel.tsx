@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Card, Text } from '@tremor/react';
-import { ExternalLink, FileSpreadsheet, Loader2 } from 'lucide-react';
+import { ExternalLink, FileSpreadsheet, Loader2, Trash2 } from 'lucide-react';
 import { dashboardApi } from '@/lib/api-client';
 
 interface ExportRecord {
@@ -39,6 +39,7 @@ export function ExportsPanel() {
   const [exports, setExports] = useState<ExportRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     dashboardApi.getForecastExports()
@@ -46,6 +47,21 @@ export function ExportsPanel() {
       .catch(() => setError('Failed to load exports'))
       .finally(() => setLoading(false));
   }, []);
+
+  const handleDelete = async (exp: ExportRecord) => {
+    if (!confirm(`Delete "${exp.name}"?\n\nThis will permanently remove the Google Sheet and cannot be undone.`)) {
+      return;
+    }
+    setDeleting(exp.id);
+    try {
+      await dashboardApi.deleteForecastExport(exp.id);
+      setExports(prev => prev.filter(e => e.id !== exp.id));
+    } catch {
+      setError('Failed to delete export');
+    } finally {
+      setDeleting(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -80,7 +96,7 @@ export function ExportsPanel() {
       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <Text className="font-semibold">Forecast Exports</Text>
         <Text className="text-xs text-gray-500 mt-0.5">
-          Each export is a unique Google Sheet snapshot. Click to open.
+          Each export is a unique Google Sheet snapshot. Click to open. Exports are organized by user in Google Drive.
         </Text>
       </div>
       <div className="overflow-x-auto">
@@ -93,6 +109,7 @@ export function ExportsPanel() {
               <th className="px-4 py-2.5 font-medium text-gray-600 dark:text-gray-400">Deals</th>
               <th className="px-4 py-2.5 font-medium text-gray-600 dark:text-gray-400">Cohort</th>
               <th className="px-4 py-2.5 font-medium text-gray-600 dark:text-gray-400">Sheet</th>
+              <th className="px-4 py-2.5 font-medium text-gray-600 dark:text-gray-400 w-10"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -125,6 +142,20 @@ export function ExportsPanel() {
                     <ExternalLink className="w-3.5 h-3.5" />
                     Open
                   </a>
+                </td>
+                <td className="px-4 py-3">
+                  <button
+                    onClick={() => handleDelete(exp)}
+                    disabled={deleting === exp.id}
+                    className="p-1 text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors disabled:opacity-50"
+                    title="Delete export"
+                  >
+                    {deleting === exp.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                  </button>
                 </td>
               </tr>
             ))}

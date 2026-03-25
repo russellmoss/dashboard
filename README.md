@@ -367,7 +367,7 @@ The SGA Management page (Admin/Manager only) provides oversight of all SGAs:
   - `src/app/dashboard/sga-management/page.tsx` - SGA Management (for admin/manager)
 - **API Routes**: 
   - `src/app/api/dashboard/*` - Dashboard endpoints
-  - `src/app/api/forecast/*` - Forecast endpoints (pipeline, rates, monte-carlo, scenarios, export)
+  - `src/app/api/forecast/*` - Forecast endpoints (pipeline, rates, monte-carlo, scenarios, export, exports)
   - `src/app/api/sga-hub/*` - SGA Hub endpoints (weekly-goals, quarterly-progress, drill-down, etc.)
 - **Components**: 
   - `src/components/dashboard/*` - Dashboard components (Scorecards, Charts, RecordDetailModal)

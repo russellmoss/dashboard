@@ -23,6 +23,8 @@ import { ScenarioRunner } from './components/ScenarioRunner';
 import { SavedScenariosList } from './components/SavedScenariosList';
 import { ForecastTabs, type ForecastTab } from './components/ForecastTabs';
 import { ExportsPanel } from './components/ExportsPanel';
+import { RealizationBanner } from './components/RealizationBanner';
+import { WhatIfPanel } from './components/WhatIfPanel';
 
 const ExpectedAumChart = nextDynamic(
   () => import('./components/ExpectedAumChart'),
@@ -62,6 +64,7 @@ export default function ForecastPage() {
   const [dateRevisions, setDateRevisions] = useState<Record<string, { revisionCount: number; firstDateSet: string | null; dateConfidence: string }>>({});
   const [targetAumByQuarter, setTargetAumByQuarter] = useState<Record<string, number>>({});
   const [joinedAumByQuarter, setJoinedAumByQuarter] = useState<Record<string, { joined_aum: number; joined_count: number }>>({});
+  const [surpriseBaseline, setSurpriseBaseline] = useState<number>(398_000_000);
   const hasSharedScenario = useRef(!!searchParams.get('scenario'));
 
   // Recompute p_join, expected_aum_weighted, projected dates, and summary
@@ -201,6 +204,7 @@ export default function ForecastPage() {
       setPipeline(pipelineRes.records);
       setSummary(pipelineRes.summary);
       setJoinedAumByQuarter(pipelineRes.joinedByQuarter ?? {});
+      setSurpriseBaseline(pipelineRes.surpriseBaseline ?? 398_000_000);
       setDateRevisions(revisionsRes.revisions);
       setTargetAumByQuarter(targetsRes.targets);
     } catch (err) {
@@ -360,6 +364,20 @@ export default function ForecastPage() {
             </div>
           ) : (
             <>
+              <RealizationBanner
+                pipeline={adjustedPipeline}
+                windowDays={windowDays}
+                surpriseBaseline={surpriseBaseline}
+              />
+
+              <WhatIfPanel
+                rates={rates?.flat ?? null}
+                targetAumByQuarter={targetAumByQuarter}
+                onTargetChange={handleTargetChange}
+                pipeline={adjustedPipeline}
+                surpriseBaseline={surpriseBaseline}
+              />
+
               <ForecastMetricCards
                 summary={adjustedSummary}
                 windowDays={windowDays}
