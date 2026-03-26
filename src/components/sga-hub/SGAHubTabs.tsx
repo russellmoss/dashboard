@@ -14,7 +14,7 @@ export function SGAHubTabs({ activeTab, onTabChange }: SGAHubTabsProps) {
   const tabs: { id: SGAHubTab; label: string; icon: React.ReactNode }[] = [
     { id: 'leaderboard', label: 'Leaderboard', icon: <Trophy className="w-4 h-4" /> },
     { id: 'weekly-goals', label: 'Weekly Goals vs. Actuals', icon: <Target className="w-4 h-4" /> },
-    { id: 'closed-lost', label: 'Closed Lost Follow-Up', icon: <AlertCircle className="w-4 h-4" /> },
+    { id: 'closed-lost', label: 'Re-Engagement', icon: <AlertCircle className="w-4 h-4" /> },
     { id: 'quarterly-progress', label: 'Quarterly Progress', icon: <TrendingUp className="w-4 h-4" /> },
     { id: 'activity', label: 'Activity', icon: <PhoneCall className="w-4 h-4" /> },
   ];

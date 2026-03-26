@@ -18,10 +18,10 @@ import { LeaderboardFilters } from '@/components/sga-hub/LeaderboardFilters';
 import { AdminQuarterlyProgressView } from '@/components/sga-hub/AdminQuarterlyProgressView';
 import { dashboardApi, handleApiError } from '@/lib/api-client';
 import { FilterOptions } from '@/types/filters';
-import { WeeklyGoal, WeeklyActual, WeeklyGoalWithActuals, ClosedLostRecord, ReEngagementOpportunity, QuarterlyProgress, SQODetail, LeaderboardEntry } from '@/types/sga-hub';
+import { WeeklyGoal, WeeklyActual, WeeklyGoalWithActuals, QuarterlyProgress, SQODetail, LeaderboardEntry } from '@/types/sga-hub';
 import { getDefaultWeekRange, getWeekMondayDate, getWeekInfo, formatDateISO, getCurrentQuarter, getQuarterFromDate, getQuarterInfo, getWeekSundayDate } from '@/lib/utils/sga-hub-helpers';
 import { getSessionPermissions } from '@/types/auth';
-import { exportWeeklyGoalsCSV, exportQuarterlyProgressCSV, exportClosedLostCSV } from '@/lib/utils/sga-hub-csv-export';
+import { exportWeeklyGoalsCSV, exportQuarterlyProgressCSV } from '@/lib/utils/sga-hub-csv-export';
 import { Download } from 'lucide-react';
 import { MetricDrillDownModal } from '@/components/sga-hub/MetricDrillDownModal';
 import { RecordDetailModal } from '@/components/dashboard/RecordDetailModal';
@@ -37,7 +37,6 @@ export function SGAHubContent() {
   const { data: session } = useSession();
   const permissions = getSessionPermissions(session);
   const isAdmin = permissions?.role === 'admin' || permissions?.role === 'manager' || permissions?.role === 'revops_admin';
-  const isAdminOrSGAForClosedLost = isAdmin || permissions?.role === 'sga';
   const sgaName = session?.user?.name || 'Unknown';
   
   const [activeTab, setActiveTab] = useState<SGAHubTab>('leaderboard');
@@ -55,15 +54,8 @@ export function SGAHubContent() {
   const [editingGoal, setEditingGoal] = useState<WeeklyGoalWithActuals | null>(null);
   
   // Closed Lost state
-  const [closedLostRecords, setClosedLostRecords] = useState<ClosedLostRecord[]>([]);
-  const [closedLostLoading, setClosedLostLoading] = useState(false);
-  const [closedLostError, setClosedLostError] = useState<string | null>(null);
-  const [showAllClosedLost, setShowAllClosedLost] = useState(false);
   
   // Re-Engagement state
-  const [reEngagementOpportunities, setReEngagementOpportunities] = useState<ReEngagementOpportunity[]>([]);
-  const [reEngagementLoading, setReEngagementLoading] = useState(false);
-  const [reEngagementError, setReEngagementError] = useState<string | null>(null);
   
   // Quarterly Progress state
   const [selectedQuarter, setSelectedQuarter] = useState<string>(getCurrentQuarter());
@@ -156,43 +148,6 @@ export function SGAHubContent() {
     }
   };
   
-  // Fetch closed lost records
-  const fetchClosedLostRecords = async (showAll: boolean = showAllClosedLost) => {
-    try {
-      setClosedLostLoading(true);
-      setClosedLostError(null);
-
-      const response = await dashboardApi.getClosedLostRecords(undefined, undefined, showAll);
-      setClosedLostRecords(response.records);
-    } catch (err) {
-      setClosedLostError(handleApiError(err));
-    } finally {
-      setClosedLostLoading(false);
-    }
-  };
-
-  // Handle toggle for showing all closed lost records
-  const handleToggleShowAllClosedLost = (showAll: boolean) => {
-    setShowAllClosedLost(showAll);
-    fetchClosedLostRecords(showAll);
-  };
-  
-  // Fetch re-engagement opportunities
-  const fetchReEngagementOpportunities = async () => {
-    try {
-      setReEngagementLoading(true);
-      setReEngagementError(null);
-      
-      // Admins and SGAs always see all records (showAll=true), others see their own
-      const showAll = isAdminOrSGAForClosedLost;
-      const response = await dashboardApi.getReEngagementOpportunities(showAll);
-      setReEngagementOpportunities(response.opportunities);
-    } catch (err) {
-      setReEngagementError(handleApiError(err));
-    } finally {
-      setReEngagementLoading(false);
-    }
-  };
   
   // Fetch quarterly progress data
   const fetchQuarterlyProgress = async () => {
@@ -319,9 +274,6 @@ export function SGAHubContent() {
   useEffect(() => {
     if (activeTab === 'weekly-goals') {
       fetchWeeklyData();
-    } else if (activeTab === 'closed-lost') {
-      fetchClosedLostRecords(isAdminOrSGAForClosedLost ? true : showAllClosedLost);
-      fetchReEngagementOpportunities();
     } else if (activeTab === 'quarterly-progress') {
       fetchQuarterlyProgress();
     } else if (activeTab === 'leaderboard') {
@@ -739,25 +691,6 @@ export function SGAHubContent() {
     setDrillDownContext(null);
   };
 
-  // Handle Closed Lost row click
-  const handleClosedLostRecordClick = (record: ClosedLostRecord) => {
-    // Use primaryKey if available, otherwise fallback to id (opportunity ID)
-    // Note: RecordDetailModal expects primary_key format, but can handle opportunity IDs starting with 006
-    const recordId = record.primaryKey || record.id;
-    setRecordDetailId(recordId);
-    setRecordDetailOpen(true);
-    // Don't set drillDownContext - no back button for closed lost
-  };
-  
-  // Handle Re-Engagement opportunity click
-  const handleReEngagementClick = (opportunity: ReEngagementOpportunity) => {
-    // Use primaryKey if available, otherwise fallback to id (opportunity ID)
-    const recordId = opportunity.primaryKey || opportunity.id;
-    setRecordDetailId(recordId);
-    setRecordDetailOpen(true);
-    // Don't set drillDownContext - no back button for re-engagement
-  };
-
   // Handle SQO Detail row click
   const handleSQODetailClick = (sqo: SQODetail) => {
     // SQODetail.id is already the primary_key from the query
@@ -849,37 +782,7 @@ export function SGAHubContent() {
       )}
       
       {activeTab === 'closed-lost' && (
-        <>
-          <div className="mb-4 flex justify-end">
-            <Button
-              size="sm"
-              variant="secondary"
-              icon={Download}
-              onClick={() => exportClosedLostCSV(closedLostRecords, sgaName)}
-              disabled={closedLostRecords.length === 0}
-            >
-              Export CSV
-            </Button>
-          </div>
-          {(closedLostError || reEngagementError) && (
-            <Card className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-              <Text className="text-red-600 dark:text-red-400">
-                {closedLostError || reEngagementError}
-              </Text>
-            </Card>
-          )}
-          
-          <ClosedLostFollowUpTabs
-            closedLostRecords={closedLostRecords}
-            reEngagementOpportunities={reEngagementOpportunities}
-            closedLostLoading={closedLostLoading}
-            reEngagementLoading={reEngagementLoading}
-            onClosedLostRecordClick={handleClosedLostRecordClick}
-            onReEngagementClick={handleReEngagementClick}
-            showAllRecords={isAdminOrSGAForClosedLost ? true : showAllClosedLost}
-            onToggleShowAll={isAdminOrSGAForClosedLost ? undefined : handleToggleShowAllClosedLost}
-          />
-        </>
+        <ClosedLostFollowUpTabs />
       )}
       
       {activeTab === 'quarterly-progress' && (
