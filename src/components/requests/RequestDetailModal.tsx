@@ -32,6 +32,7 @@ import {
 } from '@/types/dashboard-request';
 import { CommentThread } from './CommentThread';
 import { EditHistoryTimeline } from './EditHistoryTimeline';
+import { formatRequestTimestamp, formatFileSize } from './request-formatters';
 
 interface RequestDetailModalProps {
   requestId: string;
@@ -44,6 +45,285 @@ interface RequestDetailModalProps {
 type TabId = 'details' | 'comments' | 'history';
 
 const selectStyles = "px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white";
+
+// --- Private subcomponents (same file, unexported) ---
+
+interface AdminControlsProps {
+  request: DashboardRequestFull;
+  isUpdating: boolean;
+  onStatusChange: (status: RequestStatus) => void;
+  onPriorityChange: (priority: RequestPriority | '') => void;
+  onPrivacyToggle: () => void;
+}
+
+function AdminControls({
+  request,
+  isUpdating,
+  onStatusChange,
+  onPriorityChange,
+  onPrivacyToggle,
+}: AdminControlsProps) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+      {/* Status */}
+      <div className="flex items-center gap-2">
+        <label className="text-sm text-gray-600 dark:text-gray-400">Status:</label>
+        <select
+          value={request.status}
+          onChange={(e) => onStatusChange(e.target.value as RequestStatus)}
+          disabled={isUpdating}
+          className={selectStyles}
+        >
+          {Object.values(RequestStatus).map((status) => (
+            <option key={status} value={status}>
+              {STATUS_LABELS[status]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Priority */}
+      <div className="flex items-center gap-2">
+        <label className="text-sm text-gray-600 dark:text-gray-400">Priority:</label>
+        <select
+          value={request.priority || ''}
+          onChange={(e) => onPriorityChange(e.target.value as RequestPriority | '')}
+          disabled={isUpdating}
+          className={selectStyles}
+        >
+          <option value="">None</option>
+          {Object.values(RequestPriority).map((priority) => (
+            <option key={priority} value={priority}>
+              {PRIORITY_LABELS[priority]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Privacy Toggle */}
+      <button
+        onClick={onPrivacyToggle}
+        disabled={isUpdating}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+      >
+        {request.isPrivate ? (
+          <>
+            <Unlock className="w-4 h-4" />
+            Make Public
+          </>
+        ) : (
+          <>
+            <Lock className="w-4 h-4" />
+            Make Private
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
+
+function DataErrorFields({ request }: { request: DashboardRequestFull }) {
+  return (
+    <div className="space-y-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+      {request.filtersApplied && (
+        <div>
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
+            Filters Applied
+          </h5>
+          <p className="text-sm text-gray-900 dark:text-white">
+            {request.filtersApplied}
+          </p>
+        </div>
+      )}
+      {request.valueSeen && (
+        <div>
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
+            Value Seen (Incorrect)
+          </h5>
+          <p className="text-sm text-gray-900 dark:text-white">
+            {request.valueSeen}
+          </p>
+        </div>
+      )}
+      {request.valueExpected && (
+        <div>
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
+            Value Expected (Correct)
+          </h5>
+          <p className="text-sm text-gray-900 dark:text-white">
+            {request.valueExpected}
+          </p>
+        </div>
+      )}
+      {request.errorOccurredAt && (
+        <div>
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
+            When Noticed
+          </h5>
+          <p className="text-sm text-gray-900 dark:text-white">
+            {formatRequestTimestamp(request.errorOccurredAt)}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface AttachmentListProps {
+  attachments: DashboardRequestFull['attachments'];
+  requestId: string;
+}
+
+function AttachmentList({ attachments, requestId }: AttachmentListProps) {
+  return (
+    <div>
+      <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+        <Paperclip className="w-4 h-4" />
+        Attachments ({attachments.length})
+      </h4>
+      <div className="space-y-2">
+        {attachments.map((attachment) => {
+          const isImage = attachment.mimeType.startsWith('image/');
+          const attachmentUrl = dashboardRequestsApi.getAttachmentUrl(requestId, attachment.id);
+
+          return (
+            <div
+              key={attachment.id}
+              className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
+            >
+              {isImage ? (
+                <ImageIcon className="w-5 h-5 text-blue-500 flex-shrink-0" />
+              ) : (
+                <FileText className="w-5 h-5 text-gray-500 flex-shrink-0" />
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                  {attachment.filename}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {formatFileSize(attachment.size)} - Uploaded by {attachment.uploadedBy.name}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {isImage && (
+                  <a
+                    href={attachmentUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                    title="View image"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                )}
+                <a
+                  href={attachmentUrl}
+                  download={attachment.filename}
+                  className="p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                  title="Download"
+                >
+                  <Download className="w-4 h-4" />
+                </a>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+interface FooterActionsProps {
+  request: DashboardRequestFull;
+  canManageRequests: boolean;
+  showDeleteConfirm: boolean;
+  isUpdating: boolean;
+  onDelete: () => void;
+  onArchiveToggle: () => void;
+  onClose: () => void;
+  onShowDeleteConfirm: () => void;
+  onCancelDeleteConfirm: () => void;
+}
+
+function FooterActions({
+  request,
+  canManageRequests,
+  showDeleteConfirm,
+  isUpdating,
+  onDelete,
+  onArchiveToggle,
+  onClose,
+  onShowDeleteConfirm,
+  onCancelDeleteConfirm,
+}: FooterActionsProps) {
+  return (
+    <div className="flex items-center justify-between p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+      <div className="flex items-center gap-2">
+        {/* Delete Button */}
+        {(canManageRequests || request.status === 'SUBMITTED') && (
+          <>
+            {showDeleteConfirm ? (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-red-600 dark:text-red-400">Delete this request?</span>
+                <button
+                  onClick={onDelete}
+                  disabled={isUpdating}
+                  className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+                >
+                  Yes, Delete
+                </button>
+                <button
+                  onClick={onCancelDeleteConfirm}
+                  className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={onShowDeleteConfirm}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete
+              </button>
+            )}
+          </>
+        )}
+
+        {/* Archive Button (Admin only) */}
+        {canManageRequests && !showDeleteConfirm && (
+          <button
+            onClick={onArchiveToggle}
+            disabled={isUpdating}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
+          >
+            {request.status === RequestStatus.ARCHIVED ? (
+              <>
+                <ArchiveRestore className="w-4 h-4" />
+                Unarchive
+              </>
+            ) : (
+              <>
+                <Archive className="w-4 h-4" />
+                Archive
+              </>
+            )}
+          </button>
+        )}
+      </div>
+
+      <button
+        onClick={onClose}
+        className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+      >
+        Close
+      </button>
+    </div>
+  );
+}
+
+// --- Main component ---
 
 export function RequestDetailModal({
   requestId,
@@ -175,16 +455,6 @@ export function RequestDetailModal({
     onUpdated();
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-  };
-
   if (!isOpen) return null;
 
   return (
@@ -243,61 +513,13 @@ export function RequestDetailModal({
 
               {/* Admin Controls */}
               {canManageRequests && (
-                <div className="flex flex-wrap items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                  {/* Status */}
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm text-gray-600 dark:text-gray-400">Status:</label>
-                    <select
-                      value={request.status}
-                      onChange={(e) => handleStatusChange(e.target.value as RequestStatus)}
-                      disabled={isUpdating}
-                      className={selectStyles}
-                    >
-                      {Object.values(RequestStatus).map((status) => (
-                        <option key={status} value={status}>
-                          {STATUS_LABELS[status]}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Priority */}
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm text-gray-600 dark:text-gray-400">Priority:</label>
-                    <select
-                      value={request.priority || ''}
-                      onChange={(e) => handlePriorityChange(e.target.value as RequestPriority | '')}
-                      disabled={isUpdating}
-                      className={selectStyles}
-                    >
-                      <option value="">None</option>
-                      {Object.values(RequestPriority).map((priority) => (
-                        <option key={priority} value={priority}>
-                          {PRIORITY_LABELS[priority]}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Privacy Toggle */}
-                  <button
-                    onClick={handlePrivacyToggle}
-                    disabled={isUpdating}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
-                  >
-                    {request.isPrivate ? (
-                      <>
-                        <Unlock className="w-4 h-4" />
-                        Make Public
-                      </>
-                    ) : (
-                      <>
-                        <Lock className="w-4 h-4" />
-                        Make Private
-                      </>
-                    )}
-                  </button>
-                </div>
+                <AdminControls
+                  request={request}
+                  isUpdating={isUpdating}
+                  onStatusChange={handleStatusChange}
+                  onPriorityChange={handlePriorityChange}
+                  onPrivacyToggle={handlePrivacyToggle}
+                />
               )}
 
               {/* Status and Priority Display (non-admin) */}
@@ -333,7 +555,7 @@ export function RequestDetailModal({
                 <div>
                   <span className="text-gray-500 dark:text-gray-400">Created:</span>
                   <p className="font-medium text-gray-900 dark:text-white">
-                    {formatDate(request.createdAt)}
+                    {formatRequestTimestamp(request.createdAt)}
                   </p>
                 </div>
                 {request.affectedPage && (
@@ -406,111 +628,15 @@ export function RequestDetailModal({
 
                     {/* Data Error Fields */}
                     {request.requestType === 'DATA_ERROR' && (
-                      <div className="space-y-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                        {request.filtersApplied && (
-                          <div>
-                            <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
-                              Filters Applied
-                            </h5>
-                            <p className="text-sm text-gray-900 dark:text-white">
-                              {request.filtersApplied}
-                            </p>
-                          </div>
-                        )}
-                        {request.valueSeen && (
-                          <div>
-                            <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
-                              Value Seen (Incorrect)
-                            </h5>
-                            <p className="text-sm text-gray-900 dark:text-white">
-                              {request.valueSeen}
-                            </p>
-                          </div>
-                        )}
-                        {request.valueExpected && (
-                          <div>
-                            <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
-                              Value Expected (Correct)
-                            </h5>
-                            <p className="text-sm text-gray-900 dark:text-white">
-                              {request.valueExpected}
-                            </p>
-                          </div>
-                        )}
-                        {request.errorOccurredAt && (
-                          <div>
-                            <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
-                              When Noticed
-                            </h5>
-                            <p className="text-sm text-gray-900 dark:text-white">
-                              {formatDate(request.errorOccurredAt)}
-                            </p>
-                          </div>
-                        )}
-                      </div>
+                      <DataErrorFields request={request} />
                     )}
 
                     {/* Attachments */}
                     {request.attachments && request.attachments.length > 0 && (
-                      <div>
-                        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                          <Paperclip className="w-4 h-4" />
-                          Attachments ({request.attachments.length})
-                        </h4>
-                        <div className="space-y-2">
-                          {request.attachments.map((attachment) => {
-                            const isImage = attachment.mimeType.startsWith('image/');
-                            const attachmentUrl = dashboardRequestsApi.getAttachmentUrl(request.id, attachment.id);
-                            const formatFileSize = (bytes: number) => {
-                              if (bytes < 1024) return `${bytes} B`;
-                              if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-                              return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-                            };
-
-                            return (
-                              <div
-                                key={attachment.id}
-                                className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
-                              >
-                                {isImage ? (
-                                  <ImageIcon className="w-5 h-5 text-blue-500 flex-shrink-0" />
-                                ) : (
-                                  <FileText className="w-5 h-5 text-gray-500 flex-shrink-0" />
-                                )}
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                    {attachment.filename}
-                                  </p>
-                                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                                    {formatFileSize(attachment.size)} - Uploaded by {attachment.uploadedBy.name}
-                                  </p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  {isImage && (
-                                    <a
-                                      href={attachmentUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                                      title="View image"
-                                    >
-                                      <ExternalLink className="w-4 h-4" />
-                                    </a>
-                                  )}
-                                  <a
-                                    href={attachmentUrl}
-                                    download={attachment.filename}
-                                    className="p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                                    title="Download"
-                                  >
-                                    <Download className="w-4 h-4" />
-                                  </a>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
+                      <AttachmentList
+                        attachments={request.attachments}
+                        requestId={request.id}
+                      />
                     )}
                   </div>
                 )}
@@ -536,69 +662,17 @@ export function RequestDetailModal({
 
         {/* Footer */}
         {request && (
-          <div className="flex items-center justify-between p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-            <div className="flex items-center gap-2">
-              {/* Delete Button */}
-              {(canManageRequests || request.status === 'SUBMITTED') && (
-                <>
-                  {showDeleteConfirm ? (
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-red-600 dark:text-red-400">Delete this request?</span>
-                      <button
-                        onClick={handleDelete}
-                        disabled={isUpdating}
-                        className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
-                      >
-                        Yes, Delete
-                      </button>
-                      <button
-                        onClick={() => setShowDeleteConfirm(false)}
-                        className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setShowDeleteConfirm(true)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Delete
-                    </button>
-                  )}
-                </>
-              )}
-
-              {/* Archive Button (Admin only) */}
-              {canManageRequests && !showDeleteConfirm && (
-                <button
-                  onClick={handleArchiveToggle}
-                  disabled={isUpdating}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {request.status === RequestStatus.ARCHIVED ? (
-                    <>
-                      <ArchiveRestore className="w-4 h-4" />
-                      Unarchive
-                    </>
-                  ) : (
-                    <>
-                      <Archive className="w-4 h-4" />
-                      Archive
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
-
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-            >
-              Close
-            </button>
-          </div>
+          <FooterActions
+            request={request}
+            canManageRequests={canManageRequests}
+            showDeleteConfirm={showDeleteConfirm}
+            isUpdating={isUpdating}
+            onDelete={handleDelete}
+            onArchiveToggle={handleArchiveToggle}
+            onClose={onClose}
+            onShowDeleteConfirm={() => setShowDeleteConfirm(true)}
+            onCancelDeleteConfirm={() => setShowDeleteConfirm(false)}
+          />
         )}
       </div>
     </div>

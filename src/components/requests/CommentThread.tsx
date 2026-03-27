@@ -6,6 +6,7 @@ import { RequestCommentWithAuthor } from '@/types/dashboard-request';
 import { dashboardRequestsApi } from '@/lib/api-client';
 import { MentionPicker, TaggableUser } from './MentionPicker';
 import { MentionText } from './MentionText';
+import { formatRequestTimestamp } from './request-formatters';
 
 interface CommentThreadProps {
   requestId: string;
@@ -135,16 +136,6 @@ export function CommentThread({ requestId, comments, onCommentAdded }: CommentTh
     setMentionQuery('');
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-  };
 
   return (
     <div className="space-y-4">
@@ -165,7 +156,7 @@ export function CommentThread({ requestId, comments, onCommentAdded }: CommentTh
                   {comment.author.name}
                 </span>
                 <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {formatDate(comment.createdAt)}
+                  {formatRequestTimestamp(comment.createdAt)}
                 </span>
               </div>
               <p className="text-sm text-gray-700 dark:text-gray-300">

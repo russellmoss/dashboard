@@ -3,6 +3,7 @@
 import { Clock, ArrowRight, MessageSquare } from 'lucide-react';
 import { EditHistoryEntry, RequestCommentWithAuthor } from '@/types/dashboard-request';
 import { MentionText } from './MentionText';
+import { formatRequestTimestamp } from './request-formatters';
 
 interface EditHistoryTimelineProps {
   history: EditHistoryEntry[];
@@ -67,16 +68,6 @@ function formatValue(fieldName: string, value: string | null): string {
   return value;
 }
 
-function formatDate(dateString: string): string {
-  const date = new Date(dateString);
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-}
 
 export function EditHistoryTimeline({ history, comments }: EditHistoryTimelineProps) {
   // Merge history and comments into a unified timeline
@@ -146,7 +137,7 @@ function EditEntryContent({ entry }: { entry: EditHistoryEntry }) {
           {entry.editedBy.name}
         </span>
         <span className="text-xs text-gray-500 dark:text-gray-400">
-          {formatDate(entry.createdAt)}
+          {formatRequestTimestamp(entry.createdAt)}
         </span>
       </div>
 
@@ -183,7 +174,7 @@ function CommentEntryContent({ comment }: { comment: RequestCommentWithAuthor })
           {comment.author.name}
         </span>
         <span className="text-xs text-gray-500 dark:text-gray-400">
-          {formatDate(comment.createdAt)}
+          {formatRequestTimestamp(comment.createdAt)}
         </span>
       </div>
 
