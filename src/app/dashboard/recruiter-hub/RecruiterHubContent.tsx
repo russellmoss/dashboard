@@ -3,88 +3,25 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { Title, Text, Card } from '@tremor/react';
-import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Search, ExternalLink, Download, Filter, Check, ArrowUp, ArrowDown } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Search, ExternalLink, Download, Filter, Check } from 'lucide-react';
 import { RecordDetailModal } from '@/components/dashboard/RecordDetailModal';
 import type { UserPermissions } from '@/types/user';
-
-interface ProspectRecord {
-  primary_key: string;
-  advisor_name: string;
-  External_Agency__c: string;
-  SGA_Owner_Name__c: string | null;
-  Next_Steps__c: string | null;
-  TOF_Stage: string;
-  Conversion_Status: string;
-  salesforce_url: string | null;
-  Full_Opportunity_ID__c: string | null;
-}
-
-interface OpportunityRecord {
-  primary_key: string;
-  advisor_name: string;
-  External_Agency__c: string;
-  SGM_Owner_Name__c: string | null;
-  StageName: string;
-  NextStep: string | null;
-  salesforce_url: string | null;
-}
-
-interface ProspectFilters {
-  stages: string[];
-  statusOpen: boolean;
-  statusClosed: boolean;
-  externalAgencies: string[];
-}
-
-interface OpportunityFilters {
-  stages: string[];
-  sgms: string[];
-  statusOpen: boolean;
-  statusClosed: boolean;
-  externalAgencies: string[];
-}
-
-const ROWS_PER_PAGE = 150;
-
-const PROSPECT_STAGES = ['MQL', 'SQL', 'SQO', 'Qualified', 'Closed Lost'];
-
-// Open stages for Recruiter Hub opportunities (match pipeline “Open”)
-const OPEN_OPPORTUNITY_STAGES_RH = [
-  'Qualifying',
-  'Discovery',
-  'Sales Process',
-  'Negotiating',
-  'Signed',
-  'On Hold',
-  'Re-Engaged',
-  'Planned Nurture',
-];
-const CLOSED_OPPORTUNITY_STAGES_RH = ['Joined', 'Closed Lost'];
-const ALL_OPPORTUNITY_STAGES_RH = [
-  { value: 'Qualifying', label: 'Qualifying', isOpenStage: true },
-  { value: 'Discovery', label: 'Discovery', isOpenStage: true },
-  { value: 'Sales Process', label: 'Sales Process', isOpenStage: true },
-  { value: 'Negotiating', label: 'Negotiating', isOpenStage: true },
-  { value: 'Signed', label: 'Signed', isOpenStage: true },
-  { value: 'On Hold', label: 'On Hold', isOpenStage: true },
-  { value: 'Re-Engaged', label: 'Re-Engaged', isOpenStage: true },
-  { value: 'Planned Nurture', label: 'Planned Nurture', isOpenStage: true },
-  { value: 'Joined', label: 'Joined', isOpenStage: false },
-  { value: 'Closed Lost', label: 'Closed Lost', isOpenStage: false },
-];
-
-const OPPORTUNITY_STAGE_COLORS: Record<string, string> = {
-  Qualifying: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
-  Discovery: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400',
-  'Sales Process': 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
-  Negotiating: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
-  Signed: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400',
-  'On Hold': 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300',
-  'Re-Engaged': 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
-  'Planned Nurture': 'bg-lime-100 text-lime-800 dark:bg-lime-900/30 dark:text-lime-400',
-  Joined: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
-  'Closed Lost': 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
-};
+import {
+  type ProspectRecord,
+  type OpportunityRecord,
+  type ProspectFilters,
+  type OpportunityFilters,
+  type SortDir,
+  ROWS_PER_PAGE,
+  PROSPECT_STAGES,
+  OPEN_OPPORTUNITY_STAGES_RH,
+  CLOSED_OPPORTUNITY_STAGES_RH,
+  ALL_OPPORTUNITY_STAGES_RH,
+  OPPORTUNITY_STAGE_COLORS,
+  PROSPECT_STAGE_COLORS,
+} from './recruiter-hub-types';
+import { getProspectStageLabel, escapeCsvCell } from './recruiter-hub-utils';
+import { SortableTh } from './SortableTh';
 
 export function RecruiterHubContent() {
   const { data: session } = useSession();
@@ -138,7 +75,6 @@ export function RecruiterHubContent() {
   const [prospectsPage, setProspectsPage] = useState(1);
   const [opportunitiesPage, setOpportunitiesPage] = useState(1);
 
-  type SortDir = 'asc' | 'desc';
   const [prospectSortKey, setProspectSortKey] = useState<string | null>('advisor_name');
   const [prospectSortDir, setProspectSortDir] = useState<SortDir>('asc');
   const [opportunitySortKey, setOpportunitySortKey] = useState<string | null>('advisor_name');
@@ -240,14 +176,6 @@ export function RecruiterHubContent() {
       o.SGM_Owner_Name__c?.toLowerCase().includes(opportunitySearch.toLowerCase())
   );
 
-  function getProspectStageLabel(p: ProspectRecord): string {
-    return p.Conversion_Status === 'Closed'
-      ? 'Closed Lost'
-      : p.Full_Opportunity_ID__c
-        ? 'Qualified'
-        : p.TOF_Stage;
-  }
-
   const sortedProspects = (() => {
     const key = prospectSortKey ?? 'advisor_name';
     const dir = prospectSortDir;
@@ -299,14 +227,6 @@ export function RecruiterHubContent() {
   useEffect(() => {
     setOpportunitiesPage(1);
   }, [opportunitySearch, opportunityFiltersApplied, opportunitySortKey, opportunitySortDir]);
-
-  function escapeCsvCell(value: string | null | undefined): string {
-    const s = String(value ?? '');
-    if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
-      return `"${s.replace(/"/g, '""')}"`;
-    }
-    return s;
-  }
 
   function exportProspectsCsv() {
     const headers = ['Advisor', 'External Agency', 'SGA', 'Stage', 'Next Steps', 'Salesforce URL'];
@@ -365,40 +285,6 @@ export function RecruiterHubContent() {
       setOpportunitySortDir('asc');
     }
   }
-
-  const SortableTh = ({
-    label,
-    sortKey,
-    currentKey,
-    currentDir,
-    onSort,
-  }: {
-    label: string;
-    sortKey: string;
-    currentKey: string | null;
-    currentDir: SortDir;
-    onSort: (key: string) => void;
-  }) => (
-    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-      <button
-        type="button"
-        onClick={() => onSort(sortKey)}
-        className="flex items-center gap-1.5 hover:text-gray-700 dark:hover:text-gray-300 group w-full"
-      >
-        <span>{label}</span>
-        <span className="flex flex-col opacity-60 group-hover:opacity-100">
-          <ArrowUp
-            className={`w-3.5 h-3.5 -mb-0.5 ${currentKey === sortKey && currentDir === 'asc' ? 'text-blue-600 dark:text-blue-400 opacity-100' : ''}`}
-            aria-hidden
-          />
-          <ArrowDown
-            className={`w-3.5 h-3.5 ${currentKey === sortKey && currentDir === 'desc' ? 'text-blue-600 dark:text-blue-400 opacity-100' : ''}`}
-            aria-hidden
-          />
-        </span>
-      </button>
-    </th>
-  );
 
   const EmptyState = ({ agencyName }: { agencyName?: string }) => (
     <div className="text-center py-12">
@@ -628,25 +514,8 @@ export function RecruiterHubContent() {
                 </thead>
                 <tbody>
                   {paginatedProspects.map((prospect) => {
-                    const stageLabel =
-                      prospect.Conversion_Status === 'Closed'
-                        ? 'Closed Lost'
-                        : prospect.Full_Opportunity_ID__c
-                          ? 'Qualified'
-                          : prospect.TOF_Stage;
-
-                    const stageClasses =
-                      stageLabel === 'MQL'
-                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
-                        : stageLabel === 'SQL'
-                          ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400'
-                          : stageLabel === 'SQO'
-                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
-                            : stageLabel === 'Qualified'
-                              ? 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400'
-                              : stageLabel === 'Closed Lost'
-                                ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-                                : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
+                    const stageLabel = getProspectStageLabel(prospect);
+                    const stageClasses = PROSPECT_STAGE_COLORS[stageLabel] ?? 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
 
                     return (
                       <tr

@@ -614,16 +614,21 @@ Aggregate metrics by channel or source with columns:
 
 Shows individual records with:
 - Pagination (50 records per page)
-- Multi-column sorting
-- Search across: Advisor, SGA, SGM, Source, Channel
+- Multi-column sorting (by first name for advisor/SGA/SGM columns)
+- Fuzzy search across: Advisor, SGA, SGM, Source, Channel
+- Stage filter dropdown (funnel stages + opportunity stages)
+- Dynamic date column based on selected stage filter
 - Metric filter (click scorecard to filter)
 - Row click opens Record Detail Modal
 
 **Query Limit**: 50,000 records (increased from 500).
 
-**Location**: `src/lib/queries/detail-records.ts`
-- Uses `LIMIT 50000` in SQL query
-- Frontend pagination shows 50 records per page
+**Location**:
+- Query: `src/lib/queries/detail-records.ts` — uses `LIMIT 50000` in SQL query
+- Component: `src/components/dashboard/DetailRecordsTable.tsx` — table rendering, sorting, search, pagination
+- Helpers: `src/components/dashboard/detail-records-table-utils.ts` — `fuzzyMatch()` (multi-strategy search), `getFirstName()` (name sorting)
+
+**Consumers**: Main dashboard (`page.tsx` via `next/dynamic`), `VolumeDrillDownModal`, `ExploreResults`
 
 ### Global Filters
 
@@ -1469,6 +1474,16 @@ Recruiter Hub (Page 12) gives recruiters and managers a view of prospect and opp
 | Auto-filter | `recruiterFilter` applied automatically for recruiter role |
 | External agencies | Recruiter role → own agency only; others → full list |
 | SGM filter | Available in opportunities view |
+
+### File Structure
+
+| File | Purpose |
+|------|---------|
+| `src/app/dashboard/recruiter-hub/page.tsx` | Server component — auth guard, permission check, renders `RecruiterHubContent` |
+| `src/app/dashboard/recruiter-hub/RecruiterHubContent.tsx` | Main `'use client'` component — two data tables (prospects + opportunities), filter panels, search, pagination, CSV export |
+| `src/app/dashboard/recruiter-hub/recruiter-hub-types.ts` | TypeScript interfaces (`ProspectRecord`, `OpportunityRecord`, filter types), stage constants, stage color maps |
+| `src/app/dashboard/recruiter-hub/recruiter-hub-utils.ts` | Pure helpers — `getProspectStageLabel()`, `escapeCsvCell()` |
+| `src/app/dashboard/recruiter-hub/SortableTh.tsx` | Reusable sortable table header component with ascending/descending indicators |
 
 ### Access Control
 

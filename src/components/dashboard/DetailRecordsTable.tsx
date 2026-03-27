@@ -8,6 +8,7 @@ import { ExternalLink, Search, X, ChevronLeft, ChevronRight, ChevronUp, ChevronD
 import { ExportButton } from '@/components/ui/ExportButton';
 import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import { formatDate } from '@/lib/utils/format-helpers';
+import { fuzzyMatch, getFirstName } from './detail-records-table-utils';
 
 type SortColumn = 'advisor' | 'source' | 'channel' | 'stage' | 'date' | 'sga' | 'sgm' | 'aum' | 'campaign' | 'tier' | null;
 type SortDirection = 'asc' | 'desc';
@@ -26,129 +27,6 @@ interface DetailRecordsTableProps {
   stageFilter?: string;
   onStageFilterChange?: (stage: string) => void;
   availableOpportunityStages?: string[];
-}
-
-/**
- * Fuzzy matching function for advisor names
- * Matches if:
- * - The query appears anywhere in the name (case-insensitive)
- * - Any word in the name starts with the query
- * - The name contains all characters of the query in order (fuzzy)
- */
-function fuzzyMatch(query: string, text: string): boolean {
-  if (!query.trim()) return true;
-  
-  const normalizedQuery = query.toLowerCase().trim();
-  const normalizedText = text.toLowerCase().trim();
-  
-  // Exact substring match
-  if (normalizedText.includes(normalizedQuery)) {
-    return true;
-  }
-  
-  // Word boundary match - check if any word starts with the query
-  const words = normalizedText.split(/\s+/);
-  if (words.some(word => word.startsWith(normalizedQuery))) {
-    return true;
-  }
-  
-  // Fuzzy match: check if all characters of query appear in order in the text
-  let queryIndex = 0;
-  for (let i = 0; i < normalizedText.length && queryIndex < normalizedQuery.length; i++) {
-    if (normalizedText[i] === normalizedQuery[queryIndex]) {
-      queryIndex++;
-    }
-  }
-  
-  // If we matched all characters, it's a fuzzy match
-  if (queryIndex === normalizedQuery.length) {
-    return true;
-  }
-  
-  // Check if query words appear in any order in the text
-  const queryWords = normalizedQuery.split(/\s+/).filter(w => w.length > 0);
-  if (queryWords.length > 1) {
-    return queryWords.every(word => 
-      normalizedText.includes(word) || 
-      words.some(w => w.startsWith(word))
-    );
-  }
-  
-  return false;
-}
-
-/**
- * Extract first name from full name for sorting purposes
- * 
- * @param fullName - Full name string (e.g., "John Doe" or "John Michael Doe")
- * @returns First name portion of the full name
- */
-function getFirstName(fullName: string): string {
-  const parts = fullName.trim().split(/\s+/);
-  return parts[0] || fullName;
-}
-
-/**
- * Sort records based on column and direction
- * 
- * @param records - Array of detail records to sort
- * @param sortColumn - Column to sort by (null for no sorting)
- * @param sortDirection - Sort direction ('asc' | 'desc')
- * @returns Sorted array of records
- */
-function sortRecords(records: DetailRecord[], sortColumn: SortColumn, sortDirection: SortDirection): DetailRecord[] {
-  if (!sortColumn) return records;
-  
-  return [...records].sort((a, b) => {
-    let comparison = 0;
-    
-    switch (sortColumn) {
-      case 'advisor':
-        const aFirstName = getFirstName(a.advisorName).toLowerCase();
-        const bFirstName = getFirstName(b.advisorName).toLowerCase();
-        comparison = aFirstName.localeCompare(bFirstName);
-        break;
-      case 'source':
-        comparison = (a.source || '').toLowerCase().localeCompare((b.source || '').toLowerCase());
-        break;
-      case 'channel':
-        comparison = (a.channel || '').toLowerCase().localeCompare((b.channel || '').toLowerCase());
-        break;
-      case 'campaign':
-        comparison = (a.campaignName || '').toLowerCase().localeCompare((b.campaignName || '').toLowerCase());
-        break;
-      case 'tier':
-        comparison = (a.leadScoreTier || '').toLowerCase().localeCompare((b.leadScoreTier || '').toLowerCase());
-        break;
-      case 'stage':
-        comparison = (a.stage || '').toLowerCase().localeCompare((b.stage || '').toLowerCase());
-        break;
-      case 'date':
-        // Note: This standalone function uses relevantDate for backward compatibility
-        // The actual sorting in the component uses getDisplayDate via inline logic
-        const aDate = a.relevantDate ? new Date(a.relevantDate).getTime() : 0;
-        const bDate = b.relevantDate ? new Date(b.relevantDate).getTime() : 0;
-        comparison = aDate - bDate;
-        break;
-      case 'sga':
-        const aSga = (a.sga || '').toLowerCase();
-        const bSga = (b.sga || '').toLowerCase();
-        // Extract first name for SGA sorting
-        comparison = getFirstName(aSga).localeCompare(getFirstName(bSga));
-        break;
-      case 'sgm':
-        const aSgm = (a.sgm || '').toLowerCase();
-        const bSgm = (b.sgm || '').toLowerCase();
-        // Extract first name for SGM sorting
-        comparison = getFirstName(aSgm).localeCompare(getFirstName(bSgm));
-        break;
-      case 'aum':
-        comparison = (a.aum || 0) - (b.aum || 0);
-        break;
-    }
-    
-    return sortDirection === 'asc' ? comparison : -comparison;
-  });
 }
 
 export function DetailRecordsTable({ records, title = 'Detail Records', filterDescription, canExport = false, viewMode = 'focused', advancedFilters, metricFilter = 'all', onRecordClick, stageFilter = 'sqo', onStageFilterChange, availableOpportunityStages = [] }: DetailRecordsTableProps) {
