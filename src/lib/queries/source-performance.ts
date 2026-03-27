@@ -419,8 +419,8 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
   `;
   
   const results = await runQuery<RawSourcePerformanceResult>(query, params);
-  
-  return results.map(r => ({
+
+  const rows = results.map(r => ({
     source: toString(r.source),
     channel: toString(r.channel),
     prospects: toNumber(r.prospects),
@@ -435,7 +435,56 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
     sqoToJoinedRate: toNumber(r.sqo_to_joined_rate),
     aum: toNumber(r.aum),
   }));
+
+  // Consolidate duplicate source rows caused by records having different Channel_Grouping_Name
+  // values for the same Original_source. Pick the primary channel (most SQLs, then prospects),
+  // sum count metrics, and keep the primary row's cohort-based rates.
+  return consolidateSourceRows(rows);
 };
+
+function consolidateSourceRows(rows: SourcePerformance[]): SourcePerformance[] {
+  const sourceMap = new Map<string, SourcePerformance[]>();
+  for (const row of rows) {
+    const existing = sourceMap.get(row.source);
+    if (existing) {
+      existing.push(row);
+    } else {
+      sourceMap.set(row.source, [row]);
+    }
+  }
+
+  const consolidated: SourcePerformance[] = [];
+  for (const group of sourceMap.values()) {
+    if (group.length === 1) {
+      consolidated.push(group[0]);
+      continue;
+    }
+
+    // Primary row = highest SQLs, then highest prospects
+    group.sort((a, b) => b.sqls - a.sqls || b.prospects - a.prospects);
+    const primary = group[0];
+
+    consolidated.push({
+      source: primary.source,
+      channel: primary.channel,
+      prospects: group.reduce((sum, r) => sum + r.prospects, 0),
+      contacted: group.reduce((sum, r) => sum + r.contacted, 0),
+      mqls: group.reduce((sum, r) => sum + r.mqls, 0),
+      sqls: group.reduce((sum, r) => sum + r.sqls, 0),
+      sqos: group.reduce((sum, r) => sum + r.sqos, 0),
+      joined: group.reduce((sum, r) => sum + r.joined, 0),
+      aum: group.reduce((sum, r) => sum + r.aum, 0),
+      // Rates from the primary row — secondary rows have near-zero counts
+      // so their cohort-based rates are not meaningful
+      contactedToMqlRate: primary.contactedToMqlRate,
+      mqlToSqlRate: primary.mqlToSqlRate,
+      sqlToSqoRate: primary.sqlToSqoRate,
+      sqoToJoinedRate: primary.sqoToJoinedRate,
+    });
+  }
+
+  return consolidated;
+}
 
 export const getChannelPerformance = cachedQuery(
   _getChannelPerformance,

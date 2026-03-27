@@ -451,13 +451,16 @@ Visible only to admin users in the detailed variant. Calls cache refresh endpoin
 
 ### Role Hierarchy
 
-| Role | Description | Data Access |
-|------|-------------|-------------|
-| `admin` | Full system access | All data, all pages, user management |
-| `manager` | Team oversight | All data, most pages, no user management |
-| `sgm` | Sales Growth Manager | Filtered to their team's data |
-| `sga` | Sales Growth Advisor | Filtered to their own data only |
-| `viewer` | Read-only access | Limited pages, no export |
+| Role | Description | Data Access | Default Login Page |
+|------|-------------|-------------|-------------------|
+| `revops_admin` | RevOps leadership | All data, all pages, user management, scenarios, forecast | Funnel Performance |
+| `admin` | Full system access | All data, most pages, user management | Funnel Performance |
+| `manager` | Team oversight | All data, most pages, no user management | Funnel Performance |
+| `sgm` | Sales Growth Manager | Filtered to their team's data | SGM Hub |
+| `sga` | Sales Growth Advisor | Filtered to their own data only | SGA Hub |
+| `viewer` | Read-only access | Limited pages, no export | Funnel Performance |
+| `recruiter` | External recruiter | Filtered to their agency | Recruiter Hub |
+| `capital_partner` | Capital partner | Filtered to their firm | Funnel Performance |
 
 ### Permission Properties
 
@@ -465,35 +468,45 @@ Visible only to admin users in the detailed variant. Calls cache refresh endpoin
 
 ```typescript
 interface UserPermissions {
-  role: 'admin' | 'manager' | 'sgm' | 'sga' | 'viewer';
-  allowedPages: number[];      // Page IDs user can access
-  sgaFilter: string | null;    // If SGA, filter to their name
-  sgmFilter: string | null;    // If SGM, filter to their team
-  canExport: boolean;          // Can use export features
-  canManageUsers: boolean;     // Can manage users (admin/manager only)
+  role: UserRole;
+  allowedPages: number[];
+  sgaFilter: string | null;
+  sgmFilter: string | null;
+  recruiterFilter: string | null;
+  capitalPartnerFilter: string | null;
+  canExport: boolean;
+  canManageUsers: boolean;
+  canManageRequests: boolean;
+  canRunScenarios: boolean;
+  userId: string | null;
 }
 ```
 
-**Implementation**: `src/lib/permissions.ts` defines `ROLE_PERMISSIONS` with base permissions, then adds `sgaFilter`/`sgmFilter` based on user's role and name.
+**Implementation**: `src/lib/permissions.ts` defines `ROLE_PERMISSIONS` with base permissions, then adds role-specific filters based on user's role and name/agency.
 
 ### Page Access Control
 
-| Page ID | Page Name | Route | admin | manager | sgm | sga | viewer |
-|---------|-----------|-------|-------|---------|-----|-----|--------|
-| 1 | Funnel Performance | `/dashboard` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 2 | Channel Drilldown | `/dashboard/channels` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 3 | Open Pipeline | `/dashboard/pipeline` | ✅ | ✅ | ✅ | ❌ | ❌ |
-| 4 | Partner Performance | `/dashboard/partners` | ✅ | ✅ | ❌ | ❌ | ❌ |
-| 5 | Experimentation | `/dashboard/experiments` | ✅ | ✅ | ❌ | ❌ | ❌ |
-| 6 | SGA Performance | `/dashboard/sga` | ✅ | ✅ | ✅ | ✅ | ❌ |
-| 7 | Settings | `/dashboard/settings` | ✅ | ✅ | ✅ | ✅ | ❌ |
-| 8 | SGA Hub | `/dashboard/sga-hub` | ✅ | ✅ | ❌ | ✅ | ❌ |
-| 9 | SGA Management | `/dashboard/sga-management` | ✅ | ✅ | ❌ | ❌ | ❌ |
-| 10 | Explore (AI) | `/dashboard/explore` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Page ID | Page Name | Route | revops_admin | admin | manager | sgm | sga | viewer | recruiter | capital_partner |
+|---------|-----------|-------|-------------|-------|---------|-----|-----|--------|-----------|----------------|
+| 1 | Funnel Performance | `/dashboard` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| 3 | Open Pipeline | `/dashboard/pipeline` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| 7 | Settings | `/dashboard/settings` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 8 | SGA Hub | `/dashboard/sga-hub` | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| 9 | SGA Management | `/dashboard/sga-management` | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| 10 | Explore (AI) | `/dashboard/explore` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| 11 | Chart Builder | `/dashboard/chart-builder` | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| 12 | Recruiter Hub | `/dashboard/recruiter-hub` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| 13 | Dashboard Requests | `/dashboard/requests` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| 14 | Settings (Admin) | `/dashboard/settings` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| 15 | Saved Reports | `/dashboard/reports` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| 16 | Capital Partner Hub | `/dashboard/gc-hub` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 17 | Advisor Map | `/dashboard/advisor-map` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| 18 | SGM Hub | `/dashboard/sgm-hub` | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 19 | Pipeline Forecast | `/dashboard/forecast` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
-**Note**: Pages 3, 4, 5 are defined in sidebar but routes may not be fully implemented yet.
+**Note**: Pipeline Forecast (page 19) is restricted to `revops_admin` only. It contains the realization forecast model, what-if scenario tools, and Sheets export with full audit trail.
 
-**Note**: SGAs access SGA Hub (page 8) to view their own performance. SGMs do not need SGA Hub as they manage BoF (SQO→Joined), not ToF activities.
+**Note**: SGAs land on SGA Hub, SGMs land on SGM Hub, Recruiters land on Recruiter Hub after login. All other roles land on Funnel Performance.
 
 ### Automatic Data Filtering
 
@@ -1808,20 +1821,21 @@ Seeded with 48 records (12 SGMs × 4 quarters for 2026) via `scripts/seed-sgm-qu
 The Pipeline Forecast page (`/dashboard/forecast`) provides probability-weighted AUM forecasting with Monte Carlo simulation, a two-component realization forecast model, and what-if scenario planning. It combines live pipeline data with historical conversion rates to project quarterly AUM outcomes.
 
 **Page**: `src/app/dashboard/forecast/page.tsx`
-**Permission**: Page ID 19 (checked via `canAccessPage`)
+**Permission**: Page ID 19 — `revops_admin` only (checked via `canAccessPage`)
 
 ### Data Flow
 
 ```
 Page Load -> Parallel fetch:
   1. GET /api/forecast/rates?windowDays=N     -> Tiered conversion rates (flat + AUM bands)
-  2. GET /api/forecast/pipeline               -> Pipeline records + summary + joined AUM by quarter
+  2. GET /api/forecast/pipeline               -> Pipeline records + summary + joined AUM + surprise baseline
   3. GET /api/forecast/date-revisions         -> Close date revision history
   4. GET /api/forecast/sqo-targets            -> Quarterly AUM targets
 
 Client-side recompute (useMemo):
   Pipeline records x Rates -> adjustedPipeline (duration penalties, tier-adjusted P(Join))
   adjustedPipeline -> adjustedSummary (dynamic quarter rollups)
+  Pipeline -> realizationByQuarter (Component A x band rate + surprise baseline)
 
 Auto-run after load:
   POST /api/forecast/monte-carlo             -> Quarterly probability distributions
@@ -1829,12 +1843,13 @@ Auto-run after load:
 
 ### Pipeline Route
 
-`GET /api/forecast/pipeline` returns three fields:
+`GET /api/forecast/pipeline` returns four fields:
 - **records**: Open pipeline deals with stage, AUM, days in stage, projected dates
 - **summary**: Aggregate counts (total opps, zero-AUM count, anticipated date count, quarters)
 - **joinedByQuarter**: Actual joined AUM and count by quarter (from `getJoinedAumByQuarter`)
+- **surpriseBaseline**: Live-computed trailing 4Q surprise AUM average (from `getSurpriseBaseline` — uses OpportunityFieldHistory PIT reconstruction, 24h cache)
 
-The `joinedByQuarter` data enables gap analysis -- comparing forecasted expected AUM against actual joined AUM per quarter.
+The `joinedByQuarter` data enables gap analysis. The `surpriseBaseline` replaces the hardcoded $398M constant — it's computed from BQ using the same OpportunityFieldHistory methodology as the backtest.
 
 ### Client-Side Adjustments
 
@@ -1868,10 +1883,11 @@ The page recomputes deal-level forecasts client-side using `computeAdjustedDeal(
 
 | Route | Method | Purpose |
 |-------|--------|---------|
-| `/api/forecast/pipeline` | GET | Pipeline records, summary, joined AUM by quarter |
+| `/api/forecast/pipeline` | GET | Pipeline records, summary, joined AUM by quarter, surprise baseline |
 | `/api/forecast/rates` | GET | Tiered conversion rates by time window |
 | `/api/forecast/monte-carlo` | POST | Run Monte Carlo simulation |
-| `/api/forecast/export` | POST | Export to Google Sheets (7 tabs: Forecast P2, Audit Trail, Monte Carlo, Rates and Days, SQO Targets, Realization Forecast, Scenario Runner) |
+| `/api/forecast/export` | POST | Export to Google Sheets (7 styled tabs with full formula traceability) |
+| `/api/forecast/export` | DELETE | Delete an export (removes Google Drive file + DB record) |
 | `/api/forecast/exports` | GET | List past forecast exports |
 | `/api/forecast/date-revisions` | GET | Close date revision counts and confidence |
 | `/api/forecast/scenarios` | GET/POST | Save, list, and share scenarios |
@@ -1882,13 +1898,33 @@ The page recomputes deal-level forecasts client-side using `computeAdjustedDeal(
 | File | Purpose |
 |------|---------|
 | `src/app/dashboard/forecast/page.tsx` | Main forecast page with state management and data orchestration |
-| `src/app/api/forecast/pipeline/route.ts` | Pipeline API route (SGM/SGA filtered) |
-| `src/lib/queries/forecast-pipeline.ts` | `getForecastPipeline` + `getJoinedAumByQuarter` query functions |
+| `src/app/api/forecast/pipeline/route.ts` | Pipeline API route (SGM/SGA filtered, includes surprise baseline) |
+| `src/lib/queries/forecast-pipeline.ts` | `getForecastPipeline`, `getJoinedAumByQuarter`, `getSurpriseBaseline` |
 | `src/lib/queries/forecast-rates.ts` | Tiered conversion rate queries |
 | `src/lib/queries/forecast-monte-carlo.ts` | Monte Carlo simulation logic |
 | `src/lib/forecast-penalties.ts` | `computeAdjustedDeal` -- duration penalties and AUM-tier adjustments |
+| `src/app/api/forecast/export/route.ts` | Sheets export POST (7 tabs, styling, named ranges) + DELETE handler |
 | `src/app/api/forecast/exports/route.ts` | Exports list API route (reads ForecastExport model) |
-| `src/app/dashboard/forecast/components/` | All forecast UI components (incl. RatesSummaryBar, RealizationBanner, WhatIfPanel) |
+| `src/app/dashboard/forecast/components/` | All forecast UI components (see component table above) |
+
+### Google Sheets Export
+
+The export creates a professionally styled 7-tab workbook. Every value traces to source data via formulas.
+
+**Tabs** (in display order):
+1. **BQ Scenario Runner** — editable what-if analysis with VLOOKUP cross-tab traceability
+2. **BQ Rates and Days** — conversion rates + velocity from Audit Trail formulas + 19 named ranges
+3. **BQ Realization Forecast** — two-component model with OFH PIT-reconstructed Component A detail
+4. **BQ Forecast P2** — full pipeline with per-deal probability and tier-adjusted rates
+5. **BQ Monte Carlo** — simulation results (P10/P50/P90/Mean) per quarter + per-deal detail
+6. **BQ SQO Targets** — gap analysis with joined AUM, projected pipeline, entry quarter formulas
+7. **BQ Audit Trail** — raw resolved SQO data (source for all rate formulas)
+
+**Styling**: Dark navy section headers, light gray column headers, alternating row banding on large tables (P2, Audit Trail), conditional formatting (Duration Bucket, Date Confidence, Status), tab colors (blue=leadership, gray=analytical), frozen rows/columns, auto-resized columns.
+
+**Infrastructure**: Per-user Google Drive subfolders, export delete (DB + Drive), Sheet1 auto-deletion, dependency-ordered tab writes then API reorder for display.
+
+**Data sources**: 8 parallel BQ queries including historical joined deals (Q1-Q4 2025) and Component A PIT reconstruction via `OpportunityFieldHistory`.
 
 ---
 

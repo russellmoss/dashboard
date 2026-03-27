@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, Copy, Check, Clock, Database } from 'lucide-react';
+import { generateExecutableSql } from '@/lib/utils/sql-helpers';
 
 interface QueryInspectorProps {
   sql: string;
@@ -15,61 +16,7 @@ export function QueryInspector({ sql, params, executionTimeMs }: QueryInspectorP
   const [copied, setCopied] = useState(false);
   const [showExecutable, setShowExecutable] = useState(true);
 
-  /**
-   * Substitute parameter placeholders with actual values to create executable SQL
-   * Handles date strings, SQL expressions, arrays, and other types correctly
-   */
-  const substituteParameters = (querySql: string, queryParams: Record<string, unknown>): string => {
-    let executableSql = querySql;
-    
-    for (const [key, value] of Object.entries(queryParams)) {
-      // Handle different parameter types
-      let sqlValue: string;
-      
-      if (value === null || value === undefined) {
-        sqlValue = 'NULL';
-      } else if (typeof value === 'string') {
-        // Check if it's already a SQL expression (contains functions like DATE, TIMESTAMP, CONCAT, etc.)
-        // SQL expressions typically contain parentheses or SQL keywords
-        const isSqlExpression = /^\s*(DATE|TIMESTAMP|CONCAT|DATE_TRUNC|DATE_SUB|DATE_ADD|CURRENT_DATE|CURRENT_TIMESTAMP|EXTRACT|CAST|UNNEST)\s*\(/i.test(value.trim()) ||
-                                 value.includes('INTERVAL') ||
-                                 (value.includes('(') && value.includes(')') && !value.match(/^['"]/));
-        
-        if (isSqlExpression) {
-          // It's already a SQL expression, use as-is (no quotes)
-          sqlValue = value;
-        } else {
-          // It's a string literal, wrap in quotes and escape single quotes
-          // Date strings like '2024-10-01' or '2024-10-01 23:59:59' should be quoted
-          sqlValue = `'${String(value).replace(/'/g, "''")}'`;
-        }
-      } else if (typeof value === 'number') {
-        sqlValue = String(value);
-      } else if (typeof value === 'boolean') {
-        sqlValue = value ? 'TRUE' : 'FALSE';
-      } else if (Array.isArray(value)) {
-        // Handle arrays (e.g., for UNNEST)
-        const arrayValues = value.map(v => {
-          if (typeof v === 'string') {
-            return `'${String(v).replace(/'/g, "''")}'`;
-          }
-          return String(v);
-        }).join(', ');
-        sqlValue = `[${arrayValues}]`;
-      } else {
-        sqlValue = String(value);
-      }
-      
-      // Replace @parameterName with the actual value
-      // Use word boundary to avoid partial matches (e.g., @startDate doesn't match @startDateStr)
-      const regex = new RegExp(`@${key}\\b`, 'g');
-      executableSql = executableSql.replace(regex, sqlValue);
-    }
-    
-    return executableSql;
-  };
-
-  const executableSql = substituteParameters(sql, params);
+  const executableSql = generateExecutableSql(sql, params);
 
   const copyToClipboard = async () => {
     const sqlToCopy = showExecutable ? executableSql : sql;

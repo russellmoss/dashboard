@@ -33,12 +33,31 @@ function mergeSourceGoals(
   sources: SourcePerformance[],
   goals: { source: string; channel: string; prospects: number; mqls: number; sqls: number; sqos: number; joined: number }[]
 ): SourcePerformanceWithGoals[] {
-  // Match on both source and channel since a source can appear in multiple channels
-  const goalsMap = new Map(goals.map(g => [`${g.source}::${g.channel}`, g]));
-  
+  // Consolidate goals by source (sum across channels) since performance data
+  // is already consolidated to one row per source with a primary channel
+  const consolidatedGoals = new Map<string, { prospects: number; mqls: number; sqls: number; sqos: number; joined: number }>();
+  for (const g of goals) {
+    const existing = consolidatedGoals.get(g.source);
+    if (existing) {
+      existing.prospects += g.prospects;
+      existing.mqls += g.mqls;
+      existing.sqls += g.sqls;
+      existing.sqos += g.sqos;
+      existing.joined += g.joined;
+    } else {
+      consolidatedGoals.set(g.source, {
+        prospects: g.prospects,
+        mqls: g.mqls,
+        sqls: g.sqls,
+        sqos: g.sqos,
+        joined: g.joined,
+      });
+    }
+  }
+
   return sources.map(source => ({
     ...source,
-    goals: goalsMap.get(`${source.source}::${source.channel}`) || undefined,
+    goals: consolidatedGoals.get(source.source) || undefined,
   }));
 }
 
