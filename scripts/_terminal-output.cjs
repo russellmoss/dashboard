@@ -11,6 +11,7 @@ function getEmoji(filePath) {
   if (filePath.includes('env')) return '🔑';
   if (filePath.includes('ARCHITECTURE')) return '📄';
   if (filePath.includes('README')) return '📖';
+  if (filePath === 'blocked') return '🚫';
   return '📝';
 }
 
@@ -58,4 +59,35 @@ function printPromptFallback(fallbackReason, prompt) {
   stderr('\n\n');
 }
 
-module.exports = { getEmoji, printAutoFixSummary, printProgress, printPromptFallback };
+function printBlockedMessage(matches, reason) {
+  const matchSummary = Object.entries(matches)
+    .map(([cat, files]) => `  ${cat}: ${files.length} file(s)`)
+    .join('\n');
+
+  const isClaudeCode = !!(process.env.CLAUDECODE || process.env.CLAUDE_CODE_ENTRYPOINT);
+
+  let remediation;
+  if (isClaudeCode) {
+    remediation =
+      'CLAUDE: Documentation is stale. You must update docs before committing.\n' +
+      'Run: npx agent-guard sync\n' +
+      'Or manually update the doc files listed above, then retry the commit.';
+  } else {
+    remediation =
+      'Fix: update the documentation files listed above, then commit again.\n' +
+      'To bypass this check: git commit --no-verify';
+  }
+
+  process.stderr.write(
+    `\n${getEmoji('blocked')} agent-guard: commit blocked — documentation is stale\n` +
+    `\nReason: ${reason}\n` +
+    `\nStale categories:\n${matchSummary}\n` +
+    `\n${remediation}\n\n`
+  );
+
+  // Machine-readable line on stdout for Claude Code hook handlers
+  const allFiles = Object.values(matches).flat();
+  process.stdout.write(`AGENT_GUARD_STALE: ${allFiles.join(' ')}\n`);
+}
+
+module.exports = { getEmoji, printAutoFixSummary, printProgress, printPromptFallback, printBlockedMessage };

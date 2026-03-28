@@ -14,6 +14,11 @@
   ],
   "autoFix": {
     "generators": true,
+    "hook": {
+      "mode": "blocking",
+      "checkOnly": false,
+      "skipIfClaudeRunning": true
+    },
     "narrative": {
       "enabled": true,
       "engine": "api",
@@ -21,7 +26,12 @@
       "narrativeTriggers": [
         "api-routes",
         "prisma",
-        "env"
+        "env",
+        "components",
+        "lib",
+        "hooks",
+        "types",
+        "config"
       ],
       "additionalNarrativeTargets": [
         "README.md"
@@ -74,6 +84,51 @@
       "filePattern": "^src/app/.+/page\\.tsx$",
       "patternType": "regex",
       "docTarget": "Page Routes section",
+      "genCommand": null
+    },
+    {
+      "id": "components",
+      "name": "Components",
+      "emoji": "🧩",
+      "filePattern": "^src/components/.+\\.tsx?$",
+      "patternType": "regex",
+      "docTarget": "Components section",
+      "genCommand": null
+    },
+    {
+      "id": "lib",
+      "name": "Libraries & Services",
+      "emoji": "📚",
+      "filePattern": "^src/lib/.+\\.ts$",
+      "patternType": "regex",
+      "docTarget": "Libraries section",
+      "genCommand": null
+    },
+    {
+      "id": "hooks",
+      "name": "React Hooks",
+      "emoji": "🪝",
+      "filePattern": "^src/hooks/.+\\.ts$",
+      "patternType": "regex",
+      "docTarget": "Hooks section",
+      "genCommand": null
+    },
+    {
+      "id": "types",
+      "name": "Type Definitions",
+      "emoji": "🏷️",
+      "filePattern": "^src/types/.+\\.ts$",
+      "patternType": "regex",
+      "docTarget": "Types section",
+      "genCommand": null
+    },
+    {
+      "id": "config",
+      "name": "Configuration",
+      "emoji": "⚙️",
+      "filePattern": "^src/config/.+\\.ts$",
+      "patternType": "regex",
+      "docTarget": "Configuration section",
       "genCommand": null
     }
   ],

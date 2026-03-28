@@ -16,15 +16,13 @@ on:
   push:
     branches: [main]
     paths:
+      # CUSTOMIZE: Copy paths from agent-docs.config.json → workflows.docsAudit.triggerPaths
       - 'src/app/api/**'
       - 'src/app/*/page.tsx'
-      - 'src/app/dashboard/*/page.tsx'
-      - 'prisma/schema.prisma'
       - '.env.example'
-      - 'src/lib/permissions.ts'
-      - 'src/lib/semantic-layer/**'
-      - 'src/config/constants.ts'
-      - 'src/app/api/auth/**'
+      # Add more paths matching your config categories:
+      # - 'prisma/schema.prisma'
+      # - 'src/lib/permissions.ts'
 
 permissions:
   contents: read
