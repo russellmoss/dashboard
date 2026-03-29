@@ -57,8 +57,11 @@ savvy-gtm-analytics-*.json
 .cursor/service-account-key.json
 .cursor/**/service-account-key.json
 
-# agent-guard audit logs
-.agent-guard/
+# agent-guard signal files (not session-context.md — that's committed)
+.agent-guard/.auto-fix-ran
+.agent-guard/.docs-stale
+.agent-guard/log.json
+!.agent-guard/session-context.md
 
 # IDE
 .vscode/
