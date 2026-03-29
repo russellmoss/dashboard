@@ -2180,7 +2180,6 @@ What was tested and how — TypeScript compilation, manual UI testing, data vali
 - The post-commit hook deletes it after reading.
 - If you make multiple commits in one session, write a fresh context file before each commit.
 
-
 ## Documentation Maintenance — Standing Instructions
 
 ### Rule: Update Docs When You Change Code
@@ -2206,7 +2205,7 @@ These are committed to the repo. Always regenerate after changing routes, models
 
 ### Pre-Commit Hook Behavior
 - If the pre-commit hook is in **blocking mode** (`autoFix.hook.mode: "blocking"`), you MUST update documentation BEFORE committing. The hook will exit 1 and reject the commit if docs are stale. Run generators and update narrative docs first, then commit.
-- When you (an AI agent) trigger a commit, the hook detects this and skips all AI engines to prevent self-invocation. If docs are stale, the commit will be rejected with exit 1. You must run `npx agent-guard sync` or update the docs manually, then retry the commit.
+- When you (an AI agent) trigger a commit, the hook detects this and skips all AI engines to prevent self-invocation. If docs are stale, the commit will be rejected with exit 1. Read the changed source files, update the relevant sections in docs/ARCHITECTURE.md (and any other doc targets) yourself, stage with git add, then retry the commit. Do NOT run npx agent-guard sync — update the files yourself directly.
 
 ### What NOT to Do
 - Do NOT edit files in `docs\_generated\` manually — they are overwritten by scripts

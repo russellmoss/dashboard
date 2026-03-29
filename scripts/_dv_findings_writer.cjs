@@ -1,0 +1,10 @@
+const fs = require("fs");
+const lines = [];
+const p = (s) => lines.push(s);
+p("# Data Verifier Findings: SQO Calculator + Realization Forecast + Scenario Runner");
+p("**Date:** 2026-03-25");
+p("**Source view:** savvy-gtm-analytics.Tableau_Views.vw_funnel_master");
+p("");
+p("---");
+p("");
+p("## Query 1: Component A Pipeline for Upcoming Quarters");

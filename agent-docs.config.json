@@ -14,11 +14,6 @@
   ],
   "autoFix": {
     "generators": true,
-    "hook": {
-      "mode": "blocking",
-      "checkOnly": false,
-      "skipIfClaudeRunning": true
-    },
     "narrative": {
       "enabled": true,
       "engine": "api",
@@ -40,6 +35,11 @@
       "apiKeyEnv": "ANTHROPIC_API_KEY",
       "maxTokens": 32000,
       "timeout": 300000
+    },
+    "hook": {
+      "mode": "blocking",
+      "checkOnly": false,
+      "skipIfClaudeRunning": true
     }
   },
   "scanPaths": {

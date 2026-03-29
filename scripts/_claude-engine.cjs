@@ -117,15 +117,21 @@ function parseApiResponse(responseText, expectedPaths) {
   const warnings = [];
   const regex = /<updated-file\s+path="([^"]+)">\s*([\s\S]*?)\s*<\/updated-file>/g;
 
+  // Normalize expected paths to forward slashes for comparison
+  const normalizedExpected = expectedPaths.map(p => p.replace(/\\/g, '/'));
+
   let match;
   while ((match = regex.exec(responseText)) !== null) {
-    const filePath = match[1].trim();
+    const rawPath = match[1].trim();
     const content = match[2];
+    const normalizedPath = rawPath.replace(/\\/g, '/');
 
-    if (expectedPaths.includes(filePath)) {
-      files.push({ path: filePath, content });
+    const idx = normalizedExpected.indexOf(normalizedPath);
+    if (idx !== -1) {
+      // Use the original expected path so downstream file writes use the right separator
+      files.push({ path: expectedPaths[idx], content });
     } else {
-      warnings.push(`Ignoring unexpected file in response: ${filePath}`);
+      warnings.push(`Ignoring unexpected file in response: ${rawPath}`);
     }
   }
 
@@ -148,8 +154,9 @@ function parseApiResponse(responseText, expectedPaths) {
  * @returns {{ system: string, user: string, targets: string[] }}
  */
 function buildApiPrompt({ mode, config, projectRoot, matches }) {
-  const archFile = config.architectureFile || 'docs/ARCHITECTURE.md';
-  const additionalTargets = config.autoFix?.narrative?.additionalNarrativeTargets || ['README.md'];
+  const archFile = (config.architectureFile || 'docs/ARCHITECTURE.md').replace(/\\/g, '/');
+  const additionalTargets = (config.autoFix?.narrative?.additionalNarrativeTargets || ['README.md'])
+    .map(t => t.replace(/\\/g, '/'));
   const targets = [archFile, ...additionalTargets];
   const genDir = config.generatedDir || 'docs/_generated/';
 

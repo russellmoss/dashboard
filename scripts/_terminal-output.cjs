@@ -69,9 +69,7 @@ function printBlockedMessage(matches, reason) {
   let remediation;
   if (isClaudeCode) {
     remediation =
-      'CLAUDE: Documentation is stale. You must update docs before committing.\n' +
-      'Run: npx agent-guard sync\n' +
-      'Or manually update the doc files listed above, then retry the commit.';
+      'CLAUDE: Documentation is stale. Read the changed source files listed above, then update docs/ARCHITECTURE.md (and any other doc targets) to reflect those changes. Stage the updated docs with git add, then retry the commit. Do NOT run npx agent-guard sync — update the files yourself directly.';
   } else {
     remediation =
       'Fix: update the documentation files listed above, then commit again.\n' +
