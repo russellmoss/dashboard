@@ -1516,13 +1516,6 @@ Advisor Map visualizes financial advisor locations on a Google Maps interface. A
 | Override model | `AdvisorAddressOverride` Prisma model |
 | Access | Blocks recruiter and capital_partner |
 
-### Key Components
-
-| Component | Path | Description |
-|-----------|------|-------------|
-| `AdvisorMapClient` | `src/components/advisor-map/AdvisorMapClient.tsx` | Client-side Leaflet map with marker clustering, advisor popups, and filter controls |
-| `AdvisorMap` | `src/components/advisor-map/AdvisorMap.tsx` | Wrapper handling data fetching and passing props to AdvisorMapClient |
-
 ### Address Override Flow
 
 1. Admin fetches advisor locations from `POST /api/advisor-map/locations`.
