@@ -1,3 +1,4 @@
+// session-context-test
 // Application-wide constants
 
 // Open Pipeline Stages - Must match actual Salesforce StageName values

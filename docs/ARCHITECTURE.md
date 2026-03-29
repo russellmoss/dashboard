@@ -1247,7 +1247,7 @@ if (userPermissions.sgaFilter) {
 
 ### Constants
 
-**Location**: `src/config/constants.ts` and `src/lib/semantic-layer/definitions.ts` (CONSTANTS object)
+**Location**: `src/config/constants.ts` and `src/lib/semantic-layer/definitions.ts` (CONSTANTS object). See `.claude/bq-patterns.md` for usage patterns.
 
 ```typescript
 // From src/config/constants.ts
