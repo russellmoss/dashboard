@@ -1,5 +1,3 @@
-// agent-guard-test
-// test hook loop
 'use client';
 
 import React, { useEffect, useMemo } from 'react';
@@ -105,6 +103,7 @@ export function AdvisorMapClient({ advisors, onAdvisorClick, onViewDetails }: Ad
       center={defaultCenter}
       zoom={defaultZoom}
       className="h-full w-full rounded-lg"
+      style={{ minHeight: '500px' }}
     >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
