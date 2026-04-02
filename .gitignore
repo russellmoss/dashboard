@@ -40,12 +40,13 @@ next-env.d.ts
 !package.json
 !package-lock.json
 !tsconfig.json
-<<<<<<< HEAD
 !agent-docs.config.json
 !agent-docs.schema.json
-=======
 !knip.json
->>>>>>> main
+!.context-ledger/config.json
+!.context-ledger/ledger.jsonl
+!.context-ledger/inbox.jsonl
+!.context-ledger/.gitkeep
 service-account-key.json
 savvy-gtm-analytics-*.json
 

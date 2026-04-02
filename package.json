@@ -62,7 +62,8 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@mossrussell/agent-guard": "^0.5.4",
+    "@mossrussell/agent-guard": "^0.6.3",
+    "@mossrussell/context-ledger": "^0.5.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/jest": "^30.0.0",
     "@types/jsonwebtoken": "^9.0.10",
