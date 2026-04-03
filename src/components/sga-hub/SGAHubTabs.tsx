@@ -1,9 +1,9 @@
 'use client';
 
 import { Button } from '@tremor/react';
-import { Trophy, Target, AlertCircle, TrendingUp, PhoneCall } from 'lucide-react';
+import { Trophy, Target, AlertCircle, TrendingUp, PhoneCall, Crosshair } from 'lucide-react';
 
-export type SGAHubTab = 'leaderboard' | 'weekly-goals' | 'closed-lost' | 'quarterly-progress' | 'activity';
+export type SGAHubTab = 'leaderboard' | 'weekly-goals' | 'closed-lost' | 'quarterly-progress' | 'activity' | 'outreach-effectiveness';
 
 interface SGAHubTabsProps {
   activeTab: SGAHubTab;
@@ -17,6 +17,7 @@ export function SGAHubTabs({ activeTab, onTabChange }: SGAHubTabsProps) {
     { id: 'closed-lost', label: 'Re-Engagement', icon: <AlertCircle className="w-4 h-4" /> },
     { id: 'quarterly-progress', label: 'Quarterly Progress', icon: <TrendingUp className="w-4 h-4" /> },
     { id: 'activity', label: 'Activity', icon: <PhoneCall className="w-4 h-4" /> },
+    { id: 'outreach-effectiveness', label: 'Outreach Effectiveness', icon: <Crosshair className="w-4 h-4" /> },
   ];
   
   return (

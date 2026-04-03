@@ -212,7 +212,9 @@ function transformToRecordDetail(r: RecordDetailRaw): RecordDetailFull {
     // Status
     stageName: r.StageName ? toString(r.StageName) : null,
     tofStage: toString(r.TOF_Stage) || 'Unknown',
-    conversionStatus: toString(r.Conversion_Status) || 'Open',
+    conversionStatus: toString(r.TOF_Stage) === 'Closed' ? 'Closed'
+      : toString(r.TOF_Stage) === 'Joined' ? 'Joined'
+      : 'Open',
     disposition: r.Disposition__c ? toString(r.Disposition__c) : null,
     closedLostReason: r.Closed_Lost_Reason__c ? toString(r.Closed_Lost_Reason__c) : null,
     closedLostDetails: r.Closed_Lost_Details__c ? toString(r.Closed_Lost_Details__c) : null,

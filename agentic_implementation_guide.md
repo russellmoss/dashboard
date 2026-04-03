@@ -1,462 +1,477 @@
-# Pipeline Forecast — Current Implementation Reference
+# Outreach Effectiveness Tab — Implementation Reference
 
-> Last updated: 2026-03-23
-> This document describes the **as-built** forecast page, not a planning guide.
-> Use it as a reference for understanding the current logic, data flow, and methodology.
-
----
-
-## Feature Summary
-
-| Capability | Implementation | Key Files |
-|-----------|---------------|-----------|
-| Deterministic expected-value forecast | BQ view + client-side rate recomputation | `sql/vw_forecast_p2.sql`, `src/lib/queries/forecast-pipeline.ts` |
-| Monte Carlo simulation (5K trials) | BQ SQL with dynamic quarter grouping | `src/lib/queries/forecast-monte-carlo.ts` |
-| Historical conversion rates | Resolved-only cohort, "reached or beyond" denominators | `src/lib/queries/forecast-rates.ts` |
-| Conversion window toggle | 180d / 1yr / 2yr / All time | `ForecastTopBar.tsx`, rates query, client-side recomputation |
-| Monte Carlo drilldown + CSV export | Per-deal win frequency, P10/P50/P90 membership | `MonteCarloPanel.tsx` |
-| Scenario runner | Rate overrides, persistent to Neon DB, shareable via URL | `ScenarioRunner.tsx`, `SavedScenariosList.tsx` |
-| Google Sheets export | Two tabs: "BQ Forecast P2" + "BQ Audit Trail" | `src/app/api/forecast/export/route.ts` |
-| Audit trail with rate flags | Numerator/denominator columns for each stage transition | `sql/vw_funnel_audit.sql` |
+**Created**: 2026-04-02 | **Last Updated**: 2026-04-02
+**Feature**: SGA Hub tab showing lead-centric outreach metrics (4 scorecards, SGA breakdown table, drill-downs, campaign filter)
+**Mount Point**: SGA Hub → "Outreach Effectiveness" tab
 
 ---
 
-## Data Architecture
+## Data Sources
 
-### BigQuery Views
+| View | Purpose |
+|---|---|
+| `Tableau_Views.vw_funnel_master` | Lead population, funnel flags, dispositions, campaign fields |
+| `Tableau_Views.vw_sga_activity_performance` | Activity data (outbound touches, inbound replies) |
+| `SavvyGTMData.User` | SGA list (IsSGA__c), start dates (CreatedDate), active status |
 
-**`vw_forecast_p2`** — Open pipeline with deterministic forecast
-- Source: `vw_funnel_master` (open SQOs only: not On Hold, Closed Lost, or Joined)
-- Bakes in historical rates from Jun-Dec 2025 resolved cohort
-- Computes: `p_join`, `expected_days_remaining`, `model_projected_join_date`, `final_projected_join_date`, `projected_quarter`, `expected_aum_weighted`
-- `final_projected_join_date` = `Earliest_Anticipated_Start_Date__c` if set, else model date
-- `projected_quarter` = dynamic string like "Q2 2026" derived from `final_projected_join_date`
-- Rate columns are NULLed out for stages the deal has already passed (e.g., a Negotiating deal has NULL for `rate_sqo_to_sp`)
-
-**`vw_funnel_audit`** — Full stage history for all opps (no date filter)
-- Source: `vw_funnel_master` (all primary opp records)
-- Backfilled stage timestamps via COALESCE chains (does NOT include `Stage_Entered_Closed__c`)
-- Conversion rate numerator/denominator flags baked in (pre-filtered to resolved SQOs)
-- Date filtering applied at query time based on selected window
-
-### Prisma Model
-
-**`ForecastScenario`** — Saved Monte Carlo scenarios
-- `quartersJson` (Json?) — Array of `{ label, p10, p50, p90, mean }` per quarter
-- `perOppResults` (Json?) — Per-deal simulation data
-- Rate overrides, historical rate snapshot, pipeline metadata
-- Shareable via `shareToken` (unique, auto-generated)
+**NOT used**: `savvy_analytics.vw_sga_activity_performance` (missing `is_engagement_tracking`)
 
 ---
 
-## Conversion Rate Methodology
-
-### Cohort Selection
-- **Resolved SQOs only**: `SQO_raw = 'Yes' AND StageName IN ('Joined', 'Closed Lost')`
-- Excludes open pipeline deals to avoid deflating rates with unresolved outcomes
-- Aligns with SGM Hub methodology
-
-### "Reached This Stage or Beyond" Denominators
-- Prevents >100% rates when deals skip stages (e.g., join without a Signed timestamp)
-- Each denominator includes deals that reached that stage OR any later stage
-
-```
-SQO→SP rate:
-  Numerator   = reached SP or Neg or Signed or Joined
-  Denominator = all resolved SQOs
-
-SP→Neg rate:
-  Numerator   = reached Neg or Signed or Joined
-  Denominator = reached SP or Neg or Signed or Joined
-
-Neg→Signed rate:
-  Numerator   = reached Signed or Joined
-  Denominator = reached Neg or Signed or Joined
-
-Signed→Joined rate:
-  Numerator   = Joined
-  Denominator = reached Signed or Joined
-```
-
-### Stage Timestamp Backfill (COALESCE chains)
-- `eff_sp_ts` = COALESCE(SP, Neg, Signed, Joined) — NOT Closed
-- `eff_neg_ts` = COALESCE(Neg, Signed, Joined)
-- `eff_signed_ts` = COALESCE(Signed, Joined)
-- `eff_joined_ts` = COALESCE(Joined, advisor_join_date__c)
-- `Stage_Entered_Closed__c` is **never** included — Closed Lost is a terminal state, not stage progression
-
-### Window Toggle
-- **180d / 1yr / 2yr**: `DATE(Opp_CreatedDate) >= DATE_SUB(CURRENT_DATE(), INTERVAL N DAY)`
-- **All time**: No date filter — uses all resolved SQOs in the system
-- Default: 1yr (365 days)
-
-### Velocity (Avg Days)
-- `avg_days_sqo_to_sp`: Date_Became_SQO__c → eff_sp_ts
-- `avg_days_in_sp`: eff_sp_ts → eff_neg_ts
-- `avg_days_in_neg`: eff_neg_ts → eff_signed_ts
-- `avg_days_in_signed`: eff_signed_ts → eff_joined_ts
-- Only computed from deals with both timestamps and where entry <= exit
-
----
-
-## P(Join) Calculation
-
-Product of remaining stage conversion rates:
-
-| Current Stage | P(Join) Formula |
-|--------------|----------------|
-| Discovery / Qualifying | sqo_to_sp × sp_to_neg × neg_to_signed × signed_to_joined |
-| Sales Process | sp_to_neg × neg_to_signed × signed_to_joined |
-| Negotiating | neg_to_signed × signed_to_joined |
-| Signed | signed_to_joined |
-
-### Client-Side Rate Recomputation
-
-The BQ view (`vw_forecast_p2`) bakes in rates from a fixed Jun-Dec 2025 cohort. When the user changes the window toggle, the **client-side `useMemo`** in `page.tsx` recomputes `p_join`, `expected_aum_weighted`, `expected_days_remaining`, `final_projected_join_date`, `projected_quarter`, and the summary for all pipeline records using the dynamically-fetched rates.
-
-This means what you see on screen always uses the selected window's rates, even though the raw BQ data has different baked-in values.
-
-The Sheets export also recomputes P2 rows with the dynamic rates before writing (`recomputeP2WithRates()` in the export route).
-
----
-
-## Weighted Pipeline (Expected AUM) Calculation
-
-### What It Answers
-"Given our historical conversion rates, what is the probability-weighted AUM we expect to close per quarter?"
-
-### Formula
-For each open deal:
-```
-Expected AUM = P(Join) × Raw AUM
-```
-
-Where `Raw AUM = COALESCE(Underwritten_AUM__c, Amount)` from Salesforce.
-
-### Worked Example (1yr window, rates as of 2026-03-23)
-
-Historical rates (1yr, resolved only):
-```
-SQO→SP:       68.4%
-SP→Neg:       36.8%
-Neg→Signed:   42.3%
-Signed→Joined: 83.6%
-```
-
-**Deal A: $500M Discovery deal**
-```
-P(Join) = 0.684 × 0.368 × 0.423 × 0.836 = 0.089 (8.9%)
-Expected AUM = $500M × 0.089 = $44.5M
-```
-
-**Deal B: $100M Negotiating deal**
-```
-P(Join) = 0.423 × 0.836 = 0.354 (35.4%)
-Expected AUM = $100M × 0.354 = $35.4M
-```
-
-**Deal C: $200M Signed deal**
-```
-P(Join) = 0.836 = 83.6%
-Expected AUM = $200M × 0.836 = $167.2M
-```
-
-### Quarter Assignment
-Each deal's expected AUM is assigned to a quarter based on `final_projected_join_date`:
-- If `Earliest_Anticipated_Start_Date__c` is set → use it (date source = "Anticipated")
-- Otherwise → model date = today + expected_days_remaining (date source = "Model")
-
-`expected_days_remaining` = sum of avg stage durations for remaining stages, minus days already spent in current stage, floored at 0.
-
-### Metric Cards
-The Expected AUM metric cards sum `expected_aum_weighted` across all deals projected for each quarter:
-```
-Expected Q2 2026 AUM = SUM(expected_aum_weighted) WHERE projected_quarter = 'Q2 2026'
-```
-
-### Rate Sensitivity
-When the user changes the window toggle, all P(Join) values and expected AUM are recomputed client-side using the new rates. The metric cards, pipeline table, and expected AUM chart all update instantly — no BQ round-trip.
-
----
-
-## Monte Carlo Simulation
-
-### What It Answers
-"Given uncertainty in which deals actually close, what's the range of total AUM outcomes per quarter?" The P10 is the bear case (only 10% of simulated outcomes were worse), P50 is the base case, P90 is the bull case.
-
-### How It Differs From Weighted Pipeline
-Weighted pipeline gives a single point estimate per deal. Monte Carlo captures the **distribution of outcomes** — especially important when a few whale deals dominate the pipeline and could swing total AUM by billions.
-
-### SQL Structure (BigQuery)
-
-```
-open_pipeline CTE → get all open SQO deals with AUM, stage, dates
-trials CTE → GENERATE_ARRAY(1, 5000)
-simulation CTE → CROSS JOIN (deals × trials), Bernoulli draws per stage via RAND()
-```
-
-Each deal in each trial independently flips a coin at each remaining stage. If all flips succeed, the deal "joins" in that trial.
-
-### Bernoulli Draw Logic (Exact SQL Pattern)
-
-For each deal × trial combination, the simulation runs independent random draws per remaining stage:
-
-```sql
-CASE
-  WHEN StageName IN ('Discovery', 'Qualifying')
-  THEN (CASE WHEN RAND() < @rate_sqo_sp THEN 1 ELSE 0 END)
-       * (CASE WHEN RAND() < @rate_sp_neg THEN 1 ELSE 0 END)
-       * (CASE WHEN RAND() < @rate_neg_signed THEN 1 ELSE 0 END)
-       * (CASE WHEN RAND() < @rate_signed_joined THEN 1 ELSE 0 END)
-  WHEN StageName = 'Sales Process'
-  THEN (CASE WHEN RAND() < @rate_sp_neg THEN 1 ELSE 0 END)
-       * (CASE WHEN RAND() < @rate_neg_signed THEN 1 ELSE 0 END)
-       * (CASE WHEN RAND() < @rate_signed_joined THEN 1 ELSE 0 END)
-  WHEN StageName = 'Negotiating'
-  THEN (CASE WHEN RAND() < @rate_neg_signed THEN 1 ELSE 0 END)
-       * (CASE WHEN RAND() < @rate_signed_joined THEN 1 ELSE 0 END)
-  WHEN StageName = 'Signed'
-  THEN (CASE WHEN RAND() < @rate_signed_joined THEN 1 ELSE 0 END)
-  ELSE 0
-END AS joined_in_trial
-```
-
-Key properties:
-- Each `RAND()` call is independent — a deal can pass one stage but fail the next
-- The multiplication means ALL remaining stages must succeed (product = 1) for the deal to join
-- A Discovery deal needs 4 independent successes; a Signed deal needs only 1
-- Each trial produces a different random outcome — the same deal may join in trial #1 but not trial #2
-
-### Projected Join Date in the Simulation
-
-The simulation also computes a per-deal `projected_join_date` to assign deals to quarters:
-
-```sql
-CASE
-  WHEN Earliest_Anticipated_Start_Date__c IS NOT NULL
-  THEN Earliest_Anticipated_Start_Date__c
-  ELSE DATE_ADD(CURRENT_DATE(), INTERVAL expected_days_remaining DAY)
-END AS projected_join_date
-```
-
-This date is the same across all trials for a given deal — only the binary "joined or not" changes per trial.
-
-### Trial Aggregation (Aggregate Query)
-
-For each trial, sum the AUM of deals that joined, grouped by quarter:
-```sql
-SELECT trial_id, quarter_label, SUM(CASE WHEN joined_in_trial = 1 AND is_zero_aum = 0 THEN Opportunity_AUM ELSE 0 END) AS aum
-FROM simulation
-GROUP BY trial_id, quarter_label
-```
-
-Then take percentiles across the 5,000 trials:
-```sql
-SELECT quarter_label,
-  APPROX_QUANTILES(aum, 100)[OFFSET(10)] AS p10,
-  APPROX_QUANTILES(aum, 100)[OFFSET(50)] AS p50,
-  APPROX_QUANTILES(aum, 100)[OFFSET(90)] AS p90,
-  AVG(aum) AS mean
-FROM trial_quarter_aum
-GROUP BY quarter_label
-```
-
-### Per-Deal Win Frequency (Per-Opp Query)
-
-For each deal × quarter, count what fraction of 5,000 trials it closed in:
-```sql
-SELECT opp_id, quarter_label,
-  SAFE_DIVIDE(COUNTIF(joined_in_trial = 1 AND is_zero_aum = 0), 5000) AS win_pct,
-  AVG(CASE WHEN joined_in_trial = 1 THEN Opportunity_AUM END) AS avg_aum
-FROM simulation
-GROUP BY opp_id, quarter_label
-HAVING win_pct > 0
-```
-
-This `win_pct` is what appears in the drilldown's "Won in" column. It's the **empirical probability** from the simulation, not the deterministic P(Join). They're close but not identical because:
-- P(Join) is the exact product of rates
-- `win_pct` is the observed frequency from 5,000 random trials (subject to sampling noise)
-
-### Worked Example
-
-Given 5,000 trials and rates SQO→SP=68%, SP→Neg=37%, Neg→Signed=42%, Signed→Joined=84%:
-
-**$500M Discovery deal:**
-- P(Join) deterministic = 0.68 × 0.37 × 0.42 × 0.84 = 8.9%
-- Monte Carlo win_pct ≈ 8.5-9.5% (varies per run)
-- In ~450 of 5,000 trials, this deal closes and adds $500M to that trial's total
-- In ~4,550 trials, it contributes $0
-
-**$200M Signed deal:**
-- P(Join) = 84%
-- Monte Carlo win_pct ≈ 83-85%
-- In ~4,200 trials, this deal adds $200M
-- In ~800 trials, it contributes $0
-
-The P10 total for a quarter is the AUM at the 500th-worst trial. If the pipeline is concentrated in a few whale deals, P10 and P90 will be far apart — accurately reflecting the uncertainty.
-
-### Dynamic Quarter Grouping
-
-Quarters are derived from `projected_join_date` via:
-```sql
-CONCAT('Q', EXTRACT(QUARTER FROM projected_join_date), ' ', EXTRACT(YEAR FROM projected_join_date))
-```
-
-No hardcoded Q2/Q3 — the simulation returns whatever quarters the pipeline projects into.
-
-### Two Parallel Queries
-
-1. **Aggregate query**: Groups by trial_id × quarter_label → P10/P50/P90/mean per quarter
-2. **Per-opp query**: Groups by opp_id × quarter_label → win frequency and avg AUM per deal
-
-Both run in parallel. Each gets independent RAND() draws (different random seeds but statistically stable at 5K trials).
-
-### Response Type
-
-```typescript
-interface MonteCarloResponse {
-  quarters: Array<{ label: string; p10: number; p50: number; p90: number; mean: number }>;
-  perOpp: Array<{ oppId: string; quarterLabel: string; winPct: number; avgAum: number }>;
-  trialCount: number;
-  ratesUsed: { sqo_to_sp, sp_to_neg, neg_to_signed, signed_to_joined };
-}
-```
-
-### Auto-Run Behavior
-- Monte Carlo auto-runs on page load (after pipeline + rates load)
-- Auto-re-runs when the window toggle changes
-- Skipped on first load if a shared scenario URL param is present
-
----
-
-## Monte Carlo Drilldown
-
-### Sort Order
-Deals are sorted by **simulation win rate** (descending), with raw AUM as tiebreaker. This puts the most reliable closers first — important for the bear case (P10) where only high-probability deals are likely in the winning set.
-
-### P10/P50/P90 Membership
-Each deal gets `inP10`, `inP50`, `inP90` flags based on whether its cumulative raw AUM (walking down the sorted list) is within the scenario's target AUM (with 5% tolerance). A deal can be in multiple scenarios (e.g., a Signed deal is typically in P10, P50, and P90).
-
-### CSV Export
-The drilldown Export CSV button produces a file with:
-- All BQ Forecast P2 fields (Opp ID, Advisor, SGM, SGA, Stage, AUM, rates, dates, etc.)
-- `Won in (MC)` — Monte Carlo simulation win percentage
-- `In P10 (Bear)` / `In P50 (Base)` / `In P90 (Bull)` — YES/NO
-- Salesforce URL for easy linking
-
----
-
-## Google Sheets Export
-
-### Target Sheet
-`1Iz9X6HY-bsAGBNkuQWH-SYoB7Xzy-9Hkg2Kk8ipxKQY`
-
-### Two Tabs
-
-**BQ Forecast P2** — Open pipeline with recomputed rates
-- P2 rows are recomputed with the selected window's dynamic rates before export
-- Includes: Opp ID, Advisor, SGM, SGA, Stage, AUM, per-stage rates, P(Join), projected dates, projected quarter, expected AUM
-- Projected Quarter and Expected AUM are dynamic columns
-
-**BQ Audit Trail** — Historical funnel data
-- Filtered by the selected window (180d/1yr/2yr/All time)
-- Includes conversion rate numerator/denominator flags (9 columns)
-- Flags are pre-filtered to resolved SQOs: `SUM(SP_Numerator)/SUM(SP_Denominator)` gives the SQO→SP rate without additional filtering
-- Auto-expands sheet rows if data exceeds current grid limits
-
----
-
-## UI Components
-
-### Page: `src/app/dashboard/forecast/page.tsx`
-- Fetches rates + pipeline on load, recomputes pipeline with dynamic rates via `useMemo`
-- Auto-runs Monte Carlo after data loads
-- Passes `adjustedPipeline` and `adjustedSummary` (rate-recomputed) to all child components
-
-### ForecastTopBar
-- Window toggle: 180d / 1yr / 2yr / All time
-- Run Monte Carlo button (for manual re-runs)
-- Export to Sheets button (passes windowDays)
-
-### ForecastMetricCards
-- Open Pipeline AUM (total)
-- One card per dynamic quarter: Expected AUM + opp count
-- Conversion Window card: cohort size + date range
-
-### ExpectedAumChart
-- Stacked bar chart: Expected AUM by stage × quarter
-- Quarters and colors are dynamic (QUARTER_COLORS palette)
-
-### ConversionRatesPanel
-- Historical Conversion Rates table: SQO→SP, SP→Neg, Neg→Signed, Signed→Joined
-- Shows rate + avg days for each transition
-- SQO→Joined summary row (product of rates, sum of days)
-- Cohort size and window range at bottom
-
-### MonteCarloPanel
-- Quarter cards with P10/P50/P90 values (dynamic, N quarters)
-- Clickable cards open drilldown table
-- Drilldown: sorted by win rate, P10/P50/P90 dots, Proj. Join date, CSV export
-- Bar chart: P10/P50/P90 per quarter with dynamic colors
-
-### PipelineDetailTable
-- Sortable table: Advisor, Stage, AUM, P(Join), Expected AUM, Days, Proj. Join, Source
-- Stage filter tabs
-- Expected AUM column uses `expected_aum_weighted` (rate-recomputed)
-
-### ScenarioRunner
-- Rate override inputs (4 sliders)
-- Run & Save / Run without saving
-- Saves to Prisma with `quartersJson`
-
-### SavedScenariosList
-- Lists saved scenarios with quarter P50 values
-- Load / Share / Delete actions
-
----
-
-## Known Considerations
-
-### AUM Variance
-See `AUM_variance_consideration.md` for detailed analysis. Key issue: CV% exceeds 100% in 3 of 4 stages. Top 20 deals represent 49% of pipeline AUM. The Monte Carlo handles this correctly (wide P10/P90 spreads reflect real uncertainty), but the drilldown "above/below the line" concept can feel arbitrary when many deals have similar win rates.
-
-### BQ View vs Client-Side Rates
-The `vw_forecast_p2` view bakes in Jun-Dec 2025 rates. The dashboard overrides these client-side with the selected window's rates. The Sheets export also recomputes with dynamic rates. The view's baked-in rates are only used as a fallback if rates haven't loaded yet.
-
-### Cache
-- Pipeline data: cached via `unstable_cache` with 6-hour TTL, tag `dashboard`
-- Rates: cached with 12-hour TTL
-- Monte Carlo: not cached (POST request, fresh BQ query each time)
-- Clear cache: `rm -rf .next/cache` locally, or hit `/api/admin/refresh-cache` in production
-
----
-
-## File Index
+## Files
 
 | File | Purpose |
-|------|---------|
-| `sql/vw_forecast_p2.sql` | BQ view: open pipeline with deterministic forecast |
-| `sql/vw_funnel_audit.sql` | BQ view: full stage history with rate flags |
-| `src/lib/queries/forecast-pipeline.ts` | Pipeline query + ForecastPipelineRecord/ForecastSummary types |
-| `src/lib/queries/forecast-monte-carlo.ts` | Monte Carlo query + MonteCarloResponse types |
-| `src/lib/queries/forecast-rates.ts` | Conversion rates query + ForecastRates type |
-| `src/lib/queries/forecast-export.ts` | Export queries for P2 + Audit rows |
-| `src/app/api/forecast/monte-carlo/route.ts` | POST: run Monte Carlo simulation |
-| `src/app/api/forecast/pipeline/route.ts` | GET: pipeline data (pass-through) |
-| `src/app/api/forecast/rates/route.ts` | GET: conversion rates for selected window |
-| `src/app/api/forecast/export/route.ts` | POST: Google Sheets export (recomputes P2 with dynamic rates) |
-| `src/app/api/forecast/scenarios/route.ts` | GET/POST: saved scenarios |
-| `src/app/api/forecast/scenarios/[id]/route.ts` | DELETE: remove scenario |
-| `src/app/api/forecast/scenarios/share/[shareToken]/route.ts` | GET: load shared scenario |
-| `src/app/dashboard/forecast/page.tsx` | Main page: data fetching, rate recomputation, auto-run MC |
-| `src/app/dashboard/forecast/components/ForecastTopBar.tsx` | Window toggle + action buttons |
-| `src/app/dashboard/forecast/components/ForecastMetricCards.tsx` | Summary metric cards (dynamic quarters) |
-| `src/app/dashboard/forecast/components/ExpectedAumChart.tsx` | Bar chart: expected AUM by stage × quarter |
-| `src/app/dashboard/forecast/components/ConversionRatesPanel.tsx` | Historical conversion rates table |
-| `src/app/dashboard/forecast/components/MonteCarloPanel.tsx` | MC results: quarter cards, drilldown, chart, CSV export |
-| `src/app/dashboard/forecast/components/PipelineDetailTable.tsx` | Sortable pipeline detail table |
-| `src/app/dashboard/forecast/components/ScenarioRunner.tsx` | Rate override + save scenario |
-| `src/app/dashboard/forecast/components/SavedScenariosList.tsx` | List/load/share/delete saved scenarios |
-| `src/app/dashboard/forecast/components/AdvisorForecastModal.tsx` | Individual advisor drill-down modal |
-| `src/lib/api-client.ts` | Client-side API types and fetch functions |
-| `prisma/schema.prisma` | ForecastScenario model (quartersJson, perOppResults) |
+|---|---|
+| `src/types/outreach-effectiveness.ts` | All TypeScript interfaces |
+| `src/lib/queries/outreach-effectiveness.ts` | All BigQuery queries, transforms, cached exports |
+| `src/app/api/outreach-effectiveness/dashboard/route.ts` | POST — main dashboard data |
+| `src/app/api/outreach-effectiveness/filters/route.ts` | GET — SGA + campaign filter options |
+| `src/app/api/outreach-effectiveness/drill-down/route.ts` | POST — all drill-down types |
+| `src/components/outreach-effectiveness/OutreachEffectivenessFilters.tsx` | Filter bar (SGA, date range, campaign) with Apply/Reset |
+| `src/components/outreach-effectiveness/MetricCards.tsx` | 4 scorecard cards with tooltips |
+| `src/components/outreach-effectiveness/SGABreakdownTable.tsx` | Per-SGA table with clickable cells, tooltips |
+| `src/components/outreach-effectiveness/OutreachDrillDownModal.tsx` | Drill-down modal (leads, zero-touch, weekly-calls) |
+| `src/components/outreach-effectiveness/CampaignSummary.tsx` | Campaign-specific summary card |
+| `src/app/dashboard/outreach-effectiveness/OutreachEffectivenessContent.tsx` | Main content component (embedded in SGA Hub) |
+| `src/components/sga-hub/SGAHubTabs.tsx` | Tab type + tab entry (modified) |
+| `src/app/dashboard/sga-hub/SGAHubContent.tsx` | Conditional render (modified) |
+
+---
+
+## Filters
+
+| Filter | Default | Behavior |
+|---|---|---|
+| **SGA** | All SGAs (active only) | Active/All toggle. SGA role users forced to own name server-side. Only `IsSGA__c = TRUE` users shown. |
+| **Date Range** | QTD | Presets: This Week, Last 30/60/90, QTD, All Time, Custom. Controls FilterDate range for lead population. |
+| **Campaign** | All Campaigns | Dropdown from vw_funnel_master distinct campaigns. "No Campaign" option filters to `Campaign_Id__c IS NULL`. Uses UNNEST pattern for `all_campaigns` array. |
+
+**Apply/Reset**: Filters use local draft state. Changes don't fire until "Apply filters" is clicked. "Reset filters" returns to defaults.
+
+---
+
+## SGA Population
+
+Only leads owned by actual SGAs are included:
+
+```sql
+TRIM(f.SGA_Owner_Name__c) IN (
+  SELECT TRIM(u.Name) FROM User u
+  WHERE u.IsSGA__c = TRUE
+    AND u.Name NOT IN ('Anett Diaz', 'Ariana Butler', 'Bre McDaniel', 'Bryan Belville',
+      'GinaRose Galli', 'Jacqueline Tully', 'Jed Entin', 'Russell Moss',
+      'Savvy Marketing', 'Savvy Operations', 'Lauren George')
+)
+```
+
+This is an **allowlist**, not a blocklist. SGMs, operations users, etc. are excluded even if they own leads.
+
+---
+
+## Lead Classification Hierarchy
+
+Each lead is classified in priority order:
+
+| Priority | Status | Condition |
+|---|---|---|
+| 1 | **Converted** | `is_sql = 1` |
+| 2 | **MQL** | `is_mql = 1` |
+| 3 | **Replied** | Has inbound SMS or Call activity (excluding Marketing) |
+| 4 | **Replied** | Disposition indicates conversation (see Replied Dispositions below) |
+| 5 | **Unengaged** | None of the above |
+
+### Replied Dispositions
+
+These dispositions indicate a conversation happened, even if no inbound task was logged:
+
+- Not Interested in Moving
+- Timing
+- No Book
+- AUM / Revenue too Low
+- Book Not Transferable
+- Restrictive Covenants
+- Compensation Model Issues
+- Interested in M&A
+- Wants Platform Only
+- Other
+- Withdrawn or Rejected Application
+
+### NOT Replied
+
+| Disposition | Why | Where it goes |
+|---|---|---|
+| No Show / Ghosted | Call was scheduled but they didn't show — counts against SGA | Unengaged (measured in persistence metrics) |
+| No Response | SGA reached out, lead didn't respond — but proves outreach happened | Unengaged (excluded from zero-touch) |
+| Auto-Closed by Operations | System action, not engagement | Unengaged |
+| Not a Fit | SGA culled them, not a performance issue | Unengaged + **Bad Lead** flag |
+| Bad Contact Info - Uncontacted | Data quality issue | Unengaged + **Bad Lead** flag |
+| Bad Lead Provided | Bad source data | Unengaged + **Bad Lead** flag |
+| Wrong Phone Number - Contacted | Reached wrong person | Unengaged + **Bad Lead** flag |
+
+---
+
+## Bad Lead Flag (`is_bad_lead`)
+
+Leads with these dispositions are flagged `is_bad_lead = TRUE`:
+
+```
+'Not a Fit', 'Bad Contact Info - Uncontacted', 'Bad Lead Provided', 'Wrong Phone Number - Contacted'
+```
+
+**Impact**: Bad leads are **excluded from ALL metric denominators** (persistence, avg touchpoints, multi-channel coverage). They appear in the "Bad Leads" column but don't count against SGAs. They are also excluded from zero-touch counts.
+
+---
+
+## Outbound Touchpoint Definition
+
+Activities from `vw_sga_activity_performance` where:
+
+```sql
+direction = 'Outbound'
+AND is_engagement_tracking = 0
+AND COALESCE(activity_channel_group, '') NOT IN ('Marketing', '')
+AND task_created_date_est >= DATE_SUB(filter_date, INTERVAL 1 DAY)  -- 1-day buffer for self-sourced timing
+AND task_created_date_est <= CURRENT_DATE('America/New_York')
+AND TRIM(task_executor_name) = SGA_Owner_Name__c  -- executor filter: only THIS SGA's touches
+```
+
+**Includes**: SMS, LinkedIn, Call, Email (Manual), Email (Campaign/automated). Automated emails count because the candidate receives them.
+
+**Excludes**: Engagement tracking events, Marketing channel group activities, touches by previous lead owners (executor filter).
+
+**1-day buffer**: `DATE_SUB(filter_date, INTERVAL 1 DAY)` handles self-sourced leads where the SGA logs activity the same day they create the lead, but FilterDate lands on the next day due to timestamp computation.
+
+---
+
+## Terminality Definition (`is_terminal`)
+
+Uses **TOF_Stage** (current stage) not `lead_closed_date` (may be from a prior lifecycle for recycled leads):
+
+```sql
+CASE
+  WHEN TOF_Stage IN ('MQL', 'SQL', 'SQO', 'Joined') THEN TRUE   -- progressed
+  WHEN TOF_Stage = 'Closed' THEN TRUE                              -- actually closed now
+  WHEN TOF_Stage = 'Contacted'                                      -- 30-day stale rule
+    AND stage_entered_contacting__c IS NOT NULL
+    AND DATE(stage_entered_contacting__c) >= DATE(FilterDate)       -- current lifecycle only
+    AND DATE(stage_entered_contacting__c) + 30 <= CURRENT_DATE('America/New_York')
+    THEN TRUE
+  ELSE FALSE
+END
+```
+
+**Recycled lead handling**: A lead with `lead_closed_date` from a prior lifecycle but currently in `TOF_Stage = 'Contacted'` is NOT terminal — it's an active lead for the current owner.
+
+---
+
+## Open/Closed Definition (`is_open`)
+
+```sql
+CASE
+  WHEN TOF_Stage IN ('Closed', 'MQL', 'SQL', 'SQO', 'Joined') THEN FALSE
+  ELSE TRUE
+END
+```
+
+---
+
+## Currently In Contacting (`is_in_contacting`)
+
+```sql
+CASE
+  WHEN TOF_Stage = 'Contacted'
+    AND stage_entered_contacting__c IS NOT NULL
+    AND DATE(stage_entered_contacting__c) >= filter_date  -- current lifecycle only
+  THEN TRUE
+  ELSE FALSE
+END
+```
+
+Used to include open contacting leads in persistence/multi-channel denominators alongside terminal leads.
+
+---
+
+## Days In Contacting
+
+Only shows a value if the lead entered contacting **in the current lifecycle**:
+
+```sql
+CASE
+  WHEN stage_entered_contacting__c IS NOT NULL
+    AND DATE(stage_entered_contacting__c) >= filter_date
+  THEN DATE_DIFF(CURRENT_DATE('America/New_York'), DATE(stage_entered_contacting__c), DAY)
+  ELSE NULL
+END
+```
+
+Recycled leads with `stage_entered_contacting__c` from a prior lifecycle show NULL.
+
+---
+
+## Scorecard 1: Avg. Touchpoints in Contacting
+
+**Headline**: Average outbound touchpoints across contacting unengaged leads
+**Secondary**: % with 5+ touchpoints | % premature (<5 touches)
+
+### Denominator: Contacting Unengaged
+
+Leads that are:
+- `lead_status = 'Unengaged'`
+- `is_worked = TRUE` (at least 1 outbound touchpoint)
+- `NOT is_bad_lead`
+- `is_terminal OR is_in_contacting` (closed/stale OR currently being worked in contacting)
+
+This includes both terminal leads (closed without engaging) AND open leads currently in contacting. Provides a live view of outreach effort even early in a quarter.
+
+### Metrics
+
+| Metric | Formula |
+|---|---|
+| Avg Touchpoints | `AVG(outbound_touchpoints)` on contacting unengaged leads |
+| 5+ Touches | `COUNTIF(outbound_touchpoints >= 5)` on contacting unengaged leads |
+| % 5+ | 5+ touches / contacting unengaged count |
+| <5 Touches (premature) | `COUNTIF(outbound_touchpoints < 5)` on contacting unengaged leads |
+| % Premature | <5 touches / contacting unengaged count |
+| Touch Distribution | Counts at 1, 2, 3, 4, 5+ touchpoints |
+
+---
+
+## Scorecard 2: Multi-Channel Coverage
+
+**Headline**: % of contacting unengaged leads reached via 2+ distinct channels
+
+### Channel Detection
+
+4 channels for multi-channel presence:
+
+| Channel | Detection |
+|---|---|
+| SMS | `activity_channel = 'SMS'` (outbound, executor-filtered) |
+| LinkedIn | `activity_channel = 'LinkedIn'` (outbound, executor-filtered) |
+| Call | `activity_channel = 'Call'` (outbound, executor-filtered) |
+| Email | `activity_channel LIKE 'Email%'` — includes ALL email (manual + automated via `email_presence` CTE) |
+
+Email presence uses a separate CTE that includes automated emails (lemlist, campaign emails) because the candidate receives them regardless of how they were sent. The email_presence CTE is also executor-filtered.
+
+### Denominator
+
+Same as Scorecard 1: contacting unengaged leads.
+
+### Metrics
+
+| Metric | Formula |
+|---|---|
+| 2+ Channels | `COUNTIF(multi_channel_count >= 2)` / denominator |
+| 3+ Channels | `COUNTIF(multi_channel_count >= 3)` / denominator |
+| Channel Gaps | Per-channel coverage % (sorted, two lowest shown in subtext) |
+
+---
+
+## Scorecard 3: Zero-Touch Gap
+
+**Headline**: Count and % of leads with zero tracked outbound activity
+
+### Who counts as zero-touch
+
+All of these must be true:
+- `outbound_touchpoints = 0`
+- `is_contacted = 0` (excludes ghost contacts — leads marked contacted via untracked channels)
+- `NOT is_bad_lead` (excludes Not a Fit, Bad Contact Info, Bad Lead Provided, Wrong Phone Number)
+- `lead_status = 'Unengaged'` (excludes leads with Replied dispositions)
+- `Disposition__c != 'No Response'` (disposition proves outreach happened, task just wasn't logged)
+
+### No terminality filter
+
+"How many assigned leads have zero outreach?" is valid for any lead age.
+
+### Denominator
+
+Total assigned leads (all leads in the population, not just contacting unengaged).
+
+### Metrics
+
+| Metric | Formula |
+|---|---|
+| Zero-Touch Count | COUNTIF of all exclusion conditions above |
+| Zero-Touch % | Zero-touch count / total assigned |
+| Still Open | Zero-touch leads where `is_open = TRUE` |
+| Closed | Zero-touch leads where `is_open = FALSE` |
+
+---
+
+## Scorecard 4: Avg Calls / Week
+
+**Headline**: Average initial calls per SGA per week (tenure-bounded, zero-filled)
+
+### Data Source
+
+Uses `vw_funnel_master` fields `Initial_Call_Scheduled_Date__c` and `Qualification_Call_Date__c` (lead-level, not activity-level). Separate CTEs for initial and qualification calls, each grouped by own date.
+
+### Week Series
+
+```sql
+GENERATE_DATE_ARRAY(
+  GREATEST(DATE_TRUNC(@startDate, WEEK(MONDAY)), DATE_TRUNC(sga_start_date, WEEK(MONDAY))),
+  DATE_TRUNC(@endDate, WEEK(MONDAY)),
+  INTERVAL 1 WEEK
+)
+```
+
+- **Tenure-bounded**: Only counts weeks after each SGA's start date (`User.CreatedDate`)
+- **Zero-filled**: Weeks with no calls count as 0 in the average
+- **Week boundaries**: Monday through Sunday
+
+### Metrics
+
+| Metric | Formula |
+|---|---|
+| Avg Initial/Week | Total initial calls / total eligible weeks (across all SGAs) |
+| Avg Qual/Week | Total qual calls / total eligible weeks |
+| Per-SGA | `SAFE_DIVIDE(SUM(calls), COUNT(DISTINCT weeks))` per SGA |
+
+---
+
+## SGA Breakdown Table
+
+### Common Columns (all views)
+
+| Column | Source | Clickable |
+|---|---|---|
+| SGA | `SGA_Owner_Name__c` | No |
+| Assigned | COUNT(*) from lead population | Yes |
+| Worked | COUNTIF(is_worked) | Yes |
+| Bad Leads | COUNTIF(Disposition IN bad lead list) | Yes |
+| MQL | Event-date count: `mql_stage_entered_ts` in range | Yes |
+| SQL | Event-date count: `converted_date_raw` in range, `is_sql = 1` | Yes |
+| SQO | Event-date count: `Date_Became_SQO__c` in range, `recordtypeid = recruiting`, `is_sqo_unique = 1` | Yes |
+| Replied | COUNTIF(lead_status = 'Replied') | Yes |
+
+### MQL/SQL/SQO Event-Date Counting
+
+These columns use a separate `event_date_counts` CTE that matches the **funnel performance page logic** exactly:
+
+```sql
+-- MQL: by mql_stage_entered_ts (TIMESTAMP comparison)
+TIMESTAMP(mql_stage_entered_ts) >= TIMESTAMP(@startDate)
+AND TIMESTAMP(mql_stage_entered_ts) <= TIMESTAMP(@endDateTs)  -- endDateTs = 'YYYY-MM-DD 23:59:59'
+
+-- SQL: by converted_date_raw (DATE comparison)
+DATE(converted_date_raw) >= DATE(@startDate)
+AND DATE(converted_date_raw) <= DATE(@endDate)
+AND is_sql = 1
+
+-- SQO: by Date_Became_SQO__c (TIMESTAMP comparison)
+TIMESTAMP(Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+AND TIMESTAMP(Date_Became_SQO__c) <= TIMESTAMP(@endDateTs)
+AND recordtypeid = '012Dn000000mrO3IAI'  -- Recruiting record type
+AND is_sqo_unique = 1
+```
+
+**Why event dates?** A lead that entered the funnel in Q1 but SQO'd in Q2 should count as a Q2 SQO. This matches the funnel performance page and leaderboard.
+
+**`endDateTs`**: End date with `' 23:59:59'` appended for TIMESTAMP comparisons. Without this, events happening after midnight UTC on the end date would be excluded.
+
+### Metric-Specific Columns
+
+**Persistence view**: Contacting Unengaged, Avg Touches, 5+ Touches, % 5+, <5 Touches, % Premature
+
+**Multi-Channel view**: 2+ Ch %, 3+ Ch %, All 4 %, SMS %, LinkedIn %, Call %, Email %
+
+**Zero-Touch view**: Zero-Touch count, % Zero-Touch, Still Open, Closed
+
+**Avg Calls/Week view**: Weeks, Total IC, Avg IC/Wk, Total QC, Avg QC/Wk
+
+### Clickable Cells
+
+Volume-based cells (not percentages/averages) are clickable and open a drill-down modal filtered to that exact subset. Zero-value cells are grayed out and not clickable.
+
+---
+
+## Drill-Down Types
+
+### Lead Drill-Down (`type: 'leads'`)
+
+Used by: Assigned, Worked, Replied, Contacting Unengaged, 5+ Touches, <5 Touches, and column filters.
+
+Returns `OutreachLeadRecord`: Advisor Name, SGA, Outbound Touchpoints, Channels Used, Days in Contacting, Status, Campaign, Disposition, Salesforce URL.
+
+### MQL/SQL/SQO Drill-Down (`type: 'leads'`, `columnFilter: 'mql'|'sql'|'sqo'`)
+
+Special case: queries `vw_funnel_master` directly by event date (not the classified_leads CTE) to match the counts in the table. Returns the same `OutreachLeadRecord` shape.
+
+### Zero-Touch Drill-Down (`type: 'zero-touch'`)
+
+Returns `ZeroTouchLeadRecord`: Advisor Name, SGA, Days Since Assignment, Current Stage (from `TOF_Stage`), Disposition, Campaign, Still Open, Salesforce URL.
+
+### Weekly Calls Drill-Down (`type: 'weekly-calls'`)
+
+Returns `WeeklyCallBreakdownRow`: SGA, Week Starting, Initial Calls, Qualification Calls. Shows week-by-week breakdown for a specific SGA.
+
+---
+
+## Campaign Summary
+
+Only visible when a campaign filter is active. Shows:
+- Total leads in campaign
+- Contacted leads
+- Avg touches (contacting unengaged denominator)
+- % with 5+ touchpoints
+- Multi-channel coverage %
+
+---
+
+## Executor Filter
+
+`TRIM(a.task_executor_name) = lp.SGA_Owner_Name__c`
+
+**Applied to**: `outbound_touches` CTE, `email_presence` CTE
+
+**NOT applied to**:
+- `inbound_activity` CTE — a reply is engagement regardless of who triggered it
+- Zero-touch metric — coverage gap counts any owner
+- Metric 5 avg calls/week — uses lead-level fields, not activity records
+
+**Why**: Prevents reassigned leads from inflating the new owner's persistence metrics. Cross-SGA activity is ~3.8% of volume.
+
+---
+
+## Inbound Reply Detection
+
+Only SMS and Call have tracked inbound activity in `vw_sga_activity_performance`. No inbound email is tracked. Marketing inbound events are excluded.
+
+```sql
+direction = 'Inbound'
+AND COALESCE(activity_channel_group, '') NOT IN ('Marketing', '')
+```
+
+The inbound_activity CTE is NOT executor-filtered (a reply is engagement regardless) and NOT date-bounded (any reply at any time counts).
+
+---
+
+## Type Coercion Rules
+
+| Type | Function | Use For |
+|---|---|---|
+| `parseInt(String(v \|\| 0)) \|\| 0` | `toInt()` | All integer counts |
+| `parseFloat(String(v \|\| 0)) \|\| 0` | `toFloat()` | All averages, rates, percentages |
+| `safePct(num, den)` | `den > 0 ? Math.round((num/den) * 1000) / 10 : 0` | Percentage calculations |
+
+**CRITICAL**: Never use `parseInt` on BigQuery `AVG`/`SAFE_DIVIDE` output — it truncates decimals silently.
+
+---
+
+## Caching
+
+All query functions wrapped with `cachedQuery(fn, keyName, CACHE_TAGS.SGA_HUB)`. Default TTL: 4 hours.
+
+Cache refresh: `POST /api/admin/refresh-cache` revalidates the `sga-hub` tag.
+
+---
+
+## Auth Pattern
+
+All 3 API routes:
+1. `getServerSession(authOptions)` → verify logged in
+2. `getSessionPermissions(session)` → derive role from JWT (no DB query)
+3. Role check: `['admin', 'manager', 'sga', 'sgm', 'revops_admin']`
+4. SGA role override: `if (permissions.role === 'sga') filters.sga = permissions.sgaFilter`

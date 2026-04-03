@@ -682,6 +682,11 @@ const response = await fetch('/api/dashboard/funnel-metrics?channel=Web');
 - `/api/sga-hub/drill-down/qualification-calls` - Qualification calls drill-down
 - `/api/sga-hub/drill-down/sqos` - SQOs drill-down
 
+**Outreach Effectiveness Routes**:
+- `/api/outreach-effectiveness/dashboard` - POST: Main dashboard data (5 metrics + SGA breakdown)
+- `/api/outreach-effectiveness/filters` - GET: SGA and campaign filter options
+- `/api/outreach-effectiveness/drill-down` - POST: Lead-level, zero-touch, and weekly-calls drill-downs
+
 **Forecast Routes**:
 - `/api/forecast/pipeline` - Pipeline deals with summary and joined AUM by quarter
 - `/api/forecast/rates` - Tiered conversion rates by AUM band and time window
@@ -1023,6 +1028,47 @@ Metric Click → Drill-Down Modal → Row Click → Record Detail Modal
 DATE(DATE_TRUNC(Date_Became_SQO__c, WEEK(MONDAY))) as week_start
 ```
 
+#### 6. Outreach Effectiveness Tab
+
+Lead-centric view of SGA outreach quality. Self-contained component (`OutreachEffectivenessContent`) with `embedded` prop, following the Activity tab pattern. Apply/Reset filter buttons (changes don't fire until applied).
+
+**Data Sources**: `Tableau_Views.vw_funnel_master` (lead population) + `Tableau_Views.vw_sga_activity_performance` (activity counts) + `SavvyGTMData.User` (SGA list, start dates)
+
+**Filters**: SGA dropdown (Active/All toggle, IsSGA__c allowlist), date range (QTD default), campaign dropdown ("No Campaign" option filters `Campaign_Id__c IS NULL`, uses UNNEST for `all_campaigns`)
+
+**Scorecards (4)**:
+
+| Scorecard | Headline | Denominator |
+|-----------|----------|-------------|
+| Avg. Touchpoints in Contacting | Avg outbound touches on contacting unengaged leads | Contacting unengaged (terminal + open contacting) |
+| Multi-Channel Coverage | % reached via 2+ channels (SMS, LinkedIn, Call, Email) | Same as above |
+| Zero-Touch Gap | Leads with zero tracked outbound activity (Stale/All toggle) | All assigned leads |
+| Avg Calls/Week | Tenure-bounded, zero-filled IC & QC per SGA per week | Active SGAs × eligible weeks |
+
+**SGA Breakdown Table Columns**: SGA, Assigned, Worked, Bad Leads, MQL, SQL, SQO, Replied + metric-specific columns. All volume cells are clickable drill-downs. MQL/SQL/SQO count by event date (matching funnel performance page).
+
+**Key Business Logic**:
+- **Lead classification**: Converted (`is_sql=1`) > MQL (`is_mql=1`) > Replied (inbound SMS/Call OR 12 conversation-indicating dispositions) > Unengaged
+- **Terminality**: Uses `TOF_Stage` (current stage), NOT `lead_closed_date` (persists from recycled lead prior lifecycles). Terminal = TOF_Stage in (Closed, MQL, SQL, SQO, Joined) OR 30+ days in contacting with no progression
+- **Contacting unengaged denominator**: Terminal unengaged + open contacting leads (live view of outreach effort)
+- **Bad leads** (`is_bad_lead`): Not a Fit, Bad Contact Info, Bad Lead Provided, Wrong Phone Number — excluded from all metric denominators
+- **No Show/Ghosted**: NOT a reply — counts as Unengaged, measured in persistence metrics
+- **Executor filter**: `task_executor_name = SGA_Owner_Name__c` on outbound touches/email presence (not inbound, not zero-touch)
+- **Automated emails**: Count as touchpoints (candidate receives them)
+- **Zero-touch exclusions**: Ghost contacts, bad leads, replied leads, "No Response" disposition (proves outreach happened)
+- **Zero-touch Stale/All toggle**: "Stale" (default) only shows closed zero-touch leads OR leads untouched for 30+ days. "All" shows every zero-touch lead regardless of age. Toggle is on the scorecard and affects the SGA breakdown table.
+- **1-day date buffer**: `DATE_SUB(filter_date, INTERVAL 1 DAY)` for activity date lower bound (self-sourced lead timing)
+- **SGA allowlist**: `IsSGA__c = TRUE` subquery, not just name blocklist
+- **Event-date MQL/SQL/SQO**: `endDateTs` = endDate + ' 23:59:59' for TIMESTAMP comparisons
+
+**Files**:
+- Types: `src/types/outreach-effectiveness.ts`
+- Queries: `src/lib/queries/outreach-effectiveness.ts`
+- API Routes: `src/app/api/outreach-effectiveness/{dashboard,filters,drill-down}/route.ts`
+- Components: `src/components/outreach-effectiveness/` (5 files: Filters, MetricCards, SGABreakdownTable, OutreachDrillDownModal, CampaignSummary)
+- Content: `src/app/dashboard/outreach-effectiveness/OutreachEffectivenessContent.tsx`
+- Full reference: `agentic_implementation_guide.md` (updated with all formulas and filters)
+
 ### CSV Export
 
 All tabs support CSV export via `src/lib/utils/sga-hub-csv-export.ts`:
@@ -1056,6 +1102,9 @@ All tabs support CSV export via `src/lib/utils/sga-hub-csv-export.ts`:
 | `/api/sga-hub/drill-down/leads-contacted` | POST | Drill-down: leads contacted (supports teamLevel) |
 | `/api/sga-hub/drill-down/open-sqls` | POST | Drill-down: open SQL opportunities |
 | `/api/admin/sga-overview` | GET | Admin overview of all SGAs |
+| `/api/outreach-effectiveness/dashboard` | POST | Outreach effectiveness metrics (5 metrics + SGA breakdown) |
+| `/api/outreach-effectiveness/filters` | GET | SGA + campaign filter options |
+| `/api/outreach-effectiveness/drill-down` | POST | Lead, zero-touch, and weekly-calls drill-downs |
 
 ---
 

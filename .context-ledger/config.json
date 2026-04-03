@@ -8,14 +8,14 @@
       "coverage/"
     ],
     "scope_mappings": {
-      "src/lib/queries/": { "domain": "query-layer" },
-      "src/lib/utils/": { "domain": "utilities" },
-      "src/lib/sheets/": { "domain": "sheets-export" },
-      "src/lib/semantic-layer/": { "domain": "semantic-layer" },
-      "src/types/": { "concern": "type-definitions" },
-      "src/app/api/": { "domain": "api-routes" },
-      "src/components/": { "domain": "components" },
-      "src/app/dashboard/": { "domain": "dashboard-pages" }
+      "src/lib/queries/": { "type": "domain", "id": "query-layer" },
+      "src/lib/utils/": { "type": "domain", "id": "utilities" },
+      "src/lib/sheets/": { "type": "domain", "id": "sheets-export" },
+      "src/lib/semantic-layer/": { "type": "domain", "id": "semantic-layer" },
+      "src/types/": { "type": "concern", "id": "type-definitions" },
+      "src/app/api/": { "type": "domain", "id": "api-routes" },
+      "src/components/": { "type": "domain", "id": "components" },
+      "src/app/dashboard/": { "type": "domain", "id": "dashboard-pages" }
     },
     "redact_patterns": [],
     "no_capture_marker": "[no-capture]",

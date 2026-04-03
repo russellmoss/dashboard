@@ -26,6 +26,7 @@ import { Download } from 'lucide-react';
 import { MetricDrillDownModal } from '@/components/sga-hub/MetricDrillDownModal';
 import { RecordDetailModal } from '@/components/dashboard/RecordDetailModal';
 import SGAActivityContent from '@/app/dashboard/sga-activity/SGAActivityContent';
+import OutreachEffectivenessContent from '@/app/dashboard/outreach-effectiveness/OutreachEffectivenessContent';
 import {
   MetricType,
   DrillDownRecord,
@@ -881,6 +882,10 @@ export function SGAHubContent() {
 
       {activeTab === 'activity' && (
         <SGAActivityContent embedded />
+      )}
+
+      {activeTab === 'outreach-effectiveness' && (
+        <OutreachEffectivenessContent embedded />
       )}
 
       <WeeklyGoalEditor
