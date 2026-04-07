@@ -207,6 +207,237 @@ function buildNarrativePrompt(matches, cfg) {
   return lines.join('\n');
 }
 
+// ── Standing Instructions (CJS-compatible generator) ────────────────────────
+
+/**
+ * Lightweight CJS rebuild of standing instructions from config.
+ * Mirrors src/generators/standing-instructions.js but runs inside the hook.
+ */
+function generateStandingInstructionsCJS(cfg) {
+  const archFile = cfg.architectureFile || 'docs/ARCHITECTURE.md';
+
+  const tableRows = [];
+  for (const cat of cfg.categories || []) {
+    const trigger = cat.filePattern;
+    const update = cat.docTarget
+      ? `${cat.docTarget} in \`${archFile}\``
+      : `Relevant section in \`${archFile}\``;
+    const command = cat.genCommand ? `Run \`${cat.genCommand}\`` : '—';
+
+    let displayPattern;
+    if (cat.patternType === 'regex') {
+      displayPattern = `Files matching \`${trigger}\``;
+    } else if (cat.patternType === 'startsWith') {
+      displayPattern = `\`${trigger}*\``;
+    } else {
+      displayPattern = `\`${trigger}\``;
+    }
+    tableRows.push(`| ${displayPattern} | ${update} | ${command} |`);
+  }
+
+  const lines = [
+    '## Documentation Maintenance — Standing Instructions',
+    '',
+    '### Rule: Update Docs When You Change Code',
+    '',
+    'When you add, rename, remove, or significantly modify any of the following, you MUST update the relevant documentation **in the same session** — do not defer to a later task:',
+    '',
+    '| If You Changed… | Update This | And Run… |',
+    '|---|---|---|',
+    ...tableRows,
+    '',
+    '### Generated Inventories',
+    '',
+    `Auto-generated inventory files exist at \`${cfg.generatedDir || 'docs/_generated/'}\`:`,
+  ];
+
+  const genCommands = (cfg.categories || [])
+    .filter(c => c.genCommand)
+    .map(c => `- \`${c.genCommand}\``);
+  const uniqueCommands = [...new Set(genCommands)];
+  lines.push(...uniqueCommands);
+  lines.push('- Run all: `npm run gen:all`');
+  lines.push('');
+  lines.push('These are committed to the repo. Always regenerate after changing routes, models, or env vars.');
+  lines.push('');
+  lines.push('### Pre-Commit Hook Behavior');
+  lines.push('- If the pre-commit hook is in **blocking mode** (`autoFix.hook.mode: "blocking"`), you MUST update documentation BEFORE committing. The hook will exit 1 and reject the commit if docs are stale. Run generators and update narrative docs first, then commit.');
+  lines.push('- When you (an AI agent) trigger a commit, the hook detects this and skips all AI engines to prevent self-invocation. If docs are stale, the commit will be rejected with exit 1. Read the changed source files, update the relevant sections in docs/ARCHITECTURE.md (and any other doc targets) yourself, stage with git add, then retry the commit. Do NOT run npx agent-guard sync — update the files yourself directly.');
+  lines.push('');
+  lines.push('### What NOT to Do');
+  lines.push(`- Do NOT edit files in \`${cfg.generatedDir || 'docs/_generated/'}\` manually — they are overwritten by scripts`);
+  lines.push('- Do NOT skip documentation updates because "it\'s a small change" — small changes accumulate into drift');
+  lines.push(`- Do NOT update \`${archFile}\` without reading the existing section first — match the format`);
+  lines.push('');
+  lines.push('### Session Start');
+  lines.push('- At the start of every session, if `.agent-guard/session-context.md` exists, read it before making any code changes. It contains a summary of recent commits, what documentation was updated, and patterns to be aware of.');
+  lines.push('- Do NOT edit `.agent-guard/session-context.md` — it is auto-generated on every commit.');
+
+  return lines.join('\n');
+}
+
+/**
+ * Regenerate standing instructions in all agent config files.
+ * Finds the marker, replaces everything from marker to EOF.
+ */
+function refreshStandingInstructions(cfg, projectRoot, results) {
+  const MARKER = '## Documentation Maintenance — Standing Instructions';
+  const newInstructions = generateStandingInstructionsCJS(cfg);
+  const configFiles = [
+    cfg.agentConfigFile,
+    ...(cfg.additionalAgentConfigs || []),
+  ].filter(Boolean);
+
+  for (const relPath of configFiles) {
+    const fullPath = path.join(projectRoot, relPath);
+    if (!fs.existsSync(fullPath)) continue;
+
+    const existing = fs.readFileSync(fullPath, 'utf8');
+    const markerIndex = existing.indexOf(MARKER);
+    if (markerIndex === -1) continue; // no marker — don't touch
+
+    const updated = existing.slice(0, markerIndex).trimEnd() + '\n\n' + newInstructions + '\n';
+    if (updated === existing) continue; // no change
+
+    fs.writeFileSync(fullPath, updated, 'utf8');
+    try {
+      execSync(`git add "${relPath}"`, { cwd: projectRoot, stdio: 'pipe' });
+    } catch { /* non-fatal */ }
+    results.push({ file: relPath, action: 'standing instructions refreshed' });
+    if (verbose) stderr(`  Refreshed standing instructions: ${relPath}\n`);
+  }
+}
+
+// ── Session Context Generator ───────────────────────────────────────────────
+
+/**
+ * Generate .agent-guard/session-context.md content.
+ * Called from pre-commit hook so git add works on the result.
+ */
+function generateSessionContextForHook(cfg, projectRoot, lastRun) {
+  const projName = cfg.projectName || 'Project';
+  const lines = [];
+
+  lines.push(`# Session Context — ${projName}`);
+  lines.push('> Auto-generated by agent-guard. Do not edit manually.');
+  lines.push(`> Last updated: ${new Date().toISOString()}`);
+  lines.push('');
+
+  // Recent commits from git log
+  lines.push('## Recent Commits');
+  lines.push('');
+  lines.push('| Hash | Date | Message | Categories | Docs Updated |');
+  lines.push('|------|------|---------|------------|--------------|');
+
+  try {
+    const gitLog = execSync('git log --oneline -10 --format="%h|%aI|%s"', {
+      cwd: projectRoot, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim().split('\n').filter(Boolean);
+
+    let auditByHash = {};
+    try {
+      const { readLog, getLogPaths } = require('./_audit-log.cjs');
+      const { logFile } = getLogPaths(projectRoot);
+      const auditEntries = readLog(logFile);
+      for (const e of auditEntries) {
+        if (e.commitHash) auditByHash[e.commitHash] = e;
+      }
+    } catch { /* audit log unavailable */ }
+
+    for (const entry of gitLog) {
+      const parts = entry.split('|');
+      const hash = parts[0] || '';
+      const date = parts[1] ? parts[1].slice(0, 10) : '';
+      const msg = parts.slice(2).join('|');
+      const audit = auditByHash[hash];
+
+      let cats = '';
+      if (audit && audit.mode && audit.mode !== 'skip') {
+        if (audit.categories) {
+          cats = Array.isArray(audit.categories)
+            ? audit.categories.join(', ')
+            : Object.keys(audit.categories).join(', ');
+        }
+      }
+
+      let docs = '';
+      if (audit?.narrativeResults?.length > 0) {
+        docs = audit.narrativeResults.map(r => r.file).join(', ');
+      }
+
+      lines.push(`| ${hash} | ${date} | ${msg.slice(0, 60)} | ${cats || '—'} | ${docs || '—'} |`);
+    }
+  } catch {
+    lines.push('| (unable to read git log) | | | | |');
+  }
+
+  lines.push('');
+
+  // Last hook run details
+  if (lastRun) {
+    lines.push('## Last Hook Run');
+    lines.push('');
+    if (lastRun.mode) lines.push(`**Mode:** ${lastRun.mode}`);
+    if (lastRun.stagedFiles?.length > 0) {
+      lines.push(`**Files staged:** ${lastRun.stagedFiles.join(', ')}`);
+    }
+    if (lastRun.matches && Object.keys(lastRun.matches).length > 0) {
+      const catSummary = Object.entries(lastRun.matches)
+        .map(([id, files]) => `${id} (${files.length})`)
+        .join(', ');
+      lines.push(`**Categories triggered:** ${catSummary}`);
+    }
+    if (lastRun.autoFixResults?.length > 0) {
+      lines.push('**Auto-fix results:**');
+      for (const r of lastRun.autoFixResults) {
+        lines.push(`- ${r.file}: ${r.action}`);
+      }
+    }
+    if (lastRun.engineUsed) lines.push(`**Engine:** ${lastRun.engineUsed}`);
+    if (lastRun.engineError) lines.push(`**Engine error:** ${lastRun.engineError}`);
+    lines.push('');
+  }
+
+  // Documentation health
+  lines.push('## Documentation Health');
+  lines.push('');
+  lines.push(`- **Hook mode:** ${cfg.autoFix?.hook?.mode || 'advisory'}`);
+  lines.push(`- **Engine:** ${cfg.autoFix?.narrative?.engine || 'claude-code'}`);
+
+  const stalePath = path.join(projectRoot, '.agent-guard', '.docs-stale');
+  if (fs.existsSync(stalePath)) {
+    try {
+      const stale = JSON.parse(fs.readFileSync(stalePath, 'utf8'));
+      lines.push(`- **Stale marker:** YES — ${stale.reason} (${stale.timestamp})`);
+    } catch {
+      lines.push('- **Stale marker:** YES (unreadable)');
+    }
+  } else {
+    lines.push('- **Stale marker:** none');
+  }
+
+  const catList = (cfg.categories || []).map(c => `${c.id} (${c.filePattern})`).join(', ');
+  if (catList) lines.push(`- **Categories:** ${catList}`);
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+/**
+ * Write session context and stage it. Best-effort — never blocks commits.
+ * @param {object} runData - { stagedFiles, matches, autoFixResults, engineUsed, engineError, mode }
+ */
+function writeSessionContext(runData) {
+  try {
+    const sessionContext = generateSessionContextForHook(config, PROJECT_ROOT, runData);
+    const scDir = path.join(PROJECT_ROOT, '.agent-guard');
+    if (!fs.existsSync(scDir)) fs.mkdirSync(scDir, { recursive: true });
+    fs.writeFileSync(path.join(scDir, 'session-context.md'), sessionContext, 'utf8');
+    execSync('git add .agent-guard/session-context.md', { cwd: PROJECT_ROOT, stdio: 'pipe' });
+    if (verbose) stderr('  Updated: .agent-guard/session-context.md\n');
+  } catch { /* best effort — never block commits for session context */ }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -282,6 +513,7 @@ async function main() {
   ].map(t => t.replace(/\\/g, '/'));
   const narrativeTargetsStaged = narrativeDocTargets.some(t => stagedFiles.includes(t));
   if (narrativeTargetsStaged) {
+    writeSessionContext({ stagedFiles, matches, autoFixResults: [], engineUsed: null, engineError: null, mode: 'docs-included' });
     stderr('\n✓ Doc-relevant changes detected — docs also updated. Nice!\n\n');
     return 0;
   }
@@ -297,6 +529,7 @@ async function main() {
         result: 'stale',
         categories: Object.keys(matches)
       });
+      writeSessionContext({ stagedFiles, matches, autoFixResults: [], engineUsed: null, engineError: null, mode: 'check-only' });
       return effectiveBlockingMode ? 1 : 0;
     }
     return 0; // docs are up to date
@@ -320,9 +553,11 @@ async function main() {
         result: 'blocked',
         categories: Object.keys(matches)
       });
+      writeSessionContext({ stagedFiles, matches, autoFixResults: [], engineUsed: null, engineError: null, mode: 'claude-code-blocked' });
       return 1; // Always exit 1 — Claude Code must update docs itself
     }
     // Docs are current — let the commit through silently
+    writeSessionContext({ stagedFiles, matches, autoFixResults: [], engineUsed: null, engineError: null, mode: 'claude-code-pass' });
     return 0;
   }
 
@@ -536,6 +771,11 @@ async function main() {
     }
   }
 
+  // Step 2b: Refresh standing instructions in agent config files
+  if (autoFixRan && !engineError) {
+    refreshStandingInstructions(config, PROJECT_ROOT, autoFixResults);
+  }
+
   // Step 3: Output results
   if (autoFixResults.length > 0 && !engineError) {
     printAutoFixSummary(autoFixResults);
@@ -589,7 +829,13 @@ async function main() {
     narrativeResults: autoFixResults.filter(r => r.action.includes('narrative')),
   });
 
-  // Step 5: Determine exit code
+  // Step 5: Generate session context
+  writeSessionContext({
+    stagedFiles, matches, autoFixResults, engineUsed, engineError,
+    mode: autoFixRan ? 'auto-fix' : (Object.keys(matches).length > 0 ? 'prompt' : 'skip'),
+  });
+
+  // Step 6: Determine exit code
   if (!effectiveBlockingMode) {
     return 0; // Advisory mode — never block
   }

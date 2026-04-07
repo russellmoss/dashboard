@@ -828,6 +828,19 @@ Two related pages for SGA performance tracking:
 
 ### SGA Hub Tabs
 
+Six tabs defined in `src/components/sga-hub/SGAHubTabs.tsx` as `SGAHubTab` type:
+`leaderboard | weekly-goals | closed-lost | quarterly-progress | activity | outreach-effectiveness`
+
+Tab orchestrator: `src/app/dashboard/sga-hub/SGAHubContent.tsx` — renders each tab's content component conditionally. Activity and Outreach Effectiveness embed standalone content components with `embedded` prop.
+
+#### 0. Leaderboard Tab
+
+Default tab. Tracks SGA performance rankings across key metrics (MQLs, SQLs, SQOs, calls, leads sourced/contacted) for a selected time period.
+
+**Files**:
+- Component: `src/components/sga-hub/SGAHubLeaderboard.tsx`
+- API: `GET /api/sga-hub/leaderboard`, `GET /api/sga-hub/leaderboard-sga-options`
+
 #### 1. Weekly Goals vs. Actuals Tab
 
 Tracks 7 weekly activity metrics against goals with scorecard + chart views:
@@ -1027,6 +1040,41 @@ Metric Click → Drill-Down Modal → Row Click → Record Detail Modal
 ```sql
 DATE(DATE_TRUNC(Date_Became_SQO__c, WEEK(MONDAY))) as week_start
 ```
+
+#### 5. Activity Tab
+
+Embeds the standalone SGA Activity feature (`SGAActivityContent.tsx`) with `embedded` prop. Provides detailed call/SMS/email/LinkedIn activity analytics with period-over-period comparison, distribution charts, and drill-down into individual records. See Section 17 for full API and query details.
+
+**Data Sources**: `Tableau_Views.vw_sga_activity_performance` (activity records) + `SavvyGTMData.User` (SGA list)
+
+**Key view field**: `task_activity_date` uses `COALESCE(ActivityDate, DATE(CreatedDate, 'America/New_York'))` — aligns with SFDC's DUE_DATE field so dashboard counts match what SGAs see in Salesforce reports. Updated 2026-04-06; prior version used `DATE(CreatedDate)` which caused ~22% date mismatches for lemlist campaign tasks.
+
+**SGA filter**: `INNER JOIN User WHERE IsSGA__c = TRUE AND IsActive = TRUE` plus name exclusion list. Do NOT use `SGA_IsActive` from the view (can be NULL for valid records due to the view's join path through `vw_funnel_master` -> `User`).
+
+**Metric classification** — shared `METRIC_CASE_EXPRESSION` constant in `src/lib/queries/sga-activity.ts`, used identically by scorecards (`getActivityTotals`), scorecard drilldown (`getActivityRecords`), breakdown table (`getActivityBreakdownAggregation`), breakdown drilldown, and XLSX export. 6 types:
+- **Cold_Call**: `activity_channel_group = 'Call' AND is_true_cold_call = 1`
+- **Scheduled_Call**: `activity_channel_group = 'Call' AND is_true_cold_call = 0 AND direction = 'Outbound' AND subject NOT LIKE '%[lemlist]%'`
+- **Outbound_SMS**: `activity_channel_group = 'SMS' AND direction = 'Outbound'`
+- **LinkedIn**: `activity_channel_group = 'LinkedIn'`
+- **Manual_Email**: `activity_channel_group = 'Email' AND is_engagement_tracking = 0 AND is_marketing_activity = 0`
+- **Email_Engagement**: `activity_channel_group = 'Email (Engagement)' OR (Email AND is_engagement_tracking = 1)`
+
+Records not matching any type fall to `ELSE NULL` and are excluded. Inbound SMS is not in the shared CASE (excluded from breakdown) but counted separately in scorecards via `activity_channel_group = 'SMS' AND direction = 'Inbound'`.
+
+**Filtering consistency**: All activity queries use `ACTIVE_SGAS_CTE` (INNER JOIN on User table with `IsSGA__c = TRUE`, `IsActive = TRUE`, plus name exclusion list) and `COALESCE(is_marketing_activity, 0) = 0`. Do NOT use `SGA_IsActive` from the view or `activity_channel_group != 'Marketing'`.
+
+**View SQL file**: `views/vw_sga_activity_performance_v2.sql` — local source for the BigQuery view `Tableau_Views.vw_sga_activity_performance` (no v2 suffix in BQ). Deploy via `CREATE OR REPLACE VIEW` in BigQuery.
+
+**XLSX export**: Uses `exceljs` (added as dependency) to generate audit-trail workbooks with COUNTIFS formulae and named ranges (`Audit_SGA`, `Audit_Week`, `Audit_Metric`, `Audit_TaskID`) referencing a raw task records sheet. Generator script: `scripts/generate-activity-report.cjs`.
+
+**Files**:
+- Content: `src/app/dashboard/sga-activity/SGAActivityContent.tsx`
+- Filters: `src/components/sga-activity/ActivityFilters.tsx` (immediate-apply pattern, no Apply button)
+- Drilldown: `src/components/sga-activity/ActivityDrillDownModal.tsx`
+- Types: `src/types/sga-activity.ts`
+- Queries: `src/lib/queries/sga-activity.ts`
+- API Routes: `src/app/api/sga-activity/{dashboard,activity-records,scheduled-calls,filters}/route.ts`
+- Feature spec: `docs/individual_SGA_activity_breakdown.md` (planned Activity Breakdown tables with trailing average comparison + drilldowns)
 
 #### 6. Outreach Effectiveness Tab
 
@@ -1665,30 +1713,30 @@ model GameScore {
 
 ### Overview
 
-SGA Activity provides detailed call and activity analytics for SGA performance management. It supports period-over-period (A/B) comparison and drill-down views into individual records.
+SGA Activity provides detailed call and activity analytics for SGA performance management. It supports period-over-period (A/B) comparison and drill-down views into individual records. Embedded in the SGA Hub as the Activity tab (see Section 9, Tab 5).
 
 | Feature | Detail |
 |---------|--------|
 | Access | admin, manager, sga, sgm, revops_admin |
 | SGA auto-filter | SGA role automatically scoped to own name |
 | Period comparison | Period A vs Period B supported on dashboard endpoint |
-| Data source | BigQuery (7 queries run in parallel) |
+| Data source | BigQuery `vw_sga_activity_performance` (7 queries run in parallel) |
+| View SQL | `views/vw_sga_activity_performance_v2.sql` (deploys as `vw_sga_activity_performance` in BQ) |
+| Date field | `task_activity_date` = `COALESCE(ActivityDate, DATE(CreatedDate, 'America/New_York'))` |
 
 ### Dashboard Parallel Queries
 
-`POST /api/sga-activity/dashboard` fetches 7 data sources simultaneously:
+`POST /api/sga-activity/dashboard` fetches 5 data sources simultaneously:
 
 | Source | Description |
 |--------|-------------|
 | `initialCalls` | Initial call counts by date/SGA |
 | `qualificationCalls` | Qualification call counts |
-| `activityDistribution` | Activity distribution by type |
 | `smsResponseRate` | SMS response rate metrics |
 | `callAnswerRate` | Call answer rate metrics |
-| `activityBreakdown` | Detailed activity breakdown |
-| `totals` | Aggregate totals for the period |
+| `totals` | Aggregate totals (7 scorecards via `METRIC_CASE_EXPRESSION`) |
 
-Period A/B comparison is achieved by passing two filter sets in the request body; both are queried in the same parallel batch.
+The Activity Breakdown table is fetched separately via `POST /api/sga-activity/breakdown` with its own `trailingWeeks` parameter (4/6/8/12).
 
 ### Drill-Down Views
 
@@ -1705,10 +1753,13 @@ Two endpoints provide paginated record-level detail:
 
 | Method | Route | Auth | Description |
 |--------|-------|------|-------------|
-| POST | `/api/sga-activity/dashboard` | admin/manager/sga/sgm/revops_admin | Dashboard metrics (7 parallel BigQuery queries); Period A/B comparison |
+| POST | `/api/sga-activity/dashboard` | admin/manager/sga/sgm/revops_admin | Dashboard metrics (5 parallel BigQuery queries) |
 | GET | `/api/sga-activity/filters` | admin/manager/sga/sgm/revops_admin | Filter options (sga role sees only own name in sgas list) |
-| POST | `/api/sga-activity/activity-records` | admin/manager/sga/sgm/revops_admin | Paginated activity record drill-down |
+| POST | `/api/sga-activity/activity-records` | admin/manager/sga/sgm/revops_admin | Paginated scorecard drill-down (uses `METRIC_CASE_EXPRESSION`) |
 | POST | `/api/sga-activity/scheduled-calls` | admin/manager/sga/sgm/revops_admin | Scheduled call drill-down |
+| POST | `/api/sga-activity/breakdown` | admin/manager/sga/sgm/revops_admin | Activity Breakdown aggregation (trailing weeks) |
+| POST | `/api/sga-activity/breakdown-drilldown` | admin/manager/sga/sgm/revops_admin | Breakdown cell drill-down (SGA + metric + week) |
+| POST | `/api/sga-activity/export-breakdown` | admin/manager/sga/sgm/revops_admin | XLSX export (Activity by Metric + Summary + Audit Trail) |
 
 ---
 

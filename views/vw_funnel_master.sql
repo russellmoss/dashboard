@@ -223,8 +223,16 @@ Combined AS (
     o.Stage_Entered_Joined__c,
     o.Earliest_Anticipated_Start_Date__c,
     l.lead_closed_date,
-    CASE WHEN l.stage_entered_contacting__c IS NOT NULL THEN 1 ELSE 0 END AS is_contacted,
-    CASE WHEN l.mql_stage_entered_ts IS NOT NULL THEN 1 ELSE 0 END AS is_mql,
+    -- Recycle-aware: if stage_entered_new__c is AFTER the milestone timestamp,
+    -- the lead was recycled and the old milestone is stale (prior lifecycle).
+    CASE WHEN l.stage_entered_contacting__c IS NOT NULL
+      AND (l.stage_entered_new__c IS NULL
+           OR l.stage_entered_contacting__c >= l.stage_entered_new__c)
+      THEN 1 ELSE 0 END AS is_contacted,
+    CASE WHEN l.mql_stage_entered_ts IS NOT NULL
+      AND (l.stage_entered_new__c IS NULL
+           OR l.mql_stage_entered_ts >= l.stage_entered_new__c)
+      THEN 1 ELSE 0 END AS is_mql,
     CASE WHEN l.IsConverted IS TRUE AND o.Full_Opportunity_ID__c IS NOT NULL THEN 1 ELSE 0 END AS is_sql,
     CASE WHEN LOWER(o.SQO_raw) = 'yes' THEN 1 ELSE 0 END AS is_sqo,
     -- FIX: Exclude Closed Lost from is_joined (advisors who joined then left should not count)
@@ -338,10 +346,15 @@ Final AS (
       ELSE 'Tier 4 (> $150M)'
     END AS aum_tier,
     -- FIX: Closed Lost takes priority over join date in Conversion_Status
+    -- Recycle-aware: stale Disposition__c from prior lifecycle should not mark as Closed
     CASE
       WHEN StageName = 'Closed Lost' THEN 'Closed'
       WHEN advisor_join_date__c IS NOT NULL OR StageName = 'Joined' THEN 'Joined'
-      WHEN Disposition__c IS NOT NULL THEN 'Closed'
+      WHEN Disposition__c IS NOT NULL
+        AND (lead_closed_date IS NULL
+             OR stage_entered_new__c IS NULL
+             OR lead_closed_date >= stage_entered_new__c)
+        THEN 'Closed'
       ELSE 'Open'
     END AS Conversion_Status,
     -- FIX: Closed Lost takes priority over join date in TOF_Stage

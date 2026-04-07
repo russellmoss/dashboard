@@ -21,7 +21,7 @@ Do NOT ask more than necessary — infer what you can from the request.
 Spawn an agent team with 3 teammates:
 
 ### Teammate 1: Code Inspector (use code-inspector agent)
-Investigate:
+First read `.claude/bq-views.md` for the view→consumer mapping. Then investigate:
 - What TypeScript types need new fields? (DetailRecord, DrillDownRecordBase, raw BQ types, and any others)
 - What query functions return records that will need changes? List ALL of them — missing one causes build failure
 - What export paths exist and which need manual column mapping updates vs auto-include?
@@ -30,7 +30,7 @@ Investigate:
 - Save findings to `code-inspector-findings.md` in the project root
 
 ### Teammate 2: Data Verifier (use data-verifier agent)
-Investigate using MCP access to BigQuery:
+First read all four `.claude/bq-*.md` files for pre-verified schema context. Then investigate using MCP access to BigQuery:
 - Do the source fields exist in the relevant BigQuery view(s)? If not, what view changes are needed?
 - What are the population rates, value distributions, and data quality for each field?
 - Are there edge cases that will affect CSV export? (newlines, special chars, long text, encoding)
@@ -39,7 +39,7 @@ Investigate using MCP access to BigQuery:
 - Save findings to `data-verifier-findings.md` in the project root
 
 ### Teammate 3: Pattern Finder (use pattern-finder agent)
-Investigate:
+First read `.claude/bq-patterns.md` for established query patterns. Then investigate:
 - How do existing similar fields flow end-to-end from BigQuery to CSV export?
 - What's the exact transform pattern in each query file that needs changes?
 - Are there inconsistencies between query files we should be aware of?

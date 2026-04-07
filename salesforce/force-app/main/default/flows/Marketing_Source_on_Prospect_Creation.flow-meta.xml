@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>65.0</apiVersion>
+    <assignments>
+        <description>writes the formula value (containing the mapped source) to the prospects &quot;Final Source Field&quot;</description>
+        <name>Assign_Final_Source</name>
+        <label>Assign Final Source</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignmentItems>
+            <assignToReference>$Record.LeadSource</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>UTM_SOURCE_Formula</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>$Record.Final_Source__c</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>UTM_SOURCE_Formula</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>$Record.utm_campaign__c</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>$Record.UTM_Campaign_Last__c</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>$Record.utm_source__c</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>$Record.UTM_Source_Last__c</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>$Record.utm_medium__c</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>$Record.UTM_Medium_Last__c</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>$Record.utm_content__c</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>$Record.UTM_Content_Last__c</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>$Record.utm_term__c</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>$Record.UTM_Term_Last__c</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>$Record.Campaign__c</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Get_Campaign_Nameq.Id</elementReference>
+            </value>
+        </assignmentItems>
+    </assignments>
+    <assignments>
+        <name>Copy_Original_Source_into_Final_Source</name>
+        <label>Copy Original Source into Final Source</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignmentItems>
+            <assignToReference>$Record.Final_Source__c</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>$Record.LeadSource</elementReference>
+            </value>
+        </assignmentItems>
+    </assignments>
+    <decisions>
+        <name>Has_Original_Source</name>
+        <label>Has Original Source</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <defaultConnectorLabel>Default Outcome</defaultConnectorLabel>
+        <rules>
+            <name>Original_Source_Specified_on_Creation</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>$Record.LeadSource</leftValueReference>
+                <operator>IsNull</operator>
+                <rightValue>
+                    <booleanValue>false</booleanValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Copy_Original_Source_into_Final_Source</targetReference>
+            </connector>
+            <label>Original Source Specified on Creation</label>
+        </rules>
+        <rules>
+            <name>No_Original_Source</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>$Record.LeadSource</leftValueReference>
+                <operator>IsNull</operator>
+                <rightValue>
+                    <booleanValue>true</booleanValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Get_Campaign_Nameq</targetReference>
+            </connector>
+            <label>No Original Source Defined</label>
+        </rules>
+    </decisions>
+    <description>Adds Original Source and Final Source to the prospect based on the utm_source_last__c it came with.</description>
+    <environments>Default</environments>
+    <formulas>
+        <description>Formula that takes the utm_source_last and maps them to a source channel.</description>
+        <name>UTM_SOURCE_Formula</name>
+        <dataType>String</dataType>
+        <expression>/* Final Source mapping from utm_source_last__c */
+
+CASE(
+  TRIM(LOWER({!$Record.UTM_Source_Last__c})),
+
+  /* Organic */
+  &quot;blog&quot;,               &quot;Blog&quot;,
+  &quot;search&quot;,             &quot;Search&quot;,
+  &quot;org_linkedin&quot;,       &quot;LinkedIn Savvy&quot;,
+  &quot;soc_linkedin&quot;,       &quot;LinkedIn Social&quot;,
+
+  /* Direct Traffic */
+  &quot;&quot;,                   &quot;Direct Traffic&quot;,
+  &quot;direct&quot;,             &quot;Direct Traffic&quot;,
+  &quot;directtraffic&quot;,      &quot;Direct Traffic&quot;,
+
+  /* Paid Media */
+  &quot;google&quot;,             &quot;Google Ads&quot;,
+  &quot;meta&quot;,               &quot;Meta&quot;,
+  &quot;linkedin&quot;,           &quot;LinkedIn Ads&quot;,
+
+  /* Events */
+  &quot;events&quot;,             &quot;Events&quot;,
+
+  /* Direct Mail */
+  &quot;directmail&quot;,         &quot;Direct Mail&quot;,
+
+  /* Webinar */
+  &quot;webinar&quot;,            &quot;Webinar&quot;,
+
+  /* Self Sourced */
+  &quot;selfsourced_li&quot;,     &quot;LinkedIn (Self Sourced)&quot;,
+
+  /* Provided List */
+  &quot;pl_scoring&quot;,         &quot;Provided List (Lead Scoring)&quot;,
+  &quot;pl_marketing&quot;,       &quot;Provided List (Marketing)&quot;,
+
+  /* Re-Engagement */
+  &quot;re_engagement&quot;,      &quot;Re-Engagement&quot;,
+
+  /* Recruitment Firm */
+  &quot;partnerships&quot;,       &quot;Recruitment Firm&quot;,
+
+  /* Advisor Referral */
+  &quot;adv_referral&quot;,       &quot;Advisor Referral&quot;,
+
+  /* Default */
+  &quot;Other&quot;
+)</expression>
+    </formulas>
+    <interviewLabel>Marketing: Source on Prospect Creation {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>Marketing: Source on Prospect Creation</label>
+    <processMetadataValues>
+        <name>BuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>CanvasMode</name>
+        <value>
+            <stringValue>AUTO_LAYOUT_CANVAS</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>OriginBuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processType>AutoLaunchedFlow</processType>
+    <recordLookups>
+        <name>Get_Campaign_Nameq</name>
+        <label>Get Campaign Name</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
+        <connector>
+            <targetReference>Assign_Final_Source</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Campaign_UTM__c</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>$Record.UTM_Campaign_Last__c</elementReference>
+            </value>
+        </filters>
+        <filters>
+            <field>Campaign_UTM__c</field>
+            <operator>IsNull</operator>
+            <value>
+                <booleanValue>false</booleanValue>
+            </value>
+        </filters>
+        <getFirstRecordOnly>true</getFirstRecordOnly>
+        <object>Campaign</object>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </recordLookups>
+    <start>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Has_Original_Source</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>LeadSource</field>
+            <operator>IsNull</operator>
+            <value>
+                <booleanValue>true</booleanValue>
+            </value>
+        </filters>
+        <object>Lead</object>
+        <recordTriggerType>Create</recordTriggerType>
+        <triggerType>RecordBeforeSave</triggerType>
+    </start>
+    <status>Active</status>
+    <variables>
+        <name>VariableCheck</name>
+        <dataType>String</dataType>
+        <isCollection>false</isCollection>
+        <isInput>false</isInput>
+        <isOutput>false</isOutput>
+    </variables>
+</Flow>

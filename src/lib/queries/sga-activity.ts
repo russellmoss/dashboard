@@ -5,19 +5,55 @@ import {
   SGAActivityFilters,
   ScheduledCallsSummary,
   ScheduledCallRecord,
-  ActivityDistribution,
   SMSResponseRate,
   CallAnswerRate,
-  ActivityBreakdown,
   ActivityRecord,
   ActivityChannel,
   DayCount,
   SGACallCount,
   SGADayCount,
+  ActivityBreakdownRow,
+  ActivityBreakdownWeekBounds,
+  TrailingWeeksOption,
+  ActivityBreakdownDrillDownRecord,
+  ActivityBreakdownAuditRow,
 } from '@/types/sga-activity';
 
 const ACTIVITY_VIEW = 'savvy-gtm-analytics.Tableau_Views.vw_sga_activity_performance';
 const FUNNEL_VIEW = 'savvy-gtm-analytics.Tableau_Views.vw_funnel_master';
+
+// Shared metric classification CASE — must be identical in aggregation, drilldown, and export
+const METRIC_CASE_EXPRESSION = `
+  CASE
+    WHEN a.activity_channel_group = 'Call' AND a.is_true_cold_call = 1 THEN 'Cold_Call'
+    WHEN a.activity_channel_group = 'Call' AND COALESCE(a.is_true_cold_call, 0) = 0 AND a.direction = 'Outbound' AND LOWER(COALESCE(a.task_subject, '')) NOT LIKE '%[lemlist]%' THEN 'Scheduled_Call'
+    WHEN a.activity_channel_group = 'SMS' AND a.direction = 'Outbound' THEN 'Outbound_SMS'
+    WHEN a.activity_channel_group = 'LinkedIn' THEN 'LinkedIn'
+    WHEN a.activity_channel_group = 'Email' AND COALESCE(a.is_engagement_tracking, 0) = 0 AND COALESCE(a.is_marketing_activity, 0) = 0 THEN 'Manual_Email'
+    WHEN a.activity_channel_group = 'Email (Engagement)' OR (a.activity_channel_group = 'Email' AND a.is_engagement_tracking = 1) THEN 'Email_Engagement'
+    ELSE NULL
+  END`;
+
+const ACTIVE_SGAS_CTE = `
+  active_sgas AS (
+    SELECT TRIM(u.Name) as sga_name
+    FROM \`savvy-gtm-analytics.SavvyGTMData.User\` u
+    WHERE u.IsSGA__c = TRUE AND u.IsActive = TRUE
+      AND u.Name NOT IN (
+        'Anett Diaz', 'Ariana Butler', 'Bre McDaniel', 'Bryan Belville',
+        'GinaRose Galli', 'Jacqueline Tully', 'Jed Entin', 'Russell Moss',
+        'Savvy Marketing', 'Savvy Operations', 'Lauren George'
+      )
+  )`;
+
+const WEEK_BOUNDS_CTE = `
+  week_bounds AS (
+    SELECT
+      DATE_TRUNC(CURRENT_DATE('America/New_York'), WEEK(MONDAY)) AS this_week_start,
+      DATE_ADD(DATE_TRUNC(CURRENT_DATE('America/New_York'), WEEK(MONDAY)), INTERVAL 6 DAY) AS this_week_end,
+      DATE_SUB(DATE_TRUNC(CURRENT_DATE('America/New_York'), WEEK(MONDAY)), INTERVAL 7 DAY) AS last_week_start,
+      DATE_SUB(DATE_TRUNC(CURRENT_DATE('America/New_York'), WEEK(MONDAY)), INTERVAL 1 DAY) AS last_week_end
+  )`;
 
 // ============================================
 // HELPER: Get Week Boundaries
@@ -582,7 +618,7 @@ export async function getScheduledCallRecords(
 
 export async function getActivityDistribution(
   filters: SGAActivityFilters
-): Promise<ActivityDistribution[]> {
+): Promise<any[]> {
   // Use Period A/B if set, otherwise use main filters (handled by API route)
   const currentRange = getDateRange(
     filters.dateRangeType,
@@ -811,8 +847,8 @@ function getDayOrderIndex(dayOfWeek: number): number {
   return index === -1 ? 999 : index; // Put unmapped days at the end
 }
 
-function processActivityDistributionResults(rows: any[]): ActivityDistribution[] {
-  const channelMap = new Map<string, ActivityDistribution>();
+function processActivityDistributionResults(rows: any[]): any[] {
+  const channelMap = new Map<string, any>();
   
   for (const row of rows) {
     const channel = String(row.channel || '') as ActivityChannel;
@@ -871,9 +907,9 @@ function processActivityDistributionResults(rows: any[]): ActivityDistribution[]
   // Sort each distribution's arrays by DAY_ORDER to ensure column alignment
   const distributions = Array.from(channelMap.values());
   for (const dist of distributions) {
-    dist.currentPeriod.sort((a, b) => getDayOrderIndex(a.dayOfWeek) - getDayOrderIndex(b.dayOfWeek));
-    dist.comparisonPeriod.sort((a, b) => getDayOrderIndex(a.dayOfWeek) - getDayOrderIndex(b.dayOfWeek));
-    dist.variance.sort((a, b) => getDayOrderIndex(a.dayOfWeek) - getDayOrderIndex(b.dayOfWeek));
+    dist.currentPeriod.sort((a: any, b: any) => getDayOrderIndex(a.dayOfWeek) - getDayOrderIndex(b.dayOfWeek));
+    dist.comparisonPeriod.sort((a: any, b: any) => getDayOrderIndex(a.dayOfWeek) - getDayOrderIndex(b.dayOfWeek));
+    dist.variance.sort((a: any, b: any) => getDayOrderIndex(a.dayOfWeek) - getDayOrderIndex(b.dayOfWeek));
   }
   
   return distributions;
@@ -891,46 +927,43 @@ export async function getSMSResponseRate(
     filters.startDate,
     filters.endDate
   );
-  
-  const automatedFilter = getAutomatedFilter(filters.includeAutomated);
-  const sgaFilter = filters.sga 
-    ? `AND task_executor_name = @sga` 
+
+  const sgaFilter = filters.sga
+    ? `AND a.task_executor_name = @sga`
     : '';
-  
+
   const query = `
     -- SMS Response Rate: Count distinct people texted in the date range,
     -- and of those people, how many responded (also within the same date range)
-    WITH outgoing AS (
-      -- People who received outbound SMS in the selected date range
-      SELECT DISTINCT task_who_id as lead_id
-      FROM \`${ACTIVITY_VIEW}\`
-      WHERE activity_channel_group = 'SMS'
-        AND direction = 'Outbound'
-        AND task_created_date_est >= @startDate
-        AND task_created_date_est <= @endDate
-        AND task_created_date_est <= CURRENT_DATE('America/New_York')  -- Exclude future dates
-        AND task_who_id IS NOT NULL
-        AND SGA_IsActive = TRUE
-        ${automatedFilter}
+    WITH ${ACTIVE_SGAS_CTE},
+    outgoing AS (
+      SELECT DISTINCT a.task_who_id as lead_id
+      FROM \`${ACTIVITY_VIEW}\` a
+      INNER JOIN active_sgas s ON a.task_executor_name = s.sga_name
+      WHERE a.activity_channel_group = 'SMS'
+        AND a.direction = 'Outbound'
+        AND a.task_created_date_est >= @startDate
+        AND a.task_created_date_est <= @endDate
+        AND a.task_created_date_est <= CURRENT_DATE('America/New_York')
+        AND a.task_who_id IS NOT NULL
+        AND COALESCE(a.is_marketing_activity, 0) = 0
         ${sgaFilter}
     ),
     incoming AS (
-      -- People who sent inbound SMS in the selected date range
-      SELECT DISTINCT task_who_id as lead_id
-      FROM \`${ACTIVITY_VIEW}\`
-      WHERE activity_channel_group = 'SMS'
-        AND direction = 'Inbound'
-        AND task_created_date_est >= @startDate
-        AND task_created_date_est <= @endDate
-        AND task_created_date_est <= CURRENT_DATE('America/New_York')  -- Exclude future dates
-        AND task_who_id IS NOT NULL
-        AND SGA_IsActive = TRUE
-        ${automatedFilter}
+      SELECT DISTINCT a.task_who_id as lead_id
+      FROM \`${ACTIVITY_VIEW}\` a
+      INNER JOIN active_sgas s ON a.task_executor_name = s.sga_name
+      WHERE a.activity_channel_group = 'SMS'
+        AND a.direction = 'Inbound'
+        AND a.task_created_date_est >= @startDate
+        AND a.task_created_date_est <= @endDate
+        AND a.task_created_date_est <= CURRENT_DATE('America/New_York')
+        AND a.task_who_id IS NOT NULL
+        AND COALESCE(a.is_marketing_activity, 0) = 0
         ${sgaFilter}
     )
     SELECT
       COUNT(DISTINCT o.lead_id) as leads_texted,
-      -- Only count people who were texted (in outgoing) AND responded (in incoming)
       COUNT(DISTINCT CASE WHEN i.lead_id IS NOT NULL THEN o.lead_id END) as leads_responded,
       SAFE_DIVIDE(
         COUNT(DISTINCT CASE WHEN i.lead_id IS NOT NULL THEN o.lead_id END),
@@ -972,48 +1005,50 @@ export async function getCallAnswerRate(
     filters.startDate,
     filters.endDate
   );
-  
-  const sgaFilter = filters.sga 
-    ? `AND task_executor_name = @sga` 
+
+  const sgaFilter = filters.sga
+    ? `AND a.task_executor_name = @sga`
     : '';
-  
+
   // Build call type filter
   let callTypeFilter = '';
   switch (filters.callTypeFilter) {
     case 'cold_calls':
-      callTypeFilter = 'AND is_true_cold_call = 1';
+      callTypeFilter = 'AND a.is_true_cold_call = 1';
       break;
     case 'scheduled_calls':
-      callTypeFilter = 'AND is_true_cold_call = 0 AND direction = \'Outbound\'';
+      callTypeFilter = 'AND a.is_true_cold_call = 0 AND a.direction = \'Outbound\'';
       break;
     case 'all_outbound':
     default:
-      callTypeFilter = 'AND direction = \'Outbound\'';
+      callTypeFilter = 'AND a.direction = \'Outbound\'';
       break;
   }
-  
+
   const query = `
+    WITH ${ACTIVE_SGAS_CTE}
     SELECT
       COUNT(*) as total_calls,
       COUNTIF(
-        call_duration_seconds > 120
-        OR task_subject LIKE '%answered%'
+        a.call_duration_seconds > 120
+        OR a.task_subject LIKE '%answered%'
       ) as answered_calls,
       SAFE_DIVIDE(
         COUNTIF(
-          call_duration_seconds > 120
-          OR task_subject LIKE '%answered%'
+          a.call_duration_seconds > 120
+          OR a.task_subject LIKE '%answered%'
         ),
         COUNT(*)
       ) as answer_rate
-    FROM \`${ACTIVITY_VIEW}\`
-    WHERE activity_channel_group = 'Call'
+    FROM \`${ACTIVITY_VIEW}\` a
+    INNER JOIN active_sgas s ON a.task_executor_name = s.sga_name
+    WHERE a.activity_channel_group = 'Call'
       ${callTypeFilter}
-      AND task_created_date_est >= @startDate
-      AND task_created_date_est <= @endDate
-      AND task_subject NOT LIKE '%voicemail%'
-      AND task_subject NOT LIKE '%Left VM%'
-      AND SGA_IsActive = TRUE
+      AND a.task_created_date_est >= @startDate
+      AND a.task_created_date_est <= @endDate
+      AND a.task_subject NOT LIKE '%voicemail%'
+      AND a.task_subject NOT LIKE '%Left VM%'
+      AND COALESCE(a.is_marketing_activity, 0) = 0
       ${sgaFilter}
   `;
   
@@ -1043,7 +1078,7 @@ export async function getCallAnswerRate(
 
 export async function getActivityBreakdown(
   filters: SGAActivityFilters
-): Promise<ActivityBreakdown[]> {
+): Promise<any[]> {
   const range = getDateRange(
     filters.dateRangeType,
     filters.startDate,
@@ -1209,8 +1244,8 @@ export async function getActivityBreakdown(
   return processActivityBreakdownResults(rows);
 }
 
-function processActivityBreakdownResults(rows: any[]): ActivityBreakdown[] {
-  const channelMap = new Map<string, ActivityBreakdown>();
+function processActivityBreakdownResults(rows: any[]): any[] {
+  const channelMap = new Map<string, any>();
   
   for (const row of rows) {
     const channel = row.channel as ActivityChannel;
@@ -1250,243 +1285,90 @@ export async function getActivityRecords(
     filters.startDate,
     filters.endDate
   );
-  
-  const automatedFilter = getAutomatedFilter(filters.includeAutomated);
-  const sgaFilter = filters.sga 
-    ? `AND task_executor_name = @sga` 
+
+  const sgaFilter = filters.sga
+    ? `AND a.task_executor_name = @sga`
     : '';
-  
-  // Determine target channel for filtering (must be defined before SQL template)
-  // CRITICAL: This determines which channel to filter by in the drilldown
-  let targetChannel: ActivityChannel | undefined = undefined;
-  if (activityType && activityType.trim() !== '') {
-    const activityTypeMap: Record<string, ActivityChannel> = {
-      'cold_calls': 'Call',
-      'outbound_calls': 'Call',
-      'sms_outbound': 'SMS',
-      'sms_inbound': 'SMS',
-      'linkedin_messages': 'LinkedIn',
-      'emails_manual': 'Email',
-      'emails_engagement': 'Email (Engagement)',
-    };
-    targetChannel = activityTypeMap[activityType] || channel;
-  } else if (channel) {
-    targetChannel = channel;
+
+  // Map activityType to metric_type from shared METRIC_CASE_EXPRESSION
+  // Note: sms_inbound is not in METRIC_CASE (breakdown excludes it) — handled separately
+  const metricTypeMap: Record<string, string> = {
+    'cold_calls': 'Cold_Call',
+    'outbound_calls': 'Scheduled_Call',
+    'sms_outbound': 'Outbound_SMS',
+    'linkedin_messages': 'LinkedIn',
+    'emails_manual': 'Manual_Email',
+    'emails_engagement': 'Email_Engagement',
+  };
+
+  const isInboundSMS = activityType === 'sms_inbound';
+  let targetMetricType: string | undefined = undefined;
+  if (activityType && metricTypeMap[activityType]) {
+    targetMetricType = metricTypeMap[activityType];
   }
-  
-  // Debug: Log targetChannel to help diagnose filtering issues
-  if (process.env.NODE_ENV === 'development') {
-    console.log('[getActivityRecords] targetChannel:', targetChannel, 'activityType:', activityType, 'channel:', channel);
-  }
-  
-  // Build activity type filter - only apply direction/cold_call filters early
-  // Channel filtering happens AFTER classification to match getActivityBreakdown logic
-  let activityTypeFilter = '';
-  if (activityType === 'cold_calls') {
-    activityTypeFilter = ` AND is_true_cold_call = 1`;
-  } else if (activityType === 'outbound_calls') {
-    activityTypeFilter = ` AND direction = 'Outbound'`;
-  } else if (activityType === 'sms_outbound') {
-    activityTypeFilter = ` AND direction = 'Outbound'`;
-  } else if (activityType === 'sms_inbound') {
-    activityTypeFilter = ` AND direction = 'Inbound'`;
-  }
-  
+
+  const metricFilter = isInboundSMS
+    ? `AND activity_channel_group = 'SMS' AND direction = 'Inbound'`
+    : targetMetricType
+      ? `AND metric_type = @metricType`
+      : `AND metric_type IS NOT NULL`;
+
   const dayFilter = (dayOfWeek !== undefined && dayOfWeek !== null)
-    ? `AND EXTRACT(DAYOFWEEK FROM task_created_date_est) = @dayOfWeek` 
+    ? `AND EXTRACT(DAYOFWEEK FROM a.task_created_date_est) = @dayOfWeek`
     : '';
-  
-  // Get task descriptions for classification override
+
+  // Use shared METRIC_CASE_EXPRESSION — identical to breakdown table and scorecards
   const query = `
-    WITH view_data AS (
-      SELECT DISTINCT
-        task_id,
-        task_created_date_utc,
-        task_created_date_est,
-        task_subject,
-        task_subtype,
-        activity_channel_group,
-        direction,
-        task_executor_name,
-        Prospect_Name,
-        Opp_Name,
-        Full_prospect_id__c,
-        Full_Opportunity_ID__c,
-        Original_source,
-        Channel_Grouping_Name,
-        call_duration_seconds,
-        is_true_cold_call
-      FROM \`${ACTIVITY_VIEW}\`
-      WHERE task_created_date_est >= @startDate
-        AND task_created_date_est <= @endDate
-        AND SGA_IsActive = TRUE
-        ${automatedFilter}
-        ${sgaFilter}
-        ${activityTypeFilter}
-        ${dayFilter}
-    ),
-    task_descriptions AS (
-      SELECT
-        t.Id as task_id,
-        t.Description as task_description
-      FROM \`savvy-gtm-analytics.SavvyGTMData.Task\` t
-      WHERE t.IsDeleted = FALSE
-        AND t.Id IN (SELECT task_id FROM view_data)
-    ),
+    WITH ${ACTIVE_SGAS_CTE},
     classified_records AS (
       SELECT DISTINCT
-        v.task_id,
-        v.task_created_date_utc,
-        v.task_created_date_est,
-        v.task_subject,
-        v.task_subtype,
-        v.activity_channel_group as raw_channel_group,  -- Keep raw channel for additional filtering
-        -- Override activity_channel_group based on task_subject AND task_description
-        -- CRITICAL: Subject field is PRIMARY source of truth - check it FIRST
-        CASE
-          -- ============================================
-          -- PRIORITY 1: EXPLICIT SUBJECT-BASED CLASSIFICATION (HIGHEST PRIORITY)
-          -- ============================================
-          -- These subjects ALWAYS map to their channels, regardless of raw channel
-          WHEN v.task_subject = 'LinkedIn Message' THEN 'LinkedIn'
-          WHEN v.task_subject = 'LinkedIn Connect' THEN 'LinkedIn'
-          WHEN v.task_subject = 'Outgoing SMS' THEN 'SMS'
-          WHEN v.task_subject = 'Incoming SMS' THEN 'SMS'
-          
-          -- ============================================
-          -- PRIORITY 2: SUBJECT PATTERN MATCHING
-          -- ============================================
-          -- Check subject patterns (subject is more reliable than raw channel)
-          WHEN LOWER(COALESCE(v.task_subject, '')) LIKE '%linkedin%' 
-            OR LOWER(COALESCE(v.task_subject, '')) LIKE '%linked in%'
-          THEN 'LinkedIn'
-          WHEN LOWER(COALESCE(v.task_subject, '')) LIKE '%sms%' 
-            OR LOWER(COALESCE(v.task_subject, '')) LIKE '%text%'  -- Catch "text 2", "text message", etc.
-          THEN 'SMS'
-          
-          -- ============================================
-          -- PRIORITY 3: RAW CHANNEL GROUP (if subject is ambiguous)
-          -- ============================================
-          -- Only use raw channel if subject doesn't give us clear signal
-          WHEN v.activity_channel_group = 'SMS' THEN 'SMS'
-          WHEN v.activity_channel_group = 'LinkedIn' THEN 'LinkedIn'
-          WHEN v.activity_channel_group = 'Email (Engagement)' THEN 'Email (Engagement)'
-          WHEN v.activity_channel_group = 'Email' THEN 'Email'
-          
-          -- ============================================
-          -- PRIORITY 4: DESCRIPTION-BASED (last resort)
-          -- ============================================
-          -- Only check description if subject and raw channel are ambiguous
-          WHEN LOWER(COALESCE(td.task_description, '')) LIKE '%linkedin%'
-            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%sms%'
-            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%email%'
-            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%text%'
-          THEN 'LinkedIn'
-          WHEN LOWER(COALESCE(td.task_description, '')) LIKE '%sms%'
-            OR LOWER(COALESCE(td.task_description, '')) LIKE '%text message%'
-            OR LOWER(COALESCE(td.task_description, '')) LIKE '%text%'
-          THEN 'SMS'
-          -- Email: Only if raw channel is Call (ambiguous) and has email indicators
-          -- BUT exclude if it's clearly SMS (subject contains SMS or text)
-          -- CRITICAL: Also exclude if raw channel is SMS or LinkedIn (double-check)
-          WHEN (LOWER(COALESCE(v.task_subject, '')) LIKE '%email%'
-            OR LOWER(COALESCE(td.task_description, '')) LIKE '%email%')
-            AND v.activity_channel_group = 'Call'  -- Only classify Call as Email if ambiguous
-            AND v.activity_channel_group != 'SMS'  -- Double-check: never classify SMS as Email
-            AND v.activity_channel_group != 'LinkedIn'  -- Never classify LinkedIn as Email
-            AND LOWER(COALESCE(v.task_subject, '')) NOT LIKE '%sms%'
-            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%sms%'
-            AND LOWER(COALESCE(v.task_subject, '')) NOT LIKE '%text%'
-            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%text%'
-            AND v.task_subject != 'LinkedIn Message'  -- Explicitly exclude LinkedIn Message
-            AND v.task_subject != 'Outgoing SMS'  -- Explicitly exclude Outgoing SMS
-            AND v.task_subject != 'Incoming SMS'  -- Explicitly exclude Incoming SMS
-          THEN 'Email'
-          -- CRITICAL: In ELSE clause, preserve raw channel BUT ensure SMS/LinkedIn are never Email
-          ELSE CASE
-            WHEN v.activity_channel_group = 'SMS' THEN 'SMS'
-            WHEN v.activity_channel_group = 'LinkedIn' THEN 'LinkedIn'
-            WHEN v.task_subject = 'LinkedIn Message' THEN 'LinkedIn'
-            WHEN v.task_subject = 'Outgoing SMS' OR v.task_subject = 'Incoming SMS' THEN 'SMS'
-            ELSE v.activity_channel_group
-          END
-        END as corrected_channel_group,
-        v.direction,
-        v.task_executor_name,
-        COALESCE(v.Prospect_Name, v.Opp_Name, 'Unknown') as prospect_name,
-        v.Full_prospect_id__c,
-        v.Full_Opportunity_ID__c,
-        v.Original_source,
-        v.Channel_Grouping_Name,
-        v.call_duration_seconds,
-        v.is_true_cold_call
-      FROM view_data v
-      LEFT JOIN task_descriptions td ON v.task_id = td.task_id
-      WHERE v.activity_channel_group != 'Marketing'  -- Exclude Marketing
-    ),
-    filtered_by_activity_type AS (
-      SELECT DISTINCT
-        cr.task_id,
-        cr.task_created_date_utc,
-        cr.task_created_date_est,
-        cr.task_subject,
-        cr.task_subtype,
-        cr.corrected_channel_group,
-        cr.raw_channel_group,  -- Include raw channel for additional filtering
-        cr.direction,
-        cr.task_executor_name,
-        cr.prospect_name,
-        cr.Full_prospect_id__c,
-        cr.Full_Opportunity_ID__c,
-        cr.Original_source,
-        cr.Channel_Grouping_Name,
-        cr.call_duration_seconds,
-        cr.is_true_cold_call
-      FROM classified_records cr
-      WHERE 1=1
-        ${targetChannel ? `
-          -- CRITICAL: Filter by target channel - this ensures we only show records for the selected channel
-          -- This filter MUST be applied when targetChannel is set (e.g., when clicking Email card)
-          AND cr.corrected_channel_group = @activityChannel
-          -- CRITICAL: Double-check to prevent SMS/LinkedIn from appearing in Email drilldown
-          ${targetChannel === 'Email' ? `
-            -- CRITICAL: Subject field is PRIMARY - if subject indicates SMS/LinkedIn, exclude
-            AND cr.task_subject != 'Outgoing SMS'
-            AND cr.task_subject != 'Incoming SMS'
-            AND cr.task_subject != 'LinkedIn Message'
-            AND cr.task_subject != 'LinkedIn Connect'
-            AND LOWER(COALESCE(cr.task_subject, '')) NOT LIKE '%sms%'
-            AND LOWER(COALESCE(cr.task_subject, '')) NOT LIKE '%linkedin%'
-            AND LOWER(COALESCE(cr.task_subject, '')) NOT LIKE '%text%'
-            -- Double-check corrected and raw channel groups
-            AND cr.raw_channel_group != 'SMS'
-            AND cr.raw_channel_group != 'LinkedIn'
-            AND cr.corrected_channel_group != 'SMS'
-            AND cr.corrected_channel_group != 'LinkedIn'
-          ` : ''}
-          ${activityType === 'cold_calls' ? `AND cr.is_true_cold_call = 1` : ''}
-          ${activityType === 'outbound_calls' ? `AND cr.direction = 'Outbound'` : ''}
-          ${activityType === 'sms_outbound' ? `AND cr.direction = 'Outbound'` : ''}
-          ${activityType === 'sms_inbound' ? `AND cr.direction = 'Inbound'` : ''}
-        ` : `
-          -- WARNING: No targetChannel set - showing ALL records (this should not happen for scorecard clicks)
-        `}
+        a.task_id,
+        a.task_created_date_utc,
+        a.task_created_date_est,
+        a.task_subject,
+        a.task_subtype,
+        a.activity_channel_group,
+        a.direction,
+        a.task_executor_name,
+        COALESCE(a.Prospect_Name, a.Opp_Name, 'Unknown') as prospect_name,
+        a.Full_prospect_id__c,
+        a.Full_Opportunity_ID__c,
+        a.Original_source,
+        a.Channel_Grouping_Name,
+        a.call_duration_seconds,
+        a.is_true_cold_call,
+        ${METRIC_CASE_EXPRESSION} AS metric_type
+      FROM \`${ACTIVITY_VIEW}\` a
+      INNER JOIN active_sgas s ON a.task_executor_name = s.sga_name
+      WHERE a.task_created_date_est >= @startDate
+        AND a.task_created_date_est <= @endDate
+        AND COALESCE(a.is_marketing_activity, 0) = 0
+        ${sgaFilter}
+        ${dayFilter}
     )
     SELECT
       task_id as taskId,
       CAST(task_created_date_utc AS STRING) as createdDate,
       CAST(task_created_date_est AS STRING) as createdDateEST,
-      corrected_channel_group as activityChannel,
       CASE
-        WHEN corrected_channel_group = 'LinkedIn' THEN 'LinkedIn Message'
-        WHEN corrected_channel_group = 'Email' THEN 'Email'
-        WHEN corrected_channel_group = 'Email (Engagement)' THEN 'Email (Engagement)'
-        WHEN corrected_channel_group = 'Call' AND is_true_cold_call = 1 THEN 'Cold Call'
-        WHEN corrected_channel_group = 'Call' AND direction = 'Inbound' THEN 'Inbound Call'
-        WHEN corrected_channel_group = 'Call' THEN 'Outbound Call'
-        WHEN corrected_channel_group = 'SMS' AND direction = 'Outbound' THEN 'Outbound SMS'
-        WHEN corrected_channel_group = 'SMS' THEN 'Inbound SMS'
-        ELSE corrected_channel_group
+        WHEN activity_channel_group = 'SMS' AND direction = 'Inbound' THEN 'SMS'
+        WHEN metric_type = 'Cold_Call' THEN 'Call'
+        WHEN metric_type = 'Scheduled_Call' THEN 'Call'
+        WHEN metric_type = 'Outbound_SMS' THEN 'SMS'
+        WHEN metric_type = 'LinkedIn' THEN 'LinkedIn'
+        WHEN metric_type = 'Manual_Email' THEN 'Email'
+        WHEN metric_type = 'Email_Engagement' THEN 'Email (Engagement)'
+        ELSE activity_channel_group
+      END as activityChannel,
+      CASE
+        WHEN activity_channel_group = 'SMS' AND direction = 'Inbound' THEN 'Inbound SMS'
+        WHEN metric_type = 'Cold_Call' THEN 'Cold Call'
+        WHEN metric_type = 'Scheduled_Call' THEN 'Outbound Call'
+        WHEN metric_type = 'Outbound_SMS' THEN 'Outbound SMS'
+        WHEN metric_type = 'LinkedIn' THEN 'LinkedIn Message'
+        WHEN metric_type = 'Manual_Email' THEN 'Email'
+        WHEN metric_type = 'Email_Engagement' THEN 'Email (Engagement)'
+        ELSE activity_channel_group
       END as activitySubType,
       direction,
       task_executor_name as sgaName,
@@ -1500,202 +1382,70 @@ export async function getActivityRecords(
       CASE WHEN task_subject LIKE '%[lemlist]%' OR task_subtype = 'ListEmail' THEN TRUE ELSE FALSE END as isAutomated,
       CASE WHEN is_true_cold_call = 1 THEN TRUE ELSE FALSE END as isColdCall,
       CONCAT('https://savvywealth.lightning.force.com/lightning/r/Task/', task_id, '/view') as salesforceUrl
-    FROM filtered_by_activity_type
+    FROM classified_records
+    WHERE 1=1
+      ${metricFilter}
     ORDER BY task_created_date_est DESC
     LIMIT @pageSize
     OFFSET @offset
   `;
-  
-  // Count query for total - use same filter logic as main query
-  // CRITICAL: Do NOT apply direction/cold_call filters in view_data
-  // Apply them AFTER classification in filtered_by_activity_type, just like the main query
+
+  // Count query uses same classification and filtering
   const countQuery = `
-    WITH view_data AS (
-      SELECT DISTINCT
-        task_id,
-        task_created_date_est,
-        task_subject,
-        task_subtype,
-        activity_channel_group,
-        direction,
-        task_executor_name,
-        is_true_cold_call
-      FROM \`${ACTIVITY_VIEW}\`
-      WHERE task_created_date_est >= @startDate
-        AND task_created_date_est <= @endDate
-        AND SGA_IsActive = TRUE
-        ${automatedFilter}
-        ${sgaFilter}
-        ${dayFilter}
-    ),
-    task_descriptions AS (
-      SELECT
-        t.Id as task_id,
-        t.Description as task_description
-      FROM \`savvy-gtm-analytics.SavvyGTMData.Task\` t
-      WHERE t.IsDeleted = FALSE
-        AND t.Id IN (SELECT task_id FROM view_data)
-    ),
+    WITH ${ACTIVE_SGAS_CTE},
     classified_records AS (
       SELECT DISTINCT
-        v.task_id,
-        v.task_subject,  -- Include subject for filtering
-        v.activity_channel_group as raw_channel_group,  -- Keep raw channel for additional filtering (needed for Email filter)
-        CASE
-          -- ============================================
-          -- PRIORITY 1: EXPLICIT SUBJECT-BASED CLASSIFICATION (HIGHEST PRIORITY)
-          -- ============================================
-          -- These subjects ALWAYS map to their channels, regardless of raw channel
-          WHEN v.task_subject = 'LinkedIn Message' THEN 'LinkedIn'
-          WHEN v.task_subject = 'LinkedIn Connect' THEN 'LinkedIn'
-          WHEN v.task_subject = 'Outgoing SMS' THEN 'SMS'
-          WHEN v.task_subject = 'Incoming SMS' THEN 'SMS'
-          
-          -- ============================================
-          -- PRIORITY 2: SUBJECT PATTERN MATCHING
-          -- ============================================
-          -- Check subject patterns (subject is more reliable than raw channel)
-          WHEN LOWER(COALESCE(v.task_subject, '')) LIKE '%linkedin%' 
-            OR LOWER(COALESCE(v.task_subject, '')) LIKE '%linked in%'
-          THEN 'LinkedIn'
-          WHEN LOWER(COALESCE(v.task_subject, '')) LIKE '%sms%' 
-            OR LOWER(COALESCE(v.task_subject, '')) LIKE '%text%'  -- Catch "text 2", "text message", etc.
-          THEN 'SMS'
-          
-          -- ============================================
-          -- PRIORITY 3: RAW CHANNEL GROUP (if subject is ambiguous)
-          -- ============================================
-          -- Only use raw channel if subject doesn't give us clear signal
-          WHEN v.activity_channel_group = 'SMS' THEN 'SMS'
-          WHEN v.activity_channel_group = 'LinkedIn' THEN 'LinkedIn'
-          WHEN v.activity_channel_group = 'Email (Engagement)' THEN 'Email (Engagement)'
-          WHEN v.activity_channel_group = 'Email' THEN 'Email'
-          
-          -- ============================================
-          -- PRIORITY 4: DESCRIPTION-BASED (last resort)
-          -- ============================================
-          -- Only check description if subject and raw channel are ambiguous
-          WHEN LOWER(COALESCE(td.task_description, '')) LIKE '%linkedin%'
-            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%sms%'
-            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%email%'
-            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%text%'
-          THEN 'LinkedIn'
-          WHEN LOWER(COALESCE(td.task_description, '')) LIKE '%sms%'
-            OR LOWER(COALESCE(td.task_description, '')) LIKE '%text message%'
-            OR LOWER(COALESCE(td.task_description, '')) LIKE '%text%'
-          THEN 'SMS'
-          
-          -- ============================================
-          -- PRIORITY 5: EMAIL CLASSIFICATION (only if Call and has email indicators)
-          -- ============================================
-          WHEN (LOWER(COALESCE(v.task_subject, '')) LIKE '%email%'
-            OR LOWER(COALESCE(td.task_description, '')) LIKE '%email%')
-            AND v.activity_channel_group = 'Call'  -- Only classify Call as Email if ambiguous
-            AND v.activity_channel_group != 'SMS'  -- Double-check: never classify SMS as Email
-            AND v.activity_channel_group != 'LinkedIn'  -- Never classify LinkedIn as Email
-            AND LOWER(COALESCE(v.task_subject, '')) NOT LIKE '%sms%'
-            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%sms%'
-            AND LOWER(COALESCE(v.task_subject, '')) NOT LIKE '%text%'
-            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%text%'
-            AND v.task_subject != 'LinkedIn Message'  -- Explicitly exclude LinkedIn Message
-            AND v.task_subject != 'Outgoing SMS'  -- Explicitly exclude Outgoing SMS
-            AND v.task_subject != 'Incoming SMS'  -- Explicitly exclude Incoming SMS
-          THEN 'Email'
-          
-          -- ============================================
-          -- ELSE: Preserve raw channel with safeguards
-          -- ============================================
-          ELSE CASE
-            WHEN v.activity_channel_group = 'SMS' THEN 'SMS'
-            WHEN v.activity_channel_group = 'LinkedIn' THEN 'LinkedIn'
-            WHEN v.task_subject = 'LinkedIn Message' THEN 'LinkedIn'
-            WHEN v.task_subject = 'Outgoing SMS' OR v.task_subject = 'Incoming SMS' THEN 'SMS'
-            ELSE v.activity_channel_group
-          END
-        END as corrected_channel_group,
-        v.direction,
-        v.is_true_cold_call
-      FROM view_data v
-      LEFT JOIN task_descriptions td ON v.task_id = td.task_id
-      WHERE v.activity_channel_group != 'Marketing'
-    ),
-    filtered_by_activity_type AS (
-      SELECT DISTINCT 
-        task_id,
-        corrected_channel_group,
-        raw_channel_group,  -- Include for Email filter checks
-        direction,
-        is_true_cold_call
-      FROM classified_records
-      WHERE 1=1
-        ${targetChannel ? `
-          -- CRITICAL: Filter by target channel - this ensures we only show records for the selected channel
-          AND corrected_channel_group = @activityChannel
-          -- CRITICAL: Double-check to prevent SMS/LinkedIn from appearing in Email drilldown
-          ${targetChannel === 'Email' ? `
-            -- CRITICAL: Subject field is PRIMARY - if subject indicates SMS/LinkedIn, exclude
-            -- We check both raw and corrected channel groups, and also check subject patterns
-            AND raw_channel_group != 'SMS'
-            AND raw_channel_group != 'LinkedIn'
-            AND corrected_channel_group != 'SMS'
-            AND corrected_channel_group != 'LinkedIn'
-            -- Note: task_subject is available in classified_records but not selected in filtered_by_activity_type
-            -- The classification logic should have already handled this, but we double-check channels
-          ` : ''}
-          ${activityType === 'cold_calls' ? `AND is_true_cold_call = 1` : ''}
-          ${activityType === 'outbound_calls' ? `AND direction = 'Outbound'` : ''}
-          ${activityType === 'sms_outbound' ? `AND direction = 'Outbound'` : ''}
-          ${activityType === 'sms_inbound' ? `AND direction = 'Inbound'` : ''}
-        ` : ''}
+        a.task_id,
+        a.activity_channel_group,
+        a.direction,
+        ${METRIC_CASE_EXPRESSION} AS metric_type
+      FROM \`${ACTIVITY_VIEW}\` a
+      INNER JOIN active_sgas s ON a.task_executor_name = s.sga_name
+      WHERE a.task_created_date_est >= @startDate
+        AND a.task_created_date_est <= @endDate
+        AND COALESCE(a.is_marketing_activity, 0) = 0
+        ${sgaFilter}
+        ${dayFilter}
     )
     SELECT COUNT(DISTINCT task_id) as total
-    FROM filtered_by_activity_type
+    FROM classified_records
+    WHERE 1=1
+      ${metricFilter}
   `;
-  
+
   const params: Record<string, any> = {
     startDate: range.start,
     endDate: range.end,
     pageSize,
     offset: (page - 1) * pageSize,
   };
-  
+
   if (filters.sga) {
     params.sga = filters.sga;
   }
-  
-  // CRITICAL: Always set activityChannel parameter if targetChannel is defined
-  // This ensures the filter is applied in the SQL query
-  if (targetChannel) {
-    params.activityChannel = targetChannel;
-    // Debug log to verify parameter is set
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[getActivityRecords] Setting activityChannel param:', targetChannel);
-    }
-  } else {
-    // Debug log if targetChannel is not set when it should be
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('[getActivityRecords] WARNING: targetChannel is not set!', { activityType, channel });
-    }
+
+  if (targetMetricType) {
+    params.metricType = targetMetricType;
   }
-  
+
   if (dayOfWeek !== undefined && dayOfWeek !== null) {
     params.dayOfWeek = dayOfWeek;
   }
-  
+
   const [rows, countRows] = await Promise.all([
     runQuery<any>(query, params),
     runQuery<any>(countQuery, params),
   ]);
-  
+
   const total = parseInt(String(countRows[0]?.total || 0)) || 0;
-  
+
   // Extract date values from BigQuery DATE objects
   const records = rows.map(row => ({
     ...row,
     createdDate: extractDateValue(row.createdDate),
     createdDateEST: extractDateValue(row.createdDateEST),
   }));
-  
+
   return { records, total };
 }
 
@@ -1717,143 +1467,51 @@ export async function getActivityTotals(filters: SGAActivityFilters): Promise<{
     filters.startDate,
     filters.endDate
   );
-  
-  const automatedFilter = getAutomatedFilter(filters.includeAutomated);
-  const sgaFilter = filters.sga 
-    ? `AND task_executor_name = @sga` 
+
+  const sgaFilter = filters.sga
+    ? `AND a.task_executor_name = @sga`
     : '';
-  
-  // Get task descriptions for classification
+
+  // Use shared METRIC_CASE_EXPRESSION — identical to breakdown table
+  // Inbound SMS counted separately (not in shared CASE — breakdown excludes it)
   const query = `
-    WITH view_data AS (
+    WITH ${ACTIVE_SGAS_CTE},
+    classified AS (
       SELECT DISTINCT
-        task_id,
-        task_subject,
-        task_subtype,
-        activity_channel_group,
-        direction,
-        is_true_cold_call
-      FROM \`${ACTIVITY_VIEW}\`
-      WHERE task_created_date_est >= @startDate
-        AND task_created_date_est <= @endDate
-        AND SGA_IsActive = TRUE
-        ${automatedFilter}
+        a.task_id,
+        ${METRIC_CASE_EXPRESSION} AS metric_type,
+        a.activity_channel_group,
+        a.direction
+      FROM \`${ACTIVITY_VIEW}\` a
+      INNER JOIN active_sgas s ON a.task_executor_name = s.sga_name
+      WHERE a.task_created_date_est >= @startDate
+        AND a.task_created_date_est <= @endDate
+        AND COALESCE(a.is_marketing_activity, 0) = 0
         ${sgaFilter}
-    ),
-    task_descriptions AS (
-      SELECT
-        t.Id as task_id,
-        t.Description as task_description
-      FROM \`savvy-gtm-analytics.SavvyGTMData.Task\` t
-      WHERE t.IsDeleted = FALSE
-        AND t.Id IN (SELECT task_id FROM view_data)
-    ),
-    classified_records AS (
-      SELECT DISTINCT
-        v.task_id,
-        -- CRITICAL: Use the SAME priority-based classification logic as getActivityRecords
-        -- This ensures scorecard and drilldown counts match exactly
-        CASE
-          -- ============================================
-          -- PRIORITY 1: EXPLICIT SUBJECT-BASED CLASSIFICATION (HIGHEST PRIORITY)
-          -- ============================================
-          -- These subjects ALWAYS map to their channels, regardless of raw channel
-          WHEN v.task_subject = 'LinkedIn Message' THEN 'LinkedIn'
-          WHEN v.task_subject = 'LinkedIn Connect' THEN 'LinkedIn'
-          WHEN v.task_subject = 'Outgoing SMS' THEN 'SMS'
-          WHEN v.task_subject = 'Incoming SMS' THEN 'SMS'
-          
-          -- ============================================
-          -- PRIORITY 2: SUBJECT PATTERN MATCHING
-          -- ============================================
-          -- Check subject patterns (subject is more reliable than raw channel)
-          WHEN LOWER(COALESCE(v.task_subject, '')) LIKE '%linkedin%' 
-            OR LOWER(COALESCE(v.task_subject, '')) LIKE '%linked in%'
-          THEN 'LinkedIn'
-          WHEN LOWER(COALESCE(v.task_subject, '')) LIKE '%sms%' 
-            OR LOWER(COALESCE(v.task_subject, '')) LIKE '%text%'  -- Catch "text 2", "text message", etc.
-          THEN 'SMS'
-          
-          -- ============================================
-          -- PRIORITY 3: RAW CHANNEL GROUP (if subject is ambiguous)
-          -- ============================================
-          -- Only use raw channel if subject doesn't give us clear signal
-          WHEN v.activity_channel_group = 'SMS' THEN 'SMS'
-          WHEN v.activity_channel_group = 'LinkedIn' THEN 'LinkedIn'
-          WHEN v.activity_channel_group = 'Email (Engagement)' THEN 'Email (Engagement)'
-          WHEN v.activity_channel_group = 'Email' THEN 'Email'
-          
-          -- ============================================
-          -- PRIORITY 4: DESCRIPTION-BASED (last resort)
-          -- ============================================
-          -- Only check description if subject and raw channel are ambiguous
-          WHEN LOWER(COALESCE(td.task_description, '')) LIKE '%linkedin%'
-            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%sms%'
-            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%email%'
-            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%text%'
-          THEN 'LinkedIn'
-          WHEN LOWER(COALESCE(td.task_description, '')) LIKE '%sms%'
-            OR LOWER(COALESCE(td.task_description, '')) LIKE '%text message%'
-            OR LOWER(COALESCE(td.task_description, '')) LIKE '%text%'
-          THEN 'SMS'
-          
-          -- ============================================
-          -- PRIORITY 5: EMAIL CLASSIFICATION (only if Call and has email indicators)
-          -- ============================================
-          WHEN (LOWER(COALESCE(v.task_subject, '')) LIKE '%email%'
-            OR LOWER(COALESCE(td.task_description, '')) LIKE '%email%')
-            AND v.activity_channel_group = 'Call'  -- Only classify Call as Email if ambiguous
-            AND v.activity_channel_group != 'SMS'  -- Double-check: never classify SMS as Email
-            AND v.activity_channel_group != 'LinkedIn'  -- Never classify LinkedIn as Email
-            AND LOWER(COALESCE(v.task_subject, '')) NOT LIKE '%sms%'
-            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%sms%'
-            AND LOWER(COALESCE(v.task_subject, '')) NOT LIKE '%text%'
-            AND LOWER(COALESCE(td.task_description, '')) NOT LIKE '%text%'
-            AND v.task_subject != 'LinkedIn Message'  -- Explicitly exclude LinkedIn Message
-            AND v.task_subject != 'Outgoing SMS'  -- Explicitly exclude Outgoing SMS
-            AND v.task_subject != 'Incoming SMS'  -- Explicitly exclude Incoming SMS
-          THEN 'Email'
-          
-          -- ============================================
-          -- ELSE: Preserve raw channel with safeguards
-          -- ============================================
-          ELSE CASE
-            WHEN v.activity_channel_group = 'SMS' THEN 'SMS'
-            WHEN v.activity_channel_group = 'LinkedIn' THEN 'LinkedIn'
-            WHEN v.task_subject = 'LinkedIn Message' THEN 'LinkedIn'
-            WHEN v.task_subject = 'Outgoing SMS' OR v.task_subject = 'Incoming SMS' THEN 'SMS'
-            ELSE v.activity_channel_group
-          END
-        END as corrected_channel_group,
-        v.direction,
-        v.is_true_cold_call
-      FROM view_data v
-      LEFT JOIN task_descriptions td ON v.task_id = td.task_id
-      WHERE v.activity_channel_group != 'Marketing'
     )
     SELECT
-      COUNTIF(corrected_channel_group = 'Call' AND is_true_cold_call = 1) as cold_calls,
-      COUNTIF(corrected_channel_group = 'Call' AND direction = 'Outbound') as outbound_calls,
-      COUNTIF(corrected_channel_group = 'SMS' AND direction = 'Outbound') as sms_outbound,
-      COUNTIF(corrected_channel_group = 'SMS' AND direction = 'Inbound') as sms_inbound,
-      COUNTIF(corrected_channel_group = 'LinkedIn') as linkedin_messages,
-      COUNTIF(corrected_channel_group = 'Email') as emails_manual,
-      COUNTIF(corrected_channel_group = 'Email (Engagement)') as emails_engagement
-    FROM classified_records
+      COUNTIF(metric_type = 'Cold_Call') as cold_calls,
+      COUNTIF(metric_type = 'Scheduled_Call') as outbound_calls,
+      COUNTIF(metric_type = 'Outbound_SMS') as sms_outbound,
+      COUNTIF(activity_channel_group = 'SMS' AND direction = 'Inbound') as sms_inbound,
+      COUNTIF(metric_type = 'LinkedIn') as linkedin_messages,
+      COUNTIF(metric_type = 'Manual_Email') as emails_manual,
+      COUNTIF(metric_type = 'Email_Engagement') as emails_engagement
+    FROM classified
   `;
-  
+
   const params: Record<string, any> = {
     startDate: range.start,
     endDate: range.end,
   };
-  
+
   if (filters.sga) {
     params.sga = filters.sga;
   }
-  
+
   const rows = await runQuery<any>(query, params);
   const row = rows[0] || {};
-  
+
   return {
     coldCalls: parseInt(String(row.cold_calls || 0)) || 0,
     outboundCalls: parseInt(String(row.outbound_calls || 0)) || 0,
@@ -2006,3 +1664,298 @@ export const getCachedActivityTotals = cachedQuery(
   'getActivityTotals',
   CACHE_TAGS.SGA_HUB
 );
+
+// ============================================
+// INDIVIDUAL SGA ACTIVITY BREAKDOWN QUERIES
+// ============================================
+
+export async function getActivityBreakdownAggregation(
+  trailingWeeks: TrailingWeeksOption,
+  sgaName?: string
+): Promise<{ weekBounds: ActivityBreakdownWeekBounds; data: ActivityBreakdownRow[] }> {
+  const sgaFilter = sgaName ? `AND a.task_executor_name = @sgaName` : '';
+
+  const query = `
+    WITH ${ACTIVE_SGAS_CTE},
+    ${WEEK_BOUNDS_CTE},
+    trailing_weeks AS (
+      SELECT
+        n AS week_num,
+        DATE_SUB(wb.last_week_start, INTERVAL (n * 7) DAY) AS trail_start,
+        DATE_SUB(wb.last_week_end, INTERVAL (n * 7) DAY) AS trail_end
+      FROM week_bounds wb
+      CROSS JOIN UNNEST(GENERATE_ARRAY(1, @trailingWeeks)) AS n
+    )
+    SELECT
+      a.task_executor_name AS sga_name,
+      CASE
+        WHEN a.task_activity_date BETWEEN wb.this_week_start AND wb.this_week_end THEN 'This_Week'
+        WHEN a.task_activity_date BETWEEN wb.last_week_start AND wb.last_week_end THEN 'Last_Week'
+        ELSE CONCAT('Trailing_', tw.week_num)
+      END AS week_bucket,
+      ${METRIC_CASE_EXPRESSION} AS metric_type,
+      COUNT(DISTINCT a.task_id) AS activity_count
+    FROM \`${ACTIVITY_VIEW}\` a
+    INNER JOIN active_sgas s ON a.task_executor_name = s.sga_name
+    CROSS JOIN week_bounds wb
+    LEFT JOIN trailing_weeks tw
+      ON a.task_activity_date BETWEEN tw.trail_start AND tw.trail_end
+    WHERE a.task_activity_date BETWEEN
+        DATE_SUB((SELECT last_week_start FROM week_bounds), INTERVAL (@trailingWeeks * 7) DAY)
+        AND (SELECT this_week_end FROM week_bounds)
+      AND COALESCE(a.is_marketing_activity, 0) = 0
+      ${sgaFilter}
+    GROUP BY 1, 2, 3
+    HAVING week_bucket IS NOT NULL AND metric_type IS NOT NULL
+    ORDER BY 1, 2, 3
+  `;
+
+  const params: Record<string, any> = { trailingWeeks };
+  if (sgaName) params.sgaName = sgaName;
+
+  const boundsQuery = `
+    WITH ${WEEK_BOUNDS_CTE},
+    trailing_weeks AS (
+      SELECT n AS week_num,
+        DATE_SUB(wb.last_week_start, INTERVAL (n * 7) DAY) AS trail_start,
+        DATE_SUB(wb.last_week_end, INTERVAL (n * 7) DAY) AS trail_end
+      FROM week_bounds wb
+      CROSS JOIN UNNEST(GENERATE_ARRAY(1, @trailingWeeks)) AS n
+    )
+    SELECT
+      wb.this_week_start, wb.this_week_end,
+      wb.last_week_start, wb.last_week_end,
+      tw.week_num, tw.trail_start, tw.trail_end
+    FROM week_bounds wb
+    CROSS JOIN trailing_weeks tw
+    ORDER BY tw.week_num
+  `;
+
+  const [dataRows, boundsRows] = await Promise.all([
+    runQuery<any>(query, params),
+    runQuery<any>(boundsQuery, { trailingWeeks }),
+  ]);
+
+  const firstBound = boundsRows[0];
+  const weekBounds: ActivityBreakdownWeekBounds = {
+    thisWeek: {
+      start: extractDateValue(firstBound.this_week_start),
+      end: extractDateValue(firstBound.this_week_end),
+    },
+    lastWeek: {
+      start: extractDateValue(firstBound.last_week_start),
+      end: extractDateValue(firstBound.last_week_end),
+    },
+    trailingWeeks: boundsRows.map((r: any) => ({
+      weekNum: parseInt(String(r.week_num)),
+      start: extractDateValue(r.trail_start),
+      end: extractDateValue(r.trail_end),
+    })),
+  };
+
+  const data: ActivityBreakdownRow[] = dataRows.map((r: any) => ({
+    sgaName: String(r.sga_name),
+    weekBucket: String(r.week_bucket),
+    metricType: String(r.metric_type) as any,
+    activityCount: parseInt(String(r.activity_count)) || 0,
+  }));
+
+  return { weekBounds, data };
+}
+
+export async function getActivityBreakdownDrillDown(
+  sgaName: string,
+  startDate: string,
+  endDate: string,
+  metricType: string | null,
+  page: number = 1,
+  pageSize: number = 100,
+  search?: string
+): Promise<{ records: ActivityBreakdownDrillDownRecord[]; total: number }> {
+  const metricFilter = metricType
+    ? `AND ${METRIC_CASE_EXPRESSION} = @metricType`
+    : `AND ${METRIC_CASE_EXPRESSION} IS NOT NULL`;
+
+  const searchFilter = search
+    ? `AND LOWER(COALESCE(a.advisor_name, a.task_subject, '')) LIKE CONCAT('%', LOWER(@search), '%')`
+    : '';
+
+  const dataQuery = `
+    WITH ${ACTIVE_SGAS_CTE},
+    base_tasks AS (
+      SELECT a.*
+      FROM \`${ACTIVITY_VIEW}\` a
+      INNER JOIN active_sgas s ON a.task_executor_name = s.sga_name
+      WHERE a.task_executor_name = @sgaName
+        AND a.task_activity_date BETWEEN @startDate AND @endDate
+        AND COALESCE(a.is_marketing_activity, 0) = 0
+        ${metricFilter}
+        ${searchFilter}
+    ),
+    linked AS (
+      SELECT
+        COALESCE(a.advisor_name, 'Unknown') AS prospect_name,
+        COALESCE(a.Full_prospect_id__c, a.Full_Opportunity_ID__c) AS record_id,
+        COALESCE(NULLIF(a.TOF_Stage,''), NULLIF(a.StageName,''), 'Lead') AS stage,
+        COUNTIF(a.activity_channel_group = 'Call' AND a.is_true_cold_call = 1) AS cold_calls,
+        COUNTIF(a.activity_channel_group = 'Call' AND COALESCE(a.is_true_cold_call, 0) = 0 AND a.direction = 'Outbound' AND LOWER(COALESCE(a.task_subject, '')) NOT LIKE '%[lemlist]%') AS scheduled_calls,
+        COUNTIF(a.activity_channel_group = 'SMS' AND a.direction = 'Outbound') AS outbound_sms,
+        COUNTIF(a.activity_channel_group = 'LinkedIn') AS linkedin,
+        COUNTIF(a.activity_channel_group = 'Email' AND COALESCE(a.is_engagement_tracking, 0) = 0 AND COALESCE(a.is_marketing_activity, 0) = 0) AS manual_email,
+        COUNTIF(a.activity_channel_group = 'Email (Engagement)' OR (a.activity_channel_group = 'Email' AND a.is_engagement_tracking = 1)) AS email_engagement
+      FROM base_tasks a
+      WHERE COALESCE(a.Full_prospect_id__c, a.Full_Opportunity_ID__c) IS NOT NULL
+      GROUP BY 1, 2, 3
+    ),
+    unlinked AS (
+      SELECT
+        CONCAT('Unlinked — ', LEFT(COALESCE(a.task_subject, 'No Subject'), 50)) AS prospect_name,
+        CAST(NULL AS STRING) AS record_id,
+        a.activity_channel_group AS stage,
+        IF(a.activity_channel_group = 'Call' AND a.is_true_cold_call = 1, 1, 0) AS cold_calls,
+        IF(a.activity_channel_group = 'Call' AND COALESCE(a.is_true_cold_call, 0) = 0 AND a.direction = 'Outbound' AND LOWER(COALESCE(a.task_subject, '')) NOT LIKE '%[lemlist]%', 1, 0) AS scheduled_calls,
+        IF(a.activity_channel_group = 'SMS' AND a.direction = 'Outbound', 1, 0) AS outbound_sms,
+        IF(a.activity_channel_group = 'LinkedIn', 1, 0) AS linkedin,
+        IF(a.activity_channel_group = 'Email' AND COALESCE(a.is_engagement_tracking, 0) = 0 AND COALESCE(a.is_marketing_activity, 0) = 0, 1, 0) AS manual_email,
+        IF(a.activity_channel_group = 'Email (Engagement)' OR (a.activity_channel_group = 'Email' AND a.is_engagement_tracking = 1), 1, 0) AS email_engagement
+      FROM base_tasks a
+      WHERE COALESCE(a.Full_prospect_id__c, a.Full_Opportunity_ID__c) IS NULL
+    ),
+    combined AS (
+      SELECT *, (cold_calls + scheduled_calls + outbound_sms + linkedin + manual_email + email_engagement) AS total_activities FROM linked
+      UNION ALL
+      SELECT *, (cold_calls + scheduled_calls + outbound_sms + linkedin + manual_email + email_engagement) AS total_activities FROM unlinked
+    )
+    SELECT * FROM combined
+    ORDER BY total_activities DESC
+    LIMIT @pageSize OFFSET @offset
+  `;
+
+  const countQuery = `
+    WITH ${ACTIVE_SGAS_CTE},
+    base_tasks AS (
+      SELECT a.*
+      FROM \`${ACTIVITY_VIEW}\` a
+      INNER JOIN active_sgas s ON a.task_executor_name = s.sga_name
+      WHERE a.task_executor_name = @sgaName
+        AND a.task_activity_date BETWEEN @startDate AND @endDate
+        AND COALESCE(a.is_marketing_activity, 0) = 0
+        ${metricFilter}
+        ${searchFilter}
+    ),
+    linked AS (
+      SELECT COALESCE(a.Full_prospect_id__c, a.Full_Opportunity_ID__c) AS record_id
+      FROM base_tasks a
+      WHERE COALESCE(a.Full_prospect_id__c, a.Full_Opportunity_ID__c) IS NOT NULL
+      GROUP BY 1
+    ),
+    unlinked AS (
+      SELECT a.task_id
+      FROM base_tasks a
+      WHERE COALESCE(a.Full_prospect_id__c, a.Full_Opportunity_ID__c) IS NULL
+    )
+    SELECT (SELECT COUNT(*) FROM linked) + (SELECT COUNT(*) FROM unlinked) AS total
+  `;
+
+  const params: Record<string, any> = {
+    sgaName,
+    startDate,
+    endDate,
+    pageSize,
+    offset: (page - 1) * pageSize,
+  };
+  if (metricType) params.metricType = metricType;
+  if (search) params.search = search;
+
+  const [dataRows, countRows] = await Promise.all([
+    runQuery<any>(dataQuery, params),
+    runQuery<any>(countQuery, {
+      sgaName, startDate, endDate,
+      ...(metricType ? { metricType } : {}),
+      ...(search ? { search } : {}),
+    }),
+  ]);
+
+  const records: ActivityBreakdownDrillDownRecord[] = dataRows.map((r: any) => ({
+    prospectName: String(r.prospect_name),
+    recordId: r.record_id ? String(r.record_id) : null,
+    stage: String(r.stage),
+    coldCalls: parseInt(String(r.cold_calls)) || 0,
+    scheduledCalls: parseInt(String(r.scheduled_calls)) || 0,
+    outboundSms: parseInt(String(r.outbound_sms)) || 0,
+    linkedin: parseInt(String(r.linkedin)) || 0,
+    manualEmail: parseInt(String(r.manual_email)) || 0,
+    emailEngagement: parseInt(String(r.email_engagement)) || 0,
+    totalActivities: parseInt(String(r.total_activities)) || 0,
+  }));
+
+  const total = parseInt(String(countRows[0]?.total)) || 0;
+
+  return { records, total };
+}
+
+export async function getActivityBreakdownExportData(
+  trailingWeeks: TrailingWeeksOption,
+  sgaName?: string
+): Promise<{ aggregation: ActivityBreakdownRow[]; auditRows: ActivityBreakdownAuditRow[]; weekBounds: ActivityBreakdownWeekBounds }> {
+  const { weekBounds, data: aggregation } = await getActivityBreakdownAggregation(trailingWeeks, sgaName);
+
+  const sgaFilter = sgaName ? `AND a.task_executor_name = @sgaName` : '';
+
+  const auditQuery = `
+    WITH ${ACTIVE_SGAS_CTE},
+    ${WEEK_BOUNDS_CTE},
+    trailing_weeks AS (
+      SELECT n AS week_num,
+        DATE_SUB(wb.last_week_start, INTERVAL (n * 7) DAY) AS trail_start,
+        DATE_SUB(wb.last_week_end, INTERVAL (n * 7) DAY) AS trail_end
+      FROM week_bounds wb
+      CROSS JOIN UNNEST(GENERATE_ARRAY(1, @trailingWeeks)) AS n
+    )
+    SELECT * FROM (
+      SELECT DISTINCT
+        a.task_id,
+        a.task_executor_name AS sga_name,
+        a.task_activity_date AS activity_date,
+        CASE
+          WHEN a.task_activity_date BETWEEN wb.this_week_start AND wb.this_week_end THEN 'This_Week'
+          WHEN a.task_activity_date BETWEEN wb.last_week_start AND wb.last_week_end THEN 'Last_Week'
+          ELSE CONCAT('Trailing_', tw.week_num)
+        END AS week_bucket,
+        ${METRIC_CASE_EXPRESSION} AS metric_type,
+        a.activity_channel_group AS channel_group,
+        a.direction,
+        a.task_subject AS subject
+      FROM \`${ACTIVITY_VIEW}\` a
+      INNER JOIN active_sgas s ON a.task_executor_name = s.sga_name
+      CROSS JOIN week_bounds wb
+      LEFT JOIN trailing_weeks tw
+        ON a.task_activity_date BETWEEN tw.trail_start AND tw.trail_end
+      WHERE a.task_activity_date BETWEEN
+          DATE_SUB((SELECT last_week_start FROM week_bounds), INTERVAL (@trailingWeeks * 7) DAY)
+          AND (SELECT this_week_end FROM week_bounds)
+        AND COALESCE(a.is_marketing_activity, 0) = 0
+        ${sgaFilter}
+    ) sub
+    WHERE week_bucket IS NOT NULL AND metric_type IS NOT NULL
+    ORDER BY sga_name, week_bucket, metric_type, activity_date
+  `;
+
+  const params: Record<string, any> = { trailingWeeks };
+  if (sgaName) params.sgaName = sgaName;
+
+  const auditDataRows = await runQuery<any>(auditQuery, params);
+
+  const auditRows: ActivityBreakdownAuditRow[] = auditDataRows.map((r: any) => ({
+    taskId: String(r.task_id),
+    sgaName: String(r.sga_name),
+    activityDate: extractDateValue(r.activity_date),
+    weekBucket: String(r.week_bucket),
+    metricType: String(r.metric_type),
+    channelGroup: String(r.channel_group),
+    direction: String(r.direction),
+    subject: String(r.subject || ''),
+  }));
+
+  return { aggregation, auditRows, weekBounds };
+}

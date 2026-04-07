@@ -1,0 +1,355 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>60.0</apiVersion>
+    <constants>
+        <description>Inbound</description>
+        <name>InboundLabel</name>
+        <dataType>String</dataType>
+        <value>
+            <stringValue>Inbound</stringValue>
+        </value>
+    </constants>
+    <constants>
+        <description>Outbound</description>
+        <name>OutboundLabel</name>
+        <dataType>String</dataType>
+        <value>
+            <stringValue>Outbound</stringValue>
+        </value>
+    </constants>
+    <decisions>
+        <description>If the prospect is in New or Closed then Move to Nurturing</description>
+        <name>If_Prospect_Is_New</name>
+        <label>If Prospect Is New</label>
+        <locationX>314</locationX>
+        <locationY>839</locationY>
+        <defaultConnectorLabel>Default Outcome</defaultConnectorLabel>
+        <rules>
+            <name>If_Prospect_Is_New_Or_Replied_Outcome</name>
+            <conditionLogic>or</conditionLogic>
+            <conditions>
+                <leftValueReference>GetRelatedProspectToUpdate.Status</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <stringValue>New</stringValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Move_Prospect_to_Contating</targetReference>
+            </connector>
+            <label>If Prospect Is New or Replied</label>
+        </rules>
+    </decisions>
+    <decisions>
+        <description>If the prospect is in New, Contacting, or Closed when a text comes in.</description>
+        <name>If_Prospect_is_New_Or_Contacting_Or_Closed</name>
+        <label>If Prospect is New Or Contacting Or Closed</label>
+        <locationX>886</locationX>
+        <locationY>539</locationY>
+        <defaultConnectorLabel>Default Outcome</defaultConnectorLabel>
+        <rules>
+            <name>Move_to_Replied</name>
+            <conditionLogic>or</conditionLogic>
+            <conditions>
+                <leftValueReference>GetRelatedProspectToUpdate.Status</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <stringValue>New</stringValue>
+                </rightValue>
+            </conditions>
+            <conditions>
+                <leftValueReference>GetRelatedProspectToUpdate.Status</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <stringValue>Contacting</stringValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Move_Prospect_to_Replied</targetReference>
+            </connector>
+            <label>Move to Replied</label>
+        </rules>
+    </decisions>
+    <decisions>
+        <description>Update the Texted or Called Field depending on the activity</description>
+        <name>Mark_Text_or_Call</name>
+        <label>Mark Text or Call</label>
+        <locationX>314</locationX>
+        <locationY>539</locationY>
+        <defaultConnector>
+            <targetReference>If_Prospect_Is_New</targetReference>
+        </defaultConnector>
+        <defaultConnectorLabel>Default Outcome</defaultConnectorLabel>
+        <rules>
+            <name>If_Outgoing_Text</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>GetRelatedProspectToUpdate.Prospecting_Step_Texted__c</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <booleanValue>false</booleanValue>
+                </rightValue>
+            </conditions>
+            <conditions>
+                <leftValueReference>$Record.Type</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <stringValue>Outgoing SMS</stringValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Mark_Texted_to_True</targetReference>
+            </connector>
+            <label>If Outgoing Text</label>
+        </rules>
+        <rules>
+            <name>If_Outgoing_Call</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>GetRelatedProspectToUpdate.Prospecting_Step_Called__c</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <booleanValue>false</booleanValue>
+                </rightValue>
+            </conditions>
+            <conditions>
+                <leftValueReference>$Record.Type</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <stringValue>Call</stringValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Mark_Called_to_True</targetReference>
+            </connector>
+            <label>If Outgoing Call</label>
+        </rules>
+    </decisions>
+    <decisions>
+        <description>Update the respective fields depending on if this is an outbound or inbound activity</description>
+        <name>Outbound_or_Inbound</name>
+        <label>Outbound or Inbound</label>
+        <locationX>798</locationX>
+        <locationY>431</locationY>
+        <defaultConnectorLabel>Other Activity</defaultConnectorLabel>
+        <rules>
+            <name>Outbound_Activity</name>
+            <conditionLogic>or</conditionLogic>
+            <conditions>
+                <leftValueReference>$Record.Type</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <stringValue>Outgoing SMS</stringValue>
+                </rightValue>
+            </conditions>
+            <conditions>
+                <leftValueReference>$Record.Subject</leftValueReference>
+                <operator>Contains</operator>
+                <rightValue>
+                    <elementReference>OutboundLabel</elementReference>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Mark_Text_or_Call</targetReference>
+            </connector>
+            <label>Outbound Activity</label>
+        </rules>
+        <rules>
+            <name>Inbound_Activity</name>
+            <conditionLogic>or</conditionLogic>
+            <conditions>
+                <leftValueReference>$Record.Type</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <stringValue>Incoming SMS</stringValue>
+                </rightValue>
+            </conditions>
+            <conditions>
+                <leftValueReference>$Record.Subject</leftValueReference>
+                <operator>Contains</operator>
+                <rightValue>
+                    <elementReference>InboundLabel</elementReference>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>If_Prospect_is_New_Or_Contacting_Or_Closed</targetReference>
+            </connector>
+            <label>Inbound Activity</label>
+        </rules>
+    </decisions>
+    <description>This flow moves a Prospect to Contacting or Replied if there is an SMS or Call logged against them and the Prospect is in a New, Contacting, Replied, or Closed stage. It now also updates the Prospecting Step checkboxes as well. (Update 8/26/25: Removed the stage requirement on the &quot;If Prospect Is New&quot; for the stage being in Replied so that folks who we do outbound to who have replied don&apos;t move to contacting.)</description>
+    <environments>Default</environments>
+    <interviewLabel>Move Prospect to Nurturing if New or Closed With Activity {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>Move Prospect to Contacting or Replied with Activity</label>
+    <processMetadataValues>
+        <name>BuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>CanvasMode</name>
+        <value>
+            <stringValue>AUTO_LAYOUT_CANVAS</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>OriginBuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processType>AutoLaunchedFlow</processType>
+    <recordLookups>
+        <name>GetRelatedProspectToUpdate</name>
+        <label>GetRelatedProspectToUpdate</label>
+        <locationX>798</locationX>
+        <locationY>323</locationY>
+        <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
+        <connector>
+            <targetReference>Outbound_or_Inbound</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Id</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>$Record.WhoId</elementReference>
+            </value>
+        </filters>
+        <getFirstRecordOnly>true</getFirstRecordOnly>
+        <object>Lead</object>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </recordLookups>
+    <recordUpdates>
+        <name>Mark_Called_to_True</name>
+        <label>Mark Called to True</label>
+        <locationX>314</locationX>
+        <locationY>647</locationY>
+        <connector>
+            <targetReference>If_Prospect_Is_New</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Id</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>GetRelatedProspectToUpdate.Id</elementReference>
+            </value>
+        </filters>
+        <inputAssignments>
+            <field>Prospecting_Step_Called__c</field>
+            <value>
+                <booleanValue>true</booleanValue>
+            </value>
+        </inputAssignments>
+        <object>Lead</object>
+    </recordUpdates>
+    <recordUpdates>
+        <name>Mark_Texted_to_True</name>
+        <label>Mark Texted to True</label>
+        <locationX>50</locationX>
+        <locationY>647</locationY>
+        <connector>
+            <targetReference>If_Prospect_Is_New</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Id</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>GetRelatedProspectToUpdate.Id</elementReference>
+            </value>
+        </filters>
+        <inputAssignments>
+            <field>Prospecting_Step_Texted__c</field>
+            <value>
+                <booleanValue>true</booleanValue>
+            </value>
+        </inputAssignments>
+        <object>Lead</object>
+    </recordUpdates>
+    <recordUpdates>
+        <name>Move_Prospect_to_Contating</name>
+        <label>Move Prospect to Contacting</label>
+        <locationX>182</locationX>
+        <locationY>947</locationY>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Id</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>GetRelatedProspectToUpdate.Id</elementReference>
+            </value>
+        </filters>
+        <inputAssignments>
+            <field>Status</field>
+            <value>
+                <stringValue>Contacting</stringValue>
+            </value>
+        </inputAssignments>
+        <object>Lead</object>
+    </recordUpdates>
+    <recordUpdates>
+        <description>Move the Prospect to the Replied Stage</description>
+        <name>Move_Prospect_to_Replied</name>
+        <label>Move Prospect to Replied</label>
+        <locationX>754</locationX>
+        <locationY>647</locationY>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Id</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>GetRelatedProspectToUpdate.Id</elementReference>
+            </value>
+        </filters>
+        <inputAssignments>
+            <field>Status</field>
+            <value>
+                <stringValue>Replied</stringValue>
+            </value>
+        </inputAssignments>
+        <object>Lead</object>
+    </recordUpdates>
+    <start>
+        <locationX>672</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>GetRelatedProspectToUpdate</targetReference>
+        </connector>
+        <filterLogic>1 AND (2 OR 3 OR 4)</filterLogic>
+        <filters>
+            <field>WhoId</field>
+            <operator>StartsWith</operator>
+            <value>
+                <stringValue>00Q</stringValue>
+            </value>
+        </filters>
+        <filters>
+            <field>Type</field>
+            <operator>EqualTo</operator>
+            <value>
+                <stringValue>Incoming SMS</stringValue>
+            </value>
+        </filters>
+        <filters>
+            <field>Type</field>
+            <operator>EqualTo</operator>
+            <value>
+                <stringValue>Outgoing SMS</stringValue>
+            </value>
+        </filters>
+        <filters>
+            <field>Type</field>
+            <operator>EqualTo</operator>
+            <value>
+                <stringValue>Call</stringValue>
+            </value>
+        </filters>
+        <object>Task</object>
+        <recordTriggerType>Create</recordTriggerType>
+        <triggerType>RecordAfterSave</triggerType>
+    </start>
+    <status>Active</status>
+</Flow>

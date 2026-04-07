@@ -18,6 +18,7 @@ import {
   SgmConversionData
 } from '@/types/dashboard';
 import { RecordDetailFull } from '@/types/record-detail';
+import { ActivityRecord } from '@/types/record-activity';
 // Forecast types (defined here to avoid importing server-side query modules)
 interface ForecastRatesClient {
   sqo_to_sp: number;
@@ -391,6 +392,12 @@ export const dashboardApi = {
     apiFetch<{ record: RecordDetailFull | null }>(`/api/dashboard/record-detail/${encodeURIComponent(id)}`, {
       method: 'GET',
     }).then(data => data.record || null),
+
+  // Get all activity (Tasks) for a record
+  getRecordActivity: (id: string) =>
+    apiFetch<{ activities: ActivityRecord[]; totalCount: number }>(`/api/dashboard/record-detail/${encodeURIComponent(id)}/activity`, {
+      method: 'GET',
+    }),
 
   getOpenPipeline: (filters?: Partial<DashboardFilters>) =>
     apiFetch<{ records: DetailRecord[]; summary: any }>('/api/dashboard/open-pipeline', {
@@ -1133,6 +1140,15 @@ export const dashboardApi = {
     apiFetch<{ success: boolean }>('/api/forecast/export', {
       method: 'DELETE',
       body: JSON.stringify({ id }),
+    }),
+
+  exportSqoLagToSheets: () =>
+    apiFetch<{
+      success: boolean;
+      spreadsheetUrl: string;
+      spreadsheetName: string;
+    }>('/api/sqo-lag-export', {
+      method: 'POST',
     }),
 };
 

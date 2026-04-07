@@ -2,24 +2,28 @@
 
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { 
-  X, 
-  ExternalLink, 
-  Calendar, 
-  DollarSign, 
-  Users, 
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  X,
+  ExternalLink,
+  Calendar,
+  DollarSign,
+  Users,
   Tag,
   Building,
   AlertCircle,
   FileText,
-  ListChecks
+  ListChecks,
+  Activity,
+  ClipboardList,
 } from 'lucide-react';
 // Removed Badge import - using custom styled badges instead
 import { RecordDetailFull } from '@/types/record-detail';
+import { ActivityRecord } from '@/types/record-activity';
 import { dashboardApi } from '@/lib/api-client';
 import { FunnelProgressStepper } from './FunnelProgressStepper';
 import { RecordDetailSkeleton } from './RecordDetailSkeleton';
+import { ActivityTimeline } from './ActivityTimeline';
 import { formatDate } from '@/lib/utils/format-helpers';
 
 interface RecordDetailModalProps {
@@ -97,13 +101,38 @@ export function RecordDetailModal({
   const [record, setRecord] = useState<RecordDetailFull | null>(initialRecord || null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'details' | 'activity'>('details');
+  const [activities, setActivities] = useState<ActivityRecord[]>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState<string | null>(null);
+  const [activityFetched, setActivityFetched] = useState(false);
+
+  // Fetch activity data when tab is switched to activity (lazy load)
+  const fetchActivity = useCallback((id: string) => {
+    if (activityFetched) return;
+    setActivityLoading(true);
+    setActivityError(null);
+
+    dashboardApi.getRecordActivity(id)
+      .then((data) => {
+        setActivities(data.activities);
+        setActivityFetched(true);
+      })
+      .catch((err) => {
+        console.error('Error fetching activity:', err);
+        setActivityError('Failed to load activity');
+      })
+      .finally(() => {
+        setActivityLoading(false);
+      });
+  }, [activityFetched]);
 
   // Fetch record data when modal opens
   useEffect(() => {
     if (isOpen && recordId && !initialRecord) {
       setLoading(true);
       setError(null);
-      
+
       dashboardApi.getRecordDetail(recordId)
         .then((data) => {
           if (data) {
@@ -123,6 +152,13 @@ export function RecordDetailModal({
       setRecord(initialRecord);
     }
   }, [isOpen, recordId, initialRecord]);
+
+  // Fetch activity when tab switches to activity
+  useEffect(() => {
+    if (activeTab === 'activity' && recordId && !activityFetched) {
+      fetchActivity(recordId);
+    }
+  }, [activeTab, recordId, activityFetched, fetchActivity]);
 
   // Handle ESC key (add keyboard event listener)
   useEffect(() => {
@@ -148,6 +184,10 @@ export function RecordDetailModal({
     if (!isOpen) {
       setRecord(initialRecord || null);
       setError(null);
+      setActiveTab('details');
+      setActivities([]);
+      setActivityFetched(false);
+      setActivityError(null);
     }
   }, [isOpen, initialRecord]);
 
@@ -258,6 +298,43 @@ export function RecordDetailModal({
           </div>
         </div>
 
+        {/* Tab Bar */}
+        {!loading && record && (
+          <div className="flex border-b border-gray-200 dark:border-gray-700 px-6">
+            <button
+              onClick={() => setActiveTab('details')}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'details'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <ClipboardList className="w-4 h-4" />
+              Details
+            </button>
+            <button
+              onClick={() => setActiveTab('activity')}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'activity'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <Activity className="w-4 h-4" />
+              Activity
+              {activityFetched && (
+                <span className={`ml-1 px-1.5 py-0.5 text-xs rounded-full ${
+                  activeTab === 'activity'
+                    ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                }`}>
+                  {activities.length}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
+
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto p-6">
           {/* Error State */}
@@ -271,14 +348,14 @@ export function RecordDetailModal({
           {/* Loading State */}
           {loading && <RecordDetailSkeleton />}
 
-          {/* Record Content */}
-          {!loading && record && (
+          {/* Details Tab */}
+          {!loading && record && activeTab === 'details' && (
             <div className="space-y-6">
               {/* Funnel Progress */}
               <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4">
                 <SectionHeader icon={Tag} title="Funnel Progress" />
-                <FunnelProgressStepper 
-                  flags={record.funnelFlags} 
+                <FunnelProgressStepper
+                  flags={record.funnelFlags}
                   tofStage={record.tofStage}
                 />
               </div>
@@ -372,8 +449,8 @@ export function RecordDetailModal({
               )}
 
               {/* Stage Entry Dates - Collapsible/Secondary */}
-              {(record.stageEnteredDiscovery || record.stageEnteredSalesProcess || 
-                record.stageEnteredNegotiating || record.stageEnteredSigned || 
+              {(record.stageEnteredDiscovery || record.stageEnteredSalesProcess ||
+                record.stageEnteredNegotiating || record.stageEnteredSigned ||
                 record.stageEnteredOnHold || record.joinedDate) && (
                 <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4">
                   <SectionHeader icon={Calendar} title="Stage Entry Dates" />
@@ -398,6 +475,22 @@ export function RecordDetailModal({
                   <DetailRow label="Opportunity ID" value={record.fullOpportunityId} />
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Activity Tab */}
+          {!loading && record && activeTab === 'activity' && (
+            <div>
+              {activityError && (
+                <div className="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg mb-4">
+                  <AlertCircle className="w-5 h-5 text-red-500" />
+                  <span className="text-sm text-red-600 dark:text-red-400">{activityError}</span>
+                </div>
+              )}
+              <ActivityTimeline
+                activities={activities}
+                loading={activityLoading}
+              />
             </div>
           )}
         </div>

@@ -22,7 +22,7 @@ Spawn an agent team with 3 teammates to investigate in parallel:
 
 ### Teammate 1: Code Inspector (agent: code-inspector)
 
-Task: "Investigate the codebase for the following feature: $ARGUMENTS
+Task: "First, read `.claude/bq-views.md` for the view→consumer mapping. Then investigate the codebase for the following feature: $ARGUMENTS
 
 Find:
 - Every TypeScript type/interface that needs new fields
@@ -35,10 +35,10 @@ Save findings to `code-inspector-findings.md` in the project root."
 
 ### Teammate 2: Data Verifier (agent: data-verifier)
 
-Task: "Verify the data layer for the following feature: $ARGUMENTS
+Task: "First, read all four `.claude/bq-*.md` files for pre-verified schema context. Then verify the data layer for the following feature: $ARGUMENTS
 
 Using MCP access to BigQuery:
-- Confirm source fields exist in the relevant views. Start with `savvy-gtm-analytics.Tableau_Views.vw_funnel_master` but explore other views if needed.
+- Confirm source fields exist in the relevant views. Start with the schema docs, then query BQ only for things not already documented (new fields, population rates for specific date ranges).
 - Run population rate checks: `SELECT COUNTIF(field IS NOT NULL) / COUNT(*) as rate`
 - Run value distribution checks for each field
 - Check for edge cases: NULLs, empty strings, newlines, special characters, max lengths
@@ -48,7 +48,7 @@ Save findings to `data-verifier-findings.md` in the project root."
 
 ### Teammate 3: Pattern Finder (agent: pattern-finder)
 
-Task: "Find implementation patterns for the following feature: $ARGUMENTS
+Task: "First, read `.claude/bq-patterns.md` for established query patterns. Then find implementation patterns for the following feature: $ARGUMENTS
 
 Trace how existing similar fields flow end-to-end:
 - BigQuery view → query function SELECT → transform → return type → API route → component → export/CSV

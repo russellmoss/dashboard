@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <actionCalls>
+        <name>Send_Message_on_Closed_Lost</name>
+        <label>Send Message on Closed Lost</label>
+        <locationX>176</locationX>
+        <locationY>242</locationY>
+        <actionName>slackPostMessage</actionName>
+        <actionType>slackPostMessage</actionType>
+        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>slackAppIdForToken</name>
+            <value>
+                <stringValue>A03269G3DNE</stringValue>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>slackWorkspaceIdForToken</name>
+            <value>
+                <stringValue>T0295TR9745</stringValue>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>slackConversationId</name>
+            <value>
+                <stringValue>C07S4N4LBV3</stringValue>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>slackMessage</name>
+            <value>
+                <elementReference>Slack_Message_To_Send_On_Closed_Lost</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>slackPostMessage</nameSegment>
+        <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </actionCalls>
+    <apiVersion>62.0</apiVersion>
+    <description>Added in the Closed Lost Details. 07/16/25 update - pulls in the updated record to refresh the values before posting the message to account for the new screen flow.</description>
+    <environments>Default</environments>
+    <formulas>
+        <name>Date_Of_Closed_Lost</name>
+        <dataType>Date</dataType>
+        <expression>DATEVALUE({!Get_Updated_Record.Date_Became_SQO__c})</expression>
+    </formulas>
+    <interviewLabel>Closed Lost - Send Slack Alert {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>Closed Lost - Send Slack Alert</label>
+    <processMetadataValues>
+        <name>BuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>CanvasMode</name>
+        <value>
+            <stringValue>AUTO_LAYOUT_CANVAS</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>OriginBuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processType>AutoLaunchedFlow</processType>
+    <recordLookups>
+        <name>Get_Updated_Record</name>
+        <label>Get Updated Record</label>
+        <locationX>176</locationX>
+        <locationY>134</locationY>
+        <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
+        <connector>
+            <targetReference>Send_Message_on_Closed_Lost</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Full_Opportunity_ID__c</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>Opportunity_Which_Was_Closed.Full_Opportunity_ID__c</elementReference>
+            </value>
+        </filters>
+        <getFirstRecordOnly>true</getFirstRecordOnly>
+        <object>Opportunity</object>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </recordLookups>
+    <runInMode>DefaultMode</runInMode>
+    <start>
+        <locationX>50</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Get_Updated_Record</targetReference>
+        </connector>
+    </start>
+    <status>Active</status>
+    <textTemplates>
+        <name>Slack_Message_To_Send_On_Closed_Lost</name>
+        <isViewedAsPlainText>true</isViewedAsPlainText>
+        <text>{!Opportunity_Which_Was_Closed.Owner.FirstName} just marked {!Opportunity_Which_Was_Closed.Name} Closed Lost. Here are some more details:
+
+*Closed Lost Reason:* {!Get_Updated_Record.Closed_Lost_Reason__c}
+*Closed Lost Details:* {!Get_Updated_Record.Closed_Lost_Details__c}
+*Estimated AUM:* {!Get_Updated_Record.Amount}
+*Stage Before Closed Lost:* {!Get_Updated_Record.Stage_Before_Closed_or_Conversion__c}
+*Date Marked SQO:* {!Date_Of_Closed_Lost}</text>
+    </textTemplates>
+    <variables>
+        <name>Opportunity_Which_Was_Closed</name>
+        <dataType>SObject</dataType>
+        <isCollection>false</isCollection>
+        <isInput>true</isInput>
+        <isOutput>true</isOutput>
+        <objectType>Opportunity</objectType>
+    </variables>
+</Flow>

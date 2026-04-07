@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>60.0</apiVersion>
+    <description>Updated to exclude any Do Not Call records.</description>
+    <environments>Default</environments>
+    <formulas>
+        <name>GetTheCurrentDate</name>
+        <dataType>Date</dataType>
+        <expression>TODAY()</expression>
+    </formulas>
+    <formulas>
+        <description>The Current time</description>
+        <name>GetTheCurrentTime</name>
+        <dataType>DateTime</dataType>
+        <expression>NOW()</expression>
+    </formulas>
+    <interviewLabel>Update Date Kixie Automation Sent {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>Update Date Kixie Automation Sent</label>
+    <processMetadataValues>
+        <name>BuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>CanvasMode</name>
+        <value>
+            <stringValue>AUTO_LAYOUT_CANVAS</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>OriginBuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processType>AutoLaunchedFlow</processType>
+    <recordUpdates>
+        <description>Update the last date time Kixie automation was sent to fire the Zapier.</description>
+        <name>Update_Last_Kixie_Automation_Sent_Date</name>
+        <label>Update Last Kixie Automation Sent Date</label>
+        <locationX>176</locationX>
+        <locationY>323</locationY>
+        <inputAssignments>
+            <field>Last_Date_Kixie_Automation_Sent__c</field>
+            <value>
+                <elementReference>GetTheCurrentTime</elementReference>
+            </value>
+        </inputAssignments>
+        <inputReference>$Record</inputReference>
+    </recordUpdates>
+    <start>
+        <locationX>50</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Update_Last_Kixie_Automation_Sent_Date</targetReference>
+        </connector>
+        <filterFormula>AND( 
+     ISCHANGED({!$Record.Automated_Kixie_Text__c}), 
+     ({!$Record.DoNotCall} != TRUE),  
+     NOT( 
+           OR( 
+                 ISPICKVAL({!$Record.Automated_Kixie_Text__c}, &quot;N/A&quot;),
+                 ISPICKVAL({!$Record.Automated_Kixie_Text__c}, &quot;&quot;)
+                )
+            )
+)</filterFormula>
+        <object>Lead</object>
+        <recordTriggerType>Update</recordTriggerType>
+        <triggerType>RecordAfterSave</triggerType>
+    </start>
+    <status>Active</status>
+</Flow>

@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <actionCalls>
+        <name>Send_Slack_Message_On_Mis_Routev2</name>
+        <label>Send Slack Message On Mis-Routev2</label>
+        <locationX>176</locationX>
+        <locationY>134</locationY>
+        <actionName>slackPostMessage</actionName>
+        <actionType>slackPostMessage</actionType>
+        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>slackAppIdForToken</name>
+            <value>
+                <stringValue>A03269G3DNE</stringValue>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>slackWorkspaceIdForToken</name>
+            <value>
+                <stringValue>T0295TR9745</stringValue>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>slackConversationId</name>
+            <value>
+                <stringValue>C096W8D124B</stringValue>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>slackMessage</name>
+            <value>
+                <elementReference>LeadRoutingSlackMessageToSend</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>slackPostMessage</nameSegment>
+        <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </actionCalls>
+    <apiVersion>61.0</apiVersion>
+    <description>Updated channel to lead routing alerts</description>
+    <environments>Default</environments>
+    <interviewLabel>Lead Routing - Slack Message on MisRoute {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>Lead Routing - Slack Message on MisRoute</label>
+    <processMetadataValues>
+        <name>BuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>CanvasMode</name>
+        <value>
+            <stringValue>AUTO_LAYOUT_CANVAS</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>OriginBuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processType>AutoLaunchedFlow</processType>
+    <start>
+        <locationX>50</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Send_Slack_Message_On_Mis_Routev2</targetReference>
+        </connector>
+    </start>
+    <status>Active</status>
+    <textTemplates>
+        <description>The Slack Message to send</description>
+        <name>LeadRoutingSlackMessageToSend</name>
+        <isViewedAsPlainText>true</isViewedAsPlainText>
+        <text>It seems that an SQL was just routed to the person who was not up next on Lead routing for that SGM.
+The SGA who routed this opportunity was: {!TheSGAWhoRouted.Name}
+The SGM who the opportunity was supposed to be routed was: {!SGMWhoWasSupposedToBeUp.Name}
+The Opportunity which was routed was: &lt;https://savvywealth.lightning.force.com/{!OpportunityWhichGotRouted.Full_Opportunity_ID__c} | {!OpportunityWhichGotRouted.Name}&gt;</text>
+    </textTemplates>
+    <variables>
+        <description>The Opportunity record which got routed</description>
+        <name>OpportunityWhichGotRouted</name>
+        <dataType>SObject</dataType>
+        <isCollection>false</isCollection>
+        <isInput>true</isInput>
+        <isOutput>false</isOutput>
+        <objectType>Opportunity</objectType>
+    </variables>
+    <variables>
+        <description>The SGM who was supposed to be up</description>
+        <name>SGMWhoWasSupposedToBeUp</name>
+        <dataType>SObject</dataType>
+        <isCollection>false</isCollection>
+        <isInput>true</isInput>
+        <isOutput>false</isOutput>
+        <objectType>User</objectType>
+    </variables>
+    <variables>
+        <description>The SGA who routed the lead.</description>
+        <name>TheSGAWhoRouted</name>
+        <dataType>SObject</dataType>
+        <isCollection>false</isCollection>
+        <isInput>true</isInput>
+        <isOutput>false</isOutput>
+        <objectType>User</objectType>
+    </variables>
+</Flow>

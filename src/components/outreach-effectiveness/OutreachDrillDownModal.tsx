@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Text, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Button } from '@tremor/react';
-import { X, ExternalLink, Download } from 'lucide-react';
+import { Card, Text, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Button, TextInput } from '@tremor/react';
+import { X, ExternalLink, Download, Search } from 'lucide-react';
 import { ExportButton } from '@/components/ui/ExportButton';
 import { exportToCSV } from '@/lib/utils/export-csv';
+import { fuzzyMatch } from '@/components/dashboard/detail-records-table-utils';
 import type {
   OutreachDrillDownType,
   OutreachLeadRecord,
@@ -84,6 +85,7 @@ export default function OutreachDrillDownModal({
   onExportAll,
 }: OutreachDrillDownModalProps) {
   const [exporting, setExporting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // ESC key handler
   useEffect(() => {
@@ -95,6 +97,11 @@ export default function OutreachDrillDownModal({
     return () => window.removeEventListener('keydown', handler);
   }, [isOpen, onClose]);
 
+  // Reset search when modal closes or drill-down type changes
+  useEffect(() => {
+    if (!isOpen) setSearchQuery('');
+  }, [isOpen, drillDownType]);
+
   const columns = useMemo(() => {
     switch (drillDownType) {
       case 'leads': return LEADS_COLUMNS;
@@ -103,7 +110,16 @@ export default function OutreachDrillDownModal({
     }
   }, [drillDownType]);
 
-  const exportData = useMemo(() => mapRecordsForExport(records, columns), [records, columns]);
+  // Filter records by advisor name search
+  const filteredRecords = useMemo(() => {
+    if (!searchQuery.trim()) return records;
+    return records.filter((r: any) => {
+      const name = r.advisorName || r.sgaName || '';
+      return fuzzyMatch(searchQuery, name);
+    });
+  }, [records, searchQuery]);
+
+  const exportData = useMemo(() => mapRecordsForExport(filteredRecords, columns), [filteredRecords, columns]);
 
   const handleExportAll = async () => {
     if (!onExportAll) return;
@@ -151,6 +167,38 @@ export default function OutreachDrillDownModal({
           </div>
         </div>
 
+        {/* Search bar */}
+        {!loading && records.length > 0 && (
+          <div className="px-4 pt-3 pb-2 border-b border-gray-200 dark:border-gray-700 shrink-0">
+            <div className="relative max-w-sm">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <TextInput
+                type="text"
+                placeholder={drillDownType === 'weekly-calls' ? 'Search by SGA name...' : 'Search by advisor name...'}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 pr-9"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  aria-label="Clear search"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            {searchQuery && (
+              <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {filteredRecords.length === 0
+                  ? `No records matching "${searchQuery}"`
+                  : `${filteredRecords.length} of ${records.length} records matching "${searchQuery}"`}
+              </Text>
+            )}
+          </div>
+        )}
+
         {/* Body — vertical scroll here, horizontal scroll on inner table wrapper */}
         <div className="overflow-y-auto flex-1 min-h-0">
           {loading ? (
@@ -159,8 +207,10 @@ export default function OutreachDrillDownModal({
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 m-4">
               <Text className="text-red-600 dark:text-red-400">Error: {error}</Text>
             </div>
-          ) : records.length === 0 ? (
-            <Text className="text-center py-8 text-gray-500">No records found</Text>
+          ) : filteredRecords.length === 0 ? (
+            <Text className="text-center py-8 text-gray-500">
+              {searchQuery ? `No records matching "${searchQuery}"` : 'No records found'}
+            </Text>
           ) : (
             <div className="overflow-x-auto">
             <Table>
@@ -172,7 +222,7 @@ export default function OutreachDrillDownModal({
                 </TableRow>
               </TableHead>
               <TableBody>
-                {records.map((record: any, idx: number) => (
+                {filteredRecords.map((record: any, idx: number) => (
                   <TableRow
                     key={idx}
                     className={onRecordClick && drillDownType !== 'weekly-calls' ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50' : ''}
@@ -215,7 +265,11 @@ export default function OutreachDrillDownModal({
         {/* Footer */}
         <div className="flex justify-between items-center p-4 border-t border-gray-200 dark:border-gray-700 shrink-0">
           <Text className="text-sm text-gray-500">
-            {total > 0 ? `Showing ${startIdx} - ${endIdx} of ${total} records` : 'No records'}
+            {total > 0
+              ? searchQuery
+                ? `${filteredRecords.length} of ${total} records matching "${searchQuery}"`
+                : `Showing ${startIdx} - ${endIdx} of ${total} records`
+              : 'No records'}
           </Text>
           <div className="flex items-center gap-2">
             {isPaginated && (

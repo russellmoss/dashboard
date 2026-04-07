@@ -18,6 +18,10 @@ Also read if they exist (they inform triage decisions):
 - `data-verifier-findings.md` — verify field name fixes against real schema
 - `pattern-finder-findings.md` — verify pattern fixes against established patterns
 
+Also read the schema reference docs (they're the authoritative source for field name validation):
+- `.claude/bq-field-dictionary.md` — correct field names, types, and wrappers
+- `.claude/bq-patterns.md` — canonical query patterns to validate against
+
 If the implementation plan or council-feedback.md is missing, tell the user and stop.
 
 ## Step 1: Read everything
@@ -69,7 +73,7 @@ Edit the implementation plan directly:
 - If a BigQuery field was wrong, correct it to the exact name from data-verifier findings
 
 **Savvy-specific rules:**
-- If fixing BigQuery fields: use exact casing from data-verifier findings (Salesforce fields are case-sensitive)
+- If fixing BigQuery fields: cross-reference `.claude/bq-field-dictionary.md` for exact casing (Salesforce fields are case-sensitive). This is more authoritative than data-verifier findings for established fields.
 - If adding NULL handling: prefer COALESCE with sensible defaults over filtering out NULLs (we want to keep records, not lose them)
 - If fixing pattern drift: match the exact function name and import path from pattern-finder findings
 - If fixing export code: match the edge case handling from existing Sheets export tabs

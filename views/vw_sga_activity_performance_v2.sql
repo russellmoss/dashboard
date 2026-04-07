@@ -2,6 +2,7 @@ WITH base_tasks AS (
   SELECT
     t.Id,
     t.CreatedDate,
+    t.ActivityDate,
     t.Status,
     t.Subject,
     t.Type,
@@ -113,9 +114,12 @@ SELECT
   DATE(CreatedDate, 'America/New_York') AS task_created_date_est,
   
   DATETIME(CreatedDate, 'America/New_York') AS task_created_datetime_est,
-  DATE(CreatedDate, 'America/New_York') AS task_activity_date,
+  -- Use ActivityDate (when the activity happened) not CreatedDate (when SFDC logged it)
+  -- Aligns with SFDC report DUE_DATE so dashboard matches what SGAs see in Salesforce
+  -- COALESCE fallback for the ~1 NULL ActivityDate record
+  COALESCE(ActivityDate, DATE(CreatedDate, 'America/New_York')) AS task_activity_date,
   EXTRACT(HOUR FROM DATETIME(CreatedDate, 'America/New_York')) AS activity_hour_est,
-  FORMAT_DATE('%A', DATE(CreatedDate, 'America/New_York')) AS activity_day_of_week,
+  FORMAT_DATE('%A', COALESCE(ActivityDate, DATE(CreatedDate, 'America/New_York'))) AS activity_day_of_week,
   
   Status AS task_status,
   Subject AS task_subject,

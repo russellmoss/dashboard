@@ -14,6 +14,9 @@ interface ForecastTopBarProps {
   exporting: boolean;
   totalOpps: number;
   exportResult: { url: string; name: string } | null;
+  onSqoLagExport?: () => void;
+  sqoLagExporting?: boolean;
+  sqoLagExportResult?: { url: string; name: string } | null;
 }
 
 const WINDOW_OPTIONS: { label: string; value: 180 | 365 | 730 | null }[] = [
@@ -33,6 +36,9 @@ export function ForecastTopBar({
   exporting,
   totalOpps,
   exportResult,
+  onSqoLagExport,
+  sqoLagExporting,
+  sqoLagExportResult,
 }: ForecastTopBarProps) {
   return (
     <Card className="p-4">
@@ -87,6 +93,34 @@ export function ForecastTopBar({
             )}
             {exporting ? 'Exporting...' : 'Export to Sheets'}
           </button>
+
+          {onSqoLagExport && (
+            <>
+              {sqoLagExportResult && (
+                <a
+                  href={sqoLagExportResult.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400 hover:underline"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  {sqoLagExportResult.name}
+                </a>
+              )}
+              <button
+                onClick={onSqoLagExport}
+                disabled={sqoLagExporting}
+                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {sqoLagExporting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4" />
+                )}
+                {sqoLagExporting ? 'Exporting...' : 'SQO Lag Export'}
+              </button>
+            </>
+          )}
 
           {canRunScenarios && (
             <button

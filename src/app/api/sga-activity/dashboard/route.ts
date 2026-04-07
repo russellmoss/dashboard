@@ -5,10 +5,8 @@ import { getSessionPermissions } from '@/types/auth';
 import {
   getCachedScheduledInitialCalls,
   getCachedScheduledQualificationCalls,
-  getCachedActivityDistribution,
   getCachedSMSResponseRate,
   getCachedCallAnswerRate,
-  getCachedActivityBreakdown,
   getCachedActivityTotals,
 } from '@/lib/queries/sga-activity';
 import { SGAActivityFilters, SGAActivityDashboardData } from '@/types/sga-activity';
@@ -42,51 +40,26 @@ export async function POST(request: NextRequest) {
       filters = { ...filters, sga: permissions.sgaFilter };
     }
 
-    // Create separate filters for Activity Distribution (uses Period A/B if set)
-    // Note: comparisonDateRangeType doesn't support 'this_week' or 'next_week', so we map Period B to supported types
-    const periodBType = filters.periodBType || filters.comparisonDateRangeType;
-    const mappedPeriodBType = (periodBType === 'this_week' || periodBType === 'next_week') 
-      ? 'last_30' 
-      : periodBType as 'last_30' | 'last_60' | 'last_90' | 'qtd' | 'all_time' | 'custom';
-    
-    const activityDistributionFilters: SGAActivityFilters = {
-      ...filters,
-      // Use Period A/B for Activity Distribution if they're set, otherwise use main filters
-      dateRangeType: filters.periodAType || filters.dateRangeType,
-      startDate: filters.periodAStartDate || filters.startDate,
-      endDate: filters.periodAEndDate || filters.endDate,
-      comparisonDateRangeType: mappedPeriodBType,
-      comparisonStartDate: filters.periodBStartDate || filters.comparisonStartDate,
-      comparisonEndDate: filters.periodBEndDate || filters.comparisonEndDate,
-    };
-
     // Fetch all data in parallel
-    // Main queries use main filters, Activity Distribution uses Period A/B filters
     const [
       initialCalls,
       qualificationCalls,
-      activityDistribution,
       smsResponseRate,
       callAnswerRate,
-      activityBreakdown,
       totals,
     ] = await Promise.all([
       getCachedScheduledInitialCalls(filters),
       getCachedScheduledQualificationCalls(filters),
-      getCachedActivityDistribution(activityDistributionFilters),
       getCachedSMSResponseRate(filters),
       getCachedCallAnswerRate(filters),
-      getCachedActivityBreakdown(filters),
       getCachedActivityTotals(filters),
     ]);
 
     const data: SGAActivityDashboardData = {
       initialCalls,
       qualificationCalls,
-      activityDistribution,
       smsResponseRate,
       callAnswerRate,
-      activityBreakdown,
       totals,
     };
 

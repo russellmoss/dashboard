@@ -6,9 +6,10 @@ import { getSessionPermissions } from '@/types/auth';
 import ActivityFilters from '@/components/sga-activity/ActivityFilters';
 import ScheduledCallsCards from '@/components/sga-activity/ScheduledCallsCards';
 import ActivityTotalsCards from '@/components/sga-activity/ActivityTotalsCards';
-import ActivityDistributionTable from '@/components/sga-activity/ActivityDistributionTable';
 import RateCards from '@/components/sga-activity/RateCards';
 import ActivityDrillDownModal from '@/components/sga-activity/ActivityDrillDownModal';
+import ActivityBreakdownTable from '@/components/sga-activity/ActivityBreakdownTable';
+import ActivityBreakdownDrillDownModal from '@/components/sga-activity/ActivityBreakdownDrillDownModal';
 import { DataFreshnessIndicator } from '@/components/dashboard/DataFreshnessIndicator';
 import { RecordDetailModal } from '@/components/dashboard/RecordDetailModal';
 import {
@@ -17,6 +18,10 @@ import {
   ActivityRecord,
   ScheduledCallRecord,
   ActivityChannel,
+  ActivityBreakdownRow,
+  ActivityBreakdownWeekBounds,
+  ActivityBreakdownDrillDownRecord,
+  TrailingWeeksOption,
 } from '@/types/sga-activity';
 
 const DEFAULT_FILTERS: SGAActivityFilters = {
@@ -38,6 +43,7 @@ const DEFAULT_FILTERS: SGAActivityFilters = {
   activityTypes: [],
   includeAutomated: true, // Always include automated activities (emails, LinkedIn, SMS)
   callTypeFilter: 'all_outbound',
+  trailingWeeks: 4,
 };
 
 // Helper to convert UI day number to BigQuery DAYOFWEEK value
@@ -94,6 +100,20 @@ export default function SGAActivityContent({ embedded = false }: SGAActivityCont
   // Record detail modal state
   const [recordDetailOpen, setRecordDetailOpen] = useState(false);
   const [recordDetailId, setRecordDetailId] = useState<string | null>(null);
+
+  // Activity Breakdown state
+  const [breakdownData, setBreakdownData] = useState<ActivityBreakdownRow[]>([]);
+  const [breakdownWeekBounds, setBreakdownWeekBounds] = useState<ActivityBreakdownWeekBounds | null>(null);
+  const [breakdownLoading, setBreakdownLoading] = useState(false);
+  const [breakdownDrillDownOpen, setBreakdownDrillDownOpen] = useState(false);
+  const [breakdownDrillDownRecords, setBreakdownDrillDownRecords] = useState<ActivityBreakdownDrillDownRecord[]>([]);
+  const [breakdownDrillDownLoading, setBreakdownDrillDownLoading] = useState(false);
+  const [breakdownDrillDownTotal, setBreakdownDrillDownTotal] = useState(0);
+  const [breakdownDrillDownPage, setBreakdownDrillDownPage] = useState(1);
+  const [breakdownDrillDownTitle, setBreakdownDrillDownTitle] = useState('');
+  const [breakdownDrillDownParams, setBreakdownDrillDownParams] = useState<any>(null);
+  const [breakdownDrillDownSearch, setBreakdownDrillDownSearch] = useState('');
+  const [xlsxExportLoading, setXlsxExportLoading] = useState(false);
 
   // Fetch filter options
   useEffect(() => {
@@ -313,91 +333,6 @@ export default function SGAActivityContent({ embedded = false }: SGAActivityCont
     }
   };
 
-  const handleActivityDistributionCellClick = async (channel: ActivityChannel | undefined, dayOfWeek: number, period: 'A' | 'B' = 'A') => {
-    // Use Period A or Period B filters based on the period parameter
-    const periodFilters: SGAActivityFilters = period === 'A' 
-      ? {
-          ...filters,
-          dateRangeType: filters.periodAType || filters.dateRangeType,
-          startDate: filters.periodAStartDate || filters.startDate,
-          endDate: filters.periodAEndDate || filters.endDate,
-        }
-      : {
-          ...filters,
-          dateRangeType: filters.periodBType || filters.comparisonDateRangeType,
-          startDate: filters.periodBStartDate || filters.comparisonStartDate,
-          endDate: filters.periodBEndDate || filters.comparisonEndDate,
-        };
-    
-    // Convert UI day number to BigQuery DAYOFWEEK value
-    // UI DAY_ORDER [1,2,3,4,5,6,0] → BigQuery [2,3,4,5,6,7,1]
-    const bigQueryDayOfWeek = convertUIToBigQueryDayOfWeek(dayOfWeek);
-    
-    setDrillDownLoading(true);
-    setDrillDownRecordType('activity');
-    setDrillDownPage(1);
-    setDrillDownFilters({ channel, dayOfWeek: bigQueryDayOfWeek });
-    setDrillDownExportFilters(periodFilters); // Store filters for export
-
-    const labels: Record<string, string> = {
-      cold_calls: 'Cold Calls',
-      outbound_calls: 'Outbound Calls',
-      sms_outbound: 'Outbound SMS',
-      sms_inbound: 'Inbound SMS',
-      linkedin_messages: 'LinkedIn Messages',
-      emails_manual: 'Emails',
-    };
-
-    const channelLabel = channel || 'Activity';
-    // Use the original UI day number (before conversion) for display
-    const dayLabel = dayOfWeek !== undefined ? ` - ${getDayName(dayOfWeek)}` : '';
-    
-    // Build a more descriptive title that includes the period info
-    const periodType = period === 'A' ? periodFilters.periodAType : periodFilters.periodBType;
-    const periodLabel = periodType === 'this_week' 
-      ? 'This Week' 
-      : periodType === 'last_30'
-      ? 'Last 30 Days'
-      : periodType === 'last_60'
-      ? 'Last 60 Days'
-      : periodType === 'last_90'
-      ? 'Last 90 Days'
-      : periodType === 'qtd'
-      ? 'Quarter to Date'
-      : periodType === 'all_time'
-      ? 'All Time'
-      : periodType === 'custom' && periodFilters.startDate && periodFilters.endDate
-      ? `${periodFilters.startDate} to ${periodFilters.endDate}`
-      : period === 'A' ? 'Period A' : 'Period B';
-    
-    setDrillDownTitle(`${channelLabel}${dayLabel} (${periodLabel})`);
-
-    try {
-      const response = await fetch('/api/sga-activity/activity-records', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          filters: periodFilters,
-          channel,
-          dayOfWeek: bigQueryDayOfWeek,
-          page: 1,
-          pageSize: 100,
-        }),
-      });
-
-      if (!response.ok) throw new Error('Failed to fetch activity records');
-      const result = await response.json();
-      setDrillDownRecords(result.records || []);
-      setDrillDownTotal(result.total || 0);
-      setDrillDownOpen(true);
-    } catch (err: any) {
-      console.error('Activity drill-down error:', err);
-      setError(err.message || 'Failed to load activity records');
-    } finally {
-      setDrillDownLoading(false);
-    }
-  };
-
   const handleDrillDownPageChange = async (page: number) => {
     if (drillDownRecordType === 'activity') {
       setDrillDownPage(page);
@@ -441,6 +376,175 @@ export default function SGAActivityContent({ embedded = false }: SGAActivityCont
     }
   };
 
+  // Fetch Activity Breakdown data
+  const fetchBreakdownData = useCallback(async () => {
+    try {
+      setBreakdownLoading(true);
+      const response = await fetch('/api/sga-activity/breakdown', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trailingWeeks: filters.trailingWeeks || 4 }),
+      });
+      if (!response.ok) throw new Error('Failed to fetch breakdown data');
+      const result = await response.json();
+      setBreakdownData(result.data);
+      setBreakdownWeekBounds(result.weekBounds);
+    } catch (err: any) {
+      console.error('Breakdown fetch error:', err);
+    } finally {
+      setBreakdownLoading(false);
+    }
+  }, [filters.trailingWeeks]);
+
+  useEffect(() => {
+    fetchBreakdownData();
+  }, [fetchBreakdownData]);
+
+  // Breakdown cell click — resolve week bucket to date range and fetch drilldown
+  const handleBreakdownCellClick = async (sgaName: string, metricType: string | null, weekBucket: string) => {
+    if (!breakdownWeekBounds) return;
+
+    let startDate: string;
+    let endDate: string;
+    let weekLabel: string;
+
+    if (weekBucket === 'This_Week') {
+      startDate = breakdownWeekBounds.thisWeek.start;
+      endDate = breakdownWeekBounds.thisWeek.end;
+      weekLabel = 'This Week';
+    } else if (weekBucket === 'Last_Week') {
+      startDate = breakdownWeekBounds.lastWeek.start;
+      endDate = breakdownWeekBounds.lastWeek.end;
+      weekLabel = 'Last Week';
+    } else {
+      const weekNum = parseInt(weekBucket.replace('Trailing_', ''));
+      const tw = breakdownWeekBounds.trailingWeeks.find(w => w.weekNum === weekNum);
+      if (!tw) return;
+      startDate = tw.start;
+      endDate = tw.end;
+      weekLabel = `Trailing Week ${weekNum}`;
+    }
+
+    const metricLabel = metricType ? metricType.replace(/_/g, ' ') : 'All Metrics';
+    setBreakdownDrillDownTitle(`${sgaName} — ${metricLabel} — ${weekLabel} (${startDate} to ${endDate})`);
+    setBreakdownDrillDownParams({ sgaName, startDate, endDate, metricType });
+    setBreakdownDrillDownPage(1);
+    setBreakdownDrillDownSearch('');
+    setBreakdownDrillDownLoading(true);
+    setBreakdownDrillDownOpen(true);
+
+    try {
+      const response = await fetch('/api/sga-activity/breakdown-drilldown', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sgaName, startDate, endDate, metricType, page: 1, pageSize: 100 }),
+      });
+      if (!response.ok) throw new Error('Failed to fetch drilldown');
+      const result = await response.json();
+      setBreakdownDrillDownRecords(result.records);
+      setBreakdownDrillDownTotal(result.total);
+    } catch (err: any) {
+      console.error('Breakdown drilldown error:', err);
+    } finally {
+      setBreakdownDrillDownLoading(false);
+    }
+  };
+
+  const handleBreakdownDrillDownPageChange = async (newPage: number) => {
+    if (!breakdownDrillDownParams) return;
+    setBreakdownDrillDownPage(newPage);
+    setBreakdownDrillDownLoading(true);
+    try {
+      const response = await fetch('/api/sga-activity/breakdown-drilldown', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...breakdownDrillDownParams,
+          page: newPage,
+          pageSize: 100,
+          search: breakdownDrillDownSearch || undefined,
+        }),
+      });
+      if (!response.ok) throw new Error('Failed to fetch drilldown page');
+      const result = await response.json();
+      setBreakdownDrillDownRecords(result.records);
+      setBreakdownDrillDownTotal(result.total);
+    } catch (err: any) {
+      console.error('Breakdown drilldown page error:', err);
+    } finally {
+      setBreakdownDrillDownLoading(false);
+    }
+  };
+
+  const handleBreakdownDrillDownSearch = async (search: string) => {
+    if (!breakdownDrillDownParams) return;
+    setBreakdownDrillDownSearch(search);
+    setBreakdownDrillDownPage(1);
+    setBreakdownDrillDownLoading(true);
+    try {
+      const response = await fetch('/api/sga-activity/breakdown-drilldown', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...breakdownDrillDownParams,
+          page: 1,
+          pageSize: 100,
+          search: search || undefined,
+        }),
+      });
+      if (!response.ok) throw new Error('Failed to fetch drilldown search');
+      const result = await response.json();
+      setBreakdownDrillDownRecords(result.records);
+      setBreakdownDrillDownTotal(result.total);
+    } catch (err: any) {
+      console.error('Breakdown drilldown search error:', err);
+    } finally {
+      setBreakdownDrillDownLoading(false);
+    }
+  };
+
+  const handleBreakdownExportAll = async (): Promise<any[]> => {
+    if (!breakdownDrillDownParams) return [];
+    const response = await fetch('/api/sga-activity/breakdown-drilldown', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...breakdownDrillDownParams,
+        page: 1,
+        pageSize: 10000,
+        search: breakdownDrillDownSearch || undefined,
+      }),
+    });
+    if (!response.ok) throw new Error('Failed to export all');
+    const result = await response.json();
+    return result.records;
+  };
+
+  const handleXlsxExport = async () => {
+    setXlsxExportLoading(true);
+    try {
+      const response = await fetch('/api/sga-activity/export-breakdown', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trailingWeeks: filters.trailingWeeks || 4 }),
+      });
+      if (!response.ok) throw new Error('Failed to export XLSX');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sga-activity-breakdown-${filters.trailingWeeks || 4}wk.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('XLSX export error:', err);
+    } finally {
+      setXlsxExportLoading(false);
+    }
+  };
+
   const handleRecordClick = (recordId: string) => {
     if (!recordId) {
       console.warn('No record ID provided');
@@ -458,7 +562,12 @@ export default function SGAActivityContent({ embedded = false }: SGAActivityCont
   const handleBackToDrillDown = () => {
     setRecordDetailOpen(false);
     setRecordDetailId(null);
-    setDrillDownOpen(true);
+    // Restore whichever drilldown was open
+    if (breakdownDrillDownParams) {
+      setBreakdownDrillDownOpen(true);
+    } else {
+      setDrillDownOpen(true);
+    }
   };
 
   if (loading && !data) {
@@ -538,12 +647,38 @@ export default function SGAActivityContent({ embedded = false }: SGAActivityCont
       </div>
 
 
-      {/* Activity Distribution - with Period A/B filters */}
-      <ActivityDistributionTable
-        distributions={data.activityDistribution}
-        onCellClick={handleActivityDistributionCellClick}
-        filters={filters}
-        onFiltersChange={setFilters}
+      {/* SGA Activity Breakdown (collapsible table) */}
+      {breakdownWeekBounds && (
+        <ActivityBreakdownTable
+          data={breakdownData}
+          weekBounds={breakdownWeekBounds}
+          trailingWeeks={(filters.trailingWeeks || 4) as TrailingWeeksOption}
+          loading={breakdownLoading}
+          onCellClick={handleBreakdownCellClick}
+          onExportXlsx={handleXlsxExport}
+          exportLoading={xlsxExportLoading}
+          onTrailingWeeksChange={(weeks) => setFilters(f => ({ ...f, trailingWeeks: weeks }))}
+        />
+      )}
+
+      {/* Breakdown Drill-Down Modal */}
+      <ActivityBreakdownDrillDownModal
+        isOpen={breakdownDrillDownOpen && !recordDetailOpen}
+        onClose={() => {
+          setBreakdownDrillDownOpen(false);
+          setBreakdownDrillDownSearch('');
+        }}
+        title={breakdownDrillDownTitle}
+        records={breakdownDrillDownRecords}
+        loading={breakdownDrillDownLoading}
+        total={breakdownDrillDownTotal}
+        page={breakdownDrillDownPage}
+        pageSize={100}
+        onPageChange={handleBreakdownDrillDownPageChange}
+        onRecordClick={handleRecordClick}
+        onExportAll={handleBreakdownExportAll}
+        onSearch={handleBreakdownDrillDownSearch}
+        searchValue={breakdownDrillDownSearch}
       />
 
       {/* Drill-down Modal */}

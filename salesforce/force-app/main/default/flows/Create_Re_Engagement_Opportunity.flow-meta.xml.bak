@@ -127,7 +127,8 @@
             <label>Created from RecruitingID</label>
         </rules>
     </decisions>
-    <description>2/17: Changed the ordering of the check of opportunities to show an earlier screen about not being able to create a re-engagement opp
+    <description>3/17: Added it to default to the creating person as the primary owner of the re-engagement opp
+2/17: Changed the ordering of the check of opportunities to show an earlier screen about not being able to create a re-engagement opp
 2/13: Added validation to check for existing open re-engagement or recruiting opportunities before creating.
 1/26: Removed the SQO field getting updated.
 The Screen Flow to create a re-engagement opportunity. (10/2: Added the OwnerID to be updated properly)</description>
@@ -209,6 +210,12 @@ The Screen Flow to create a re-engagement opportunity. (10/2: Added the OwnerID 
         <name>Re_Engagement_Opportunity_Name</name>
         <dataType>String</dataType>
         <expression>IF(NOT(ISNULL({!recordID.Full_Opportunity_ID__c})), &quot;[Re-Engagement] &quot;&amp;{!recordID.Name},&quot;&quot;)</expression>
+    </formulas>
+    <formulas>
+        <description>This is the name of the active user to default to them when re-engagement is created</description>
+        <name>Running_User_Name</name>
+        <dataType>String</dataType>
+        <expression>{!$User.FirstName} &amp; &quot; &quot; &amp; {!$User.LastName}</expression>
     </formulas>
     <interviewLabel>Create Re-Engagement Opportunity {!$Flow.CurrentDateTime}</interviewLabel>
     <label>Create Re-Engagement Opportunity</label>
@@ -413,7 +420,7 @@ The Screen Flow to create a re-engagement opportunity. (10/2: Added the OwnerID 
             <field>AccountId</field>
             <operator>EqualTo</operator>
             <value>
-                <elementReference>AccountLookup.recordId</elementReference>
+                <elementReference>Get_Triggering_Opp.Account.Id</elementReference>
             </value>
         </filters>
         <filters>
@@ -471,6 +478,13 @@ The Screen Flow to create a re-engagement opportunity. (10/2: Added the OwnerID 
             <operator>NotEqualTo</operator>
             <value>
                 <stringValue>Re-Engaged</stringValue>
+            </value>
+        </filters>
+        <filters>
+            <field>StageName</field>
+            <operator>NotEqualTo</operator>
+            <value>
+                <stringValue>Closed Lost</stringValue>
             </value>
         </filters>
         <getFirstRecordOnly>true</getFirstRecordOnly>
@@ -677,7 +691,7 @@ The Screen Flow to create a re-engagement opportunity. (10/2: Added the OwnerID 
             <name>REO_Primary_Owner</name>
             <choiceReferences>REO_User_List</choiceReferences>
             <defaultValue>
-                <stringValue>Savvy Marketing</stringValue>
+                <elementReference>Running_User_Name</elementReference>
             </defaultValue>
             <extensionName>flowruntime:choiceLookup</extensionName>
             <fieldText>Primary Owner</fieldText>
@@ -879,7 +893,7 @@ The Screen Flow to create a re-engagement opportunity. (10/2: Added the OwnerID 
             <targetReference>Get_Triggering_Opp</targetReference>
         </connector>
     </start>
-    <status>Draft</status>
+    <status>Active</status>
     <variables>
         <name>OpportunityContactRole</name>
         <dataType>SObject</dataType>

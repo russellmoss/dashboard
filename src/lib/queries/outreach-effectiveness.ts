@@ -194,11 +194,15 @@ function buildSharedCTE(sgaFilter: string, campaignFilter: string): string {
         AND TRIM(a.task_executor_name) = lp.SGA_Owner_Name__c
     ),
     inbound_activity AS (
-      SELECT DISTINCT a.Full_prospect_id__c
-      FROM \`${ACTIVITY_VIEW}\` a
+      -- Only count inbound activity that occurred during the current lifecycle
+      -- (after the lead's FilterDate). Recycled leads carry prior-lifecycle
+      -- replies that should not count as "Replied" in the new pass.
+      SELECT DISTINCT lp.Full_prospect_id__c
+      FROM lead_population lp
+      INNER JOIN \`${ACTIVITY_VIEW}\` a ON lp.Full_prospect_id__c = a.Full_prospect_id__c
       WHERE a.direction = 'Inbound'
         AND COALESCE(a.activity_channel_group, '') NOT IN ('Marketing', '')
-        AND a.Full_prospect_id__c IS NOT NULL
+        AND a.task_created_date_est >= DATE_SUB(lp.filter_date, INTERVAL 1 DAY)
     ),
     classified_leads AS (
       SELECT
@@ -214,13 +218,18 @@ function buildSharedCTE(sgaFilter: string, campaignFilter: string): string {
           WHEN lp.is_sql = 1 THEN 'Converted'
           WHEN lp.is_mql = 1 THEN 'MQL'
           WHEN ia.Full_prospect_id__c IS NOT NULL THEN 'Replied'
+          -- Only count disposition-based replies if the close happened in the
+          -- current lifecycle.  Recycled leads carry stale Disposition__c from
+          -- a prior lifecycle; ignore those by comparing lead_closed_date to
+          -- the current lifecycle start (filter_date).
           WHEN lp.Disposition__c IN (
             'Not Interested in Moving', 'Timing',
             'No Book', 'AUM / Revenue too Low', 'Book Not Transferable',
             'Restrictive Covenants', 'Compensation Model Issues',
             'Interested in M&A', 'Wants Platform Only',
             'Other', 'Withdrawn or Rejected Application'
-          ) THEN 'Replied'
+          ) AND (lp.lead_closed_date IS NULL OR DATE(lp.lead_closed_date) >= lp.filter_date)
+          THEN 'Replied'
           ELSE 'Unengaged'
         END AS lead_status,
         -- Bad leads: excluded from persistence/avg-touches/multi-channel denominators

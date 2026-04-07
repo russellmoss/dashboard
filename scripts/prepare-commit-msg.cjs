@@ -3,6 +3,9 @@
  * prepare-commit-msg hook handler.
  * Appends "(docs auto-updated by agent-guard)" when the pre-commit hook
  * staged auto-fix changes (signaled via .agent-guard/.auto-fix-ran).
+ *
+ * Session context generation has been moved to pre-commit-doc-check.cjs
+ * where git add works reliably.
  */
 
 const fs = require('fs');

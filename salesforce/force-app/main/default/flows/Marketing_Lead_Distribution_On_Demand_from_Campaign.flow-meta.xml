@@ -1,0 +1,522 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>65.0</apiVersion>
+    <assignments>
+        <name>Add_varLeadUpdate_to_LeadsToUpdateCollection</name>
+        <label>Add varLeadUpdate to LeadsToUpdateCollection</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignmentItems>
+            <assignToReference>LeadsToUpdate</assignToReference>
+            <operator>Add</operator>
+            <value>
+                <elementReference>varLeadUpdate</elementReference>
+            </value>
+        </assignmentItems>
+        <connector>
+            <targetReference>Clear_varLeadUpdate</targetReference>
+        </connector>
+    </assignments>
+    <assignments>
+        <name>Assign_Current_DG_REP_to_varCurrentDGREP</name>
+        <label>Assign Current DG REP to varCurrentDGREP</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignmentItems>
+            <assignToReference>varCurrentDGRep</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Loop_DG_Reps</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>varGotRep</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <booleanValue>true</booleanValue>
+            </value>
+        </assignmentItems>
+        <connector>
+            <targetReference>Loop_DG_Reps</targetReference>
+        </connector>
+    </assignments>
+    <assignments>
+        <name>Build_Lead_Update</name>
+        <label>Build Lead Update</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignmentItems>
+            <assignToReference>varLeadUpdate.Id</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Loop_Campaign_Members.LeadId</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>varLeadUpdate.OwnerId</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>varCurrentDGRep.User__r.Id</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>varLeadUpdate.Final_Source__c</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>FinalSourceFormula</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>varLeadUpdate.Campaign__c</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Loop_Campaign_Members.CampaignId</elementReference>
+            </value>
+        </assignmentItems>
+        <connector>
+            <targetReference>Add_varLeadUpdate_to_LeadsToUpdateCollection</targetReference>
+        </connector>
+    </assignments>
+    <assignments>
+        <name>Clear_varLeadUpdate</name>
+        <label>Clear varLeadUpdate</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignmentItems>
+            <assignToReference>varLeadUpdate</assignToReference>
+            <operator>Assign</operator>
+        </assignmentItems>
+        <connector>
+            <targetReference>Rotate_DG_Reps</targetReference>
+        </connector>
+    </assignments>
+    <assignments>
+        <name>Get_n_of_Active_Reps</name>
+        <label>Get # of Active Reps</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignmentItems>
+            <assignToReference>varRepCount</assignToReference>
+            <operator>AssignCount</operator>
+            <value>
+                <elementReference>colDGRepsQueue</elementReference>
+            </value>
+        </assignmentItems>
+        <connector>
+            <targetReference>Get_Campaign_Members</targetReference>
+        </connector>
+    </assignments>
+    <assignments>
+        <name>Reset_varGotRep</name>
+        <label>Reset varGotRep</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignmentItems>
+            <assignToReference>varGotRep</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <booleanValue>false</booleanValue>
+            </value>
+        </assignmentItems>
+        <connector>
+            <targetReference>Build_Lead_Update</targetReference>
+        </connector>
+    </assignments>
+    <assignments>
+        <name>Rotate_DG_Reps</name>
+        <label>Rotate DG Reps</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignmentItems>
+            <assignToReference>colDGRepsQueue</assignToReference>
+            <operator>RemoveFirst</operator>
+            <value>
+                <elementReference>varCurrentDGRep</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>colDGRepsQueue</assignToReference>
+            <operator>Add</operator>
+            <value>
+                <elementReference>varCurrentDGRep</elementReference>
+            </value>
+        </assignmentItems>
+        <connector>
+            <targetReference>Loop_Campaign_Members</targetReference>
+        </connector>
+    </assignments>
+    <decisions>
+        <name>Has_Current_DG_Rep_Been_Selected</name>
+        <label>Has Current DG Rep Been Selected?</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <defaultConnector>
+            <targetReference>Loop_DG_Reps</targetReference>
+        </defaultConnector>
+        <defaultConnectorLabel>First Rep Selected</defaultConnectorLabel>
+        <rules>
+            <name>First_Rep_Not_Selected</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>varGotRep</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <booleanValue>false</booleanValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Assign_Current_DG_REP_to_varCurrentDGREP</targetReference>
+            </connector>
+            <label>Current Rep Is Selected</label>
+        </rules>
+    </decisions>
+    <environments>Default</environments>
+    <formulas>
+        <name>FinalSourceFormula</name>
+        <dataType>String</dataType>
+        <expression>/* Final Source mapping from utm_source_last__c */
+
+CASE(
+  TRIM(LOWER({!Loop_Campaign_Members.UTM_Source__c})),
+
+  /* Organic */
+  &quot;blog&quot;,               &quot;Blog&quot;,
+  &quot;search&quot;,             &quot;Search&quot;,
+  &quot;org_linkedin&quot;,       &quot;LinkedIn Savvy&quot;,
+  &quot;soc_linkedin&quot;,       &quot;LinkedIn Social&quot;,
+
+  /* Direct Traffic */
+  &quot;&quot;,                   &quot;Direct Traffic&quot;,
+  &quot;direct&quot;,             &quot;Direct Traffic&quot;,
+  &quot;directtraffic&quot;,      &quot;Direct Traffic&quot;,
+
+  /* Paid Media */
+  &quot;google&quot;,             &quot;Google Ads&quot;,
+  &quot;meta&quot;,               &quot;Meta&quot;,
+  &quot;linkedin&quot;,           &quot;LinkedIn Ads&quot;,
+
+  /* Events */
+  &quot;events&quot;,             &quot;Events&quot;,
+
+  /* Direct Mail */
+  &quot;directmail&quot;,         &quot;Direct Mail&quot;,
+
+  /* Webinar */
+  &quot;webinar&quot;,            &quot;Webinar&quot;,
+
+  /* Self Sourced */
+  &quot;selfsourced_li&quot;,     &quot;LinkedIn (Self Sourced)&quot;,
+
+  /* Provided List */
+  &quot;pl_scoring&quot;,         &quot;Provided List (Lead Scoring)&quot;,
+  &quot;pl_marketing&quot;,       &quot;Provided List (Marketing)&quot;,
+
+  /* Re-Engagement */
+  &quot;re_engagement&quot;,      &quot;Re-Engagement&quot;,
+
+  /* Recruitment Firm */
+  &quot;partnerships&quot;,       &quot;Recruitment Firm&quot;,
+
+  /* Advisor Referral */
+  &quot;adv_referral&quot;,       &quot;Advisor Referral&quot;,
+
+  /* Default */
+  &quot;Other&quot;
+)</expression>
+    </formulas>
+    <interviewLabel>Marketing: Lead Distribution On Demand (from Campaign) {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>Marketing: Lead Distribution On Demand (from Campaign)</label>
+    <loops>
+        <name>Loop_Campaign_Members</name>
+        <label>Loop Campaign Members</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <collectionReference>Get_Campaign_Members</collectionReference>
+        <iterationOrder>Asc</iterationOrder>
+        <nextValueConnector>
+            <targetReference>Loop_DG_Reps</targetReference>
+        </nextValueConnector>
+        <noMoreValuesConnector>
+            <targetReference>Update_Assign_Leads</targetReference>
+        </noMoreValuesConnector>
+    </loops>
+    <loops>
+        <name>Loop_DG_Reps</name>
+        <label>Loop DG Reps</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <collectionReference>colDGRepsQueue</collectionReference>
+        <iterationOrder>Asc</iterationOrder>
+        <nextValueConnector>
+            <targetReference>Has_Current_DG_Rep_Been_Selected</targetReference>
+        </nextValueConnector>
+        <noMoreValuesConnector>
+            <targetReference>Reset_varGotRep</targetReference>
+        </noMoreValuesConnector>
+    </loops>
+    <processMetadataValues>
+        <name>BuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>CanvasMode</name>
+        <value>
+            <stringValue>AUTO_LAYOUT_CANVAS</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>OriginBuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processType>AutoLaunchedFlow</processType>
+    <recordLookups>
+        <name>Get_Campaign</name>
+        <label>Get Campaign</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
+        <connector>
+            <targetReference>Get_Distribution_Group</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Id</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>recordId</elementReference>
+            </value>
+        </filters>
+        <getFirstRecordOnly>true</getFirstRecordOnly>
+        <object>Campaign</object>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </recordLookups>
+    <recordLookups>
+        <name>Get_Campaign_Members</name>
+        <label>Get Campaign Members</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
+        <connector>
+            <targetReference>Loop_Campaign_Members</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>CampaignId</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>Get_Campaign.Id</elementReference>
+            </value>
+        </filters>
+        <filters>
+            <field>Ready_for_Assignment__c</field>
+            <operator>EqualTo</operator>
+            <value>
+                <booleanValue>true</booleanValue>
+            </value>
+        </filters>
+        <filters>
+            <field>LeadId</field>
+            <operator>IsNull</operator>
+            <value>
+                <booleanValue>false</booleanValue>
+            </value>
+        </filters>
+        <getFirstRecordOnly>false</getFirstRecordOnly>
+        <object>CampaignMember</object>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </recordLookups>
+    <recordLookups>
+        <name>Get_DG_Reps</name>
+        <label>Get DG Reps</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
+        <connector>
+            <targetReference>Get_n_of_Active_Reps</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Distribution_Group__c</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>Get_Distribution_Group.Id</elementReference>
+            </value>
+        </filters>
+        <filters>
+            <field>Active__c</field>
+            <operator>EqualTo</operator>
+            <value>
+                <booleanValue>true</booleanValue>
+            </value>
+        </filters>
+        <object>DG_Rep__c</object>
+        <outputReference>colDGRepsQueue</outputReference>
+        <queriedFields>Id</queriedFields>
+        <queriedFields>User__c</queriedFields>
+        <queriedFields>Name</queriedFields>
+        <sortField>Name</sortField>
+        <sortOrder>Asc</sortOrder>
+    </recordLookups>
+    <recordLookups>
+        <name>Get_Distribution_Group</name>
+        <label>Get Distribution Group</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
+        <connector>
+            <targetReference>Get_DG_Reps</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Id</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>Get_Campaign.Distribution_Group__c</elementReference>
+            </value>
+        </filters>
+        <getFirstRecordOnly>true</getFirstRecordOnly>
+        <object>Distribution_Group__c</object>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </recordLookups>
+    <recordUpdates>
+        <name>Update</name>
+        <label>Update: DG Reps Last Assigned</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Distribution_Group__c</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>Get_Distribution_Group.Id</elementReference>
+            </value>
+        </filters>
+        <filters>
+            <field>Active__c</field>
+            <operator>EqualTo</operator>
+            <value>
+                <booleanValue>true</booleanValue>
+            </value>
+        </filters>
+        <inputAssignments>
+            <field>Last_Assignment_DateTime__c</field>
+            <value>
+                <elementReference>$Flow.CurrentDateTime</elementReference>
+            </value>
+        </inputAssignments>
+        <object>DG_Rep__c</object>
+    </recordUpdates>
+    <recordUpdates>
+        <name>Update_Assign_Leads</name>
+        <label>Update: Assign Leads</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Update</targetReference>
+        </connector>
+        <inputReference>LeadsToUpdate</inputReference>
+    </recordUpdates>
+    <start>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Get_Campaign</targetReference>
+        </connector>
+    </start>
+    <status>Active</status>
+    <variables>
+        <name>colDGRepsQueue</name>
+        <dataType>SObject</dataType>
+        <isCollection>true</isCollection>
+        <isInput>false</isInput>
+        <isOutput>false</isOutput>
+        <objectType>DG_Rep__c</objectType>
+    </variables>
+    <variables>
+        <name>currentItem_Pick_First_DG_REP</name>
+        <dataType>SObject</dataType>
+        <isCollection>false</isCollection>
+        <isInput>false</isInput>
+        <isOutput>false</isOutput>
+        <objectType>DG_Rep__c</objectType>
+    </variables>
+    <variables>
+        <name>DGRepsToUpdate</name>
+        <dataType>SObject</dataType>
+        <isCollection>true</isCollection>
+        <isInput>false</isInput>
+        <isOutput>false</isOutput>
+        <objectType>DG_Rep__c</objectType>
+    </variables>
+    <variables>
+        <name>LeadsToUpdate</name>
+        <dataType>SObject</dataType>
+        <isCollection>true</isCollection>
+        <isInput>true</isInput>
+        <isOutput>false</isOutput>
+        <objectType>Lead</objectType>
+    </variables>
+    <variables>
+        <name>recordId</name>
+        <dataType>String</dataType>
+        <isCollection>false</isCollection>
+        <isInput>true</isInput>
+        <isOutput>false</isOutput>
+    </variables>
+    <variables>
+        <name>varCurrentDGRep</name>
+        <dataType>SObject</dataType>
+        <isCollection>false</isCollection>
+        <isInput>false</isInput>
+        <isOutput>false</isOutput>
+        <objectType>DG_Rep__c</objectType>
+    </variables>
+    <variables>
+        <name>varCurrentDGRepUserId</name>
+        <dataType>String</dataType>
+        <isCollection>false</isCollection>
+        <isInput>false</isInput>
+        <isOutput>false</isOutput>
+    </variables>
+    <variables>
+        <name>varGotRep</name>
+        <dataType>Boolean</dataType>
+        <isCollection>false</isCollection>
+        <isInput>false</isInput>
+        <isOutput>false</isOutput>
+        <value>
+            <booleanValue>false</booleanValue>
+        </value>
+    </variables>
+    <variables>
+        <name>varLeadUpdate</name>
+        <dataType>SObject</dataType>
+        <isCollection>false</isCollection>
+        <isInput>false</isInput>
+        <isOutput>false</isOutput>
+        <objectType>Lead</objectType>
+    </variables>
+    <variables>
+        <name>varRepCount</name>
+        <dataType>Number</dataType>
+        <isCollection>false</isCollection>
+        <isInput>false</isInput>
+        <isOutput>false</isOutput>
+        <scale>0</scale>
+    </variables>
+    <variables>
+        <name>varRepIndex</name>
+        <dataType>Number</dataType>
+        <isCollection>false</isCollection>
+        <isInput>false</isInput>
+        <isOutput>false</isOutput>
+        <scale>0</scale>
+        <value>
+            <numberValue>0.0</numberValue>
+        </value>
+    </variables>
+</Flow>

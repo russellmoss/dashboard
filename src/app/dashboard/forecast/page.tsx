@@ -48,6 +48,7 @@ export default function ForecastPage() {
   const searchParams = useSearchParams();
   const permissions = getSessionPermissions(session);
   const canRunScenarios = permissions?.canRunScenarios ?? false;
+  const isRussell = session?.user?.email?.toLowerCase() === 'russell.moss@savvywealth.com';
 
   const [activeTab, setActiveTab] = useState<ForecastTab>('pipeline');
   const [windowDays, setWindowDays] = useState<180 | 365 | 730 | null>(180);
@@ -62,6 +63,8 @@ export default function ForecastPage() {
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportResult, setExportResult] = useState<{ url: string; name: string } | null>(null);
+  const [sqoLagExporting, setSqoLagExporting] = useState(false);
+  const [sqoLagExportResult, setSqoLagExportResult] = useState<{ url: string; name: string } | null>(null);
   const [dateRevisions, setDateRevisions] = useState<Record<string, { revisionCount: number; firstDateSet: string | null; dateConfidence: string }>>({});
   const [targetAumByQuarter, setTargetAumByQuarter] = useState<Record<string, number>>({});
   const [joinedAumByQuarter, setJoinedAumByQuarter] = useState<Record<string, { joined_aum: number; joined_count: number }>>({});
@@ -309,6 +312,24 @@ export default function ForecastPage() {
     }
   }, [windowDays, targetAumByQuarter]);
 
+  const handleSqoLagExport = useCallback(async () => {
+    setSqoLagExporting(true);
+    setSqoLagExportResult(null);
+    try {
+      const data = await dashboardApi.exportSqoLagToSheets();
+      if (data.success) {
+        setSqoLagExportResult({
+          url: data.spreadsheetUrl,
+          name: data.spreadsheetName || 'Open SQO Lag Sheet',
+        });
+      }
+    } catch (err) {
+      console.error('SQO Lag export failed:', err);
+    } finally {
+      setSqoLagExporting(false);
+    }
+  }, []);
+
   const handleOppClick = useCallback((oppId: string) => {
     setSelectedOppId(oppId);
     setModalOpen(true);
@@ -349,6 +370,9 @@ export default function ForecastPage() {
             exporting={exporting}
             totalOpps={adjustedSummary?.total_opps ?? 0}
             exportResult={exportResult}
+            onSqoLagExport={isRussell ? handleSqoLagExport : undefined}
+            sqoLagExporting={sqoLagExporting}
+            sqoLagExportResult={sqoLagExportResult}
           />
 
           <RatesSummaryBar rates={rates?.flat ?? null} windowDays={windowDays} />

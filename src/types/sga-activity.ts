@@ -31,9 +31,12 @@ export interface SGAActivityFilters {
   // Activity Filters
   activityTypes: ActivityType[];  // Which activity types to show
   includeAutomated: boolean;      // Default false (exclude lemlist)
-  
+
   // Call Type Filter (for answer rate)
   callTypeFilter: 'all_outbound' | 'cold_calls' | 'scheduled_calls';
+
+  // Trailing weeks for Activity Breakdown table
+  trailingWeeks?: TrailingWeeksOption;
 }
 
 export type ActivityType = 
@@ -104,35 +107,8 @@ export interface ScheduledCallRecord {
 }
 
 // ============================================
-// ACTIVITY DISTRIBUTION TYPES
+// ACTIVITY DISTRIBUTION TYPES (DEPRECATED — removed from dashboard)
 // ============================================
-
-export interface ActivityDistribution {
-  channel: ActivityChannel;
-  currentPeriod: DayCount[];
-  comparisonPeriod: ComparisonDayCount[];
-  variance: VarianceDayCount[];
-}
-
-export interface ComparisonDayCount {
-  dayOfWeek: number;
-  dayName: string;
-  count: number;  // Total count (for reference)
-  avgCount: number;  // Average per occurrence of that day
-  totalCount: number;  // Total count for sum mode
-}
-
-export interface VarianceDayCount {
-  dayOfWeek: number;
-  dayName: string;
-  currentCount: number;
-  comparisonCount: number;
-  variance: number;
-  variancePercent: number;
-  currentTotal: number;  // Total count for sum mode
-  comparisonTotal: number;  // Total count for sum mode
-  varianceTotal: number;  // Variance for sum mode
-}
 
 // ============================================
 // RESPONSE RATE TYPES
@@ -153,15 +129,8 @@ export interface CallAnswerRate {
 }
 
 // ============================================
-// ACTIVITY BREAKDOWN TYPES
+// ACTIVITY BREAKDOWN TYPES (old — replaced by new breakdown tables below)
 // ============================================
-
-export interface ActivityBreakdown {
-  channel: ActivityChannel;
-  subType: string;
-  count: number;
-  percentage: number;
-}
 
 // ============================================
 // ACTIVITY TOTALS TYPES
@@ -210,17 +179,67 @@ export interface SGAActivityDashboardData {
   // Scheduled Calls
   initialCalls: ScheduledCallsSummary;
   qualificationCalls: ScheduledCallsSummary;
-  
-  // Activity Distribution
-  activityDistribution: ActivityDistribution[];
-  
+
   // Response/Answer Rates
   smsResponseRate: SMSResponseRate;
   callAnswerRate: CallAnswerRate;
-  
-  // Activity Breakdown
-  activityBreakdown: ActivityBreakdown[];
-  
+
   // Totals
   totals: ActivityTotals;
+}
+
+// ============================================
+// INDIVIDUAL SGA ACTIVITY BREAKDOWN TYPES
+// ============================================
+
+export type TrailingWeeksOption = 4 | 6 | 8 | 12;
+
+export type MetricType = 'Cold_Call' | 'Scheduled_Call' | 'Outbound_SMS' | 'LinkedIn' | 'Manual_Email' | 'Email_Engagement';
+
+export const METRIC_TYPES: MetricType[] = ['Cold_Call', 'Scheduled_Call', 'Outbound_SMS', 'LinkedIn', 'Manual_Email', 'Email_Engagement'];
+
+export const METRIC_DISPLAY_NAMES: Record<MetricType, string> = {
+  Cold_Call: 'Cold Calls',
+  Scheduled_Call: 'Scheduled Calls',
+  Outbound_SMS: 'Outbound SMS',
+  LinkedIn: 'LinkedIn',
+  Manual_Email: 'Manual Email',
+  Email_Engagement: 'Email Engagement',
+};
+
+export interface ActivityBreakdownRow {
+  sgaName: string;
+  weekBucket: string;       // 'This_Week' | 'Last_Week' | 'Trailing_1' ... 'Trailing_N'
+  metricType: MetricType;
+  activityCount: number;
+}
+
+export interface ActivityBreakdownWeekBounds {
+  thisWeek: { start: string; end: string };
+  lastWeek: { start: string; end: string };
+  trailingWeeks: Array<{ weekNum: number; start: string; end: string }>;
+}
+
+export interface ActivityBreakdownDrillDownRecord {
+  prospectName: string;
+  recordId: string | null;
+  stage: string;
+  coldCalls: number;
+  scheduledCalls: number;
+  outboundSms: number;
+  linkedin: number;
+  manualEmail: number;
+  emailEngagement: number;
+  totalActivities: number;
+}
+
+export interface ActivityBreakdownAuditRow {
+  taskId: string;
+  sgaName: string;
+  activityDate: string;
+  weekBucket: string;
+  metricType: string;
+  channelGroup: string;
+  direction: string;
+  subject: string;
 }

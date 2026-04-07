@@ -7,10 +7,11 @@ This document provides explicit formulas and SQL snippets for all metrics calcul
 1. [Calculation Modes Overview](#calculation-modes-overview)
 2. [Conversion Rate Formulas](#conversion-rate-formulas)
 3. [Volume Metrics](#volume-metrics)
-4. [Opportunity Stage Metrics](#opportunity-stage-metrics)
-5. [Open Pipeline AUM](#open-pipeline-aum)
-6. [Resolution and Flagging Logic](#resolution-and-flagging-logic)
-7. [Period vs Cohort Mode Details](#period-vs-cohort-mode-details)
+4. [Disposition Counts](#disposition-counts)
+5. [Opportunity Stage Metrics](#opportunity-stage-metrics)
+6. [Open Pipeline AUM](#open-pipeline-aum)
+7. [Resolution and Flagging Logic](#resolution-and-flagging-logic)
+8. [Period vs Cohort Mode Details](#period-vs-cohort-mode-details)
 
 ---
 
@@ -461,6 +462,46 @@ END
 
 Volume metrics count records that reached a stage within the date range. They use specific date fields and deduplication flags.
 
+### Prospects
+```
+COUNT(*) WHERE
+  FilterDate IN date_range
+```
+
+**SQL**:
+```sql
+SUM(
+  CASE
+    WHEN v.FilterDate IS NOT NULL
+      AND TIMESTAMP(v.FilterDate) >= TIMESTAMP(@startDate)
+      AND TIMESTAMP(v.FilterDate) <= TIMESTAMP(@endDate)
+    THEN 1
+    ELSE 0
+  END
+) as prospects
+```
+
+### Contacted
+```
+COUNT(*) WHERE
+  stage_entered_contacting__c IN date_range
+  AND is_contacted = 1
+```
+
+**SQL**:
+```sql
+SUM(
+  CASE
+    WHEN v.stage_entered_contacting__c IS NOT NULL
+      AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+      AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+      AND v.is_contacted = 1
+    THEN 1
+    ELSE 0
+  END
+) as contacted
+```
+
 ### MQLs
 ```
 COUNT(*) WHERE 
@@ -571,6 +612,188 @@ SUM(
 - Uses `is_primary_opp_record = 1` (not `is_signed_unique`) to handle multiple leads converting to same opportunity
 - Records may have moved past "Signed" stage (e.g., to "Joined") but are still counted if they entered "Signed" in the date range
 - Date field is TIMESTAMP type, so use `TIMESTAMP()` wrapper in queries
+
+### Signed AUM
+```
+SUM(Underwritten_AUM__c OR Amount) WHERE
+  Stage_Entered_Signed__c IN date_range
+  AND is_primary_opp_record = 1
+```
+
+**SQL**:
+```sql
+SUM(
+  CASE
+    WHEN v.Stage_Entered_Signed__c IS NOT NULL
+      AND TIMESTAMP(v.Stage_Entered_Signed__c) >= TIMESTAMP(@startDate)
+      AND TIMESTAMP(v.Stage_Entered_Signed__c) <= TIMESTAMP(@endDate)
+      AND v.is_primary_opp_record = 1
+    THEN COALESCE(v.Underwritten_AUM__c, v.Amount, 0)
+    ELSE 0
+  END
+) as signed_aum
+```
+
+### Joined AUM
+```
+SUM(Underwritten_AUM__c OR Amount) WHERE
+  advisor_join_date__c IN date_range
+  AND is_joined_unique = 1
+```
+
+**SQL**:
+```sql
+SUM(
+  CASE
+    WHEN v.advisor_join_date__c IS NOT NULL
+      AND DATE(v.advisor_join_date__c) >= DATE(@startDate)
+      AND DATE(v.advisor_join_date__c) <= DATE(@endDate)
+      AND v.is_joined_unique = 1
+    THEN COALESCE(v.Underwritten_AUM__c, v.Amount, 0)
+    ELSE 0
+  END
+) as joined_aum
+```
+
+**Important Notes for AUM Metrics**:
+- Uses `COALESCE(Underwritten_AUM__c, Amount, 0)` — prefers underwritten AUM, falls back to Amount
+- Signed AUM uses `is_primary_opp_record = 1` for deduplication (matches Signed volume)
+- Joined AUM uses `is_joined_unique = 1` for deduplication (matches Joined volume)
+
+---
+
+## Disposition Counts
+
+Disposition counts break down volume metrics into three categories: **converted** (progressed to next stage), **lost** (closed without progressing), and **open** (still in progress). These are used in the funnel scorecards to show pipeline health.
+
+### MQL Dispositions
+
+#### MQLs Converted (MQL → SQL)
+```sql
+SUM(CASE
+  WHEN mql_stage_entered_ts IS NOT NULL
+    AND TIMESTAMP(mql_stage_entered_ts) >= TIMESTAMP(@startDate)
+    AND TIMESTAMP(mql_stage_entered_ts) <= TIMESTAMP(@endDate)
+    AND is_mql = 1
+    AND is_sql = 1
+  THEN 1 ELSE 0
+END) as mqls_converted
+```
+
+#### MQLs Lost
+```sql
+SUM(CASE
+  WHEN mql_stage_entered_ts IS NOT NULL
+    AND TIMESTAMP(mql_stage_entered_ts) >= TIMESTAMP(@startDate)
+    AND TIMESTAMP(mql_stage_entered_ts) <= TIMESTAMP(@endDate)
+    AND is_mql = 1
+    AND is_sql = 0
+    AND lead_closed_date IS NOT NULL
+  THEN 1 ELSE 0
+END) as mqls_lost
+```
+
+#### MQLs Open
+```sql
+SUM(CASE
+  WHEN mql_stage_entered_ts IS NOT NULL
+    AND TIMESTAMP(mql_stage_entered_ts) >= TIMESTAMP(@startDate)
+    AND TIMESTAMP(mql_stage_entered_ts) <= TIMESTAMP(@endDate)
+    AND is_mql = 1
+    AND is_sql = 0
+    AND lead_closed_date IS NULL
+  THEN 1 ELSE 0
+END) as mqls_open
+```
+
+### SQL Dispositions
+
+#### SQLs Converted (SQL → SQO)
+```sql
+SUM(CASE
+  WHEN converted_date_raw IS NOT NULL
+    AND DATE(converted_date_raw) >= DATE(@startDate)
+    AND DATE(converted_date_raw) <= DATE(@endDate)
+    AND is_sql = 1
+    AND LOWER(SQO_raw) = 'yes'
+  THEN 1 ELSE 0
+END) as sqls_converted
+```
+
+#### SQLs Lost
+```sql
+SUM(CASE
+  WHEN converted_date_raw IS NOT NULL
+    AND DATE(converted_date_raw) >= DATE(@startDate)
+    AND DATE(converted_date_raw) <= DATE(@endDate)
+    AND is_sql = 1
+    AND LOWER(COALESCE(SQO_raw, '')) != 'yes'
+    AND StageName = 'Closed Lost'
+  THEN 1 ELSE 0
+END) as sqls_lost
+```
+
+#### SQLs Open
+```sql
+SUM(CASE
+  WHEN converted_date_raw IS NOT NULL
+    AND DATE(converted_date_raw) >= DATE(@startDate)
+    AND DATE(converted_date_raw) <= DATE(@endDate)
+    AND is_sql = 1
+    AND LOWER(COALESCE(SQO_raw, '')) != 'yes'
+    AND (StageName IS NULL OR StageName != 'Closed Lost')
+  THEN 1 ELSE 0
+END) as sqls_open
+```
+
+### SQO Dispositions
+
+#### SQOs Converted (SQO → Joined/Signed)
+```sql
+SUM(CASE
+  WHEN Date_Became_SQO__c IS NOT NULL
+    AND TIMESTAMP(Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+    AND TIMESTAMP(Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+    AND recordtypeid = @recruitingRecordType
+    AND is_sqo_unique = 1
+    AND (advisor_join_date__c IS NOT NULL OR StageName IN ('Joined', 'Signed'))
+  THEN 1 ELSE 0
+END) as sqos_converted
+```
+
+#### SQOs Lost
+```sql
+SUM(CASE
+  WHEN Date_Became_SQO__c IS NOT NULL
+    AND TIMESTAMP(Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+    AND TIMESTAMP(Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+    AND recordtypeid = @recruitingRecordType
+    AND is_sqo_unique = 1
+    AND StageName = 'Closed Lost'
+    AND advisor_join_date__c IS NULL
+  THEN 1 ELSE 0
+END) as sqos_lost
+```
+
+#### SQOs Open
+```sql
+SUM(CASE
+  WHEN Date_Became_SQO__c IS NOT NULL
+    AND TIMESTAMP(Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+    AND TIMESTAMP(Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+    AND recordtypeid = @recruitingRecordType
+    AND is_sqo_unique = 1
+    AND StageName NOT IN ('Closed Lost', 'Joined', 'Signed')
+    AND advisor_join_date__c IS NULL
+  THEN 1 ELSE 0
+END) as sqos_open
+```
+
+**Important Notes for Dispositions**:
+- `converted + lost + open = total volume` for each stage
+- MQL/SQL dispositions use **lead-level** closure (`lead_closed_date`)
+- SQO dispositions use **opportunity-level** closure (`StageName = 'Closed Lost'`)
+- SQO "converted" includes both Joined and Signed stages (not just Joined)
 
 ---
 

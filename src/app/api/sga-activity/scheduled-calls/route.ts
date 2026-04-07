@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
       activityTypes: [],
       includeAutomated: true,
       callTypeFilter: 'all_outbound',
+      trailingWeeks: 4,
     };
 
     // Apply SGA filter priority:
