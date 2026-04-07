@@ -1051,9 +1051,9 @@ Embeds the standalone SGA Activity feature (`SGAActivityContent.tsx`) with `embe
 
 **SGA filter**: `INNER JOIN User WHERE IsSGA__c = TRUE AND IsActive = TRUE` plus name exclusion list. Do NOT use `SGA_IsActive` from the view (can be NULL for valid records due to the view's join path through `vw_funnel_master` -> `User`).
 
-**Metric classification** — shared `METRIC_CASE_EXPRESSION` constant in `src/lib/queries/sga-activity.ts`, used identically by scorecards (`getActivityTotals`), scorecard drilldown (`getActivityRecords`), breakdown table (`getActivityBreakdownAggregation`), breakdown drilldown, and XLSX export. 6 types:
-- **Cold_Call**: `activity_channel_group = 'Call' AND is_true_cold_call = 1`
-- **Scheduled_Call**: `activity_channel_group = 'Call' AND is_true_cold_call = 0 AND direction = 'Outbound' AND subject NOT LIKE '%[lemlist]%'`
+**Metric classification** — shared `METRIC_CASE_EXPRESSION` constant in `src/lib/queries/sga-activity.ts`, used identically by scorecards (`getActivityTotals`), scorecard drilldown (`getActivityRecords`), breakdown table (`getActivityBreakdownAggregation`), breakdown drilldown, and XLSX export. Classification uses `Initial_Call_Scheduled_Date__c` date matching (not the view's `call_type` field, which has a NULL-handling bug). 6 types:
+- **Scheduled_Call**: `activity_channel_group = 'Call' AND direction = 'Outbound' AND task_created_date_est = DATE(Initial_Call_Scheduled_Date__c)` — call on the exact scheduled date
+- **Cold_Call**: `activity_channel_group = 'Call' AND direction = 'Outbound' AND (no scheduled date OR date mismatch) AND subject NOT LIKE '%[lemlist]%'` — any other outbound call
 - **Outbound_SMS**: `activity_channel_group = 'SMS' AND direction = 'Outbound'`
 - **LinkedIn**: `activity_channel_group = 'LinkedIn'`
 - **Manual_Email**: `activity_channel_group = 'Email' AND is_engagement_tracking = 0 AND is_marketing_activity = 0`

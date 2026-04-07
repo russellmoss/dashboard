@@ -23,10 +23,17 @@ const ACTIVITY_VIEW = 'savvy-gtm-analytics.Tableau_Views.vw_sga_activity_perform
 const FUNNEL_VIEW = 'savvy-gtm-analytics.Tableau_Views.vw_funnel_master';
 
 // Shared metric classification CASE — must be identical in aggregation, drilldown, and export
+// Scheduled Call = outbound call on the day Initial_Call_Scheduled_Date__c matches
+// Cold Call = any other outbound call (no scheduled date or date doesn't match)
 const METRIC_CASE_EXPRESSION = `
   CASE
-    WHEN a.activity_channel_group = 'Call' AND a.is_true_cold_call = 1 THEN 'Cold_Call'
-    WHEN a.activity_channel_group = 'Call' AND COALESCE(a.is_true_cold_call, 0) = 0 AND a.direction = 'Outbound' AND LOWER(COALESCE(a.task_subject, '')) NOT LIKE '%[lemlist]%' THEN 'Scheduled_Call'
+    WHEN a.activity_channel_group = 'Call' AND a.direction = 'Outbound'
+      AND a.Initial_Call_Scheduled_Date__c IS NOT NULL
+      AND a.task_created_date_est = DATE(a.Initial_Call_Scheduled_Date__c)
+      AND LOWER(COALESCE(a.task_subject, '')) NOT LIKE '%[lemlist]%' THEN 'Scheduled_Call'
+    WHEN a.activity_channel_group = 'Call' AND a.direction = 'Outbound'
+      AND (a.Initial_Call_Scheduled_Date__c IS NULL OR a.task_created_date_est != DATE(a.Initial_Call_Scheduled_Date__c))
+      AND LOWER(COALESCE(a.task_subject, '')) NOT LIKE '%[lemlist]%' THEN 'Cold_Call'
     WHEN a.activity_channel_group = 'SMS' AND a.direction = 'Outbound' THEN 'Outbound_SMS'
     WHEN a.activity_channel_group = 'LinkedIn' THEN 'LinkedIn'
     WHEN a.activity_channel_group = 'Email' AND COALESCE(a.is_engagement_tracking, 0) = 0 AND COALESCE(a.is_marketing_activity, 0) = 0 THEN 'Manual_Email'
@@ -1014,10 +1021,10 @@ export async function getCallAnswerRate(
   let callTypeFilter = '';
   switch (filters.callTypeFilter) {
     case 'cold_calls':
-      callTypeFilter = 'AND a.is_true_cold_call = 1';
+      callTypeFilter = 'AND (a.Initial_Call_Scheduled_Date__c IS NULL OR a.task_created_date_est != DATE(a.Initial_Call_Scheduled_Date__c))';
       break;
     case 'scheduled_calls':
-      callTypeFilter = 'AND a.is_true_cold_call = 0 AND a.direction = \'Outbound\'';
+      callTypeFilter = 'AND a.Initial_Call_Scheduled_Date__c IS NOT NULL AND a.task_created_date_est = DATE(a.Initial_Call_Scheduled_Date__c)';
       break;
     case 'all_outbound':
     default:
@@ -1098,7 +1105,9 @@ export async function getActivityBreakdown(
         task_subtype,
         activity_channel_group,
         direction,
-        is_true_cold_call
+        is_true_cold_call,
+        task_created_date_est,
+        Initial_Call_Scheduled_Date__c
       FROM \`${ACTIVITY_VIEW}\`
       WHERE task_created_date_est >= @startDate
         AND task_created_date_est <= @endDate
@@ -1173,6 +1182,8 @@ export async function getActivityBreakdown(
         END as corrected_channel_group,
         v.direction,
         v.is_true_cold_call,
+        v.task_created_date_est,
+        v.Initial_Call_Scheduled_Date__c,
         v.task_subject,
         v.task_subtype
       FROM view_data v
@@ -1192,9 +1203,11 @@ export async function getActivityBreakdown(
           WHEN corrected_channel_group = 'LinkedIn' AND task_subject LIKE '%message opened%' THEN 'Message Opened'
           WHEN corrected_channel_group = 'LinkedIn' AND task_subject LIKE '%bounced%' THEN 'Bounced'
           WHEN corrected_channel_group = 'LinkedIn' THEN 'Other LinkedIn'
-          -- Call subtypes (only outbound to match scorecards)
-          WHEN corrected_channel_group = 'Call' AND is_true_cold_call = 1 THEN 'Cold Call'
-          WHEN corrected_channel_group = 'Call' AND direction = 'Outbound' THEN 'Scheduled Call'
+          -- Call subtypes (Scheduled = date matches Initial_Call_Scheduled_Date__c, else Cold Call)
+          WHEN corrected_channel_group = 'Call' AND direction = 'Outbound'
+            AND Initial_Call_Scheduled_Date__c IS NOT NULL
+            AND task_created_date_est = DATE(Initial_Call_Scheduled_Date__c) THEN 'Scheduled Call'
+          WHEN corrected_channel_group = 'Call' AND direction = 'Outbound' THEN 'Cold Call'
           WHEN corrected_channel_group = 'Call' THEN 'Other Call'
           -- SMS subtypes (only outbound to match scorecards)
           WHEN corrected_channel_group = 'SMS' AND direction = 'Outbound' THEN 'Outbound SMS'
@@ -1797,8 +1810,8 @@ export async function getActivityBreakdownDrillDown(
         COALESCE(a.advisor_name, 'Unknown') AS prospect_name,
         COALESCE(a.Full_prospect_id__c, a.Full_Opportunity_ID__c) AS record_id,
         COALESCE(NULLIF(a.TOF_Stage,''), NULLIF(a.StageName,''), 'Lead') AS stage,
-        COUNTIF(a.activity_channel_group = 'Call' AND a.is_true_cold_call = 1) AS cold_calls,
-        COUNTIF(a.activity_channel_group = 'Call' AND COALESCE(a.is_true_cold_call, 0) = 0 AND a.direction = 'Outbound' AND LOWER(COALESCE(a.task_subject, '')) NOT LIKE '%[lemlist]%') AS scheduled_calls,
+        COUNTIF(a.activity_channel_group = 'Call' AND a.direction = 'Outbound' AND (a.Initial_Call_Scheduled_Date__c IS NULL OR a.task_created_date_est != DATE(a.Initial_Call_Scheduled_Date__c)) AND LOWER(COALESCE(a.task_subject, '')) NOT LIKE '%[lemlist]%') AS cold_calls,
+        COUNTIF(a.activity_channel_group = 'Call' AND a.direction = 'Outbound' AND a.Initial_Call_Scheduled_Date__c IS NOT NULL AND a.task_created_date_est = DATE(a.Initial_Call_Scheduled_Date__c) AND LOWER(COALESCE(a.task_subject, '')) NOT LIKE '%[lemlist]%') AS scheduled_calls,
         COUNTIF(a.activity_channel_group = 'SMS' AND a.direction = 'Outbound') AS outbound_sms,
         COUNTIF(a.activity_channel_group = 'LinkedIn') AS linkedin,
         COUNTIF(a.activity_channel_group = 'Email' AND COALESCE(a.is_engagement_tracking, 0) = 0 AND COALESCE(a.is_marketing_activity, 0) = 0) AS manual_email,
@@ -1812,8 +1825,8 @@ export async function getActivityBreakdownDrillDown(
         CONCAT('Unlinked — ', LEFT(COALESCE(a.task_subject, 'No Subject'), 50)) AS prospect_name,
         CAST(NULL AS STRING) AS record_id,
         a.activity_channel_group AS stage,
-        IF(a.activity_channel_group = 'Call' AND a.is_true_cold_call = 1, 1, 0) AS cold_calls,
-        IF(a.activity_channel_group = 'Call' AND COALESCE(a.is_true_cold_call, 0) = 0 AND a.direction = 'Outbound' AND LOWER(COALESCE(a.task_subject, '')) NOT LIKE '%[lemlist]%', 1, 0) AS scheduled_calls,
+        IF(a.activity_channel_group = 'Call' AND a.direction = 'Outbound' AND (a.Initial_Call_Scheduled_Date__c IS NULL OR a.task_created_date_est != DATE(a.Initial_Call_Scheduled_Date__c)) AND LOWER(COALESCE(a.task_subject, '')) NOT LIKE '%[lemlist]%', 1, 0) AS cold_calls,
+        IF(a.activity_channel_group = 'Call' AND a.direction = 'Outbound' AND a.Initial_Call_Scheduled_Date__c IS NOT NULL AND a.task_created_date_est = DATE(a.Initial_Call_Scheduled_Date__c) AND LOWER(COALESCE(a.task_subject, '')) NOT LIKE '%[lemlist]%', 1, 0) AS scheduled_calls,
         IF(a.activity_channel_group = 'SMS' AND a.direction = 'Outbound', 1, 0) AS outbound_sms,
         IF(a.activity_channel_group = 'LinkedIn', 1, 0) AS linkedin,
         IF(a.activity_channel_group = 'Email' AND COALESCE(a.is_engagement_tracking, 0) = 0 AND COALESCE(a.is_marketing_activity, 0) = 0, 1, 0) AS manual_email,

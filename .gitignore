@@ -83,3 +83,6 @@ nul
 
 # AI session context (transient — consumed by post-commit hook)
 .ai-session-context.md
+
+# CSV data files
+*.csv
