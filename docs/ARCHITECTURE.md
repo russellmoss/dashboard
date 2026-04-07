@@ -1061,7 +1061,9 @@ Embeds the standalone SGA Activity feature (`SGAActivityContent.tsx`) with `embe
 
 Records not matching any type fall to `ELSE NULL` and are excluded. Inbound SMS is not in the shared CASE (excluded from breakdown) but counted separately in scorecards via `activity_channel_group = 'SMS' AND direction = 'Inbound'`.
 
-**Filtering consistency**: All activity queries use `ACTIVE_SGAS_CTE` (INNER JOIN on User table with `IsSGA__c = TRUE`, `IsActive = TRUE`, plus name exclusion list) and `COALESCE(is_marketing_activity, 0) = 0`. Do NOT use `SGA_IsActive` from the view or `activity_channel_group != 'Marketing'`.
+**Lemlist task reminder exclusion**: Shared `LEMLIST_TASK_REMINDER_FILTER` constant excludes `[lemlist] Call -` and `[lemlist] Task -` patterns (campaign step reminders TO the SGA, not real outreach). Added to all 11 query WHERE clauses. The view also NULLs `activity_channel_group` for these patterns. In the record detail activity tab (`record-activity.ts`), these are classified as `'Reminder'` channel and shown with a yellow badge via `ActivityTimeline.tsx` — visible but excluded from counts and the All/Outbound/Inbound filter tabs, with a dedicated "Reminders" tab.
+
+**Filtering consistency**: All activity queries use `ACTIVE_SGAS_CTE` (INNER JOIN on User table with `IsSGA__c = TRUE`, `IsActive = TRUE`, plus name exclusion list), `COALESCE(is_marketing_activity, 0) = 0`, and `LEMLIST_TASK_REMINDER_FILTER`. Do NOT use `SGA_IsActive` from the view or `activity_channel_group != 'Marketing'`.
 
 **View SQL file**: `views/vw_sga_activity_performance_v2.sql` — local source for the BigQuery view `Tableau_Views.vw_sga_activity_performance` (no v2 suffix in BQ). Deploy via `CREATE OR REPLACE VIEW` in BigQuery.
 

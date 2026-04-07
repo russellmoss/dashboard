@@ -18,6 +18,7 @@ import {
   Video,
   MoreHorizontal,
   Megaphone,
+  Bell,
 } from 'lucide-react';
 import { ActivityRecord } from '@/types/record-activity';
 import { formatDate } from '@/lib/utils/format-helpers';
@@ -87,6 +88,12 @@ const CHANNEL_CONFIG: Record<string, {
     bgColor: 'bg-amber-100 dark:bg-amber-900/30',
     textColor: 'text-amber-700 dark:text-amber-300',
     label: 'Meeting',
+  },
+  'Reminder': {
+    icon: Bell,
+    bgColor: 'bg-yellow-100 dark:bg-yellow-900/30',
+    textColor: 'text-yellow-700 dark:text-yellow-300',
+    label: 'Reminder',
   },
   'Marketing': {
     icon: Megaphone,
@@ -255,23 +262,25 @@ function ActivityItem({ activity }: { activity: ActivityRecord }) {
 
 /** Summary stats bar at the top of the timeline */
 function ActivitySummary({ activities }: { activities: ActivityRecord[] }) {
-  const outbound = activities.filter(a => a.direction === 'Outbound').length;
-  const inbound = activities.filter(a => a.direction === 'Inbound').length;
+  // Exclude reminders (lemlist task reminders) from all counts
+  const realActivities = activities.filter(a => a.activityChannelGroup !== 'Reminder');
+  const outbound = realActivities.filter(a => a.direction === 'Outbound').length;
+  const inbound = realActivities.filter(a => a.direction === 'Inbound').length;
 
   // Count by channel group
   const channelCounts: Record<string, number> = {};
-  for (const a of activities) {
+  for (const a of realActivities) {
     const group = a.activityChannelGroup;
     channelCounts[group] = (channelCounts[group] || 0) + 1;
   }
 
-  const meaningfulConnects = activities.filter(a => a.isMeaningfulConnect).length;
+  const meaningfulConnects = realActivities.filter(a => a.isMeaningfulConnect).length;
 
   return (
     <div className="flex flex-wrap gap-3 mb-4 p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
       <div className="flex items-center gap-1.5">
         <span className="text-xs text-gray-500 dark:text-gray-400">Total:</span>
-        <span className="text-sm font-semibold text-gray-900 dark:text-white">{activities.length}</span>
+        <span className="text-sm font-semibold text-gray-900 dark:text-white">{realActivities.length}</span>
       </div>
       <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 self-center" />
       <div className="flex items-center gap-1.5">
@@ -295,7 +304,7 @@ function ActivitySummary({ activities }: { activities: ActivityRecord[] }) {
       )}
       <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 self-center" />
       {Object.entries(channelCounts)
-        .filter(([ch]) => ch !== 'Marketing' && ch !== 'Other' && ch !== 'Email (Engagement)')
+        .filter(([ch]) => ch !== 'Marketing' && ch !== 'Other' && ch !== 'Email (Engagement)' && ch !== 'Reminder')
         .sort(([, a], [, b]) => b - a)
         .map(([channel, count]) => {
           const cfg = getChannelConfig(channel);
@@ -311,7 +320,7 @@ function ActivitySummary({ activities }: { activities: ActivityRecord[] }) {
 }
 
 export function ActivityTimeline({ activities, loading }: ActivityTimelineProps) {
-  const [directionFilter, setDirectionFilter] = useState<'all' | 'outbound' | 'inbound'>('all');
+  const [directionFilter, setDirectionFilter] = useState<'all' | 'outbound' | 'inbound' | 'reminders'>('all');
   const [executorFilter, setExecutorFilter] = useState<string>('all');
 
   if (loading) {
@@ -331,9 +340,17 @@ export function ActivityTimeline({ activities, loading }: ActivityTimelineProps)
   const executors = Array.from(new Set(activities.map(a => a.executorName))).sort();
   const showExecutorFilter = executors.length > 1;
 
+  // Separate reminders from real activities
+  const reminders = activities.filter(a => a.activityChannelGroup === 'Reminder');
+  const nonReminders = activities.filter(a => a.activityChannelGroup !== 'Reminder');
+
   // Apply both filters
   const filtered = activities.filter(a => {
-    if (directionFilter !== 'all' && a.direction !== (directionFilter === 'inbound' ? 'Inbound' : 'Outbound')) return false;
+    const isReminder = a.activityChannelGroup === 'Reminder';
+    if (directionFilter === 'reminders' && !isReminder) return false;
+    if (directionFilter === 'all' && isReminder) return false;
+    if (directionFilter === 'outbound' && (a.direction !== 'Outbound' || isReminder)) return false;
+    if (directionFilter === 'inbound' && (a.direction !== 'Inbound' || isReminder)) return false;
     if (executorFilter !== 'all' && a.executorName !== executorFilter) return false;
     return true;
   });
@@ -348,17 +365,19 @@ export function ActivityTimeline({ activities, loading }: ActivityTimelineProps)
       <div className="flex flex-wrap items-center gap-3 mb-4">
         {/* Direction filter */}
         <div className="flex gap-1">
-          {(['all', 'outbound', 'inbound'] as const).map((f) => (
+          {(['all', 'outbound', 'inbound', ...(reminders.length > 0 ? ['reminders' as const] : [])] as const).map((f) => (
             <button
               key={f}
               onClick={() => setDirectionFilter(f)}
               className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
                 directionFilter === f
-                  ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                  ? f === 'reminders'
+                    ? 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300'
+                    : 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
-              {f === 'all' ? `All (${activities.length})` : f === 'outbound' ? `Outbound (${activities.filter(a => a.direction === 'Outbound').length})` : `Inbound (${activities.filter(a => a.direction === 'Inbound').length})`}
+              {f === 'all' ? `All (${nonReminders.length})` : f === 'outbound' ? `Outbound (${nonReminders.filter(a => a.direction === 'Outbound').length})` : f === 'inbound' ? `Inbound (${nonReminders.filter(a => a.direction === 'Inbound').length})` : `Reminders (${reminders.length})`}
             </button>
           ))}
         </div>

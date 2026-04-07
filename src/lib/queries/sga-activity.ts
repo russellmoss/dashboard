@@ -22,6 +22,13 @@ import {
 const ACTIVITY_VIEW = 'savvy-gtm-analytics.Tableau_Views.vw_sga_activity_performance';
 const FUNNEL_VIEW = 'savvy-gtm-analytics.Tableau_Views.vw_funnel_master';
 
+// Lemlist campaign task reminders — NOT real activities, just reminders TO the SGA
+// Patterns: "[lemlist] Call - <campaign> (step N)", "[lemlist] Task - <type> (step N)"
+// Distinct from real lemlist records like "Email: [lemlist] Email sent..." or "[lemlist] LinkedIn invite sent..."
+const LEMLIST_TASK_REMINDER_FILTER = `
+  AND a.task_subject NOT LIKE '[lemlist] Call -%'
+  AND a.task_subject NOT LIKE '[lemlist] Task -%'`;
+
 // Shared metric classification CASE — must be identical in aggregation, drilldown, and export
 // Scheduled Call = outbound call on the day Initial_Call_Scheduled_Date__c matches
 // Cold Call = any other outbound call (no scheduled date or date doesn't match)
@@ -954,6 +961,7 @@ export async function getSMSResponseRate(
         AND a.task_created_date_est <= CURRENT_DATE('America/New_York')
         AND a.task_who_id IS NOT NULL
         AND COALESCE(a.is_marketing_activity, 0) = 0
+        ${LEMLIST_TASK_REMINDER_FILTER}
         ${sgaFilter}
     ),
     incoming AS (
@@ -967,6 +975,7 @@ export async function getSMSResponseRate(
         AND a.task_created_date_est <= CURRENT_DATE('America/New_York')
         AND a.task_who_id IS NOT NULL
         AND COALESCE(a.is_marketing_activity, 0) = 0
+        ${LEMLIST_TASK_REMINDER_FILTER}
         ${sgaFilter}
     )
     SELECT
@@ -1056,6 +1065,7 @@ export async function getCallAnswerRate(
       AND a.task_subject NOT LIKE '%voicemail%'
       AND a.task_subject NOT LIKE '%Left VM%'
       AND COALESCE(a.is_marketing_activity, 0) = 0
+      ${LEMLIST_TASK_REMINDER_FILTER}
       ${sgaFilter}
   `;
   
@@ -1113,6 +1123,8 @@ export async function getActivityBreakdown(
         AND task_created_date_est <= @endDate
         AND task_created_date_est <= CURRENT_DATE('America/New_York')  -- Exclude future dates
         AND SGA_IsActive = TRUE
+        AND task_subject NOT LIKE '[lemlist] Call -%'
+        AND task_subject NOT LIKE '[lemlist] Task -%'
         ${automatedFilter}
         ${sgaFilter}
     ),
@@ -1356,6 +1368,7 @@ export async function getActivityRecords(
       WHERE a.task_created_date_est >= @startDate
         AND a.task_created_date_est <= @endDate
         AND COALESCE(a.is_marketing_activity, 0) = 0
+        ${LEMLIST_TASK_REMINDER_FILTER}
         ${sgaFilter}
         ${dayFilter}
     )
@@ -1417,6 +1430,7 @@ export async function getActivityRecords(
       WHERE a.task_created_date_est >= @startDate
         AND a.task_created_date_est <= @endDate
         AND COALESCE(a.is_marketing_activity, 0) = 0
+        ${LEMLIST_TASK_REMINDER_FILTER}
         ${sgaFilter}
         ${dayFilter}
     )
@@ -1500,6 +1514,7 @@ export async function getActivityTotals(filters: SGAActivityFilters): Promise<{
       WHERE a.task_created_date_est >= @startDate
         AND a.task_created_date_est <= @endDate
         AND COALESCE(a.is_marketing_activity, 0) = 0
+        ${LEMLIST_TASK_REMINDER_FILTER}
         ${sgaFilter}
     )
     SELECT
@@ -1717,6 +1732,7 @@ export async function getActivityBreakdownAggregation(
         DATE_SUB((SELECT last_week_start FROM week_bounds), INTERVAL (@trailingWeeks * 7) DAY)
         AND (SELECT this_week_end FROM week_bounds)
       AND COALESCE(a.is_marketing_activity, 0) = 0
+      ${LEMLIST_TASK_REMINDER_FILTER}
       ${sgaFilter}
     GROUP BY 1, 2, 3
     HAVING week_bucket IS NOT NULL AND metric_type IS NOT NULL
@@ -1802,6 +1818,7 @@ export async function getActivityBreakdownDrillDown(
       WHERE a.task_executor_name = @sgaName
         AND a.task_activity_date BETWEEN @startDate AND @endDate
         AND COALESCE(a.is_marketing_activity, 0) = 0
+        ${LEMLIST_TASK_REMINDER_FILTER}
         ${metricFilter}
         ${searchFilter}
     ),
@@ -1853,6 +1870,7 @@ export async function getActivityBreakdownDrillDown(
       WHERE a.task_executor_name = @sgaName
         AND a.task_activity_date BETWEEN @startDate AND @endDate
         AND COALESCE(a.is_marketing_activity, 0) = 0
+        ${LEMLIST_TASK_REMINDER_FILTER}
         ${metricFilter}
         ${searchFilter}
     ),
@@ -1948,6 +1966,7 @@ export async function getActivityBreakdownExportData(
           DATE_SUB((SELECT last_week_start FROM week_bounds), INTERVAL (@trailingWeeks * 7) DAY)
           AND (SELECT this_week_end FROM week_bounds)
         AND COALESCE(a.is_marketing_activity, 0) = 0
+        ${LEMLIST_TASK_REMINDER_FILTER}
         ${sgaFilter}
     ) sub
     WHERE week_bucket IS NOT NULL AND metric_type IS NOT NULL

@@ -171,6 +171,8 @@ const _getRecordActivity = async (
       -- Channel classification (from vw_sga_activity_performance_v2 waterfall)
       CASE
         WHEN t.Subject LIKE '%Step skipped%' THEN NULL
+        WHEN t.Subject LIKE '[lemlist] Call -%' THEN 'Reminder'
+        WHEN t.Subject LIKE '[lemlist] Task -%' THEN 'Reminder'
         WHEN t.Subject LIKE 'Submitted Form%' OR t.Subject LIKE '%HubSpot%' THEN 'Marketing'
         WHEN t.Type LIKE '%SMS%' OR t.Subject LIKE '%SMS%' OR t.Subject LIKE '%Text%' THEN 'SMS'
         WHEN t.Subject LIKE '%LinkedIn%' OR t.TaskSubtype = 'LinkedIn' OR t.Subject LIKE '%LI %' THEN 'LinkedIn'
@@ -205,6 +207,8 @@ const _getRecordActivity = async (
       -- Channel group (high-level bucket)
       CASE
         WHEN t.Subject LIKE '%Step skipped%' THEN NULL
+        WHEN t.Subject LIKE '[lemlist] Call -%' THEN 'Reminder'
+        WHEN t.Subject LIKE '[lemlist] Task -%' THEN 'Reminder'
         WHEN t.Subject LIKE 'Submitted Form%' OR t.Subject LIKE '%HubSpot%' THEN 'Marketing'
         WHEN t.Type LIKE '%SMS%' OR t.Subject LIKE '%SMS%' OR t.Subject LIKE '%Text%' THEN 'SMS'
         WHEN t.Subject LIKE '%LinkedIn%' OR t.TaskSubtype = 'LinkedIn' OR t.Subject LIKE '%LI %' THEN 'LinkedIn'

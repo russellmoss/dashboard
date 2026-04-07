@@ -149,6 +149,8 @@ SELECT
   -- ---------------------------------------------------------------------------
   CASE
     WHEN Subject LIKE '%Step skipped%' THEN NULL
+    WHEN Subject LIKE '[lemlist] Call -%' THEN NULL       -- campaign task reminder, not a real call
+    WHEN Subject LIKE '[lemlist] Task -%' THEN NULL       -- campaign task reminder, not a real activity
     WHEN Subject LIKE 'Submitted Form%' OR Subject LIKE '%HubSpot%' THEN 'Marketing'
     WHEN Type LIKE '%SMS%' OR Subject LIKE '%SMS%' OR Subject LIKE '%Text%' THEN 'SMS'
     WHEN Subject LIKE '%LinkedIn%' OR TaskSubtype = 'LinkedIn' OR Subject LIKE '%LI %' THEN 'LinkedIn'
@@ -186,6 +188,8 @@ SELECT
   -- ---------------------------------------------------------------------------
   CASE
     WHEN Subject LIKE '%Step skipped%' THEN NULL
+    WHEN Subject LIKE '[lemlist] Call -%' THEN NULL       -- campaign task reminder, not a real call
+    WHEN Subject LIKE '[lemlist] Task -%' THEN NULL       -- campaign task reminder, not a real activity
     WHEN Subject LIKE 'Submitted Form%' OR Subject LIKE '%HubSpot%' THEN 'Marketing'
     WHEN Type LIKE '%SMS%' OR Subject LIKE '%SMS%' OR Subject LIKE '%Text%' THEN 'SMS'
     WHEN Subject LIKE '%LinkedIn%' OR TaskSubtype = 'LinkedIn' OR Subject LIKE '%LI %' THEN 'LinkedIn'
