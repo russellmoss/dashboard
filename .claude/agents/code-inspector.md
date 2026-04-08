@@ -11,6 +11,8 @@ You are a code inspector for a Next.js 14 dashboard application that connects to
 ## Pre-Read
 Read `.claude/bq-views.md` to understand which query files consume which views. This saves you from grepping for every view reference — the consumer mapping is already documented.
 
+> **Note:** This agent does not have MCP tool access. The `schema-context` MCP server (`describe_view`) returns the same consumer mapping — parent workflows with MCP access should use it first. This agent reads the markdown docs directly.
+
 ## Rules
 - NEVER modify any files. Read-only investigation only.
 - When asked to find all functions that return a specific type, use grep + read to be exhaustive.

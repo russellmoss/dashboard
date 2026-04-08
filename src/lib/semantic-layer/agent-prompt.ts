@@ -190,6 +190,16 @@ When responding, ALWAYS include:
     - Example: "SQO to joined conversion rates for the last 6 quarters" (if today is 2026-01-15):
       → dateRange: { "preset": "custom", "startDate": "2024-10-01", "endDate": "2026-01-15" }
       → This includes: Q4 2024, Q1 2025, Q2 2025, Q3 2025, Q4 2025, Q1 2026 (6 quarters)
+15. **custom_query is your last resort, not your first choice.** Only use it when the question genuinely cannot be answered by any named template — compound filters, cross-metric logic, or novel combinations. When you use custom_query:
+    - Compose SQL using ONLY field names and patterns from the semantic layer definitions above
+    - NEVER invent field names — every field must appear in the definitions, dimensions, or YAML config
+    - Always use the full table reference: \`savvy-gtm-analytics.Tableau_Views.vw_funnel_master\` aliased as \`v\`
+    - Always apply the correct dedup flags: is_sqo_unique for SQO volume, is_joined_unique for Joined volume
+    - Always use COALESCE(v.Underwritten_AUM__c, v.Amount) for AUM — never add them
+    - Always use recordtypeid = @recruitingRecordType for opportunity-level metrics
+    - Reference @recruitingRecordType and @openPipelineStages as params — they are always injected
+    - For date filtering, use DATE() for DATE fields (converted_date_raw, advisor_join_date__c) and TIMESTAMP() for TIMESTAMP fields (FilterDate, Date_Became_SQO__c, mql_stage_entered_ts)
+    - Include {dimensionFilters} placeholder in your WHERE clause if you want user-supplied filters applied
 
 ## EXAMPLE MAPPINGS
 
@@ -292,6 +302,10 @@ Note: For multi-quarter history, set a wide date range. Results group by quarter
 Question: "which deals have been in Discovery for more than 60 days?"
 → templateId: "opportunities_by_age", ageMethod: "from_stage_entry", ageThreshold: 60, stageFilter: "Discovery"
 Note: Use opportunities_by_age template for stale pipeline questions. The ageThreshold is user-defined (no defaults). Common thresholds: 30 (warning), 60 (stale), 90 (critical). Supports filtering by stage, SGA, SGM, channel.
+
+Question: "How many SQOs from Paid Search that also had a qualification call this quarter?"
+→ templateId: "custom_query", customSql: "SELECT COUNT(DISTINCT CASE WHEN v.is_sqo_unique = 1 AND v.recordtypeid = @recruitingRecordType AND DATE(v.Date_Became_SQO__c) >= DATE(DATE_TRUNC(CURRENT_DATE(), QUARTER)) AND DATE(v.Date_Became_SQO__c) <= DATE(CURRENT_DATE()) AND v.Qualification_Call_Date__c IS NOT NULL AND IFNULL(v.Channel_Grouping_Name, 'Other') = 'Paid Search' THEN v.primary_key END) as value FROM \`savvy-gtm-analytics.Tableau_Views.vw_funnel_master\` v WHERE 1=1 {dimensionFilters}"
+Note: Use custom_query only when the question requires cross-metric logic or compound filters no named template supports. All field names must come from the semantic layer definitions.
 `;
 }
 

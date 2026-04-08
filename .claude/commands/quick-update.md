@@ -24,7 +24,13 @@ You are handling a small, scoped dashboard change. This is NOT a new feature —
 
 ## STEP 1: SCHEMA CONTEXT
 
-Read these files silently (do not summarize them to the user):
+**Primary — use `schema-context` MCP tools silently (do not summarize to user):**
+- `describe_view` with `intent` param for each relevant view — grain, filters, dangerous columns, date fields
+- `get_rule` for any dedup/filter rules relevant to the change (search by keyword)
+- `resolve_term` for any business terms in the request
+- `lint_query` to validate any SQL you draft
+
+**Fallback — read these files only if MCP is unavailable or returns incomplete results:**
 - `.claude/bq-views.md` — which views and query files are relevant
 - `.claude/bq-field-dictionary.md` — field names, types, correct wrappers
 - `.claude/bq-patterns.md` — canonical patterns to follow
@@ -37,7 +43,7 @@ Read these files silently (do not summarize them to the user):
 Based on the user's request and the schema docs, determine:
 
 1. **What's changing?** (new column, filter tweak, calculation fix, query update, UI change)
-2. **Which view(s) are involved?** (check bq-views.md for the consumer mapping)
+2. **Which view(s) are involved?** (use `describe_view` MCP tool, or check bq-views.md as fallback)
 3. **Which query file(s) need edits?** (usually 1-3 files)
 4. **Which type(s) need updates?** (if adding a field to a return type)
 5. **Are there construction sites?** (other files that build objects of the modified type)
@@ -75,8 +81,8 @@ Read ONLY the files identified in Step 2. For each file:
    grep -rn "TypeName" src/ --include="*.ts" --include="*.tsx" | grep -v "import\|from\|type \|interface " | head -30
    ```
 5. **Verify field exists in BQ** — if adding a new field from BigQuery, confirm it exists:
-   - First check `.claude/bq-field-dictionary.md`
-   - Only query BQ if the field isn't documented: `SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = 'view_name' AND column_name = 'field_name'`
+   - First use `describe_view` MCP tool (or check `.claude/bq-field-dictionary.md` as fallback)
+   - Only query BQ if the field isn't covered by either source: `SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = 'view_name' AND column_name = 'field_name'`
 
 ---
 
@@ -101,7 +107,7 @@ Write a concise change plan directly in the conversation (NOT a separate file). 
 [repeat for each file, usually 1-5]
 
 ### Pattern Notes
-- [Any pattern to follow from bq-patterns.md]
+- [Any pattern to follow from MCP get_rule or bq-patterns.md]
 - [Date wrapper to use, NULL handling approach, etc.]
 
 ### Validation

@@ -61,6 +61,8 @@ export interface TemplateSelection {
     previousPeriod?: string | DateRangeParams; // e.g., 'last_quarter' or { preset: 'custom', startDate: '2025-04-01', endDate: '2025-06-30' }
     // SGA summary parameter
     sga?: string;
+    // Custom query parameter (escape hatch)
+    customSql?: string;
     // Time to convert and multi-stage conversion parameters
     startStage?: string;
     endStage?: string;

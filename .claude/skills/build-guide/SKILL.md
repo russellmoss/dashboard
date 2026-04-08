@@ -33,8 +33,9 @@ Those documents are the single source of truth.
 [Table of new fields/capabilities being added, their sources, and notes]
 
 ## Schema Reference
-All BigQuery field names, types, and patterns are documented in `.claude/bq-*.md`.
-When writing SQL in the guide, always cross-reference field names against `.claude/bq-field-dictionary.md` for correct casing and DATE vs TIMESTAMP wrapper. Reference `.claude/bq-patterns.md` for the canonical query patterns each phase should follow.
+**Primary:** Use `schema-context` MCP tools — `describe_view` for field names/types, `get_rule` for query patterns, `lint_query` to validate SQL.
+**Fallback:** `.claude/bq-field-dictionary.md` for field casing and DATE vs TIMESTAMP wrappers. `.claude/bq-patterns.md` for canonical query patterns.
+When writing SQL in the guide, always validate field names against MCP `describe_view` (or bq-field-dictionary.md as fallback) for correct casing.
 
 ## Architecture Rules
 - Never use string interpolation in BigQuery queries — always @paramName

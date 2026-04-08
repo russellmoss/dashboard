@@ -18,6 +18,30 @@ All queries use BigQuery MCP (`mcp__bigquery__execute_sql`). Key tables:
 
 **Important**: Never use string interpolation in queries.
 
+## Schema Context Preflight (MCP-First)
+
+Before executing any SQL, run these `schema-context` MCP checks to validate field assumptions:
+
+1. **Inspect views used in this skill:**
+   - `describe_view("vw_funnel_master")` — confirm outcome flags (`is_joined`, `is_joined_unique`), AUM fields, closed-lost semantics
+   - `describe_view("vw_lost_to_competition")` — confirm loss fields, CRD matching, join keys
+
+2. **Check critical rules:**
+   - `get_rule("aum_coalesce_pattern")` — use `COALESCE(Underwritten_AUM__c, Amount)` for AUM; never add them
+   - `get_rule("aum_no_addition")` — banned pattern: `Underwritten_AUM__c + Amount`
+   - `get_rule("joined_exclude_closed_lost")` — don't use `advisor_join_date__c IS NOT NULL` alone for joined counts
+   - `get_rule("re_engagement_exclusion")` — add `recordtypeid` filter if counting SQO/Joined outcomes
+
+3. **Resolve terms if needed:**
+   - `resolve_term("AUM")` — canonical AUM field guidance and gotchas
+   - `resolve_term("open_pipeline")` — if analyzing open vs closed deals
+
+4. **Lint each query** before execution: `lint_query(sql)` — catches AUM, dedup, and filter issues.
+
+5. **Adapt prebuilt SQL** if MCP reveals any field/rule changes since this skill was written.
+
+If `schema-context` MCP is unavailable, fall back to `.claude/bq-views.md` and `.claude/bq-field-dictionary.md`.
+
 ## Step 1: Map the Deal Economics Landscape
 
 Pull all SQO-stage deals with their full economic terms:

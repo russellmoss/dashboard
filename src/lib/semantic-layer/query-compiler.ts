@@ -55,6 +55,22 @@ export function validateTemplateSelection(
   const template = QUERY_TEMPLATES[selection.templateId as keyof typeof QUERY_TEMPLATES];
   const params = selection.parameters;
 
+  // custom_query bypasses standard metric/dimension validation — SQL is pre-composed by Claude
+  if (selection.templateId === 'custom_query') {
+    if (!params.customSql) {
+      errors.push('customSql is required for custom_query template');
+    }
+    // Still validate filters if present
+    if (params.filters) {
+      for (const filter of params.filters) {
+        if (!isValidDimension(filter.dimension)) {
+          errors.push(`Unknown filter dimension: ${filter.dimension}`);
+        }
+      }
+    }
+    return { valid: errors.length === 0, errors, warnings };
+  }
+
   // Validate metric if required
   if (params.metric) {
     if (!isValidMetric(params.metric)) {
@@ -744,6 +760,9 @@ export function compileQuery(
       break;
     case 'sga_quarterly_progress':
       compiledQuery = compileSgaQuarterlyProgress(params);
+      break;
+    case 'custom_query':
+      compiledQuery = compileCustomQuery(params);
       break;
     default:
       throw new Error(`Unsupported template: ${selection.templateId}`);
@@ -2920,6 +2939,55 @@ function compileSgaQuarterlyProgress(params: TemplateSelection['parameters']): C
       dateRange: {
         start: dateRangeSql.startDate || new Date().toISOString().split('T')[0],
         end: dateRangeSql.endDate || new Date().toISOString().split('T')[0],
+      },
+    },
+  };
+}
+
+// =============================================================================
+// CUSTOM QUERY COMPILER
+// =============================================================================
+
+function compileCustomQuery(params: TemplateSelection['parameters']): CompiledQuery {
+  const { customSql, filters } = params;
+
+  if (!customSql) {
+    throw new Error('customSql is required for custom_query template');
+  }
+
+  // Build dimension filters if provided
+  const filterResult = buildDimensionFilterSql(filters || [], true);
+  const filterSql = filterResult.sql;
+
+  // Inject dimension filters into the SQL
+  let sql: string;
+  if (customSql.includes('{dimensionFilters}')) {
+    sql = customSql.replace('{dimensionFilters}', filterSql);
+  } else if (filterSql) {
+    // Append filters to the end of the WHERE clause
+    sql = customSql.trimEnd();
+    // If the SQL already has a WHERE clause, append with AND logic
+    if (/WHERE\s/i.test(sql)) {
+      sql = `${sql}\n      ${filterSql}`;
+    } else {
+      sql = `${sql}\n    WHERE 1=1\n      ${filterSql}`;
+    }
+  } else {
+    sql = customSql;
+  }
+
+  return {
+    sql: sql.trim(),
+    params: {
+      recruitingRecordType: CONSTANTS.RECRUITING_RECORD_TYPE,
+      openPipelineStages: CONSTANTS.OPEN_PIPELINE_STAGES,
+    },
+    templateId: 'custom_query',
+    visualization: 'table',
+    metadata: {
+      dateRange: {
+        start: new Date().toISOString().split('T')[0],
+        end: new Date().toISOString().split('T')[0],
       },
     },
   };

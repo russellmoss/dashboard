@@ -19,6 +19,27 @@ All queries use BigQuery MCP (`mcp__bigquery__execute_sql`). Key tables:
 
 **Important**: Never use string interpolation in queries — always use literal values or @paramName syntax.
 
+## Schema Context Preflight (MCP-First)
+
+Before executing any SQL, run these `schema-context` MCP checks to validate field assumptions:
+
+1. **Inspect views used in this skill:**
+   - `describe_view("vw_funnel_master", intent="count_joined")` — confirm joined dedup flags, AUM fields, date types, dangerous columns
+   - `describe_view("vw_sga_activity_performance")` — confirm activity join key, direction filters, automation exclusions
+
+2. **Check critical rules:**
+   - `get_rule("joined_volume_dedup")` — `is_joined_unique` for volume counts, `is_joined` for rates
+   - `get_rule("sqo_volume_dedup")` — `is_sqo_unique` for volume counts, `is_sqo` for rates
+   - `get_rule("aum_coalesce_pattern")` — use `COALESCE(Underwritten_AUM__c, Amount)`, never add them
+   - `get_rule("activity_funnel_join_key")` — join on `Full_prospect_id__c`, not `task_who_id`
+   - `get_rule("stage_entered_closed_pre2024")` — `Stage_Entered_Closed__c` unreliable before 2024
+
+3. **Lint each query** before execution: `lint_query(sql)` — catches dedup, filter, and date-type issues.
+
+4. **Adapt prebuilt SQL** if MCP reveals any field/rule changes since this skill was written.
+
+If `schema-context` MCP is unavailable, fall back to `.claude/bq-views.md` and `.claude/bq-field-dictionary.md`.
+
 ## Step 1: Pull the Joined Advisor Cohort
 
 Run this query to get all joined advisors with their full journey:

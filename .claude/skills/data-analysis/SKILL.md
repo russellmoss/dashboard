@@ -33,14 +33,23 @@ Tell the user: "Analyzing your request. Let me understand our data definitions f
 
 ### 1.2 Read authoritative data references
 
-Read ALL of these files — they are the source of truth for our data:
+**Primary source — `schema-context` MCP tools (use these first):**
+- `describe_view` with `intent` param — view purpose, grain, key filters, dangerous columns, recommended date fields
+- `get_rule` — dedup rules, required filters, banned patterns (search by keyword for discovery)
+- `get_metric` with `mode` param — numerator/denominator fields, date anchors, gotchas
+- `resolve_term` — business term → field/rule/gotcha cross-references
+- `lint_query` — validate drafted SQL against configured rules before running
 
-**BigQuery schema & patterns:**
+Call these MCP tools for every view, metric, and business term in the request. They return structured, high-confidence context faster than reading files.
+
+**Fallback — `.claude/bq-*.md` markdown docs (only if MCP is unavailable or incomplete):**
 - `.claude/bq-field-dictionary.md` — field definitions, types, wrappers, business context
 - `.claude/bq-patterns.md` — canonical query patterns, dedup rules, anti-patterns
 - `.claude/bq-views.md` — view registry with consumer mapping
-- `.claude/bq-salesforce-mapping.md` — SF→BQ field lineage and sync cadence
 - `.claude/bq-activity-layer.md` — Task object, activity view, direction/channel classification, outbound filters, attribution patterns
+
+**Separate concern (always read when relevant, not an MCP alternative):**
+- `.claude/bq-salesforce-mapping.md` — SF→BQ field lineage and sync cadence (not covered by MCP)
 
 **Business definitions:**
 - `docs/GLOSSARY.md` — business term definitions
@@ -174,7 +183,7 @@ Execute every SQL query in the plan using `mcp__bigquery__execute_sql`. For each
 **Rules:**
 - Never use string interpolation — always literal values or @paramName syntax
 - Handle NULLs explicitly for any field with <95% population rate
-- Use dedup flags (`is_sqo_unique`, `is_primary_opp_record`, etc.) per `bq-patterns.md`
+- Use dedup flags (`is_sqo_unique`, `is_primary_opp_record`, etc.) per `get_rule` MCP tool or `bq-patterns.md`
 - Test with LIMIT 100 first for complex queries, then run full
 
 ### 3.3 Cross-check results
@@ -197,10 +206,9 @@ Confirm you can see `ask_openai`, `ask_gemini`, and `ask_all` tools from council
 
 Read and concatenate these files to include as context for the council:
 - The analysis plan you just created
-- `.claude/bq-field-dictionary.md`
-- `.claude/bq-patterns.md`
-- `.claude/bq-views.md`
-- `.claude/bq-salesforce-mapping.md`
+- MCP context: call `describe_view`, `get_rule`, `get_metric` for all views/rules/metrics used in the plan and include their output as structured context
+- `.claude/bq-field-dictionary.md` — include as supplementary field reference
+- `.claude/bq-patterns.md` — include as supplementary pattern reference
 - `docs/GLOSSARY.md`
 - `docs/CALCULATIONS.md`
 - Any relevant view SQL files from `views/` directory

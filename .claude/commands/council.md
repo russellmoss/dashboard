@@ -42,9 +42,10 @@ Read these files in this priority order. The implementation guide is required; t
 - `data-verifier-findings.md` — contains actual BigQuery schema, field names, and population rates
 - `pattern-finder-findings.md` — established codebase patterns for date handling, exports, type coercion
 - `exploration-results.md` — synthesized exploration findings
-- `.claude/bq-field-dictionary.md` — human-verified field definitions, types, wrappers, and business context
-- `.claude/bq-patterns.md` — canonical query patterns, dedup rules, and anti-patterns
-- `.claude/bq-views.md` — view registry with consumer mapping
+- MCP context: call `describe_view`, `get_rule`, `get_metric` from `schema-context` for all views/rules/metrics in the plan, include output as structured context
+- `.claude/bq-field-dictionary.md` — supplementary field definitions (fallback if MCP unavailable)
+- `.claude/bq-patterns.md` — supplementary query patterns (fallback if MCP unavailable)
+- `.claude/bq-views.md` — supplementary view registry (fallback if MCP unavailable)
 - `.claude/bq-salesforce-mapping.md` — SF→BQ field lineage and sync cadence
 
 **Project context (read if they exist):**

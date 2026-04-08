@@ -21,6 +21,35 @@ Multiple leads can convert to the same opportunity (e.g., Luis Rosa had 2 leads 
 
 ---
 
+## Schema Context Preflight (MCP-First)
+
+Before executing any SQL — including the prebuilt queries below — run these `schema-context` MCP checks. The funnel view dedup and attribution logic is critical to SGM/SGA analysis accuracy.
+
+1. **Inspect views used in this skill:**
+   - `describe_view("vw_funnel_master", intent="count_sqos")` — confirm dedup flags, close-rate denominator logic, dangerous columns, date types
+   - `describe_view("vw_sga_activity_performance")` — confirm executor vs owner fields, activity date fields (for SGA path)
+
+2. **Check critical rules:**
+   - `get_rule("sqo_volume_dedup")` — `is_sqo_unique` for volume counts, `is_sqo` for rates/CASE lookups
+   - `get_rule("joined_volume_dedup")` — `is_joined_unique` for volume counts
+   - `get_rule("joined_exclude_closed_lost")` — don't use `advisor_join_date__c IS NOT NULL` alone; Closed Lost advisors can have join dates
+   - `get_rule("re_engagement_exclusion")` — add `recordtypeid` filter for SQO/Joined metrics
+   - `get_rule("dual_sga_attribution")` — SGA attribution can come from lead or opportunity path
+   - `get_rule("sga_effort_use_executor")` — use `task_executor_name` for individual activity analysis (SGA path)
+
+3. **Check metric definitions:**
+   - `get_metric("sql_to_sqo", mode="period")` — confirm numerator/denominator and recordtypeid requirements
+   - `get_metric("sqo_to_joined", mode="period")` — confirm close-rate calculation matches business rules above
+
+4. **Lint each query** before execution: `lint_query(sql)` — catches dedup, filter, and attribution issues.
+
+5. **Adapt prebuilt SQL** if MCP reveals any field/rule changes since this skill was written. Pay special attention to:
+   - Whether the Closed Lost override rule is still handled by `is_joined` flag
+   - Whether `is_primary_opp_record` is still correct for denominator dedup
+   - Whether any new attribution rules affect SGA/SGM assignment logic
+
+If `schema-context` MCP is unavailable, fall back to `.claude/bq-views.md`, `.claude/bq-field-dictionary.md`, and `.claude/bq-patterns.md`.
+
 ## Step 0: Identify the Person and Role
 
 Search both SGM and SGA fields:

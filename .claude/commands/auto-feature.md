@@ -35,7 +35,7 @@ Save findings to `code-inspector-findings.md` in the project root."
 
 ### Teammate 2: Data Verifier (agent: data-verifier)
 
-Task: "First, read all four `.claude/bq-*.md` files for pre-verified schema context. Then verify the data layer for the following feature: $ARGUMENTS
+Task: "First, use `schema-context` MCP tools (`describe_view`, `get_rule`, `get_metric`, `resolve_term`) as the primary schema context source. Fall back to `.claude/bq-*.md` files if MCP is unavailable or incomplete. Then verify the data layer for the following feature: $ARGUMENTS
 
 Using MCP access to BigQuery:
 - Confirm source fields exist in the relevant views. Start with the schema docs, then query BQ only for things not already documented (new fields, population rates for specific date ranges).

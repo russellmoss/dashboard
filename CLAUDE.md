@@ -18,6 +18,32 @@ Savvy Wealth recruiting funnel analytics dashboard.
 - Use Unix/bash commands: `grep`, `ls`, `head`, `wc -l`, `find` all work
 - Do NOT use PowerShell-only commands: `Get-Content`, `Test-Path`, `Get-ChildItem`, `Select-String`, `$env:VAR`
 
+## BigQuery Schema Context — MCP-First
+
+When writing, reviewing, or validating SQL against BigQuery views:
+
+> **HARD GATE:** You MUST call at least one schema-context MCP tool (`resolve_term`, `describe_view`, `get_metric`, or `get_rule`) BEFORE writing any `execute_sql` call. No exceptions. Do NOT guess field names — look them up first. If you catch yourself about to write SQL without having consulted schema-context in this conversation turn, STOP and query schema-context first.
+
+1. **Use `schema-context` MCP tools first** (runtime: `@mossrussell/schema-context-mcp` npm package, config: `.claude/schema-config.yaml`):
+   - `describe_view` — purpose, grain, key filters, dangerous columns, intent warnings
+   - `list_views` — discover all views/tables, annotation status, column counts
+   - `get_rule` — dedup rules, required filters, banned patterns
+   - `get_metric` — numerator/denominator, date anchor, mode guidance
+   - `resolve_term` — business term → field/rule cross-references
+   - `lint_query` — heuristic SQL validation against configured rules
+   - `health_check` — drift detection between annotations and live schema
+
+2. **Fall back to `.claude/bq-*.md` markdown docs only when**:
+   - MCP tools are unavailable (server not running)
+   - MCP returns low-confidence or missing annotations for a field
+   - You need Salesforce→BigQuery field lineage or sync cadence detail (`bq-salesforce-mapping.md` — separate concern, not in MCP scope)
+
+3. **Never skip both** — always consult at least one context source before writing SQL.
+
+4. **Agent tool access matters**: Only agents with `mcp__*` in their tools list (e.g., `data-verifier`) can call MCP tools directly. Read-only agents without MCP access (e.g., `code-inspector`, `pattern-finder`) should read `.claude/bq-*.md` markdown docs instead.
+
+The markdown docs (`.claude/bq-views.md`, `bq-field-dictionary.md`, `bq-patterns.md`, `bq-salesforce-mapping.md`, `bq-activity-layer.md`) remain authoritative fallback and are not being removed.
+
 ## Git Commit Protocol — Wrike Session Context
 
 **Before every `git commit`, you MUST write `.ai-session-context.md` first.**

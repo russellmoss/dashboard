@@ -20,6 +20,35 @@ All queries use BigQuery MCP (`mcp__bigquery__execute_sql`). Key tables:
 
 **Important**: Never use string interpolation in queries — always use literal values.
 
+## Schema Context Preflight (MCP-First)
+
+Before executing any SQL — including the prebuilt queries below — run these `schema-context` MCP checks. The activity and funnel views have the highest gotcha density in the warehouse.
+
+1. **Inspect views used in this skill:**
+   - `describe_view("vw_sga_activity_performance", intent="outbound_effort")` — confirm outbound automation exclusions, cold call flags, direction classification, executor vs owner fields, date fields
+   - `describe_view("vw_funnel_master", intent="count_sqos")` — confirm dedup flags, conversion numerators/denominators, dangerous columns
+
+2. **Check critical rules (highest gotcha density):**
+   - `get_rule("sga_outbound_automation_filter")` — exclude `is_engagement_tracking`, `[lemlist]`, `ListEmail` from outbound counts
+   - `get_rule("sga_effort_use_executor")` — use `task_executor_name` for individual effort, not `SGA_Owner_Name__c`
+   - `get_rule("activity_funnel_join_key")` — join on `Full_prospect_id__c`, not `task_who_id`
+   - `get_rule("sqo_volume_dedup")` — `is_sqo_unique` for volume, `is_sqo` for rates
+   - `get_rule("joined_volume_dedup")` — `is_joined_unique` for volume, `is_joined` for rates
+   - `get_rule("contacted_use_flag")` — use `is_contacted = 1`, not `stage_entered_contacting__c IS NOT NULL`
+
+3. **Check metric definitions:**
+   - `get_metric("contacted_to_mql", mode="cohort")` — confirm numerator/denominator for conversion rates
+   - `get_metric("sql_to_sqo", mode="period")` — confirm recordtypeid requirements
+
+4. **Lint each query** before execution: `lint_query(sql)` — catches dedup, automation filter, and date-type issues.
+
+5. **Adapt prebuilt SQL** if MCP reveals any field/rule changes since this skill was written. Pay special attention to:
+   - Whether `SGA_Owner_Name__c` should be `task_executor_name` in activity queries
+   - Whether outbound counts include proper automation exclusions
+   - Whether activity date field is `task_created_date_est` (not `task_created_date`)
+
+If `schema-context` MCP is unavailable, fall back to `.claude/bq-activity-layer.md`, `.claude/bq-views.md`, and `.claude/bq-patterns.md`.
+
 ## Step 1: Spawn Agent Team
 
 Create 2 agents in parallel:

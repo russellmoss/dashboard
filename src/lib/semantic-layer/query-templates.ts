@@ -1303,6 +1303,29 @@ export const QUERY_TEMPLATES = {
       'SQO history for Sarah Smith this year',
     ],
   },
+
+  // ===========================================================================
+  // CUSTOM QUERY - Escape hatch for compound/novel questions
+  // ===========================================================================
+  custom_query: {
+    id: 'custom_query',
+    description: 'Fallback for compound or novel questions that no named template covers. Claude composes SQL directly from verified semantic layer fragments.',
+
+    template: `{custom_sql}`,
+
+    parameters: {
+      customSql: { type: 'string', required: true },
+      dimensionFilters: { type: 'filter[]', required: false },
+    },
+
+    visualization: 'table',
+
+    exampleQuestions: [
+      'How many SQOs from Paid Search never got a follow-up call?',
+      'Which advisors were contacted more than 5 times but never became MQL?',
+      'Show me open pipeline where the SGA changed since SQO date',
+    ],
+  },
 } as const;
 
 // =============================================================================

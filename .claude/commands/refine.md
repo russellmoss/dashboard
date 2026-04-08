@@ -18,9 +18,10 @@ Also read if they exist (they inform triage decisions):
 - `data-verifier-findings.md` — verify field name fixes against real schema
 - `pattern-finder-findings.md` — verify pattern fixes against established patterns
 
-Also read the schema reference docs (they're the authoritative source for field name validation):
-- `.claude/bq-field-dictionary.md` — correct field names, types, and wrappers
-- `.claude/bq-patterns.md` — canonical query patterns to validate against
+Also gather schema context (authoritative source for field name validation):
+- **Primary:** Use `schema-context` MCP tools — `describe_view` for field lists, `get_rule` for patterns, `lint_query` to validate SQL
+- **Fallback:** `.claude/bq-field-dictionary.md` — correct field names, types, and wrappers
+- **Fallback:** `.claude/bq-patterns.md` — canonical query patterns to validate against
 
 If the implementation plan or council-feedback.md is missing, tell the user and stop.
 
@@ -73,7 +74,7 @@ Edit the implementation plan directly:
 - If a BigQuery field was wrong, correct it to the exact name from data-verifier findings
 
 **Savvy-specific rules:**
-- If fixing BigQuery fields: cross-reference `.claude/bq-field-dictionary.md` for exact casing (Salesforce fields are case-sensitive). This is more authoritative than data-verifier findings for established fields.
+- If fixing BigQuery fields: use `describe_view` MCP tool for field validation, or cross-reference `.claude/bq-field-dictionary.md` as fallback (Salesforce fields are case-sensitive). Either source is more authoritative than data-verifier findings for established fields.
 - If adding NULL handling: prefer COALESCE with sensible defaults over filtering out NULLs (we want to keep records, not lose them)
 - If fixing pattern drift: match the exact function name and import path from pattern-finder findings
 - If fixing export code: match the edge case handling from existing Sheets export tabs

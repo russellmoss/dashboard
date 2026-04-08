@@ -30,7 +30,7 @@ First read `.claude/bq-views.md` for the view→consumer mapping. Then investiga
 - Save findings to `code-inspector-findings.md` in the project root
 
 ### Teammate 2: Data Verifier (use data-verifier agent)
-First read all four `.claude/bq-*.md` files for pre-verified schema context. Then investigate using MCP access to BigQuery:
+First use `schema-context` MCP tools (`describe_view`, `get_rule`, `get_metric`, `resolve_term`) as primary schema context. Fall back to `.claude/bq-*.md` files if MCP is unavailable. Then investigate using MCP access to BigQuery:
 - Do the source fields exist in the relevant BigQuery view(s)? If not, what view changes are needed?
 - What are the population rates, value distributions, and data quality for each field?
 - Are there edge cases that will affect CSV export? (newlines, special chars, long text, encoding)

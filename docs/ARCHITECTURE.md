@@ -1266,6 +1266,7 @@ Claude selects a template based on the question; the compiler generates SQL. **L
 | `sga_summary` | SGA performance summary | "How is Craig doing this quarter?" |
 | `rolling_average` | Rolling averages | "30-day rolling average of SQLs" |
 | `opportunities_by_age` | Age-based analysis | "Opportunities older than 180 days" |
+| `custom_query` | Escape hatch for compound/novel questions | "SQOs from Paid Search that also had a qual call?" |
 
 ### Visualization Selection
 
