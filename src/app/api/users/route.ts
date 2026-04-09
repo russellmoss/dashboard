@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { getAllUsers, createUser } from '@/lib/users';
 import { getSessionPermissions } from '@/types/auth';
 import { SafeUser } from '@/types/user';
+import prisma from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,20 @@ export async function GET() {
     }
     
     const users = await getAllUsers();
+
+    // Get active MCP key status for all users in one query
+    const usersWithKeys = await prisma.user.findMany({
+      select: {
+        id: true,
+        mcpApiKeys: {
+          where: { isActive: true },
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+    const keyStatusMap = new Map(usersWithKeys.map(u => [u.id, u.mcpApiKeys.length > 0]));
+
     // Convert to SafeUser (exclude passwordHash)
     const safeUsers: SafeUser[] = users.map(user => ({
       id: user.id,
@@ -38,6 +53,8 @@ export async function GET() {
       updatedAt: user.updatedAt?.toISOString() || new Date().toISOString(),
       createdBy: user.createdBy || '',
       externalAgency: user.externalAgency ?? null,
+      bqAccess: user.bqAccess ?? false,
+      hasMcpKey: keyStatusMap.get(user.id) ?? false,
     }));
     return NextResponse.json({ users: safeUsers });
     
@@ -67,7 +84,7 @@ export async function POST(request: NextRequest) {
     }
     
     const body = await request.json();
-    const { email, name, password, role, isActive, externalAgency } = body;
+    const { email, name, password, role, isActive, externalAgency, bqAccess } = body;
 
     if (!email || !name || !role) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -101,6 +118,7 @@ export async function POST(request: NextRequest) {
         role,
         isActive,
         externalAgency: (role === 'recruiter' || role === 'capital_partner') ? String(externalAgency).trim() : null,
+        bqAccess: bqAccess ?? false,
       },
       session.user.email
     );
@@ -116,8 +134,10 @@ export async function POST(request: NextRequest) {
       updatedAt: user.updatedAt?.toISOString() || new Date().toISOString(),
       createdBy: session.user.email,
       externalAgency: user.externalAgency ?? null,
+      bqAccess: user.bqAccess ?? false,
+      hasMcpKey: false,
     };
-    
+
     return NextResponse.json({ user: safeUser }, { status: 201 });
     
   } catch (error: any) {

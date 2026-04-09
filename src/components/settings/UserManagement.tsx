@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { Card, Title, Text, Button } from '@tremor/react';
-import { Plus, Pencil, Trash2, Key, UserCheck, UserX } from 'lucide-react';
+import { Plus, Pencil, Trash2, Key, UserCheck, UserX, Database } from 'lucide-react';
 import { SafeUser } from '@/types/user';
 import { UserModal } from './UserModal';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { ResetPasswordModal } from './ResetPasswordModal';
+import { McpKeyModal } from './McpKeyModal';
 
 interface UserManagementProps {
   currentUserEmail: string;
@@ -31,6 +32,8 @@ export function UserManagement({ currentUserEmail }: UserManagementProps) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState<SafeUser | null>(null);
+  const [showMcpKeyModal, setShowMcpKeyModal] = useState(false);
+  const [selectedUserForKey, setSelectedUserForKey] = useState<SafeUser | null>(null);
   
   // Fetch users
   const fetchUsers = async () => {
@@ -87,6 +90,17 @@ export function UserManagement({ currentUserEmail }: UserManagementProps) {
     setShowResetModal(false);
     setSelectedUser(null);
   };
+
+  const handleManageMcpKey = (user: SafeUser) => {
+    setSelectedUserForKey(user);
+    setShowMcpKeyModal(true);
+  };
+
+  const handleMcpKeyManaged = () => {
+    setShowMcpKeyModal(false);
+    setSelectedUserForKey(null);
+    fetchUsers();
+  };
   
   if (loading) {
     return (
@@ -130,6 +144,7 @@ export function UserManagement({ currentUserEmail }: UserManagementProps) {
                 <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-300">Email</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-300">Role</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-300">Status</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-300">BQ Access</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-300">Created</th>
                 <th className="text-right py-3 px-4 font-medium text-gray-600 dark:text-gray-300">Actions</th>
               </tr>
@@ -165,6 +180,17 @@ export function UserManagement({ currentUserEmail }: UserManagementProps) {
                       </span>
                     )}
                   </td>
+                  <td className="py-3 px-4">
+                    {user.bqAccess ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                        <Database className="w-3 h-3" /> Enabled
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
+                        Disabled
+                      </span>
+                    )}
+                  </td>
                   <td className="py-3 px-4 text-gray-500 dark:text-gray-400 text-sm">
                     {new Date(user.createdAt).toLocaleDateString()}
                   </td>
@@ -177,6 +203,15 @@ export function UserManagement({ currentUserEmail }: UserManagementProps) {
                       >
                         <Key className="w-4 h-4" />
                       </button>
+                      {user.bqAccess && (
+                        <button
+                          onClick={() => handleManageMcpKey(user)}
+                          className="p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                          title="Manage MCP API Key"
+                        >
+                          <Database className="w-4 h-4" />
+                        </button>
+                      )}
                       <button
                         onClick={() => handleEditUser(user)}
                         className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -222,6 +257,13 @@ export function UserManagement({ currentUserEmail }: UserManagementProps) {
         onClose={() => setShowResetModal(false)}
         onReset={handlePasswordReset}
         user={selectedUser}
+      />
+
+      <McpKeyModal
+        isOpen={showMcpKeyModal}
+        onClose={() => setShowMcpKeyModal(false)}
+        onSaved={handleMcpKeyManaged}
+        user={selectedUserForKey}
       />
     </>
   );

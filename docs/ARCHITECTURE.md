@@ -449,6 +449,24 @@ Visible only to admin users in the detailed variant. Calls cache refresh endpoin
 - **Storage**: PostgreSQL via Prisma (or JSON file for simple deployments)
 - **Reset**: Admin-initiated password reset via Settings page
 
+### MCP API Key Management
+
+Users with `bqAccess: true` can be issued API keys for the remote BigQuery MCP server.
+
+- **Model**: `McpApiKey` (table `mcp_api_keys`) — `id`, `userId`, `key` (SHA-256 hash), `isActive`, `createdAt`, `revokedAt`, `label`, `lastUsedAt`
+- **Key Format**: `sk-savvy-` prefix + 40 hex chars (20 random bytes)
+- **Storage**: SHA-256 hash stored in DB — plaintext shown once at creation, never retrievable
+- **Lifecycle**: Generate / Revoke / Rotate (atomic revoke + generate via `$transaction`)
+- **Utility**: `src/lib/mcp-key-utils.ts` — `createMcpApiKey()`, `revokeMcpApiKeys()`, `rotateMcpApiKey()`
+- **UI**: Settings > User Management — "BQ Access" column, Database icon button opens `McpKeyModal`
+
+| Route | Methods | Purpose |
+|-------|---------|---------|
+| `/api/users/[id]/mcp-key` | POST, DELETE | Generate new key, revoke active key |
+| `/api/users/[id]/mcp-key/rotate` | POST | Atomic revoke + generate (returns new plaintext) |
+
+Both routes require `canManageUsers` permission (admin/revops_admin/manager).
+
 ### Role Hierarchy
 
 | Role | Description | Data Access | Default Login Page |

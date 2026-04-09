@@ -40,7 +40,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // Get full user with createdBy from database
     const fullUser = await prisma.user.findUnique({
       where: { id: params.id },
-      select: { createdBy: true },
+      select: {
+        createdBy: true,
+        mcpApiKeys: {
+          where: { isActive: true },
+          select: { id: true },
+          take: 1,
+        },
+      },
     });
     
     // Convert to SafeUser (exclude passwordHash)
@@ -54,6 +61,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       updatedAt: user.updatedAt?.toISOString() || new Date().toISOString(),
       createdBy: fullUser?.createdBy || '',
       externalAgency: user.externalAgency ?? null,
+      bqAccess: user.bqAccess ?? false,
+      hasMcpKey: (fullUser?.mcpApiKeys?.length ?? 0) > 0,
     };
 
     return NextResponse.json({ user: safeUser });
@@ -130,6 +139,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       updatedAt: user.updatedAt?.toISOString() || new Date().toISOString(),
       createdBy: existingUser.createdBy || '',
       externalAgency: user.externalAgency ?? null,
+      bqAccess: user.bqAccess ?? false,
     };
 
     return NextResponse.json({ user: safeUser });

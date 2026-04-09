@@ -86,3 +86,8 @@ nul
 
 # CSV data files
 *.csv
+
+# MCP server build artifacts (schema-config.yaml copied from .claude/ at deploy time)
+mcp-server/schema-config.yaml
+mcp-server/node_modules
+mcp-server/dist

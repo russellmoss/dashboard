@@ -20,6 +20,8 @@ model User {
   createdBy           String?
   isActive            Boolean               @default(true)
   externalAgency      String?
+  bqAccess            Boolean               @default(false)
+  mcpApiKeys          McpApiKey[]
   submittedRequests   DashboardRequest[]    @relation("SubmittedRequests")
   gameScores          GameScore[]
   passwordResetTokens PasswordResetToken[]
@@ -44,6 +46,23 @@ model PasswordResetToken {
 
   @@index([token])
   @@index([userId])
+}
+
+model McpApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  key        String    @unique
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+  label      String?
+  lastUsedAt DateTime?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([key])
+  @@index([isActive])
+  @@map("mcp_api_keys")
 }
 
 model WeeklyGoal {

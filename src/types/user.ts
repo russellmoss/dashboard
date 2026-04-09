@@ -12,6 +12,7 @@ export interface User {
   createdBy: string;
   isActive: boolean;
   externalAgency?: string | null;
+  bqAccess?: boolean;
 }
 
 export interface UserPermissions {
@@ -39,6 +40,8 @@ export interface SafeUser {
   createdBy: string;
   isActive: boolean;
   externalAgency?: string | null;
+  bqAccess: boolean;
+  hasMcpKey?: boolean;
 }
 
 // For creating/updating users
@@ -49,4 +52,5 @@ export interface UserInput {
   role: UserRole;
   isActive?: boolean;
   externalAgency?: string | null;
+  bqAccess?: boolean;
 }

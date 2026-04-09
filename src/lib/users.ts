@@ -14,6 +14,7 @@ export interface User {
   updatedAt?: Date;
   createdBy?: string | null;
   externalAgency?: string | null;
+  bqAccess?: boolean;
 }
 
 // Retry helper for database operations (handles Neon connection timeouts)
@@ -113,6 +114,7 @@ export async function validateUser(
       updatedAt: user.updatedAt,
       createdBy: user.createdBy,
       externalAgency: user.externalAgency ?? null,
+      bqAccess: user.bqAccess ?? false,
     };
   } catch (error) {
     logger.error('[validateUser] Database error', error);
@@ -137,6 +139,7 @@ export async function getUserByEmail(email: string): Promise<User | null> {
     isActive: user.isActive ?? true,
     createdBy: user.createdBy,
     externalAgency: user.externalAgency ?? null,
+    bqAccess: user.bqAccess ?? false,
   };
 }
 
@@ -157,6 +160,7 @@ export async function getUserById(id: string): Promise<User | null> {
     isActive: user.isActive ?? true,
     createdBy: user.createdBy,
     externalAgency: user.externalAgency ?? null,
+    bqAccess: user.bqAccess ?? false,
   };
 }
 
@@ -175,6 +179,7 @@ export async function getAllUsers(): Promise<User[]> {
     isActive: user.isActive ?? true,
     createdBy: user.createdBy,
     externalAgency: user.externalAgency ?? null,
+    bqAccess: user.bqAccess ?? false,
   }));
 }
 
@@ -186,6 +191,7 @@ export async function createUser(
     role: string;
     isActive?: boolean;
     externalAgency?: string | null;
+    bqAccess?: boolean;
   },
   createdBy: string
 ): Promise<User> {
@@ -209,6 +215,7 @@ export async function createUser(
     isActive: data.isActive ?? true,
     createdBy,
     externalAgency: data.externalAgency ?? null,
+    bqAccess: data.bqAccess ?? false,
     ...(passwordHash !== null && { passwordHash }),
   } as Prisma.UserUncheckedCreateInput;
 
@@ -226,6 +233,7 @@ export async function createUser(
     updatedAt: user.updatedAt,
     createdBy: user.createdBy,
     externalAgency: user.externalAgency ?? null,
+    bqAccess: user.bqAccess ?? false,
   };
 }
 
@@ -237,6 +245,7 @@ export async function updateUser(
     password?: string;
     isActive?: boolean;
     externalAgency?: string | null;
+    bqAccess?: boolean;
   }
 ): Promise<User> {
   const updateData: any = {};
@@ -246,6 +255,7 @@ export async function updateUser(
   if (data.password) updateData.passwordHash = await bcrypt.hash(data.password, 10);
   if (typeof data.isActive === 'boolean') updateData.isActive = data.isActive;
   if (data.externalAgency !== undefined) updateData.externalAgency = data.externalAgency;
+  if (typeof data.bqAccess === 'boolean') updateData.bqAccess = data.bqAccess;
 
   const user = await prisma.user.update({
     where: { id },
@@ -262,6 +272,7 @@ export async function updateUser(
     isActive: user.isActive ?? true,
     createdBy: user.createdBy,
     externalAgency: user.externalAgency ?? null,
+    bqAccess: user.bqAccess ?? false,
   };
 }
 

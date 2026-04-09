@@ -20,6 +20,7 @@ export function UserModal({ isOpen, onClose, onSaved, user }: UserModalProps) {
     isActive: boolean;
     externalAgency: string;
     externalAgencyIsOther: boolean;
+    bqAccess: boolean;
   }>({
     email: '',
     name: '',
@@ -28,6 +29,7 @@ export function UserModal({ isOpen, onClose, onSaved, user }: UserModalProps) {
     isActive: true,
     externalAgency: '',
     externalAgencyIsOther: false,
+    bqAccess: false,
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +68,7 @@ export function UserModal({ isOpen, onClose, onSaved, user }: UserModalProps) {
         isActive: true,
         externalAgency: '',
         externalAgencyIsOther: false,
+        bqAccess: false,
       });
       setError(null);
     }
@@ -83,6 +86,7 @@ export function UserModal({ isOpen, onClose, onSaved, user }: UserModalProps) {
       isActive: user.isActive,
       externalAgency: user.externalAgency ?? '',
       externalAgencyIsOther: user.externalAgency ? !agencyInList : false,
+      bqAccess: user.bqAccess ?? false,
     });
     setError(null);
   }, [user, isOpen, agencies]);
@@ -105,6 +109,7 @@ export function UserModal({ isOpen, onClose, onSaved, user }: UserModalProps) {
       if (formData.role === 'recruiter' || formData.role === 'capital_partner') {
         body.externalAgency = formData.externalAgency.trim();
       }
+      body.bqAccess = formData.bqAccess;
       if (formData.password) {
         body.password = formData.password;
       }
@@ -310,7 +315,20 @@ export function UserModal({ isOpen, onClose, onSaved, user }: UserModalProps) {
               Active (can log in)
             </label>
           </div>
-          
+
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="bqAccess"
+              checked={formData.bqAccess}
+              onChange={(e) => setFormData({ ...formData, bqAccess: e.target.checked })}
+              className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+            />
+            <label htmlFor="bqAccess" className="text-sm text-gray-700">
+              BigQuery Access (can use MCP API)
+            </label>
+          </div>
+
           <div className="flex gap-3 pt-4">
             <button
               type="button"
