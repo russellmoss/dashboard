@@ -1,12 +1,15 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  isInitializeRequest,
 } from '@modelcontextprotocol/sdk/types.js';
 import { BigQuery } from '@google-cloud/bigquery';
 import express from 'express';
 import fs from 'fs';
+import crypto from 'crypto';
 import { authenticateApiKey, type AuthenticatedUser } from './auth.js';
 import { validateQuery } from './query-validator.js';
 import { logAuditEntry } from './audit.js';
@@ -24,8 +27,8 @@ try {
   console.warn('[schema] Could not load schema-config.yaml:', (e as Error).message);
 }
 
-// Track active transports by session ID for POST message routing
-const transports = new Map<string, SSEServerTransport>();
+// Track active transports by session ID (supports both SSE and Streamable HTTP)
+const transports = new Map<string, SSEServerTransport | StreamableHTTPServerTransport>();
 
 // Council review C5: user context passed via closure, not transport property
 function createMcpServer(user: AuthenticatedUser) {
@@ -344,11 +347,73 @@ app.get('/sse', async (req, res) => {
 app.post('/messages', express.json(), async (req, res) => {
   const sessionId = req.query.sessionId as string;
   const transport = transports.get(sessionId);
-  if (!transport) {
+  if (!transport || !(transport instanceof SSEServerTransport)) {
     res.status(400).json({ error: 'Invalid or expired session' });
     return;
   }
   await transport.handlePostMessage(req, res);
+});
+
+// ============================================
+// Streamable HTTP transport (Claude Code uses this)
+// ============================================
+// Auth helper for Streamable HTTP — validates on every request
+async function authenticateRequest(req: express.Request, res: express.Response): Promise<AuthenticatedUser | null> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Missing Authorization header' }, id: null });
+    return null;
+  }
+  const token = authHeader.slice(7);
+  const user = await authenticateApiKey(token);
+  if (!user) {
+    res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Invalid API key' }, id: null });
+    return null;
+  }
+  return user;
+}
+
+app.all('/mcp', express.json(), async (req, res) => {
+  // Authenticate every request (unlike SSE which authenticates once)
+  const authUser = await authenticateRequest(req, res);
+  if (!authUser) return;
+
+  const sessionId = req.headers['mcp-session-id'] as string | undefined;
+
+  // Existing session — route to its transport
+  if (sessionId && transports.has(sessionId)) {
+    const transport = transports.get(sessionId)!;
+    if (!(transport instanceof StreamableHTTPServerTransport)) {
+      res.status(400).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Session is not Streamable HTTP' }, id: null });
+      return;
+    }
+    await transport.handleRequest(req, res, req.body);
+    return;
+  }
+
+  // New session — only allowed via POST with initialize request
+  if (req.method === 'POST' && isInitializeRequest(req.body)) {
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => crypto.randomUUID(),
+      onsessioninitialized: (sid) => {
+        transports.set(sid, transport);
+      },
+    });
+
+    transport.onclose = () => {
+      if (transport.sessionId) {
+        transports.delete(transport.sessionId);
+      }
+    };
+
+    const server = createMcpServer(authUser);
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+    return;
+  }
+
+  // No session and not an initialize request
+  res.status(400).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request: no session ID and not an initialize request' }, id: null });
 });
 
 app.get('/health', (_req, res) => {
