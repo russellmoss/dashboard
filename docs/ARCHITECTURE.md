@@ -458,7 +458,7 @@ Users with `bqAccess: true` can be issued API keys for the remote BigQuery MCP s
 - **Storage**: SHA-256 hash stored in DB — plaintext shown once at creation, never retrievable
 - **Lifecycle**: Generate / Revoke / Rotate (atomic revoke + generate via `$transaction`)
 - **Utility**: `src/lib/mcp-key-utils.ts` — `createMcpApiKey()`, `revokeMcpApiKeys()`, `rotateMcpApiKey()`
-- **UI**: Settings > User Management — "BQ Access" column, Database icon button opens `McpKeyModal`
+- **UI**: Settings > User Management — "BQ Access" column, Database icon button opens `McpKeyModal` with generate/revoke/rotate + `.mcp.json` download
 
 | Route | Methods | Purpose |
 |-------|---------|---------|

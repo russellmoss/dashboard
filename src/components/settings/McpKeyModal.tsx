@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Database, X, Copy, Check, RefreshCw, Trash2, AlertTriangle } from 'lucide-react';
+import { Database, X, Copy, Check, RefreshCw, Trash2, AlertTriangle, Download } from 'lucide-react';
 import { SafeUser } from '@/types/user';
 
 interface McpKeyModalProps {
@@ -107,6 +107,28 @@ export function McpKeyModal({ isOpen, onClose, onSaved, user }: McpKeyModalProps
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleDownloadConfig = () => {
+    if (!generatedKey) return;
+    const config = {
+      mcpServers: {
+        'savvy-bq': {
+          type: 'http',
+          url: 'https://savvy-mcp-server-e2vyxy5ipa-ue.a.run.app/mcp',
+          headers: {
+            Authorization: `Bearer ${generatedKey}`,
+          },
+        },
+      },
+    };
+    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '.mcp.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleClose = () => {
     setGeneratedKey(null);
     setError(null);
@@ -191,6 +213,13 @@ export function McpKeyModal({ isOpen, onClose, onSaved, user }: McpKeyModalProps
                   {copied ? <Check className="w-5 h-5 text-green-600" /> : <Copy className="w-5 h-5" />}
                 </button>
               </div>
+              <button
+                onClick={handleDownloadConfig}
+                className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 text-sm text-purple-700 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                Download .mcp.json
+              </button>
             </div>
             {success && (
               <p className="mt-2 text-sm text-green-600">{success}</p>
