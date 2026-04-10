@@ -1545,7 +1545,7 @@ All non-recruiter users can submit requests. `canManageRequests` (RevOps Admin) 
 
 ### Comments & Notifications
 
-`POST /api/dashboard-requests/[id]/comments` adds a comment, syncs it to the linked Wrike task, and sends `@mention` notifications to tagged users.
+`POST /api/dashboard-requests/[id]/comments` adds a comment, syncs it to the linked Wrike task, sends `@mention` notifications to tagged users, and syncs the comment to BigQuery `bot_audit.issue_tracker` for bot-created issues (id starts with `cbot_`).
 
 ### Duplicate Detection
 
@@ -1567,9 +1567,9 @@ All non-recruiter users can submit requests. `canManageRequests` (RevOps Admin) 
 | GET | `/api/dashboard-requests/[id]` | Non-recruiter | Get single request with full detail |
 | PATCH | `/api/dashboard-requests/[id]` | Owner or canManageRequests | Update fields; records edit history; Wrike sync |
 | DELETE | `/api/dashboard-requests/[id]` | Owner or canManageRequests | Delete request |
-| PATCH | `/api/dashboard-requests/[id]/status` | canManageRequests | Change status; email notification; Wrike sync |
+| PATCH | `/api/dashboard-requests/[id]/status` | canManageRequests | Change status; email notification; Wrike sync; BigQuery issue_tracker sync (bot issues) |
 | GET | `/api/dashboard-requests/[id]/comments` | Non-recruiter | List comments |
-| POST | `/api/dashboard-requests/[id]/comments` | Non-recruiter | Add comment; Wrike sync; @mention notifications |
+| POST | `/api/dashboard-requests/[id]/comments` | Non-recruiter | Add comment; Wrike sync; @mention notifications; BigQuery issue_tracker sync (bot issues) |
 | GET | `/api/dashboard-requests/analytics` | canManageRequests | Counts by status/type/priority, avg resolution time, top submitters |
 | POST | `/api/dashboard-requests/kanban` | Non-recruiter | Kanban view (4 columns; search/type/priority/submitter/date filters) |
 | GET | `/api/dashboard-requests/recent` | Non-recruiter | Recent requests for duplicate detection (last 30 days, min 3 chars, max 10) |
@@ -1577,6 +1577,12 @@ All non-recruiter users can submit requests. `canManageRequests` (RevOps Admin) 
 | POST | `/api/dashboard-requests/[id]/unarchive` | canManageRequests | Unarchive to DONE; records history; Wrike sync |
 | GET | `/api/dashboard-requests/[id]/attachments` | Non-recruiter | List attachments (metadata only, no binary data) |
 | POST | `/api/dashboard-requests/[id]/attachments` | Non-recruiter | Upload image (PNG/JPEG/GIF/WebP, max 5 MB, stored as base64) |
+
+### Analyst Bot Integration
+
+The Savvy Analyst Bot (`packages/analyst-bot/`) can create DashboardRequest entries directly (type `DATA_ERROR`, user-selected priority) when users report issues through the bot's issue flow. Bot-created requests have IDs prefixed with `cbot_`.
+
+**BigQuery Issue Tracker Sync** (`src/lib/issue-tracker-sync.ts`): Status changes and comments on bot-created requests are synced to `bot_audit.issue_tracker` in BigQuery. The sync is fire-and-forget (non-blocking) and only activates for requests with `cbot_` prefix. The `issue_tracker` table tracks: `dashboard_request_id`, `title`, `description`, `priority`, `status`, `reporter_email`, `reporter_name`, `comments` (JSON array), `source`, `thread_id`, `created_at`, `updated_at`, `status_changed_at`.
 
 ---
 

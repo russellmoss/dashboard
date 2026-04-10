@@ -1,0 +1,32 @@
+{
+  "name": "@savvy/analyst-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Conversational AI data analyst Slack bot",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "cli": "node dist/index.js --mode cli",
+    "dev": "node dist/index.js --mode slack",
+    "start": "node dist/index.js --mode slack",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
+    "@google-cloud/bigquery": "^7.9.4",
+    "@slack/bolt": "^4.1.0",
+    "chart.js": "^4.4.8",
+    "chartjs-node-canvas": "^5.0.0",
+    "dotenv": "^16.4.7",
+    "exceljs": "^4.4.0",
+    "pg": "^8.13.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/pg": "^8.11.11",
+    "typescript": "^5.9.3"
+  }
+}

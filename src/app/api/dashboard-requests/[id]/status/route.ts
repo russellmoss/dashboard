@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { RequestStatus } from '@prisma/client';
 import { syncStatusToWrike } from '@/lib/wrike';
 import { notifyStatusChange } from '@/lib/notifications';
+import { syncStatusToBigQuery } from '@/lib/issue-tracker-sync';
 
 export const dynamic = 'force-dynamic';
 
@@ -171,6 +172,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     syncStatusToWrike(id, status).catch((err) => {
       console.error('[API] Background Wrike status sync failed:', err);
     });
+
+    // Sync status change to BigQuery issue_tracker (bot issues only)
+    syncStatusToBigQuery(id, status);
 
     // Notify submitter of status change in background
     notifyStatusChange(id, previousStatus, status).catch((err) => {

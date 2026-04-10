@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { RequestStatus } from '@prisma/client';
 import { syncCommentToWrike } from '@/lib/wrike';
 import { notifyNewComment, notifyMentionedUsers } from '@/lib/notifications';
+import { syncCommentToBigQuery } from '@/lib/issue-tracker-sync';
 
 export const dynamic = 'force-dynamic';
 
@@ -96,9 +97,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     // Sync comment to Wrike in background
     const userName = session.user.name || 'Unknown';
+    const userEmail = session.user.email || 'unknown';
     syncCommentToWrike(id, comment.id, userName, content.trim()).catch((err) => {
       console.error('[API] Background Wrike comment sync failed:', err);
     });
+
+    // Sync comment to BigQuery issue_tracker (bot issues only)
+    syncCommentToBigQuery(id, userName, userEmail, content.trim());
 
     // Notify request submitter of new comment in background
     notifyNewComment(id, userId, content.trim()).catch((err) => {

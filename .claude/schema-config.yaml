@@ -1,3 +1,7 @@
+defaults:
+  preferred_conversion_mode: cohort
+  mode_guidance: "Default to cohort mode for conversion rates. Cohort mode anchors on when records entered the denominator stage and tracks whether they progressed. Period mode uses different date anchors for numerator and denominator, which can produce rates above 100%. Only use period mode when the user explicitly requests it or when comparing activity within a specific time window regardless of when leads entered."
+
 connection:
   connector: bigquery
   project: savvy-gtm-analytics
