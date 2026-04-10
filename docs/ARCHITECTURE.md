@@ -1582,7 +1582,7 @@ All non-recruiter users can submit requests. `canManageRequests` (RevOps Admin) 
 
 The Savvy Analyst Bot (`packages/analyst-bot/`) can create DashboardRequest entries directly (type `DATA_ERROR`, user-selected priority) when users report issues through the bot's issue flow. Bot-created requests have IDs prefixed with `cbot_`.
 
-**BigQuery Issue Tracker Sync** (`src/lib/issue-tracker-sync.ts`): Status changes and comments on bot-created requests are synced to `bot_audit.issue_tracker` in BigQuery. The sync is fire-and-forget (non-blocking) and only activates for requests with `cbot_` prefix. The `issue_tracker` table tracks: `dashboard_request_id`, `title`, `description`, `priority`, `status`, `reporter_email`, `reporter_name`, `comments` (JSON array), `source`, `thread_id`, `created_at`, `updated_at`, `status_changed_at`.
+**BigQuery Issue Tracker Sync** (`src/lib/issue-tracker-sync.ts`): Status changes and comments on bot-created requests are synced to `bot_audit.issue_tracker` in BigQuery via streaming inserts (append-only — BigQuery's streaming buffer blocks DML for ~30 min, so each event is a new row, not an UPDATE). The sync is fire-and-forget (non-blocking) and only activates for requests with `cbot_` prefix. The `source` field distinguishes event types: `analyst-bot` (initial creation), `dashboard-status-change`, `dashboard-comment`. To get the latest status for an issue, query `WHERE dashboard_request_id = @id AND source = 'dashboard-status-change' ORDER BY updated_at DESC LIMIT 1`.
 
 ---
 
