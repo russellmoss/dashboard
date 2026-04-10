@@ -12,10 +12,17 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Install all deps (including devDependencies for tsc build)
 COPY package*.json ./
-RUN npm ci --production
+COPY tsconfig.json ./
+RUN npm ci
 
-COPY dist/ ./dist/
+# Copy source and build
+COPY src/ ./src/
+RUN npm run build
+
+# Remove devDependencies after build
+RUN npm prune --production
 
 USER node
 

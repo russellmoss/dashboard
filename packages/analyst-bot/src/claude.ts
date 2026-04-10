@@ -9,10 +9,11 @@ import { getSystemPrompt } from './system-prompt';
 
 const CLAUDE_MAX_RETRIES = 3;
 const CLAUDE_RETRY_BASE_MS = 1000;
+const CLAUDE_TIMEOUT_MS = 180_000; // 3 minutes — complex multi-tool MCP calls need time
 const MAX_MESSAGES = 40; // 20 exchanges (user + assistant) for token budget
 
 function verbose(...args: any[]): void {
-  if (process.env.VERBOSE === 'true') console.error(...args);
+  if (process.env.VERBOSE === 'true') console.log(...args);
 }
 
 let client: Anthropic | null = null;
@@ -22,7 +23,10 @@ function getClient(): Anthropic {
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new Error('ANTHROPIC_API_KEY is not set');
     }
-    client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    client = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      timeout: CLAUDE_TIMEOUT_MS, // SDK-level HTTP timeout
+    });
   }
   return client;
 }
@@ -66,20 +70,32 @@ export async function callClaude(
 
   for (let attempt = 0; attempt < CLAUDE_MAX_RETRIES; attempt++) {
     try {
-      const response = await anthropic.beta.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: maxTokens,
-        betas: ['mcp-client-2025-04-04'],
-        system: systemPrompt,
-        messages: messageParams,
-        mcp_servers: mcpServers,
-      });
+      // SDK-level timeout is set on the client constructor.
+      // For extra safety, also use request-level timeout option.
+      const response = await anthropic.beta.messages.create(
+        {
+          model: 'claude-sonnet-4-6',
+          max_tokens: maxTokens,
+          betas: ['mcp-client-2025-04-04'],
+          system: systemPrompt,
+          messages: messageParams,
+          mcp_servers: mcpServers,
+        },
+        { timeout: CLAUDE_TIMEOUT_MS }
+      );
 
       return parseClaudeResponse(response);
     } catch (error) {
+      // Detect timeout (SDK throws APIConnectionTimeoutError)
+      const errMsg = (error as any)?.message ?? '';
+      if ((error as any)?.name === 'APIConnectionTimeoutError' || errMsg.includes('timeout') || errMsg.includes('timed out') || errMsg.includes('abort')) {
+        const msg = `Claude API timed out after ${CLAUDE_TIMEOUT_MS / 1000}s — the query may be too complex for a single request. Try breaking it into smaller questions.`;
+        console.error('[claude]', msg);
+        throw new Error(msg);
+      }
       lastError = error instanceof Error ? error : new Error(String(error));
       const status = (error as any)?.status;
-      const isRetryable = status === 429 || status === 529;
+      const isRetryable = status === 429 || status === 529 || status === 400;
 
       if (isRetryable && attempt < CLAUDE_MAX_RETRIES - 1) {
         const delayMs = CLAUDE_RETRY_BASE_MS * Math.pow(2, attempt);
@@ -164,12 +180,37 @@ function parseClaudeResponse(response: any): ClaudeResponse {
 
   verbose(`✅ Got response from Claude (${response.content.length} content blocks)`);
 
+  // Strip leading narration — Claude sometimes starts with "Let me..." or
+  // "I have all the data..." even when there are no tool calls to filter on.
+  // Find the first line that looks like actual content (starts with a result
+  // marker, emoji, table, or data).
+  const cleaned = stripLeadingNarration(text);
+
   return {
-    text,
+    text: cleaned,
     contentBlocks: response.content,
     toolCalls,
     sqlExecuted,
     bytesScanned,
     error: null,
   };
+}
+
+/**
+ * Strip leading narration lines before the actual results.
+ * Looks for the first line that starts with a result marker and drops everything before it.
+ */
+function stripLeadingNarration(text: string): string {
+  // Common result markers that indicate the actual answer starts
+  const resultMarkers = /^(\*?Results\*?|📊|:chart|```|\|[\s-|]+\|)/m;
+  const match = text.match(resultMarkers);
+  if (match && match.index && match.index > 0) {
+    // Only strip if the narration before it is < 500 chars (safety check)
+    const before = text.substring(0, match.index).trim();
+    if (before.length > 0 && before.length < 500) {
+      verbose('[narration-strip] Removed', before.length, 'chars of leading narration');
+      return text.substring(match.index);
+    }
+  }
+  return text;
 }

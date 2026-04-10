@@ -5,6 +5,7 @@
 
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import { ChartConfiguration } from 'chart.js';
+import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { ChartRequest } from './types';
 
 // Color palette — consistent across all charts in a conversation
@@ -39,9 +40,13 @@ function getRenderer(): ChartJSNodeCanvas {
       width: 800,
       height: 500,
       backgroundColour: 'white',
+      plugins: {
+        modern: ['chartjs-plugin-datalabels'],
+      },
       chartCallback: (ChartJS: any) => {
         ChartJS.defaults.font.family = 'Arial, Helvetica, sans-serif';
         ChartJS.defaults.font.size = 12;
+        ChartJS.register(ChartDataLabels);
       },
     });
   }
@@ -137,6 +142,12 @@ function buildChartConfig(req: ChartRequest): ChartConfiguration {
     };
   });
 
+  // Derive axis labels — only for non-stacked charts (stacked has multiple
+  // datasets so the auto-derived label from datasets[0] is wrong)
+  const isHorizontal = indexAxis === 'y';
+  const valueLabel = !stacked ? (req.options?.yAxisLabel ?? req.datasets[0]?.label ?? '') : '';
+  const categoryLabel = req.options?.xAxisLabel ?? '';
+
   // Build scales (not used for pie/doughnut)
   const scales: any = {};
   if (!isPie) {
@@ -144,15 +155,38 @@ function buildChartConfig(req: ChartRequest): ChartConfiguration {
       ...(stacked ? { stacked: true } : {}),
       grid: { color: 'rgba(0,0,0,0.06)' },
       ticks: { maxRotation: 45, autoSkip: true },
-      ...(req.options?.xAxisLabel ? { title: { display: true, text: req.options.xAxisLabel } } : {}),
+      ...((!stacked && (isHorizontal ? valueLabel : categoryLabel))
+        ? { title: { display: true, text: isHorizontal ? valueLabel : categoryLabel, font: { size: 12 } } }
+        : {}),
     };
     scales.y = {
       ...(stacked ? { stacked: true } : {}),
       grid: { color: 'rgba(0,0,0,0.06)' },
       beginAtZero: true,
-      ...(req.options?.yAxisLabel ? { title: { display: true, text: req.options.yAxisLabel } } : {}),
+      ...((!stacked && (isHorizontal ? categoryLabel : valueLabel))
+        ? { title: { display: true, text: isHorizontal ? categoryLabel : valueLabel, font: { size: 12 } } }
+        : {}),
     };
   }
+
+  // Data label plugin config:
+  // - Regular bars/lines: show values above bars
+  // - Stacked bars: OFF (labels overlap and look jumbled)
+  // - Pie/doughnut: OFF
+  const showDataLabels = !isPie && !stacked;
+  const datalabels: any = showDataLabels ? {
+    display: true,
+    anchor: isHorizontal ? 'end' : 'end',
+    align: isHorizontal ? 'right' : 'top',
+    font: { size: 11, weight: 'bold' },
+    color: '#374151',
+    formatter: (value: number) => {
+      if (value >= 1_000_000) return (value / 1_000_000).toFixed(1) + 'M';
+      if (value >= 1_000) return (value / 1_000).toFixed(1) + 'K';
+      if (value % 1 !== 0) return value.toFixed(1);
+      return String(value);
+    },
+  } : { display: false };
 
   const config: ChartConfiguration = {
     type: chartType as any,
@@ -163,6 +197,9 @@ function buildChartConfig(req: ChartRequest): ChartConfiguration {
     options: {
       indexAxis: indexAxis as any,
       responsive: false,
+      layout: {
+        padding: { top: 20, right: 20 },
+      },
       plugins: {
         title: {
           display: true,
@@ -174,6 +211,7 @@ function buildChartConfig(req: ChartRequest): ChartConfiguration {
           display: req.datasets.length > 1 || isPie,
           position: 'top' as const,
         },
+        datalabels,
       },
       ...(isPie ? {} : { scales }),
     },

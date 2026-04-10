@@ -137,6 +137,49 @@ views:
       - "src/lib/queries/forecast-goals.ts"
     freshness_notes: "Backed by Google Sheet. Updated manually when new quarter goals are set."
 
+  AccountHistory:
+    purpose: "Salesforce Account Field History — tracks field-level changes on Account records over time. Use for historical AUM tracking, status changes, and audit trails on accounts. Synced from Salesforce every 6 hours via BigQuery Data Transfer Service."
+    dataset: SavvyGTMData
+    grain: "One row per field change event on an Account"
+    status: "base_table"
+    columns:
+      Id: "Unique history record ID (primary key)"
+      AccountId: "The Salesforce Account ID this change belongs to"
+      Field: "API name of the field that changed (e.g., Account_Total_AUM__c, Status__c)"
+      OldValue: "Previous value (stored as STRING — cast to appropriate type)"
+      NewValue: "New value (stored as STRING — cast to appropriate type)"
+      CreatedDate: "Timestamp when the change occurred"
+      CreatedById: "User ID who made the change"
+      DataType: "Salesforce data type (Currency, Double, Text, DynamicEnum)"
+    key_fields:
+      Account_Total_AUM__c: "Actual total AUM on the account — the real current assets under management. Cast OldValue/NewValue to FLOAT64 for numeric comparisons."
+      Total_Underwritten_AUM__c: "Underwritten AUM — the amount anticipated at onboarding that the advisor would bring over. Not the actual current AUM."
+      Account_Total_ARR__c: "Annual Recurring Revenue on the account"
+      Status__c: "Account status changes"
+      Number_of_Advisors__c: "Number of advisors on the account"
+      Number_of_Team_Members__c: "Number of team members on the account"
+    query_patterns:
+      daily_aum: |
+        -- Daily AUM for a specific account, filling gaps with last known value:
+        WITH changes AS (
+          SELECT DATE(CreatedDate) as d, CAST(NewValue AS FLOAT64) as aum,
+            ROW_NUMBER() OVER (PARTITION BY DATE(CreatedDate) ORDER BY CreatedDate DESC) as rn
+          FROM SavvyGTMData.AccountHistory
+          WHERE AccountId = @account_id AND Field = 'Account_Total_AUM__c'
+            AND CreatedDate >= TIMESTAMP(@start_date)
+        ),
+        daily AS (SELECT d, aum FROM changes WHERE rn = 1),
+        spine AS (SELECT d FROM UNNEST(GENERATE_DATE_ARRAY(@start_date, CURRENT_DATE())) as d)
+        SELECT spine.d as date,
+          ROUND(LAST_VALUE(daily.aum IGNORE NULLS) OVER (ORDER BY spine.d) / 1000000, 2) as aum_millions
+        FROM spine LEFT JOIN daily ON spine.d = daily.d ORDER BY spine.d
+    gotchas:
+      - "OldValue and NewValue are STRING type — always CAST to the appropriate type (FLOAT64 for Currency/Double, STRING for Text)"
+      - "Not every day has a change — use a date spine with LAST_VALUE(IGNORE NULLS) to fill gaps"
+      - "Account_Total_AUM__c is ACTUAL AUM. Total_Underwritten_AUM__c is the ANTICIPATED amount from onboarding. Do not confuse the two."
+      - "Multiple changes can happen on the same day — use ROW_NUMBER() partitioned by date to get the latest per day"
+    freshness_notes: "Synced from Salesforce every 6 hours via BQ Data Transfer Service. Full refresh (not incremental)."
+
 terms:
   SQO:
     definition: "Sales Qualified Opportunity — an opportunity that has passed sales qualification."

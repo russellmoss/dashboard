@@ -20,6 +20,7 @@
     "@slack/bolt": "^4.1.0",
     "chart.js": "^4.4.8",
     "chartjs-node-canvas": "^5.0.0",
+    "chartjs-plugin-datalabels": "^2.2.0",
     "dotenv": "^16.4.7",
     "exceljs": "^4.4.0",
     "pg": "^8.13.3"

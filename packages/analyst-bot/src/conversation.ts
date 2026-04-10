@@ -10,6 +10,7 @@ import { generateWorkbook } from './xlsx';
 import { loadThread, saveThread } from './thread-store';
 import { writeAuditRecord } from './audit';
 import { createDashboardRequest } from './dashboard-request';
+import { parseExportSqlBlock, stripExportSqlBlocks, runExportQuery } from './bq-query';
 import {
   ConversationMessage,
   ConversationResult,
@@ -24,7 +25,7 @@ import {
 const MAX_THREAD_MESSAGES = 40; // 20 exchanges — cap to prevent unbounded JSONB growth
 
 function verbose(...args: any[]): void {
-  if (process.env.VERBOSE === 'true') console.error(...args);
+  if (process.env.VERBOSE === 'true') console.log(...args);
 }
 
 // Export trigger — single regex that catches natural language export requests.
@@ -73,9 +74,12 @@ export async function processMessage(
     // Append user message
     thread.messages.push({ role: 'user', content: input });
 
-    // Call Claude with full conversation history
-    verbose('🤖 Calling Claude with MCP server...');
-    const claudeResponse = await callClaude(thread.messages);
+    // Call Claude — increase max_tokens for export requests so the [XLSX] block
+    // doesn't get truncated (large datasets can produce huge JSON blocks)
+    const isExportRequest = EXPORT_RE.test(input);
+    const maxTokens = isExportRequest ? 16384 : 8192;
+    verbose('🤖 Calling Claude with MCP server...', isExportRequest ? '(export mode, 32k tokens)' : '');
+    const claudeResponse = await callClaude(thread.messages, { maxTokens });
 
     // Store full content blocks as assistant turn for conversation continuity
     thread.messages.push({
@@ -101,27 +105,90 @@ export async function processMessage(
       responseText = stripChartBlocks(responseText);
     }
 
-    // Check for XLSX export — two triggers:
-    // 1. User asked for it (regex match on input)
-    // 2. Claude decided to produce one (response contains [XLSX] block)
+    // Check for XLSX export — three paths:
+    // 1. [EXPORT_SQL] block: Claude wrote the SQL, bot runs it directly (fast, no token limit)
+    // 2. [XLSX] block: Claude serialized the data as JSON (works for small datasets)
+    // 3. Heuristic: parse markdown tables from response text
     const userRequestedExport = EXPORT_RE.test(input);
-    const claudeProducedXlsx = /\[XLSX\]/.test(responseText);
+    const hasExportSql = /\[EXPORT_SQL\]/.test(responseText);
+    const hasXlsxBlock = /\[XLSX\]/.test(responseText);
 
-    if (userRequestedExport || claudeProducedXlsx) {
+    if (userRequestedExport || hasExportSql || hasXlsxBlock) {
       exportTrigger = userRequestedExport ? 'explicit_request' : 'large_result_set';
-      verbose('📋 Parsing XLSX block...', userRequestedExport ? '(user requested)' : '(Claude produced)');
-      const xlsxReq = parseXlsxFromResponse(responseText, chartBuffer);
-      if (xlsxReq) {
-        try {
-          verbose('📄 Generating XLSX workbook...');
-          xlsxBuffer = await generateWorkbook(xlsxReq);
-          xlsxFilename = sanitizeFilename(xlsxReq.title) + '.xlsx';
-        } catch (err) {
-          console.error('[conversation] XLSX generation failed:', (err as Error).message);
+
+      // Path 1: [EXPORT_SQL] — Claude wrote the query, bot executes it directly
+      if (hasExportSql) {
+        verbose('📋 Found [EXPORT_SQL] block — running query directly...');
+        const exportReq = parseExportSqlBlock(responseText);
+        if (exportReq) {
+          try {
+            verbose('🔍 Executing export query against BigQuery...');
+            const rows = await runExportQuery(exportReq.sql);
+            verbose(`📊 Got ${rows.length} rows from BigQuery`);
+
+            // Convert BQ rows to keyed objects matching column keys
+            const keyedRows = rows.map((row: any) => {
+              const obj: Record<string, any> = {};
+              for (const col of exportReq.columns) {
+                // Try exact key match, then case-insensitive field match
+                obj[col.key] = row[col.key] ?? row[col.header] ?? Object.values(row).find((_, i) =>
+                  Object.keys(row)[i]?.toLowerCase() === col.key.toLowerCase()
+                ) ?? null;
+              }
+              return obj;
+            });
+
+            xlsxBuffer = await generateWorkbook({
+              title: exportReq.title,
+              sheets: [{
+                name: exportReq.title.substring(0, 31), // Excel sheet name limit
+                columns: exportReq.columns,
+                rows: keyedRows,
+                includeTotal: false,
+              }],
+              chartBuffer: chartBuffer ?? undefined,
+            });
+            xlsxFilename = sanitizeFilename(exportReq.title) + '.xlsx';
+            verbose(`📄 XLSX generated: ${xlsxBuffer.length} bytes, ${rows.length} rows`);
+          } catch (err) {
+            console.error('[conversation] EXPORT_SQL execution failed:', (err as Error).message);
+          }
+        }
+        responseText = stripExportSqlBlocks(responseText);
+      }
+
+      // Path 2: [XLSX] block — Claude serialized data as JSON
+      if (!xlsxBuffer && hasXlsxBlock) {
+        verbose('📋 Parsing [XLSX] block...');
+        const xlsxReq = parseXlsxFromResponse(responseText, chartBuffer);
+        if (xlsxReq) {
+          try {
+            verbose('📄 Generating XLSX workbook...');
+            xlsxBuffer = await generateWorkbook(xlsxReq);
+            xlsxFilename = sanitizeFilename(xlsxReq.title) + '.xlsx';
+          } catch (err) {
+            console.error('[conversation] XLSX generation failed:', (err as Error).message);
+          }
         }
       }
-      // Strip [XLSX] blocks from displayed text
-      responseText = responseText.replace(/\[XLSX\]\s*[\s\S]*?\s*\[\/XLSX\]/g, '').trim();
+
+      // Path 3: heuristic fallback — parse markdown tables
+      if (!xlsxBuffer && userRequestedExport) {
+        verbose('📋 No [EXPORT_SQL] or [XLSX] block — trying markdown table heuristic...');
+        const xlsxReq = parseXlsxFromResponse(responseText, chartBuffer);
+        if (xlsxReq) {
+          try {
+            xlsxBuffer = await generateWorkbook(xlsxReq);
+            xlsxFilename = sanitizeFilename(xlsxReq.title) + '.xlsx';
+          } catch (err) {
+            console.error('[conversation] Heuristic XLSX failed:', (err as Error).message);
+          }
+        }
+      }
+
+      // Strip [XLSX] and [EXPORT_SQL] blocks from displayed text
+      responseText = responseText.replace(/\[XLSX\]\s*[\s\S]*\s*\[\/XLSX\]/g, '').trim();
+      responseText = stripExportSqlBlocks(responseText);
     }
 
     // Check for issue reporting — two triggers:
@@ -227,20 +294,31 @@ function parseXlsxFromResponse(
   chartBuffer: Buffer | null
 ): WorkbookRequest | null {
   // Try structured [XLSX] block first
-  const xlsxMatch = text.match(/\[XLSX\]\s*([\s\S]*?)\s*\[\/XLSX\]/);
-  if (xlsxMatch) {
-    try {
-      const parsed = JSON.parse(xlsxMatch[1]);
-      verbose('[xlsx-parse] Raw block shape:', JSON.stringify(Object.keys(parsed)));
-      if (parsed.sheets?.[0]) {
-        verbose('[xlsx-parse] First sheet keys:', JSON.stringify(Object.keys(parsed.sheets[0])));
+  const hasXlsxTag = /\[XLSX\]/.test(text);
+  const hasXlsxEnd = /\[\/XLSX\]/.test(text);
+  verbose('[xlsx-parse] [XLSX] tag found:', hasXlsxTag, '| [/XLSX] found:', hasXlsxEnd);
+
+  if (hasXlsxTag && hasXlsxEnd) {
+    // Use greedy match for large blocks — lazy (.*?) can fail on huge JSON
+    const xlsxMatch = text.match(/\[XLSX\]\s*([\s\S]*)\s*\[\/XLSX\]/);
+    if (xlsxMatch) {
+      verbose('[xlsx-parse] Extracted JSON length:', xlsxMatch[1].length, 'chars');
+      try {
+        const parsed = JSON.parse(xlsxMatch[1]);
+        verbose('[xlsx-parse] Raw block shape:', JSON.stringify(Object.keys(parsed)));
+        if (parsed.sheets?.[0]) {
+          const s = parsed.sheets[0];
+          verbose('[xlsx-parse] First sheet:', s.name, '| keys:', Object.keys(s).join(','), '| rows:', s.rows?.length);
+        }
+        const normalized = normalizeXlsxBlock(parsed, chartBuffer);
+        if (normalized) return normalized;
+      } catch (err) {
+        verbose('[xlsx-parse] JSON parse failed:', (err as Error).message);
+        // Fall through to heuristic parsing
       }
-      const normalized = normalizeXlsxBlock(parsed, chartBuffer);
-      if (normalized) return normalized;
-    } catch (err) {
-      verbose('[xlsx-parse] JSON parse failed:', (err as Error).message);
-      // Fall through to heuristic parsing
     }
+  } else if (hasXlsxTag) {
+    verbose('[xlsx-parse] [XLSX] tag found but [/XLSX] missing — block may be truncated');
   }
 
   // Heuristic: look for markdown tables in the response
@@ -411,7 +489,7 @@ function normalizeXlsxBlock(
     normalizedSheets.map((s: any) => `${s.name} (${s.columns.length} cols, ${s.rows.length} rows)`).join(', '));
 
   return {
-    title: parsed.title ?? 'Data_Export',
+    title: parsed.filename ?? parsed.title ?? 'Data_Export',
     sheets: normalizedSheets,
     chartBuffer: chartBuffer ?? undefined,
   };

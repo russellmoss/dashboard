@@ -61,6 +61,47 @@ function buildThreadLink(channelId: string, threadTs: string): string {
 }
 
 /**
+ * Convert markdown to Slack mrkdwn format.
+ * Slack uses *bold* not **bold**, doesn't support # headings,
+ * and doesn't render pipe tables — those need to be in code blocks.
+ */
+function toSlackMrkdwn(text: string): string {
+  // Protect existing code blocks from transformation — replace with placeholders
+  const codeBlocks: string[] = [];
+  text = text.replace(/```[\s\S]*?```/g, (match) => {
+    codeBlocks.push(match);
+    return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+  });
+
+  // Wrap bare markdown tables (not already in code blocks) in triple backticks
+  text = text.replace(
+    /((?:^[^\n]*\|[^\n]*\n)+)/gm,
+    (match) => {
+      if (/\|[-:| ]+\|/.test(match)) {
+        return '```\n' + match.trim() + '\n```\n';
+      }
+      return match;
+    }
+  );
+
+  text = text
+    // **bold** → *bold*
+    .replace(/\*\*(.+?)\*\*/g, '*$1*')
+    // ### heading → *heading*
+    .replace(/^#{1,3}\s+(.+)$/gm, '*$1*')
+    // [text](url) → <url|text>
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<$2|$1>')
+    // --- horizontal rule → ———
+    .replace(/^---$/gm, '———')
+  ;
+
+  // Restore code blocks
+  text = text.replace(/__CODE_BLOCK_(\d+)__/g, (_, idx) => codeBlocks[parseInt(idx)]);
+
+  return text;
+}
+
+/**
  * Handle a bot response — post text, upload chart/xlsx, post issues.
  * Extracted to avoid duplication between app_mention and message handlers.
  */
@@ -72,11 +113,12 @@ async function handleResponse(
   userId: string,
   result: Awaited<ReturnType<typeof processMessage>>
 ): Promise<void> {
-  // Post text response
+  // Post text response — convert markdown to Slack mrkdwn
+  const slackText = toSlackMrkdwn(result.text);
   await client.chat.postMessage({
     channel: channelId,
     thread_ts: threadTs,
-    text: result.text,
+    text: slackText,
   });
 
   // Upload chart if generated
@@ -195,6 +237,8 @@ export async function startSlackApp(): Promise<void> {
   });
 
   // ---- message: user replies in an existing bot thread ----
+  // Only responds in threads the bot started (thread exists in bot_threads table).
+  // Ignores all other threads — the bot doesn't jump into random conversations.
   slackApp.message(async ({ message, client, body }) => {
     const msg = message as any;
 
@@ -203,15 +247,19 @@ export async function startSlackApp(): Promise<void> {
     if (eventId && isDuplicate(eventId)) return;
 
     // Only handle normal user messages in threads — filter out subtypes
-    // (edits, deletes, bot messages, thread broadcasts, etc.)
-    if (msg.subtype) return; // Normal user messages have no subtype
-    if (msg.bot_id) return;  // Extra safety: ignore bot messages
-    if (!msg.thread_ts) return; // Only thread replies
+    if (msg.subtype) return;
+    if (msg.bot_id) return;
+    if (!msg.thread_ts) return; // Only thread replies, not top-level messages
 
     // Check allowlist
     if (!isAllowedChannel(msg.channel)) return;
 
+    // Only respond in threads the bot started — check if thread exists in bot_threads
     const threadId = `${msg.channel}:${msg.thread_ts}`;
+    const { loadThread } = require('./thread-store');
+    const existingThread = await loadThread(threadId);
+    if (!existingThread) return; // Not a bot thread — ignore
+
     const userId = msg.user;
     const userEmail = await getUserEmail(client, userId);
     const text = (msg.text ?? '').trim();
