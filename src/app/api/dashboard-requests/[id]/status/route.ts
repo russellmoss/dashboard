@@ -173,8 +173,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       console.error('[API] Background Wrike status sync failed:', err);
     });
 
-    // Sync status change to BigQuery issue_tracker (bot issues only)
-    syncStatusToBigQuery(id, status);
+    // Sync status change to BigQuery issue tracking (bot issues only)
+    syncStatusToBigQuery(id, status, previousStatus);
 
     // Notify submitter of status change in background
     notifyStatusChange(id, previousStatus, status).catch((err) => {

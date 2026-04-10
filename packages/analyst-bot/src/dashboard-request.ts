@@ -1,6 +1,11 @@
 // packages/analyst-bot/src/dashboard-request.ts
 // ============================================================================
-// Create DashboardRequest entries for issue reports + sync to BigQuery
+// Create DashboardRequest entries + sync to BigQuery issue tracking tables
+//
+// BigQuery schema:
+//   bot_audit.issues        — one mutable row per issue (current state)
+//   bot_audit.issue_events  — append-only audit trail (every change)
+//   bot_audit.issue_summary — VIEW joining both for easy querying
 // ============================================================================
 
 import { Pool } from 'pg';
@@ -40,7 +45,6 @@ function verbose(...args: any[]): void {
 
 /**
  * Look up a dashboard User by email.
- * Returns { id, name, email } or null.
  */
 async function findUserByEmail(email: string): Promise<{ id: string; name: string; email: string } | null> {
   const result = await getPool().query(
@@ -51,8 +55,8 @@ async function findUserByEmail(email: string): Promise<{ id: string; name: strin
 }
 
 /**
- * Write the initial issue_tracker row to BigQuery.
- * Fire-and-forget — errors logged but never thrown.
+ * Write to bot_audit.issues (DML INSERT — no streaming buffer, immediately updatable)
+ * and bot_audit.issue_events (streaming insert for the "created" event).
  */
 function syncIssueToBigQuery(
   dashboardRequestId: string,
@@ -68,42 +72,48 @@ function syncIssueToBigQuery(
   const dataset = process.env.AUDIT_DATASET;
   if (!dataset) return;
 
-  const row = {
-    dashboard_request_id: dashboardRequestId,
-    title,
-    description,
-    priority,
-    status: 'SUBMITTED',
-    reporter_email: reporterEmail,
-    reporter_name: reporterName,
-    comments: JSON.stringify([]),
-    source: 'analyst-bot',
-    thread_id: threadLink,
-    created_at: now.toISOString(),
-    updated_at: now.toISOString(),
-    status_changed_at: now.toISOString(),
-  };
+  const timestamp = now.toISOString();
 
-  bq.dataset(dataset)
-    .table('issue_tracker')
-    .insert([row])
-    .then(() => verbose('📊 Issue synced to BigQuery issue_tracker'))
-    .catch((err) => {
-      console.error('[dashboard-request] BigQuery sync failed:', err.message);
-    });
+  // 1. Insert into issues table via DML (not streaming) so it's immediately updatable
+  bq.query({
+    query: `INSERT INTO \`${dataset}.issues\`
+      (dashboard_request_id, title, description, priority, status, reporter_email, reporter_name, source, thread_id, created_at, updated_at)
+      VALUES (@id, @title, @desc, @priority, 'SUBMITTED', @email, @name, 'analyst-bot', @thread, @ts, @ts)`,
+    params: {
+      id: dashboardRequestId, title, desc: description, priority,
+      email: reporterEmail, name: reporterName, thread: threadLink, ts: timestamp,
+    },
+    types: {
+      id: 'STRING', title: 'STRING', desc: 'STRING', priority: 'STRING',
+      email: 'STRING', name: 'STRING', thread: 'STRING', ts: 'TIMESTAMP',
+    },
+  }).then(() => verbose('📊 Issue row created in BigQuery'))
+    .catch((err) => console.error('[dashboard-request] BQ issues insert failed:', err.message));
+
+  // 2. Append "created" event to issue_events via streaming insert
+  bq.dataset(dataset).table('issue_events').insert([{
+    event_id: crypto.randomUUID(),
+    dashboard_request_id: dashboardRequestId,
+    event_type: 'created',
+    actor_email: reporterEmail,
+    actor_name: reporterName,
+    old_value: null,
+    new_value: 'SUBMITTED',
+    metadata: JSON.stringify({ title, description, priority, thread: threadLink }),
+    created_at: timestamp,
+  }]).then(() => verbose('📊 Issue created event logged'))
+    .catch((err) => console.error('[dashboard-request] BQ event insert failed:', err.message));
 }
 
 /**
  * Create a DashboardRequest from a bot issue report.
- * Writes to both Neon (DashboardRequest table) and BigQuery (issue_tracker).
- * Works from both CLI and Slack mode.
+ * Writes to Neon (DashboardRequest), BigQuery (issues + issue_events).
  */
 export async function createDashboardRequest(
   issue: IssueReport,
   userEmail: string
 ): Promise<string | null> {
   try {
-    // Resolve submitter — try email lookup first, then fallback
     const user = await findUserByEmail(userEmail);
     let submitterId = user?.id ?? null;
     const reporterName = user?.name ?? userEmail;
@@ -123,51 +133,34 @@ export async function createDashboardRequest(
       ? `[Bot Issue] ${issue.originalQuestion}`
       : '[Bot Issue] Data issue reported via analyst bot';
 
-    // Build description from available fields
     const descriptionParts: string[] = [];
-    if (issue.whatLooksWrong) {
-      descriptionParts.push(`**What looks wrong:** ${issue.whatLooksWrong}`);
-    }
-    if (issue.whatExpected) {
-      descriptionParts.push(`**Expected:** ${issue.whatExpected}`);
-    }
-    if (issue.sqlExecuted?.length > 0) {
-      descriptionParts.push(`**SQL executed:**\n\`\`\`\n${issue.sqlExecuted.join('\n')}\n\`\`\``);
-    }
-    if (issue.schemaToolsCalled?.length > 0) {
-      descriptionParts.push(`**Schema tools called:** ${issue.schemaToolsCalled.join(', ')}`);
-    }
+    if (issue.whatLooksWrong) descriptionParts.push(`**What looks wrong:** ${issue.whatLooksWrong}`);
+    if (issue.whatExpected) descriptionParts.push(`**Expected:** ${issue.whatExpected}`);
+    if (issue.sqlExecuted?.length > 0) descriptionParts.push(`**SQL executed:**\n\`\`\`\n${issue.sqlExecuted.join('\n')}\n\`\`\``);
+    if (issue.schemaToolsCalled?.length > 0) descriptionParts.push(`**Schema tools called:** ${issue.schemaToolsCalled.join(', ')}`);
     descriptionParts.push(`**Reporter:** ${reporterName} (${userEmail})`);
     descriptionParts.push(`**Priority:** ${issue.priority ?? 'MEDIUM'}`);
     descriptionParts.push(`**Source:** Savvy Analyst Bot (${issue.threadLink})`);
-
     const description = descriptionParts.join('\n\n');
+
     const priority = issue.priority ?? 'MEDIUM';
 
+    // Write to Neon DashboardRequest table
     await getPool().query(
       `INSERT INTO "DashboardRequest" (
         id, title, description, "requestType", status, priority,
         "submitterId", "statusChangedAt", "createdAt", "updatedAt",
         "valueSeen", "valueExpected", "isPrivate"
       ) VALUES ($1, $2, $3, 'DATA_ERROR', 'SUBMITTED', $4,
-        $5, $6, $6, $6,
-        $7, $8, false
-      )`,
-      [
-        id,
-        title.substring(0, 255),
-        description,
-        priority,
-        submitterId,
-        now,
+        $5, $6, $6, $6, $7, $8, false)`,
+      [id, title.substring(0, 255), description, priority, submitterId, now,
         issue.whatLooksWrong?.substring(0, 500) || null,
-        issue.whatExpected?.substring(0, 500) || null,
-      ]
+        issue.whatExpected?.substring(0, 500) || null],
     );
 
     verbose(`📋 Dashboard request created: ${id} (submitter: ${reporterName})`);
 
-    // Sync to BigQuery issue_tracker (fire-and-forget)
+    // Write to BigQuery (fire-and-forget)
     syncIssueToBigQuery(id, title, description, priority, userEmail, reporterName, issue.threadLink, now);
 
     return id;

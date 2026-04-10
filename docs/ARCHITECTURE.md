@@ -1545,7 +1545,7 @@ All non-recruiter users can submit requests. `canManageRequests` (RevOps Admin) 
 
 ### Comments & Notifications
 
-`POST /api/dashboard-requests/[id]/comments` adds a comment, syncs it to the linked Wrike task, sends `@mention` notifications to tagged users, and syncs the comment to BigQuery `bot_audit.issue_tracker` for bot-created issues (id starts with `cbot_`).
+`POST /api/dashboard-requests/[id]/comments` adds a comment, syncs it to the linked Wrike task, sends `@mention` notifications to tagged users, and syncs the comment to BigQuery `bot_audit.issues` + `bot_audit.issue_events` for bot-created issues (id starts with `cbot_`).
 
 ### Duplicate Detection
 
@@ -1567,9 +1567,9 @@ All non-recruiter users can submit requests. `canManageRequests` (RevOps Admin) 
 | GET | `/api/dashboard-requests/[id]` | Non-recruiter | Get single request with full detail |
 | PATCH | `/api/dashboard-requests/[id]` | Owner or canManageRequests | Update fields; records edit history; Wrike sync |
 | DELETE | `/api/dashboard-requests/[id]` | Owner or canManageRequests | Delete request |
-| PATCH | `/api/dashboard-requests/[id]/status` | canManageRequests | Change status; email notification; Wrike sync; BigQuery issue_tracker sync (bot issues) |
+| PATCH | `/api/dashboard-requests/[id]/status` | canManageRequests | Change status; email notification; Wrike sync; BigQuery issues + issue_events sync (bot issues) |
 | GET | `/api/dashboard-requests/[id]/comments` | Non-recruiter | List comments |
-| POST | `/api/dashboard-requests/[id]/comments` | Non-recruiter | Add comment; Wrike sync; @mention notifications; BigQuery issue_tracker sync (bot issues) |
+| POST | `/api/dashboard-requests/[id]/comments` | Non-recruiter | Add comment; Wrike sync; @mention notifications; BigQuery issues + issue_events sync (bot issues) |
 | GET | `/api/dashboard-requests/analytics` | canManageRequests | Counts by status/type/priority, avg resolution time, top submitters |
 | POST | `/api/dashboard-requests/kanban` | Non-recruiter | Kanban view (4 columns; search/type/priority/submitter/date filters) |
 | GET | `/api/dashboard-requests/recent` | Non-recruiter | Recent requests for duplicate detection (last 30 days, min 3 chars, max 10) |
