@@ -64,9 +64,14 @@ export function stripExportSqlBlocks(text: string): string {
 
 /**
  * Execute a SQL query directly against BigQuery and return rows.
+ * 120s timeout prevents runaway export queries from blocking the bot.
  */
 export async function runExportQuery(sql: string): Promise<Record<string, any>[]> {
   const bq = getBigQuery();
-  const [rows] = await bq.query({ query: sql });
+  const opts = { query: sql, jobTimeoutMs: 120_000 };
+  if (process.env.VERBOSE === 'true') {
+    console.log('[bq-query] Export query options:', JSON.stringify({ jobTimeoutMs: opts.jobTimeoutMs, sqlLength: sql.length }));
+  }
+  const [rows] = await bq.query(opts);
   return rows;
 }

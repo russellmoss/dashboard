@@ -54,10 +54,17 @@ export async function generateWorkbook(req: WorkbookRequest): Promise<Buffer> {
 
       for (const col of sheet.columns) {
         const cell = row.getCell(col.key);
-        const raw = rowData[col.key] ?? null;
-        // Strings starting with "=" are Excel formulas — ExcelJS needs { formula: '...' }
-        // with the leading "=" stripped.
-        if (typeof raw === 'string' && raw.startsWith('=')) {
+        let raw = rowData[col.key] ?? null;
+        // BigQuery returns DATE/TIMESTAMP as { value: "..." } objects — unwrap them
+        if (raw !== null && typeof raw === 'object' && 'value' in raw && Object.keys(raw).length === 1) {
+          raw = raw.value;
+        }
+        // Convert date strings (YYYY-MM-DD) to Date objects so Excel formats them as dates
+        if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+          cell.value = new Date(raw + 'T00:00:00');
+          cell.numFmt = 'yyyy-mm-dd';
+        } else if (typeof raw === 'string' && raw.startsWith('=')) {
+          // Strings starting with "=" are Excel formulas
           cell.value = { formula: raw.substring(1) } as any;
         } else {
           cell.value = raw;

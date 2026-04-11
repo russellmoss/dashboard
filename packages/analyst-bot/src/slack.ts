@@ -228,12 +228,13 @@ function toSlackMrkdwn(text: string): string {
     return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
   });
 
-  // Wrap bare markdown tables (not already in code blocks) in triple backticks
-  // Ensure trailing newline so the regex captures tables at end of string
+  // Wrap bare markdown tables (not already in code blocks) in triple backticks.
+  // A pipe table row starts and ends with | (after optional whitespace).
+  // Ensure trailing newline so the regex captures tables at end of string.
   const hadTrailingNewline = text.endsWith('\n');
   if (!hadTrailingNewline) text += '\n';
   text = text.replace(
-    /((?:^[^\n]*\|[^\n]*\n)+)/gm,
+    /((?:^\s*\|[^\n]+\|\s*\n)+)/gm,
     (match) => {
       if (/\|[-:| ]+\|/.test(match)) {
         return '```\n' + match.trim() + '\n```\n';
@@ -261,6 +262,90 @@ function toSlackMrkdwn(text: string): string {
 }
 
 /**
+ * Split a long Slack message into chunks that stay under the comfortable
+ * display limit. Slack collapses messages over ~4000 chars behind a
+ * "Show more" fold which can break code block rendering. This function
+ * splits at paragraph boundaries (\n\n) while keeping code blocks
+ * (``` ... ```) as atomic units that are never split across chunks.
+ */
+function splitSlackMessage(text: string, maxLen = 3800): string[] {
+  if (text.length <= maxLen) return [text];
+
+  const chunks: string[] = [];
+  let current = '';
+
+  // Split into segments: alternating [text, codeBlock, text, codeBlock, ...]
+  // The capture group keeps code blocks as separate array elements.
+  const segments = text.split(/(```[\s\S]*?```)/g);
+
+  for (const segment of segments) {
+    if (!segment) continue;
+    const isCodeBlock = segment.startsWith('```') && segment.endsWith('```');
+
+    if (isCodeBlock) {
+      // Code block — keep as atomic unit, never split
+      if (current.length + segment.length > maxLen && current.trim()) {
+        chunks.push(current.trimEnd());
+        current = '';
+      }
+      current += segment;
+    } else {
+      // Plain text — can split at paragraph boundaries (\n\n)
+      const paragraphs = segment.split(/(\n\n)/);
+      for (const para of paragraphs) {
+        if (current.length + para.length > maxLen && current.trim()) {
+          chunks.push(current.trimEnd());
+          current = '';
+        }
+        current += para;
+      }
+    }
+  }
+
+  if (current.trim()) chunks.push(current.trimEnd());
+  return chunks.length ? chunks : [text];
+}
+
+interface TableSnippet {
+  content: string;
+  title: string;
+}
+
+/**
+ * Extract large code blocks (tables, matrices, grids) from the message text
+ * and return them as separate snippets to be uploaded as text files.
+ * Slack renders file snippets with proper monospace, horizontal scrolling,
+ * and collapse controls — far better than inline ``` blocks for wide tables.
+ *
+ * Code blocks with fewer than minLines stay inline.
+ */
+function extractTableSnippets(text: string, minLines = 5): { text: string; snippets: TableSnippet[] } {
+  const snippets: TableSnippet[] = [];
+
+  const result = text.replace(/```\n([\s\S]*?\n)```/g, (match, content: string) => {
+    const lines = content.trim().split('\n');
+    if (lines.length < minLines) return match; // keep small blocks inline
+
+    // Classify the table type for a descriptive title.
+    // Check box-drawing grid first (corners/verticals), then dash separators.
+    let title = 'Data Table';
+    if (/[╔╗╚╝╠╣╬║═┌┐└┘├┤┬┴┼│]/.test(content)) {
+      title = 'Performance Matrix';
+    } else if (/──────/.test(content)) {
+      title = 'Leaderboard';
+    } else if (/\|[-:]+\|/.test(content)) {
+      title = 'Results Table';
+    }
+
+    snippets.push({ content: content.trim(), title });
+    return ''; // remove from inline text
+  });
+
+  // Collapse triple+ blank lines left behind
+  return { text: result.replace(/\n{3,}/g, '\n\n').trim(), snippets };
+}
+
+/**
  * Handle a bot response — post text, upload chart/xlsx, post issues.
  * Extracted to avoid duplication between app_mention and message handlers.
  */
@@ -272,13 +357,35 @@ async function handleResponse(
   userId: string,
   result: Awaited<ReturnType<typeof processMessage>>
 ): Promise<void> {
-  // Post text response — convert markdown to Slack mrkdwn
+  // Format for Slack, extract large tables as file snippets, then split text
   const slackText = toSlackMrkdwn(result.text);
-  await client.chat.postMessage({
-    channel: channelId,
-    thread_ts: threadTs,
-    text: slackText,
-  });
+  const { text: cleanText, snippets } = extractTableSnippets(slackText);
+  const chunks = splitSlackMessage(cleanText);
+
+  // Post text message(s)
+  for (const chunk of chunks) {
+    await client.chat.postMessage({
+      channel: channelId,
+      thread_ts: threadTs,
+      text: chunk,
+    });
+  }
+
+  // Upload large tables/matrices as text file snippets — Slack renders these
+  // with proper monospace, horizontal scroll, and collapse controls.
+  for (const snippet of snippets) {
+    try {
+      await client.filesUploadV2({
+        channel_id: channelId,
+        thread_ts: threadTs,
+        file: Buffer.from(snippet.content, 'utf-8'),
+        filename: `${snippet.title.toLowerCase().replace(/\s+/g, '_')}.txt`,
+        title: snippet.title,
+      });
+    } catch (err) {
+      console.error('[slack] Snippet upload failed:', (err as Error).message);
+    }
+  }
 
   // Upload chart if generated
   if (result.chartBuffer) {

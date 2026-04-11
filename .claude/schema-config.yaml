@@ -264,6 +264,15 @@ terms:
       - advisor_join_date__c
     gotcha: "Use is_joined_unique = 1 for volume counts. advisor_join_date__c is DATE type, not TIMESTAMP."
 
+  won_deal:
+    definition: "A deal that has been won — the advisor has Joined (fully onboarded and on the platform). Won = StageName = 'Joined' ONLY. Signed is NOT won — approximately 10% of Signed advisors never complete onboarding and do not Join. Signed is a strong pipeline signal but not a closed deal."
+    related_fields:
+      - StageName
+      - is_joined_unique
+      - Opportunity_AUM
+      - advisor_join_date__c
+    gotcha: "Do NOT include Signed in won counts. Signed ≠ Won. Only Joined = Won. For won volume, use is_joined_unique = 1. For won AUM, use StageName = 'Joined' AND is_primary_opp_record = 1."
+
   Marketing_Segment:
     definition: "FinTrx-derived firm-type classification synced to Salesforce. 4 segments: OTHER, CAPTIVE_W2, INDEPENDENT_PLATFORM, RIA_OWNER."
     related_fields:
@@ -637,6 +646,12 @@ rules:
     context: "individual effort measurement"
     severity: warning
     message: "For individual SGA effort measurement (OKR), use task_executor_name (who performed the activity), not SGA_Owner_Name__c (who owns the lead)."
+
+  - id: won_deal_joined_only
+    type: ban_pattern
+    pattern: "IN ('Joined', 'Signed')"
+    severity: error
+    message: "Won deals = Joined ONLY. Do NOT include Signed in won/close counts. ~10% of Signed advisors never complete onboarding. Signed is a pipeline stage, not a closed deal. Use StageName = 'Joined' for won counts and AUM."
 
   - id: joined_exclude_closed_lost
     type: ban_pattern

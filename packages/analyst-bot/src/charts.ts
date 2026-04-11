@@ -172,21 +172,42 @@ function buildChartConfig(req: ChartRequest): ChartConfiguration {
   // Data label plugin config:
   // - Regular bars/lines: show values above bars
   // - Stacked bars: OFF (labels overlap and look jumbled)
-  // - Pie/doughnut: OFF
-  const showDataLabels = !isPie && !stacked;
-  const datalabels: any = showDataLabels ? {
-    display: true,
-    anchor: isHorizontal ? 'end' : 'end',
-    align: isHorizontal ? 'right' : 'top',
-    font: { size: 11, weight: 'bold' },
-    color: '#374151',
-    formatter: (value: number) => {
-      if (value >= 1_000_000) return (value / 1_000_000).toFixed(1) + 'M';
-      if (value >= 1_000) return (value / 1_000).toFixed(1) + 'K';
-      if (value % 1 !== 0) return value.toFixed(1);
-      return String(value);
-    },
-  } : { display: false };
+  // - Pie/doughnut: show label + percentage on each segment
+  let datalabels: any;
+  if (isPie) {
+    datalabels = {
+      display: true,
+      color: '#fff',
+      font: { size: 12, weight: 'bold' as const },
+      textStrokeColor: 'rgba(0,0,0,0.5)',
+      textStrokeWidth: 2,
+      formatter: (value: number, ctx: any) => {
+        const data: number[] = ctx.chart.data.datasets[0].data;
+        const total = data.reduce((a: number, b: number) => a + b, 0);
+        const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+        const label = ctx.chart.data.labels?.[ctx.dataIndex] ?? '';
+        // Hide label for very small slices (<3%) to avoid clutter
+        if (total > 0 && (value / total) < 0.03) return '';
+        return `${label}\n${pct}%`;
+      },
+    };
+  } else if (stacked) {
+    datalabels = { display: false };
+  } else {
+    datalabels = {
+      display: true,
+      anchor: isHorizontal ? 'end' : 'end',
+      align: isHorizontal ? 'right' : 'top',
+      font: { size: 11, weight: 'bold' as const },
+      color: '#374151',
+      formatter: (value: number) => {
+        if (value >= 1_000_000) return (value / 1_000_000).toFixed(1) + 'M';
+        if (value >= 1_000) return (value / 1_000).toFixed(1) + 'K';
+        if (value % 1 !== 0) return value.toFixed(1);
+        return String(value);
+      },
+    };
+  }
 
   const config: ChartConfiguration = {
     type: chartType as any,

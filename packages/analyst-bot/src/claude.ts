@@ -9,7 +9,7 @@ import { getSystemPrompt } from './system-prompt';
 
 const CLAUDE_MAX_RETRIES = 3;
 const CLAUDE_RETRY_BASE_MS = 1000;
-const CLAUDE_TIMEOUT_MS = 180_000; // 3 minutes — complex multi-tool MCP calls need time
+const CLAUDE_TIMEOUT_MS = 300_000; // 5 minutes — MCP beta multi-tool calls take longer than standard API calls
 const MAX_MESSAGES = 40; // 20 exchanges (user + assistant) for token budget
 
 function verbose(...args: any[]): void {
@@ -69,9 +69,12 @@ export async function callClaude(
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < CLAUDE_MAX_RETRIES; attempt++) {
+    // AbortController as a hard safety net — the SDK timeout may not fire
+    // during MCP beta tool execution (server keeps the connection open).
+    const abortController = new AbortController();
+    const abortTimer = setTimeout(() => abortController.abort(), CLAUDE_TIMEOUT_MS);
+
     try {
-      // SDK-level timeout is set on the client constructor.
-      // For extra safety, also use request-level timeout option.
       const response = await anthropic.beta.messages.create(
         {
           model: 'claude-sonnet-4-6',
@@ -81,14 +84,17 @@ export async function callClaude(
           messages: messageParams,
           mcp_servers: mcpServers,
         },
-        { timeout: CLAUDE_TIMEOUT_MS }
+        { timeout: CLAUDE_TIMEOUT_MS, signal: abortController.signal as any }
       );
 
+      clearTimeout(abortTimer);
       return parseClaudeResponse(response);
     } catch (error) {
-      // Detect timeout (SDK throws APIConnectionTimeoutError)
+      clearTimeout(abortTimer);
+      // Detect timeout (SDK throws APIConnectionTimeoutError, or AbortController fires)
       const errMsg = (error as any)?.message ?? '';
-      if ((error as any)?.name === 'APIConnectionTimeoutError' || errMsg.includes('timeout') || errMsg.includes('timed out') || errMsg.includes('abort')) {
+      const errName = (error as any)?.name ?? '';
+      if (errName === 'APIConnectionTimeoutError' || errName === 'AbortError' || errMsg.includes('timeout') || errMsg.includes('timed out') || errMsg.includes('abort')) {
         const msg = `Claude API timed out after ${CLAUDE_TIMEOUT_MS / 1000}s — the query may be too complex for a single request. Try breaking it into smaller questions.`;
         console.error('[claude]', msg);
         throw new Error(msg);
@@ -154,9 +160,9 @@ function parseClaudeResponse(response: any): ClaudeResponse {
         input: block.input ?? {},
         isError: false,
       });
-      // Track SQL from execute_sql calls
-      if (block.name === 'execute_sql' && block.input?.sql) {
-        sqlExecuted.push(block.input.sql);
+      // Track SQL from execute_sql calls — MCP tool param is "query", not "sql"
+      if (block.name === 'execute_sql' && block.input?.query) {
+        sqlExecuted.push(block.input.query);
       }
     } else if (block.type === 'mcp_tool_result') {
       // Check for errors in tool results
@@ -168,9 +174,19 @@ function parseClaudeResponse(response: any): ClaudeResponse {
           matchingCall.isError = true;
         }
       }
-      // Extract bytes scanned from execute_sql results
+      // Extract bytes scanned from execute_sql results — MCP returns "bytesProcessed".
+      // block.content can be a string OR an array of content blocks [{type:'text', text:'...'}].
+      let resultText = '';
       if (typeof block.content === 'string') {
-        const bytesMatch = block.content.match(/"bytes_scanned"\s*:\s*(\d+)/);
+        resultText = block.content;
+      } else if (Array.isArray(block.content)) {
+        resultText = block.content
+          .filter((c: any) => c.type === 'text' && c.text)
+          .map((c: any) => c.text)
+          .join('');
+      }
+      if (resultText) {
+        const bytesMatch = resultText.match(/"(?:bytesProcessed|bytes_scanned)"\s*:\s*(\d+)/);
         if (bytesMatch) {
           bytesScanned += parseInt(bytesMatch[1], 10);
         }
