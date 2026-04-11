@@ -229,6 +229,9 @@ function toSlackMrkdwn(text: string): string {
   });
 
   // Wrap bare markdown tables (not already in code blocks) in triple backticks
+  // Ensure trailing newline so the regex captures tables at end of string
+  const hadTrailingNewline = text.endsWith('\n');
+  if (!hadTrailingNewline) text += '\n';
   text = text.replace(
     /((?:^[^\n]*\|[^\n]*\n)+)/gm,
     (match) => {
@@ -238,6 +241,7 @@ function toSlackMrkdwn(text: string): string {
       return match;
     }
   );
+  if (!hadTrailingNewline) text = text.replace(/\n$/, '');
 
   text = text
     // **bold** → *bold*

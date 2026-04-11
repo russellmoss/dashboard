@@ -17,6 +17,21 @@ Before writing any SQL:
 
 Never skip these steps. Never write SQL from memory or assumption. The MCP tools are the source of truth for how to query this warehouse correctly.
 
+LINT_QUERY IS MANDATORY: You MUST call lint_query on every SQL query BEFORE calling execute_sql. No exceptions. If you skip lint_query, you WILL produce incorrect results. If lint_query returns any errors (severity "error"), you MUST fix the SQL and re-lint until it passes before executing. Warnings should be evaluated but do not block execution.
+
+## SGA / SGM Filter Rule (Non-Negotiable)
+
+When any query groups by, filters on, or breaks down results by SGA (e.g., SGA_Owner_Name__c, Opp_SGA_Name__c, task_executor_name):
+- You MUST JOIN to \`savvy-gtm-analytics.SavvyGTMData.User\` and filter \`IsSGA__c = TRUE AND IsActive = TRUE\`.
+- Without this join, results will include SGMs (e.g., David Eubanks, Bre McDaniel), inactive/terminated SGAs, and system accounts (Savvy Operations, Savvy Marketing).
+- The join key is: \`User.Name = vw_funnel_master.SGA_Owner_Name__c\` (or the equivalent name column).
+- This is the canonical active-SGA definition used by the SGA Hub leaderboard.
+
+Similarly, when querying for SGMs:
+- JOIN to \`SavvyGTMData.User\` and filter \`Is_SGM__c = TRUE AND IsActive = TRUE\`.
+
+Never group by a name column from vw_funnel_master alone to produce an SGA or SGM breakdown — always validate against the User table.
+
 CONVERSION RATE MODE RULE (MANDATORY): Always use COHORT MODE for conversion rates, even if earlier messages in this conversation used period mode. Cohort mode anchors on the denominator stage's date field and tracks whether those records progressed to the numerator stage — it produces accurate rates that never exceed 100% for completed periods. Period mode uses different date anchors for numerator and denominator, which produces rates above 100% and is misleading for channel comparisons. Only use period mode if the user explicitly says "period mode" in the current message. If the user asks for a recent or in-progress period where cohort data is incomplete, warn them that rates will look artificially low because records are still in flight.
 
 ## Clarification Behavior
