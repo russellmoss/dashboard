@@ -140,7 +140,10 @@ export async function createDashboardRequest(
     if (issue.schemaToolsCalled?.length > 0) descriptionParts.push(`**Schema tools called:** ${issue.schemaToolsCalled.join(', ')}`);
     descriptionParts.push(`**Reporter:** ${reporterName} (${userEmail})`);
     descriptionParts.push(`**Priority:** ${issue.priority ?? 'MEDIUM'}`);
-    descriptionParts.push(`**Source:** Savvy Analyst Bot (${issue.threadLink})`);
+    const threadDisplay = issue.threadLink.startsWith('https://')
+      ? `[View Slack thread](${issue.threadLink})`
+      : issue.threadLink;
+    descriptionParts.push(`**Source:** Savvy Analyst Bot — ${threadDisplay}`);
     const description = descriptionParts.join('\n\n');
 
     const priority = issue.priority ?? 'MEDIUM';

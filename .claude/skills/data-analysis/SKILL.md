@@ -200,7 +200,7 @@ Tell the user: "All queries validated against BigQuery. Sending to council for a
 
 ### 4.1 Verify council MCP is available
 
-Confirm you can see `ask_openai`, `ask_gemini`, and `ask_all` tools from council-mcp. If not, tell the user how to set it up (see `/council` command for instructions) and skip to Phase 5.
+Confirm you can see `ask_codex`, `ask_gemini`, and `ask_all` tools from council-mcp. If not, tell the user how to set it up (see `/council` command for instructions) and skip to Phase 5.
 
 ### 4.2 Prepare context for reviewers
 
@@ -214,9 +214,9 @@ Read and concatenate these files to include as context for the council:
 - Any relevant view SQL files from `views/` directory
 - Any relevant semantic layer files from `docs/semantic_layer/`
 
-### 4.3 Send to OpenAI
+### 4.3 Send to Codex
 
-Send to `ask_openai` (with reasoning_effort: "high"):
+Send to `ask_codex`:
 
 ```
 You are a senior data analyst reviewing a data analysis plan for a recruiting funnel analytics system (Savvy Wealth).

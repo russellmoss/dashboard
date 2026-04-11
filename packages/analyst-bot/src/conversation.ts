@@ -47,7 +47,8 @@ export async function processMessage(
   input: string,
   threadId: string,
   channelId: string,
-  userId: string
+  userId: string,
+  options?: { threadLink?: string }
 ): Promise<ConversationResult> {
   let chartBuffer: Buffer | null = null;
   let chartType: ChartType | null = null;
@@ -201,7 +202,14 @@ export async function processMessage(
 
     if (userTriggeredIssue || claudeProducedIssue) {
       isIssueReport = true;
-      issueDetails = parseIssueFromResponse(responseText, userId, threadId, channelId);
+      issueDetails = parseIssueFromResponse(responseText, userId, threadId, channelId, options?.threadLink);
+      // Populate originalQuestion from thread history if Claude didn't include it
+      if (issueDetails && !issueDetails.originalQuestion && thread.messages.length > 0) {
+        const firstUserMsg = thread.messages.find((m) => m.role === 'user');
+        if (firstUserMsg && typeof firstUserMsg.content === 'string') {
+          issueDetails.originalQuestion = firstUserMsg.content;
+        }
+      }
       if (claudeProducedIssue) {
         verbose('🚩 Issue report captured from [ISSUE] block');
         // Create a DashboardRequest for the issue — works from both CLI and Slack
@@ -507,8 +515,10 @@ function parseIssueFromResponse(
   text: string,
   userId: string,
   threadId: string,
-  channelId: string
+  channelId: string,
+  threadLink?: string
 ): IssueReport {
+  const fallbackLink = threadLink || `Thread ${channelId}:${threadId}`;
   const issueMatch = text.match(/\[ISSUE\]\s*([\s\S]*?)\s*\[\/ISSUE\]/);
   if (issueMatch) {
     try {
@@ -534,7 +544,7 @@ function parseIssueFromResponse(
       return {
         reporterEmail: parsed.reporterEmail ?? parsed.reported_by ?? userId,
         reporterSlackId: parsed.reporterSlackId ?? userId,
-        threadLink: parsed.threadLink ?? `Thread ${channelId}:${threadId}`,
+        threadLink: fallbackLink,
         originalQuestion: parsed.originalQuestion ?? parsed.title ?? '',
         sqlExecuted: parsed.sqlExecuted ?? parsed.sql_executed ?? [],
         schemaToolsCalled: parsed.schemaToolsCalled ?? parsed.schema_tools_called ?? [],
@@ -556,7 +566,7 @@ function parseIssueFromResponse(
   return {
     reporterEmail: userId,
     reporterSlackId: userId,
-    threadLink: `Thread ${channelId}:${threadId}`,
+    threadLink: fallbackLink,
     originalQuestion: '',
     sqlExecuted: [],
     schemaToolsCalled: [],

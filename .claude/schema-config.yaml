@@ -670,6 +670,24 @@ rules:
     severity: warning
     message: "For opportunity-level SGA attribution (SQOs, Joined, AUM), filter on BOTH SGA_Owner_Name__c and Opp_SGA_Name__c (OR condition). SGA attribution can come from lead or opportunity path."
 
+  - id: active_sga_filter
+    type: require_filter
+    when_contains:
+      - "SGA"
+      - "sga"
+    required: "IsSGA__c = TRUE AND IsActive = TRUE"
+    severity: error
+    message: "When querying for SGAs, always JOIN to SavvyGTMData.User and filter IsSGA__c = TRUE AND IsActive = TRUE. This is the canonical active-SGA definition used by the SGA Hub leaderboard (src/lib/queries/sga-leaderboard.ts). Without this filter, results include SGMs, inactive reps, terminated reps, and system accounts like 'Savvy Operations'."
+
+  - id: active_sgm_filter
+    type: require_filter
+    when_contains:
+      - "SGM"
+      - "sgm"
+    required: "Is_SGM__c = TRUE AND IsActive = TRUE"
+    severity: error
+    message: "When querying for SGMs, always JOIN to SavvyGTMData.User and filter Is_SGM__c = TRUE AND IsActive = TRUE. This is the canonical active-SGM definition used by the SGM Hub leaderboard (src/lib/queries/sgm-leaderboard.ts). Without this filter, results include SGAs, inactive reps, and terminated reps."
+
 metrics:
   contacted_to_mql:
     description: "Conversion rate from Contacted to MQL (Call Scheduled) stage."

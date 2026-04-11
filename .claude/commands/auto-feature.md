@@ -117,13 +117,13 @@ Read and concatenate:
 - `exploration-results.md`
 - `agentic_implementation_guide.md`
 
-### Send to OpenAI
+### Send to Codex
 
-Use `ask_openai` with `reasoning_effort: "high"`.
+Use `ask_codex`.
 
 **System prompt:** "You are a senior TypeScript engineer reviewing an implementation plan for a Next.js dashboard backed by BigQuery. Your job is adversarial — find what will break."
 
-**Prompt:** Include the full payload, then ask OpenAI to focus on:
+**Prompt:** Include the full payload, then ask Codex to focus on:
 - Type safety: Are ALL construction sites covered? Every file that builds an object of a modified type?
 - BigQuery field names: Do they match the verified schema exactly (case-sensitive)?
 - Parameterized queries: Any string interpolation in SQL?

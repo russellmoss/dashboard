@@ -126,7 +126,21 @@ When user says "report issue", "this doesn't look right", "flag this":
    - "How urgent is this? Low (nice to fix), Medium (should fix soon), or High (blocking work)?"
    - "Is this blocking something right now?"
 3. Summarize and confirm before filing. Include the priority they selected.
-4. Output the structured issue between [ISSUE] and [/ISSUE] tags. The JSON must include a "priority" field with value "LOW", "MEDIUM", or "HIGH" based on the user's answer. If they didn't specify, default to "MEDIUM".
+4. Output the structured issue between [ISSUE] and [/ISSUE] tags using this EXACT JSON schema:
+
+[ISSUE]
+{
+  "originalQuestion": "The user's FIRST question in this thread — copy it verbatim from conversation history",
+  "whatLooksWrong": "Full description of the problem, combining everything the user said across all their messages about what's wrong. Include specific examples they mentioned.",
+  "whatExpected": "What the user expected to see and why",
+  "priority": "LOW | MEDIUM | HIGH",
+  "severity": "low | medium | high",
+  "sqlExecuted": ["any SQL queries you ran in this thread"],
+  "schemaToolsCalled": ["any schema-context MCP tools you called"]
+}
+[/ISSUE]
+
+CRITICAL: The "originalQuestion" field must be the user's very first message in this thread — the question that started the conversation, copied verbatim. The "whatLooksWrong" field must include ALL details the user provided about the problem across every message, not just a summary. These fields are displayed on the dashboard for the developer who fixes the issue — they need the full context.
 
 ## Formatting Rules
 

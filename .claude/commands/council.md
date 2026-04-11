@@ -5,11 +5,11 @@
 <!-- Tailored for: Savvy Wealth Recruiting Funnel Dashboard -->
 <!-- To regenerate, run /setup-council again -->
 
-You are running a cross-validation workflow for the Savvy Wealth analytics dashboard. Your job is to send the implementation plan and supporting exploration documents to GPT and Gemini for adversarial review, then synthesize their feedback.
+You are running a cross-validation workflow for the Savvy Wealth analytics dashboard. Your job is to send the implementation plan and supporting exploration documents to Codex and Gemini for adversarial review, then synthesize their feedback.
 
 ## Step 1: Verify MCP Server
 
-Confirm you can see the `ask_openai`, `ask_gemini`, and `ask_all` tools from council-mcp. If not, tell the user:
+Confirm you can see the `ask_codex`, `ask_gemini`, and `ask_all` tools from council-mcp. If not, tell the user:
 
 "The council-mcp MCP server isn't available. To set it up:
 
@@ -19,12 +19,11 @@ Confirm you can see the `ask_openai`, `ask_gemini`, and `ask_all` tools from cou
    ```
    Or if installed globally: `claude mcp add --scope user council-mcp -- council-mcp`
 
-2. **Add API keys** to your project `.env` file (already gitignored):
+2. **Add Gemini API key** to your project `.env` file (already gitignored):
    ```
-   OPENAI_API_KEY=sk-...
    GEMINI_API_KEY=AI...
    ```
-   council-mcp reads `.env` from the project root via `dotenv/config`. Shell env vars also work but are less reliable on Windows due to process inheritance.
+   council-mcp reads `.env` from the project root via `dotenv/config`. Codex CLI uses its own auth (`codex login`) — no API key needed.
 
 3. **Start a new Claude Code session** and run `/council` again."
 
@@ -68,11 +67,11 @@ Keep investigation bounded — only read config files and source directory listi
 
 ## Step 4: Send review prompts
 
-Tell the user: "Sending to OpenAI and Gemini for cross-validation..."
+Tell the user: "Sending to Codex and Gemini for cross-validation..."
 
-Send these two prompts **in parallel** using `ask_openai` and `ask_gemini` separately (not `ask_all`) so each prompt is tailored to the provider's strengths.
+Send these two prompts **in parallel** using `ask_codex` and `ask_gemini` separately (not `ask_all`) so each prompt is tailored to the provider's strengths.
 
-### Prompt A — Send to `ask_openai` (with reasoning_effort: "high")
+### Prompt A — Send to `ask_codex`
 
 Focus: **Type safety, construction sites, BigQuery correctness, and parameterized queries**
 
@@ -117,7 +116,7 @@ For each issue: state what's wrong, which phase/step it's in, and what the fix s
 
 Append the FULL text of all documents after the prompt. Do not summarize or truncate.
 
-Tell the user: "OpenAI review sent. Waiting for response..."
+Tell the user: "Codex review sent. Waiting for response..."
 
 ### Prompt B — Send to `ask_gemini`
 
@@ -177,7 +176,7 @@ Create a file called `council-feedback.md` in the project root with:
 
 **Date**: [today's date]
 **Plan reviewed**: [filename]
-**Reviewers**: OpenAI (type safety + BigQuery correctness), Gemini (business logic + data quality)
+**Reviewers**: Codex (type safety + BigQuery correctness), Gemini (business logic + data quality)
 
 ## Critical Issues
 [Things that are wrong or will break the build — from any reviewer. Deduplicate if both caught the same issue.]
@@ -193,8 +192,8 @@ Create a file called `council-feedback.md` in the project root with:
 
 ---
 
-## Raw Response — OpenAI
-[Full text from OpenAI]
+## Raw Response — Codex
+[Full text from Codex]
 
 ## Raw Response — Gemini
 [Full text from Gemini]

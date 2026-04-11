@@ -474,9 +474,9 @@ Write the guide to `agentic_refactor_guide.md`, then proceed immediately to Phas
 
 > **Note:** If the target is on the lightweight Lane 2a track, council is optional. See Step L4 in the Lightweight Lane 2a Track for when to use it.
 
-Send the refactor guide and exploration results to OpenAI and Gemini for adversarial review using the council-mcp MCP tools (`mcp__council-mcp__ask_openai`, `mcp__council-mcp__ask_gemini`). Send **separate** prompts — do NOT use `ask_all`.
+Send the refactor guide and exploration results to Codex and Gemini for adversarial review using the council-mcp MCP tools (`mcp__council-mcp__ask_codex`, `mcp__council-mcp__ask_gemini`). Send **separate** prompts — do NOT use `ask_all`.
 
-> **Pre-flight check:** Before attempting council calls, verify that `mcp__council-mcp__ask_openai` and `mcp__council-mcp__ask_gemini` tools are visible. If they are not visible, council-mcp is not registered or not running.
+> **Pre-flight check:** Before attempting council calls, verify that `mcp__council-mcp__ask_codex` and `mcp__council-mcp__ask_gemini` tools are visible. If they are not visible, council-mcp is not registered or not running.
 >
 > **Fallback — council unavailable:** If council-mcp tools are not visible, or if calls fail with missing API key errors, do NOT halt the entire pipeline. Instead:
 > 1. Print: "⚠ Council MCP is unavailable. Skipping adversarial cross-LLM review."
@@ -493,13 +493,13 @@ Read and concatenate:
 - `refactor-exploration-results.md`
 - `agentic_refactor_guide.md`
 
-### Send to OpenAI
+### Send to Codex
 
-Use `ask_openai` with `reasoning_effort: "high"`.
+Use `ask_codex`.
 
 **System prompt:** "You are a senior TypeScript engineer reviewing a non-breaking refactor plan for a Next.js 14 analytics dashboard backed by BigQuery. Your job is adversarial — find what will break."
 
-**Prompt:** Include the full payload, then ask OpenAI to focus on:
+**Prompt:** Include the full payload, then ask Codex to focus on:
 - Type safety: Are all touched construction/consumption sites covered? Every file that constructs an object of a modified type?
 - Import/export safety: Will any import path, barrel export (`src/components/ui/index.ts`, `src/lib/semantic-layer/index.ts`), or public module surface break?
 - Server/client boundary safety: Does any extraction move Node-only code (BigQuery SDK, Prisma, `src/lib/queries/`) into a path importable by `'use client'` components? Does any move break `next/dynamic` lazy imports?
@@ -723,7 +723,7 @@ Stop and report immediately if:
 
 ## COUNCIL MCP TROUBLESHOOTING
 
-Council review (Phase 3) requires the `council-mcp` MCP server to be both **registered** and **able to authenticate** with OpenAI and Google Gemini.
+Council review (Phase 3) requires the `council-mcp` MCP server to be both **registered** and **able to authenticate** with Codex CLI and Google Gemini.
 
 ### How council-mcp loads API keys
 
@@ -732,15 +732,16 @@ council-mcp loads environment variables from two sources, in order:
 2. **`.env` file** in `process.cwd()` — for Claude Code, this is the project root directory
 
 Required variables:
-- `OPENAI_API_KEY` — for `ask_openai`
+- Codex CLI — authenticated via `codex login` (no API key needed)
 - `GEMINI_API_KEY` or `GOOGLE_API_KEY` — for `ask_gemini` (either works)
 
 ### "Keys exist on my machine" ≠ "Keys are visible to the MCP process"
 
 Common pitfalls on Windows:
-- Keys set in a **PowerShell session** (`$env:OPENAI_API_KEY = "..."`) are session-scoped and not inherited by Claude Code unless Claude Code was launched from that same session
+- Keys set in a **PowerShell session** (`$env:GEMINI_API_KEY = "..."`) are session-scoped and not inherited by Claude Code unless Claude Code was launched from that same session
 - Keys set via **Windows System Properties > Environment Variables** (User or System) require a new terminal/process to take effect — existing terminals won't see them
 - Claude Code launched from VS Code, desktop app, or a different terminal will NOT inherit session-scoped variables
+- Codex CLI uses its own auth (`codex login`) — no API key needed in `.env`
 
 ### Registration
 
@@ -767,9 +768,10 @@ The most reliable approach (avoids all shell/process inheritance issues):
 
 Add to your project `.env` file (already in `.gitignore`):
 ```
-OPENAI_API_KEY=sk-...
 GEMINI_API_KEY=AI...
 ```
+
+Codex CLI authenticates via `codex login` — no API key needed in `.env`.
 
 council-mcp uses `import "dotenv/config"` at startup, which reads `.env` from the current working directory (the project root when launched by Claude Code).
 
@@ -777,5 +779,5 @@ council-mcp uses `import "dotenv/config"` at startup, which reads `.env` from th
 
 Before relying on council in a workflow, test it:
 1. Start a new Claude Code session in the project directory
-2. Check that `mcp__council-mcp__ask_openai` and `mcp__council-mcp__ask_gemini` tools are visible
-3. If tools are visible but calls fail, the issue is missing API keys — check `.env` in the project root
+2. Check that `mcp__council-mcp__ask_codex` and `mcp__council-mcp__ask_gemini` tools are visible
+3. If tools are visible but Gemini calls fail, the issue is a missing `GEMINI_API_KEY` — check `.env` in the project root. If Codex calls fail, ensure `codex login` has been run.

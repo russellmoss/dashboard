@@ -7,7 +7,7 @@ You are an interactive setup wizard that generates project-specific `/council` a
 
 ## Step 1: Verify MCP Server
 
-First, confirm the council-mcp server is available by checking that you can see the `ask_openai`, `ask_gemini`, and `ask_all` tools. Do NOT make a test API call — just check tool availability.
+First, confirm the council-mcp server is available by checking that you can see the `ask_codex`, `ask_gemini`, and `ask_all` tools. Do NOT make a test API call — just check tool availability.
 
 If the tools are NOT available, tell the user:
 
@@ -29,7 +29,7 @@ Stop here if the server isn't available. Do not proceed without it.
 
 ## Step 2: Check which providers are available
 
-Silently test which providers work by checking for tool availability. Note whether `ask_openai`, `ask_gemini`, and `ask_all` are all present.
+Silently test which providers work by checking for tool availability. Note whether `ask_codex`, `ask_gemini`, and `ask_all` are all present.
 
 If only one provider's tool is available, note this — you'll generate commands that use only that provider and tell the user what they're missing.
 
@@ -104,8 +104,7 @@ Include this header at the top:
 - Each prompt must include the FULL text of the documents being reviewed — do not summarize or truncate
 - Each prompt must tell the external model exactly how to structure its response (Critical / Should Fix / Design Questions)
 - Map prompts to the right provider based on the risk area table below
-- For OpenAI calls that involve deep analysis, set reasoning_effort to "high"
-- Include progress reporting: tell the user what's happening at each step ("Sending to OpenAI...", "Waiting for Gemini...", "Synthesizing feedback...")
+- Include progress reporting: tell the user what's happening at each step ("Sending to Codex...", "Waiting for Gemini...", "Synthesizing feedback...")
 - Include a synthesis step that merges all feedback into `council-feedback.md`
 - End by presenting critical issues and design questions to the user, and tell them to run `/refine` after answering
 - If only one provider is available, generate commands that use only that provider and note what cross-validation they're missing
@@ -114,14 +113,14 @@ Include this header at the top:
 
 | Risk Area | What the Prompt Should Focus On | Best Provider |
 |---|---|---|
-| Type safety / missing code paths | Find every construction site for modified types, verify all files are covered | OpenAI |
-| Database / query correctness | Verify field names exist, NULL handling, query performance | OpenAI |
+| Type safety / missing code paths | Find every construction site for modified types, verify all files are covered | Codex |
+| Database / query correctness | Verify field names exist, NULL handling, query performance | Codex |
 | Business logic | Challenge assumptions, check calculations, verify data interpretation | Gemini |
 | Data quality / exports | Edge cases in data (nulls, special chars, long text), CSV integrity | Gemini |
-| API contracts / backwards compat | Breaking changes, error handling, response shape consistency | OpenAI |
+| API contracts / backwards compat | Breaking changes, error handling, response shape consistency | Codex |
 | UI / display logic | Will the data make sense to end users, formatting, sort orders | Gemini |
-| Security / auth | Permission checks, data exposure, injection risks | OpenAI |
-| Pattern consistency | Compare against existing codebase patterns, flag drift | OpenAI |
+| Security / auth | Permission checks, data exposure, injection risks | Codex |
+| Pattern consistency | Compare against existing codebase patterns, flag drift | Codex |
 
 Pick the 2-3 most relevant based on the user's answers. Don't include all of them.
 

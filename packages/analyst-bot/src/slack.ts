@@ -12,6 +12,9 @@
 import { App, ExpressReceiver, LogLevel } from '@slack/bolt';
 import { processMessage } from './conversation';
 import { postIssueToChannel } from './issues';
+import { loadThread } from './thread-store';
+import { createDashboardRequest } from './dashboard-request';
+import { IssueReport, IssuePriority } from './types';
 
 // In-memory cache for user email lookups
 const userEmailCache = new Map<string, string>();
@@ -58,6 +61,98 @@ function isAllowedChannel(channelId: string): boolean {
  */
 function buildThreadLink(channelId: string, threadTs: string): string {
   return `https://slack.com/archives/${channelId}/p${threadTs.replace('.', '')}`;
+}
+
+// ---- Issue reporting via Slack modal ----
+
+const ISSUE_TRIGGERS = [
+  'report issue', "this doesn't look right", 'flag this',
+  'this looks wrong', 'something is off',
+];
+
+function isIssueTrigger(text: string): boolean {
+  return ISSUE_TRIGGERS.some((t) => text.toLowerCase().includes(t));
+}
+
+/**
+ * Extract issue description if the user wrote text after the trigger phrase.
+ * e.g., "report issue the SGA list has non-SGAs" → "the SGA list has non-SGAs"
+ */
+function extractIssueText(text: string): string {
+  for (const trigger of ISSUE_TRIGGERS) {
+    const idx = text.toLowerCase().indexOf(trigger);
+    if (idx !== -1) {
+      const after = text.substring(idx + trigger.length).replace(/^[:\-–—\s]+/, '').trim();
+      if (after) return after;
+    }
+  }
+  return '';
+}
+
+/**
+ * Post a "Report Issue" button in the thread instead of starting a multi-turn
+ * conversation with Claude. Clicking the button opens a Slack modal form.
+ */
+async function postIssueButton(
+  client: any,
+  channelId: string,
+  threadTs: string,
+  threadId: string,
+  prefillText: string
+): Promise<void> {
+  const thread = await loadThread(threadId);
+  const firstUserMsg = thread?.messages.find(
+    (m) => m.role === 'user' && typeof m.content === 'string'
+  );
+  const originalQuestion = (firstUserMsg?.content as string) ?? '';
+
+  const metadata = JSON.stringify({
+    channelId,
+    threadTs,
+    threadId,
+    originalQuestion: originalQuestion.substring(0, 500),
+    prefillText: prefillText.substring(0, 500),
+  });
+
+  const blocks: any[] = [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: ':triangular_flag_on_post: Click below to file a data issue.',
+      },
+    },
+  ];
+
+  if (originalQuestion) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Original question:*\n>${originalQuestion.substring(0, 300)}`,
+      },
+    });
+  }
+
+  blocks.push({
+    type: 'actions',
+    elements: [
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: 'Report Issue' },
+        style: 'danger',
+        action_id: 'open_issue_modal',
+        value: metadata,
+      },
+    ],
+  });
+
+  await client.chat.postMessage({
+    channel: channelId,
+    thread_ts: threadTs,
+    text: 'Click the button to file a data issue.',
+    blocks,
+  });
 }
 
 /**
@@ -153,7 +248,6 @@ async function handleResponse(
 
   // Post issue to #data-issues if this is an issue report
   if (result.isIssueReport && result.issueDetails) {
-    result.issueDetails.threadLink = buildThreadLink(channelId, threadTs);
     result.issueDetails.reporterSlackId = userId;
     await postIssueToChannel(client, result.issueDetails);
   }
@@ -212,6 +306,13 @@ export async function startSlackApp(): Promise<void> {
     const text = event.text.replace(/<@[A-Z0-9]+>/g, '').trim();
     if (!text) return;
 
+    // Issue reporting — show modal button instead of multi-turn Claude conversation
+    if (isIssueTrigger(text)) {
+      const prefill = extractIssueText(text);
+      await postIssueButton(client, event.channel, threadTs, threadId, prefill);
+      return;
+    }
+
     // Add thinking reaction
     try {
       await client.reactions.add({
@@ -224,7 +325,8 @@ export async function startSlackApp(): Promise<void> {
     }
 
     try {
-      const result = await processMessage(text, threadId, event.channel, userEmail);
+      const slackThreadLink = buildThreadLink(event.channel, threadTs);
+      const result = await processMessage(text, threadId, event.channel, userEmail, { threadLink: slackThreadLink });
       await handleResponse(client, event.channel, threadTs, event.ts, userId, result);
     } catch (err) {
       console.error('[slack] app_mention handler error:', (err as Error).message);
@@ -256,7 +358,6 @@ export async function startSlackApp(): Promise<void> {
 
     // Only respond in threads the bot started — check if thread exists in bot_threads
     const threadId = `${msg.channel}:${msg.thread_ts}`;
-    const { loadThread } = require('./thread-store');
     const existingThread = await loadThread(threadId);
     if (!existingThread) return; // Not a bot thread — ignore
 
@@ -265,8 +366,16 @@ export async function startSlackApp(): Promise<void> {
     const text = (msg.text ?? '').trim();
     if (!text) return;
 
+    // Issue reporting — show modal button instead of multi-turn Claude conversation
+    if (isIssueTrigger(text)) {
+      const prefill = extractIssueText(text);
+      await postIssueButton(client, msg.channel, msg.thread_ts, threadId, prefill);
+      return;
+    }
+
     try {
-      const result = await processMessage(text, threadId, msg.channel, userEmail);
+      const slackThreadLink = buildThreadLink(msg.channel, msg.thread_ts);
+      const result = await processMessage(text, threadId, msg.channel, userEmail, { threadLink: slackThreadLink });
       await handleResponse(client, msg.channel, msg.thread_ts, msg.ts, userId, result);
     } catch (err) {
       console.error('[slack] message handler error:', (err as Error).message);
@@ -309,14 +418,165 @@ export async function startSlackApp(): Promise<void> {
     const threadId = `${channelId}:${threadTs}`;
 
     try {
-      const result = await processMessage('report issue', threadId, channelId, userEmail);
+      await postIssueButton(client, channelId, threadTs, threadId, '');
+    } catch (err) {
+      console.error('[slack] Failed to post issue button:', (err as Error).message);
+    }
+  });
+
+  // ---- action: "Report Issue" button clicked → open modal form ----
+  slackApp.action('open_issue_modal', async ({ ack, body, client }) => {
+    await ack();
+
+    const payload = body as any;
+    const triggerId = payload.trigger_id;
+    const metadata = JSON.parse(payload.actions[0].value);
+
+    const modalBlocks: any[] = [];
+
+    if (metadata.originalQuestion) {
+      modalBlocks.push(
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*Original question:*\n>${metadata.originalQuestion}`,
+          },
+        },
+        { type: 'divider' }
+      );
+    }
+
+    modalBlocks.push(
+      {
+        type: 'input',
+        block_id: 'what_wrong',
+        label: { type: 'plain_text', text: 'What looks wrong?' },
+        element: {
+          type: 'plain_text_input',
+          action_id: 'what_wrong_input',
+          multiline: true,
+          ...(metadata.prefillText ? { initial_value: metadata.prefillText } : {}),
+          placeholder: {
+            type: 'plain_text',
+            text: 'Describe what looks wrong with the data...',
+          },
+        },
+      },
+      {
+        type: 'input',
+        block_id: 'what_expected',
+        optional: true,
+        label: { type: 'plain_text', text: 'What did you expect?' },
+        element: {
+          type: 'plain_text_input',
+          action_id: 'what_expected_input',
+          multiline: true,
+          placeholder: {
+            type: 'plain_text',
+            text: 'What should the data show, and where does that expectation come from?',
+          },
+        },
+      },
+      {
+        type: 'input',
+        block_id: 'priority',
+        label: { type: 'plain_text', text: 'Priority' },
+        element: {
+          type: 'static_select',
+          action_id: 'priority_select',
+          options: [
+            { text: { type: 'plain_text', text: 'Low \u2014 nice to fix' }, value: 'LOW' },
+            { text: { type: 'plain_text', text: 'Medium \u2014 should fix soon' }, value: 'MEDIUM' },
+            { text: { type: 'plain_text', text: 'High \u2014 blocking work' }, value: 'HIGH' },
+          ],
+          initial_option: {
+            text: { type: 'plain_text', text: 'Medium \u2014 should fix soon' },
+            value: 'MEDIUM',
+          },
+        },
+      }
+    );
+
+    await client.views.open({
+      trigger_id: triggerId,
+      view: {
+        type: 'modal',
+        callback_id: 'issue_report_submit',
+        title: { type: 'plain_text', text: 'Report Data Issue' },
+        submit: { type: 'plain_text', text: 'Submit Issue' },
+        close: { type: 'plain_text', text: 'Cancel' },
+        private_metadata: JSON.stringify({
+          channelId: metadata.channelId,
+          threadTs: metadata.threadTs,
+          threadId: metadata.threadId,
+          originalQuestion: metadata.originalQuestion,
+        }),
+        blocks: modalBlocks,
+      },
+    });
+  });
+
+  // ---- view: Issue modal submitted → file the issue ----
+  slackApp.view('issue_report_submit', async ({ ack, body, view, client }) => {
+    await ack();
+
+    const metadata = JSON.parse(view.private_metadata);
+    const userId = body.user.id;
+    const userEmail = await getUserEmail(client, userId);
+
+    const whatWrong =
+      view.state.values.what_wrong.what_wrong_input.value ?? '';
+    const whatExpected =
+      view.state.values.what_expected.what_expected_input.value ?? '';
+    const priority = (view.state.values.priority.priority_select
+      .selected_option?.value ?? 'MEDIUM') as IssuePriority;
+
+    const threadLink = buildThreadLink(metadata.channelId, metadata.threadTs);
+
+    const severityMap: Record<string, 'non-urgent' | 'needs-attention' | 'blocking'> = {
+      LOW: 'non-urgent',
+      MEDIUM: 'needs-attention',
+      HIGH: 'blocking',
+    };
+
+    const issue: IssueReport = {
+      reporterEmail: userEmail,
+      reporterSlackId: userId,
+      threadLink,
+      originalQuestion: metadata.originalQuestion ?? '',
+      sqlExecuted: [],
+      schemaToolsCalled: [],
+      whatLooksWrong: whatWrong,
+      whatExpected: whatExpected,
+      severity: severityMap[priority] ?? 'needs-attention',
+      priority,
+      timestamp: new Date().toISOString(),
+    };
+
+    // File the issue to dashboard + BigQuery
+    try {
+      await createDashboardRequest(issue, userEmail);
+    } catch (err) {
+      console.error('[slack] Issue creation failed:', (err as Error).message);
+    }
+
+    // Post to #data-issues channel
+    try {
+      await postIssueToChannel(client, issue);
+    } catch (err) {
+      console.error('[slack] Issue channel post failed:', (err as Error).message);
+    }
+
+    // Confirm in the original thread
+    try {
       await client.chat.postMessage({
-        channel: channelId,
-        thread_ts: threadTs,
-        text: result.text,
+        channel: metadata.channelId,
+        thread_ts: metadata.threadTs,
+        text: `:white_check_mark: Issue filed \u2014 *${priority}* priority. We'll look into it.`,
       });
     } catch (err) {
-      console.error('[slack] Failed to post issue prompt:', (err as Error).message);
+      console.error('[slack] Confirmation message failed:', (err as Error).message);
     }
   });
 
