@@ -12,6 +12,8 @@
 import { App, ExpressReceiver, LogLevel } from '@slack/bolt';
 import type { BlockAction, ButtonAction } from '@slack/bolt';
 import type { KnownBlock } from '@slack/types';
+import { Redis } from '@upstash/redis';
+import { Ratelimit } from '@upstash/ratelimit';
 import { processMessage } from './conversation';
 import { postIssueToChannel } from './issues';
 import { loadThread } from './thread-store';
@@ -21,15 +23,77 @@ import { IssueReport, IssuePriority } from './types';
 // In-memory cache for user email lookups
 const userEmailCache = new Map<string, string>();
 
-// Event deduplication — prevents double-processing on Slack retries
-const processedEvents = new Set<string>();
-const DEDUP_TTL_MS = 60_000; // Keep event IDs for 60 seconds
+// ---- Distributed deduplication via Upstash Redis ----
+// Falls back to in-memory Map if Redis is not configured.
+// In-memory fallback works for single-instance Cloud Run (min-instances: 1)
+// but does NOT deduplicate across replicas if Cloud Run scales horizontally.
+// For production multi-instance deployments, set UPSTASH_REDIS_REST_URL and
+// UPSTASH_REDIS_REST_TOKEN to enable distributed dedup.
 
-function isDuplicate(eventId: string): boolean {
-  if (processedEvents.has(eventId)) return true;
-  processedEvents.add(eventId);
-  setTimeout(() => processedEvents.delete(eventId), DEDUP_TTL_MS);
+let redis: Redis | null = null;
+let rateLimiter: Ratelimit | null = null;
+
+function getRedis(): Redis | null {
+  if (redis) return redis;
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    redis = new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+    });
+    rateLimiter = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(5, '60s'),
+      prefix: 'analyst-bot:ratelimit',
+    });
+    console.log('[dedup] Using Upstash Redis for distributed dedup + rate limiting');
+    return redis;
+  }
+  return null;
+}
+
+// In-memory fallback dedup (single-instance only)
+const inMemoryDedup = new Map<string, number>(); // eventId → expiry timestamp
+
+async function isDuplicate(eventId: string): Promise<boolean> {
+  const r = getRedis();
+  if (r) {
+    // Redis-backed: SET NX with 60s TTL — returns null if key already exists
+    const key = `analyst-bot:dedup:${eventId}`;
+    const set = await r.set(key, '1', { nx: true, ex: 60 });
+    if (set === null) {
+      console.log(`[dedup] Dropping duplicate event ${eventId} (Redis)`);
+      return true;
+    }
+    return false;
+  }
+
+  // In-memory fallback — clean expired entries, then check
+  const now = Date.now();
+  for (const [key, expiry] of inMemoryDedup.entries()) {
+    if (expiry < now) inMemoryDedup.delete(key);
+  }
+  if (inMemoryDedup.has(eventId)) {
+    console.log(`[dedup] Dropping duplicate event ${eventId} (in-memory)`);
+    return true;
+  }
+  inMemoryDedup.set(eventId, now + 60_000);
   return false;
+}
+
+/**
+ * Per-user rate limit: 5 requests per 60 seconds.
+ * Returns true if the user should be rate-limited (over quota).
+ * Returns false if Upstash Redis is not configured (no rate limiting).
+ */
+async function isRateLimited(userId: string): Promise<boolean> {
+  if (!rateLimiter) return false;
+  try {
+    const { success } = await rateLimiter.limit(userId);
+    return !success;
+  } catch (err) {
+    console.error('[ratelimit] Check failed, allowing request:', (err as Error).message);
+    return false; // fail open — don't block users if Redis is down
+  }
 }
 
 /**
@@ -780,16 +844,33 @@ export async function startSlackApp(): Promise<void> {
   });
 
   // ---- Event: app_mention — bot is @mentioned in a channel ----
+  // NOTE ON ACK: Bolt 4.x with processBeforeResponse: false (the default) sends
+  // HTTP 200 to Slack BEFORE this handler runs. There is no ack() parameter on
+  // event handlers — Bolt handles it automatically. This is the correct pattern
+  // for Cloud Run where processing takes 30-300 seconds.
   slackApp.event('app_mention', async ({ event, client, body }) => {
+    // Dedup — Slack retries events if it doesn't see the 200 fast enough.
+    // Uses Upstash Redis (distributed) with in-memory fallback (single-instance).
     const eventId = (body as any).event_id;
-    if (eventId && isDuplicate(eventId)) return;
+    if (!eventId) console.warn('[dedup] No event_id on app_mention body');
+    if (eventId && await isDuplicate(eventId)) return;
 
     if (!isAllowedChannel(event.channel)) return;
 
     const threadTs = (event as any).thread_ts ?? event.ts;
     const userId = event.user ?? 'unknown';
-    const userEmail = await getUserEmail(client, userId);
 
+    // Per-user rate limit: 5 requests per 60 seconds
+    if (await isRateLimited(userId)) {
+      await client.chat.postMessage({
+        channel: event.channel,
+        thread_ts: threadTs,
+        text: ':warning: You\'re sending requests too quickly. Please wait a moment before trying again.',
+      }).catch(() => {});
+      return;
+    }
+
+    const userEmail = await getUserEmail(client, userId);
     const text = event.text.replace(/<@[A-Z0-9]+>/g, '').trim();
     if (!text) return;
 
@@ -820,7 +901,8 @@ export async function startSlackApp(): Promise<void> {
     const msg = message as any;
 
     const eventId = (body as any).event_id;
-    if (eventId && isDuplicate(eventId)) return;
+    if (!eventId) console.warn('[dedup] No event_id on message body');
+    if (eventId && await isDuplicate(eventId)) return;
 
     if (msg.subtype) return;
     if (msg.bot_id) return;
@@ -833,6 +915,17 @@ export async function startSlackApp(): Promise<void> {
     if (!existingThread) return;
 
     const userId = msg.user;
+
+    // Per-user rate limit: 5 requests per 60 seconds
+    if (await isRateLimited(userId)) {
+      await client.chat.postMessage({
+        channel: msg.channel,
+        thread_ts: msg.thread_ts,
+        text: ':warning: You\'re sending requests too quickly. Please wait a moment before trying again.',
+      }).catch(() => {});
+      return;
+    }
+
     const userEmail = await getUserEmail(client, userId);
     const text = (msg.text ?? '').trim();
     if (!text) return;
@@ -850,7 +943,7 @@ export async function startSlackApp(): Promise<void> {
   // ---- Event: reaction_added — flag emoji triggers issue flow ----
   slackApp.event('reaction_added', async ({ event, client, body }) => {
     const eventId = (body as any).event_id;
-    if (eventId && isDuplicate(eventId)) return;
+    if (eventId && await isDuplicate(eventId)) return;
 
     if (event.reaction !== 'triangular_flag_on_post') return;
     if (!isAllowedChannel(event.item.channel)) return;
