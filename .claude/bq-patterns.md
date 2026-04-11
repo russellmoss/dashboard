@@ -169,6 +169,10 @@ These can differ when leads are reassigned. The dual filter ensures the SGA gets
 
 `SGM_Owner_Name__c` in the view = `Opportunity.Opportunity_Owner_Name__c` in Salesforce. It's the opportunity owner's name, which is always an SGM for recruiting opps.
 
+### SGA ↔ SGM Relationship (No Fixed Teams)
+
+SGAs are **not** assigned to specific SGMs. Lead routing from SGAs to SGMs is **round-robin** — there is no fixed team structure. Do NOT use `User.Lead_Routing_SGM_Name__c` to infer SGA-to-SGM team assignments; it only reflects routing queue position. For SGM attribution on deals, use `SGM_Owner_Name__c` on the opportunity.
+
 ---
 
 ## ARR/AUM Calculations

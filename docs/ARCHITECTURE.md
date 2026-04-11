@@ -28,6 +28,7 @@
 18. [Saved Reports](#18-saved-reports)
 19. [SGM Hub](#19-sgm-hub)
 20. [Pipeline Forecast](#20-pipeline-forecast)
+21. [Savvy Analyst Bot](#21-savvy-analyst-bot)
 
 ---
 
@@ -48,17 +49,24 @@ Replaces Tableau for Savvy Wealth's **recruiting funnel analytics**. Tracks fina
 | **Database** | Google BigQuery | Analytics data warehouse |
 | **User Data** | PostgreSQL (Prisma) | Users, goals, permissions |
 | **Deployment** | Vercel | Serverless, edge, cron |
+| **Analyst Bot** | Claude Sonnet 4.6 + Slack Bolt | Conversational BI via Slack |
+| **Bot Hosting** | Google Cloud Run (us-east1) | Always-on container, no CPU throttling |
 | **Monitoring** | Sentry | Error tracking, logging |
 
 ### Data Flow
 
 ```
 Salesforce ──► BigQuery (every 6 hours) ──► Next.js API ──► React Dashboard
-  ▲                  │
+  ▲                  │                                          ▲
+  │                  ▼                                          │
+  │           vw_funnel_master (pre-computed view)         DashboardRequest
+  │                  │                                          ▲
+  │                  ▼                                          │
+  │     Slack ◄──► Analyst Bot (Cloud Run) ──► Claude API ──► MCP Server
+  │                  │                            (Sonnet)    (schema-context)
   │                  ▼
-  │           vw_funnel_master (pre-computed view)
-  │                  │
-  │                  ▼
+  │           bot_audit (interaction_log, issues, issue_events)
+  │
   └──── Hightouch (daily, Marketing_Segment__c writeback via Bulk API v2)
 ```
 
@@ -2371,6 +2379,155 @@ npm run gen:all
 
 ---
 
-*Last Updated: March 25, 2026*
+## 21. Savvy Analyst Bot
+
+### Overview
+
+The Savvy Analyst Bot (`packages/analyst-bot/`) is a conversational BI tool that runs in Slack. Users @mention the bot with natural language data questions and receive formatted results with charts, tables, and XLSX exports — all without touching the dashboard.
+
+| Property | Value |
+|----------|-------|
+| Package | `packages/analyst-bot/` (`@savvy/analyst-bot`) |
+| Runtime | Node.js 20 on Google Cloud Run (us-east1) |
+| LLM | Claude Sonnet 4.6 via Anthropic API (beta MCP client) |
+| Schema Context | Remote MCP server (`schema-context`) for view/field/rule lookups |
+| Slack Framework | `@slack/bolt` 4.x (ExpressReceiver, HTTP mode) |
+| Thread Storage | Neon PostgreSQL (`bot_threads` table, JSONB messages) |
+| Audit Log | BigQuery `bot_audit.interaction_log` (streaming inserts) |
+| Issue Tracking | BigQuery `bot_audit.issues` + `bot_audit.issue_events` + Neon `DashboardRequest` |
+
+### Architecture
+
+```
+Slack (user @mention)
+  │
+  ▼
+Cloud Run (savvy-analyst-bot)
+  ├── slack.ts ─── Bolt event handlers (app_mention, message, reaction, action, view)
+  ├── conversation.ts ─── Core engine: calls Claude, parses charts/XLSX/issues
+  ├── claude.ts ─── Anthropic API client with remote MCP server attachment
+  ├── charts.ts ─── Chart.js PNG rendering from [CHART] blocks
+  ├── xlsx.ts ─── ExcelJS workbook generation from [XLSX] / [EXPORT_SQL] blocks
+  ├── bq-query.ts ─── Direct BigQuery execution for large XLSX exports
+  ├── issues.ts ─── Format and post issue reports to #data-issues
+  ├── dashboard-request.ts ─── Create DashboardRequest + sync to BigQuery
+  ├── thread-store.ts ─── Neon CRUD for conversation threads
+  ├── audit.ts ─── Fire-and-forget BigQuery audit logging
+  └── system-prompt.ts ─── Single source of truth for Claude's analyst persona
+```
+
+### Conversation Flow
+
+1. User @mentions the bot in an allowed Slack channel
+2. Bot adds hourglass reaction, loads thread history from Neon
+3. User message + history sent to Claude Sonnet via Anthropic beta API with MCP server attached
+4. Claude calls schema-context MCP tools (`describe_view`, `get_metric`, `lint_query`, `execute_sql`) to gather data
+5. Bot parses Claude's response for `[CHART]`, `[XLSX]`, `[EXPORT_SQL]`, and `[ISSUE]` blocks
+6. Renders chart PNG (Chart.js via canvas), generates XLSX (ExcelJS), or files issue as appropriate
+7. Posts text response + uploads chart/XLSX to thread
+8. Saves thread state to Neon, writes audit record to BigQuery
+
+### Issue Reporting (Slack Modal)
+
+When a user says "report issue" (or similar triggers), the bot skips Claude entirely and presents a Slack modal form:
+
+1. Bot posts a "Report Issue" button in the thread (with the original question shown as context)
+2. User clicks the button — Slack modal opens with:
+   - **What looks wrong?** — textarea (pre-filled if user included text after "report issue")
+   - **What did you expect?** — textarea (optional)
+   - **Priority** — dropdown (Low / Medium / High, defaults to Medium)
+3. On submit, the issue is filed to three places simultaneously:
+   - **Neon** — `DashboardRequest` row (type `DATA_ERROR`, ID prefix `cbot_`)
+   - **BigQuery** — `bot_audit.issues` row + `bot_audit.issue_events` "created" event
+   - **Slack** — Formatted report posted to `#data-issues` channel
+4. Confirmation message posted in the original thread
+
+Other issue triggers: "this doesn't look right", "flag this", "this looks wrong", "something is off", or the :triangular_flag_on_post: reaction emoji.
+
+### XLSX Export Paths
+
+| Path | Trigger | How It Works |
+|------|---------|--------------|
+| `[EXPORT_SQL]` | Claude writes SQL + column spec | Bot executes SQL directly against BigQuery, maps rows to columns, generates XLSX. Preferred for large datasets (>10 rows). |
+| `[XLSX]` | Claude serializes data as JSON | Bot normalizes Claude's shape (headers → columns, array rows → keyed rows), generates XLSX. For small datasets. |
+| Heuristic | User requests export but no block present | Bot parses markdown tables from response text and converts to XLSX. |
+
+### System Prompt Rules
+
+The system prompt (`system-prompt.ts`) enforces:
+
+- **Pre-query gate**: Must call `describe_view` and `get_metric` before writing SQL, then `lint_query` before executing
+- **Cohort mode default**: Conversion rates always use cohort mode unless user explicitly requests period mode
+- **Slack formatting**: `*bold*` not `**bold**`, tables wrapped in triple backticks, `<url|text>` link format
+- **Output structure**: Results → Chart → Editorial → Suggested follow-up → Footer
+- **No narration**: Response must start with the data, not "Let me check the schema..."
+
+### Deployment
+
+| Property | Value |
+|----------|-------|
+| Image | `gcr.io/savvy-gtm-analytics/savvy-analyst-bot` |
+| Region | us-east1 |
+| Min instances | 1 (always warm) |
+| CPU throttling | Disabled (`--no-cpu-throttling`) — required for async Bolt handlers |
+| Startup CPU boost | Enabled |
+| Port | 3000 |
+| Entry point | `node dist/index.js --mode slack` |
+| Cleanup | `POST /internal/cleanup` (authenticated, deletes threads >48h old) |
+
+**Deploy command:**
+```bash
+cd packages/analyst-bot
+gcloud builds submit --tag gcr.io/savvy-gtm-analytics/savvy-analyst-bot
+gcloud run deploy savvy-analyst-bot --image gcr.io/savvy-gtm-analytics/savvy-analyst-bot --region us-east1 --no-cpu-throttling
+```
+
+### Environment Variables
+
+| Variable | Source | Purpose |
+|----------|--------|---------|
+| `ANTHROPIC_API_KEY` | Secret Manager | Claude API authentication |
+| `MCP_SERVER_URL` | Config | Remote MCP server endpoint |
+| `MCP_API_KEY` | Secret Manager | MCP server authentication |
+| `DATABASE_URL` | Secret Manager | Neon PostgreSQL connection string |
+| `BIGQUERY_PROJECT` | Config | `savvy-gtm-analytics` |
+| `AUDIT_DATASET` | Config | `bot_audit` |
+| `AUDIT_TABLE` | Config | `interaction_log` |
+| `SLACK_BOT_TOKEN` | Secret Manager | Slack Bot OAuth token |
+| `SLACK_SIGNING_SECRET` | Secret Manager | Slack request verification |
+| `ALLOWED_CHANNELS` | Config | Comma-separated channel IDs the bot responds in |
+| `ISSUES_CHANNEL` | Config | Channel ID for #data-issues |
+| `MAINTAINER_SLACK_ID` | Config | User ID tagged on issue reports |
+| `BOT_SUBMITTER_ID` | Config | Fallback DashboardRequest submitter |
+| `CLEANUP_SECRET` | Secret Manager | Auth header for cleanup endpoint |
+| `VERBOSE` | Config | `true` for debug logging |
+
+### Slack App Setup
+
+The Slack app requires two endpoints pointing at the same Cloud Run URL:
+
+| Slack Setting | URL |
+|---------------|-----|
+| Event Subscriptions → Request URL | `https://<service-url>/slack/events` |
+| Interactivity & Shortcuts → Request URL | `https://<service-url>/slack/events` |
+
+**Required bot scopes**: `app_mentions:read`, `chat:write`, `channels:history`, `files:write`, `reactions:read`, `reactions:write`, `users:read`, `users:read.email`
+
+**Event subscriptions**: `app_mention`, `message.channels`, `reaction_added`
+
+### BigQuery Audit Schema
+
+**Dataset**: `bot_audit`
+
+| Table | Purpose | Write Pattern |
+|-------|---------|---------------|
+| `interaction_log` | Every bot interaction (question, response, tools called, SQL, bytes scanned) | Streaming insert (fire-and-forget) |
+| `issues` | One mutable row per issue (current state: title, description, priority, status) | DML INSERT (immediately updatable) |
+| `issue_events` | Append-only audit trail (created, status changes, comments) | Streaming insert |
+| `issue_summary` | VIEW joining issues + latest event | Read-only |
+
+---
+
+*Last Updated: April 11, 2026*
 *Validated Against Codebase: Yes*
-*Last Review: March 25, 2026 (Section 20 updated: RatesSummaryBar, RealizationBanner, WhatIfPanel components; realization forecast + scenario runner export tabs)*
+*Last Review: April 11, 2026 (Section 21 added: Savvy Analyst Bot architecture, deployment, issue modal flow)*

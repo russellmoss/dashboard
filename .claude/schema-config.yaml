@@ -236,18 +236,19 @@ terms:
     gotcha: "Re-engagement records are UNION ALL'd into the lead side of vw_funnel_master and DO affect lead-level metrics."
 
   SGA:
-    definition: "Sales Growth Associate — the SDR/BDR role responsible for outbound prospecting and activity."
+    definition: "Sales Growth Associate — the SDR/BDR role responsible for outbound prospecting and activity. SGAs are NOT paired with or assigned to specific SGMs. Lead routing to SGMs is round-robin, not a fixed team structure."
     related_fields:
       - SGA__c
       - IsSGA
       - task_executor_name
-    gotcha: "SGA__c is a User ID, not a boolean. Join to User table to get the name."
+    gotcha: "SGA__c is a User ID, not a boolean. Join to User table to get the name. Do NOT use Lead_Routing_SGM_Name__c to infer SGA-to-SGM team assignments — it reflects round-robin lead routing, not org chart relationships."
 
   SGM:
-    definition: "Sales Growth Manager — the AE/closer role responsible for pipeline management and closing deals."
+    definition: "Sales Growth Manager — the SQO qualification gate. SGMs review SQLs routed from SGAs (via round-robin, not fixed assignment) and decide whether they qualify as SQOs. SGMs do NOT 'manage' or 'supervise' SGAs — they are independent pipeline roles."
     related_fields:
       - OwnerId
       - Owner_Name
+    gotcha: "Do NOT group SGAs under SGMs as 'teams'. Lead routing is round-robin. Use SGM_Owner_Name__c on opportunities for SGM attribution on deals, not User.Lead_Routing_SGM_Name__c."
 
   Finance_View__c:
     definition: "The canonical source for marketing channel grouping on opportunities. Replaces the deprecated new_mapping table."
@@ -416,6 +417,11 @@ fields:
   SGA_Owner_Name__c:
     meaning: "COALESCE(Lead.SGA_Owner_Name__c, User lookup of Opp.SGA__c) — the SGA who owns the lead."
     gotcha: "For activity analysis, this is lead ownership. For actual effort measurement, use task_executor_name instead."
+
+  Lead_Routing_SGM_Name__c:
+    meaning: "Name of the SGM in the lead routing round-robin for this user. This is a routing configuration field, NOT an org chart relationship."
+    dangerous: true
+    gotcha: "DO NOT use this field to infer SGA-to-SGM team assignments, reporting relationships, or org structure. SGAs are not assigned to specific SGMs — lead routing is round-robin. This field only reflects which SGM is next in the routing queue, not who 'manages' the SGA."
 
   Finance_View__c:
     meaning: "COALESCE(Opp.Finance_View__c, Lead.Finance_View__c, 'Other') — canonical channel source."
@@ -687,6 +693,12 @@ rules:
     required: "Is_SGM__c = TRUE AND IsActive = TRUE"
     severity: error
     message: "When querying for SGMs, always JOIN to SavvyGTMData.User and filter Is_SGM__c = TRUE AND IsActive = TRUE. This is the canonical active-SGM definition used by the SGM Hub leaderboard (src/lib/queries/sgm-leaderboard.ts). Without this filter, results include SGAs, inactive reps, and terminated reps."
+
+  - id: no_sga_sgm_team_assignment
+    type: ban_pattern
+    pattern: "Lead_Routing_SGM_Name__c"
+    severity: error
+    message: "Do NOT use Lead_Routing_SGM_Name__c to group SGAs under SGMs or infer team assignments. SGAs are not assigned to specific SGMs — lead routing is round-robin. This field only reflects routing queue position, not org chart relationships. For SGM attribution on deals, use SGM_Owner_Name__c on the opportunity."
 
 metrics:
   contacted_to_mql:
