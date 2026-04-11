@@ -63,6 +63,66 @@ function buildThreadLink(channelId: string, threadTs: string): string {
   return `https://slack.com/archives/${channelId}/p${threadTs.replace('.', '')}`;
 }
 
+// ---- "Working on it" personality messages ----
+
+const WORKING_MESSAGES = [
+  ':pickaxe: Off to the mines of BigQuery to fetch your answers. Back in a sec.',
+  ':mag: Diving into the data warehouse. Hold tight.',
+  ':rocket: On it. Querying the mothership now.',
+  ':gear: Crunching the numbers. This is the fun part (for me, anyway).',
+  ':books: Let me check the receipts. One moment.',
+  ':detective: Investigating. I love a good data mystery.',
+  ':coffee: Brewing up your answer. Give me a moment.',
+  ':satellite: Pinging the data warehouse. Stand by for results.',
+  ':bar_chart: Running the numbers. I live for this.',
+  ':flashlight: Digging through the data. Be right back.',
+  ':zap: On it. Let me see what the numbers say.',
+  ':nerd_face: Great question. Let me go find out.',
+  ':hammer_and_wrench: Working on it. BigQuery and I are having a chat.',
+  ':crystal_ball: Consulting the data oracle. One moment.',
+  ':abacus: Doing the math. I promise I won\'t guess.',
+];
+
+function getWorkingMessage(): string {
+  return WORKING_MESSAGES[Math.floor(Math.random() * WORKING_MESSAGES.length)];
+}
+
+/**
+ * Post a fun "working on it" message and return its ts for later deletion.
+ */
+async function postWorkingMessage(
+  client: any,
+  channelId: string,
+  threadTs: string
+): Promise<string | null> {
+  try {
+    const result = await client.chat.postMessage({
+      channel: channelId,
+      thread_ts: threadTs,
+      text: getWorkingMessage(),
+    });
+    return result.ts ?? null;
+  } catch {
+    return null; // Non-critical
+  }
+}
+
+/**
+ * Delete the "working on it" message after the real response is posted.
+ */
+async function deleteWorkingMessage(
+  client: any,
+  channelId: string,
+  messageTs: string | null
+): Promise<void> {
+  if (!messageTs) return;
+  try {
+    await client.chat.delete({ channel: channelId, ts: messageTs });
+  } catch {
+    // Non-critical — might lack permission or message already deleted
+  }
+}
+
 // ---- Issue reporting via Slack modal ----
 
 const ISSUE_TRIGGERS = [
@@ -313,7 +373,8 @@ export async function startSlackApp(): Promise<void> {
       return;
     }
 
-    // Add thinking reaction
+    // Add thinking reaction + post working message
+    let workingTs: string | null = null;
     try {
       await client.reactions.add({
         channel: event.channel,
@@ -323,12 +384,15 @@ export async function startSlackApp(): Promise<void> {
     } catch {
       // Non-critical
     }
+    workingTs = await postWorkingMessage(client, event.channel, threadTs);
 
     try {
       const slackThreadLink = buildThreadLink(event.channel, threadTs);
       const result = await processMessage(text, threadId, event.channel, userEmail, { threadLink: slackThreadLink });
+      await deleteWorkingMessage(client, event.channel, workingTs);
       await handleResponse(client, event.channel, threadTs, event.ts, userId, result);
     } catch (err) {
+      await deleteWorkingMessage(client, event.channel, workingTs);
       console.error('[slack] app_mention handler error:', (err as Error).message);
       await client.chat.postMessage({
         channel: event.channel,
@@ -373,11 +437,15 @@ export async function startSlackApp(): Promise<void> {
       return;
     }
 
+    const workingTs = await postWorkingMessage(client, msg.channel, msg.thread_ts);
+
     try {
       const slackThreadLink = buildThreadLink(msg.channel, msg.thread_ts);
       const result = await processMessage(text, threadId, msg.channel, userEmail, { threadLink: slackThreadLink });
+      await deleteWorkingMessage(client, msg.channel, workingTs);
       await handleResponse(client, msg.channel, msg.thread_ts, msg.ts, userId, result);
     } catch (err) {
+      await deleteWorkingMessage(client, msg.channel, workingTs);
       console.error('[slack] message handler error:', (err as Error).message);
       await client.chat.postMessage({
         channel: msg.channel,
