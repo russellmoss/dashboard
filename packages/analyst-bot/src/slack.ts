@@ -10,6 +10,8 @@
 // CPU allocated after the response is sent.
 
 import { App, ExpressReceiver, LogLevel } from '@slack/bolt';
+import type { BlockAction, ButtonAction } from '@slack/bolt';
+import type { KnownBlock } from '@slack/types';
 import { processMessage } from './conversation';
 import { postIssueToChannel } from './issues';
 import { loadThread } from './thread-store';
@@ -88,7 +90,9 @@ function getWorkingMessage(): string {
 }
 
 /**
- * Post a fun "working on it" message and return its ts for later deletion.
+ * Post a fun "working on it" message and return its ts for later in-place update.
+ * The returned ts is used by chat.update to replace the working message with the
+ * final Block Kit response — no delete+post flicker.
  */
 async function postWorkingMessage(
   client: any,
@@ -104,22 +108,6 @@ async function postWorkingMessage(
     return result.ts ?? null;
   } catch {
     return null; // Non-critical
-  }
-}
-
-/**
- * Delete the "working on it" message after the real response is posted.
- */
-async function deleteWorkingMessage(
-  client: any,
-  channelId: string,
-  messageTs: string | null
-): Promise<void> {
-  if (!messageTs) return;
-  try {
-    await client.chat.delete({ channel: channelId, ts: messageTs });
-  } catch {
-    // Non-critical — might lack permission or message already deleted
   }
 }
 
@@ -174,7 +162,7 @@ async function postIssueButton(
     prefillText: prefillText.substring(0, 500),
   });
 
-  const blocks: any[] = [
+  const blocks: KnownBlock[] = [
     {
       type: 'section',
       text: {
@@ -215,57 +203,11 @@ async function postIssueButton(
   });
 }
 
-/**
- * Convert markdown to Slack mrkdwn format.
- * Slack uses *bold* not **bold**, doesn't support # headings,
- * and doesn't render pipe tables — those need to be in code blocks.
- */
-function toSlackMrkdwn(text: string): string {
-  // Protect existing code blocks from transformation — replace with placeholders
-  const codeBlocks: string[] = [];
-  text = text.replace(/```[\s\S]*?```/g, (match) => {
-    codeBlocks.push(match);
-    return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
-  });
-
-  // Wrap bare markdown tables (not already in code blocks) in triple backticks.
-  // A pipe table row starts and ends with | (after optional whitespace).
-  // Ensure trailing newline so the regex captures tables at end of string.
-  const hadTrailingNewline = text.endsWith('\n');
-  if (!hadTrailingNewline) text += '\n';
-  text = text.replace(
-    /((?:^\s*\|[^\n]+\|\s*\n)+)/gm,
-    (match) => {
-      if (/\|[-:| ]+\|/.test(match)) {
-        return '```\n' + match.trim() + '\n```\n';
-      }
-      return match;
-    }
-  );
-  if (!hadTrailingNewline) text = text.replace(/\n$/, '');
-
-  text = text
-    // **bold** → *bold*
-    .replace(/\*\*(.+?)\*\*/g, '*$1*')
-    // ### heading → *heading*
-    .replace(/^#{1,3}\s+(.+)$/gm, '*$1*')
-    // [text](url) → <url|text>
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<$2|$1>')
-    // --- horizontal rule → ———
-    .replace(/^---$/gm, '———')
-  ;
-
-  // Restore code blocks
-  text = text.replace(/__CODE_BLOCK_(\d+)__/g, (_, idx) => codeBlocks[parseInt(idx)]);
-
-  return text;
-}
+// ---- Response formatting utilities ----
 
 /**
- * Split a long Slack message into chunks that stay under the comfortable
- * display limit. Slack collapses messages over ~4000 chars behind a
- * "Show more" fold which can break code block rendering. This function
- * splits at paragraph boundaries (\n\n) while keeping code blocks
+ * Split a long message into chunks that stay under a character limit.
+ * Splits at paragraph boundaries (\n\n) while keeping code blocks
  * (``` ... ```) as atomic units that are never split across chunks.
  */
 function splitSlackMessage(text: string, maxLen = 3800): string[] {
@@ -274,8 +216,6 @@ function splitSlackMessage(text: string, maxLen = 3800): string[] {
   const chunks: string[] = [];
   let current = '';
 
-  // Split into segments: alternating [text, codeBlock, text, codeBlock, ...]
-  // The capture group keeps code blocks as separate array elements.
   const segments = text.split(/(```[\s\S]*?```)/g);
 
   for (const segment of segments) {
@@ -283,14 +223,12 @@ function splitSlackMessage(text: string, maxLen = 3800): string[] {
     const isCodeBlock = segment.startsWith('```') && segment.endsWith('```');
 
     if (isCodeBlock) {
-      // Code block — keep as atomic unit, never split
       if (current.length + segment.length > maxLen && current.trim()) {
         chunks.push(current.trimEnd());
         current = '';
       }
       current += segment;
     } else {
-      // Plain text — can split at paragraph boundaries (\n\n)
       const paragraphs = segment.split(/(\n\n)/);
       for (const para of paragraphs) {
         if (current.length + para.length > maxLen && current.trim()) {
@@ -314,9 +252,6 @@ interface TableSnippet {
 /**
  * Extract large code blocks (tables, matrices, grids) from the message text
  * and return them as separate snippets to be uploaded as text files.
- * Slack renders file snippets with proper monospace, horizontal scrolling,
- * and collapse controls — far better than inline ``` blocks for wide tables.
- *
  * Code blocks with fewer than minLines stay inline.
  */
 function extractTableSnippets(text: string, minLines = 5): { text: string; snippets: TableSnippet[] } {
@@ -324,10 +259,8 @@ function extractTableSnippets(text: string, minLines = 5): { text: string; snipp
 
   const result = text.replace(/```\n([\s\S]*?\n)```/g, (match, content: string) => {
     const lines = content.trim().split('\n');
-    if (lines.length < minLines) return match; // keep small blocks inline
+    if (lines.length < minLines) return match;
 
-    // Classify the table type for a descriptive title.
-    // Check box-drawing grid first (corners/verticals), then dash separators.
     let title = 'Data Table';
     if (/[╔╗╚╝╠╣╬║═┌┐└┘├┤┬┴┼│]/.test(content)) {
       title = 'Performance Matrix';
@@ -338,16 +271,75 @@ function extractTableSnippets(text: string, minLines = 5): { text: string; snipp
     }
 
     snippets.push({ content: content.trim(), title });
-    return ''; // remove from inline text
+    return '';
   });
 
-  // Collapse triple+ blank lines left behind
   return { text: result.replace(/\n{3,}/g, '\n\n').trim(), snippets };
 }
 
 /**
- * Handle a bot response — post text, upload chart/xlsx, post issues.
- * Extracted to avoid duplication between app_mention and message handlers.
+ * Strip the plain-text export/issue footer that Claude appends to every response.
+ * We replace it with interactive Block Kit buttons.
+ */
+function stripFooter(text: string): string {
+  // Remove the "---\n"export xlsx"...\n"report issue"..." footer
+  return text
+    .replace(/\n?---\n"export xlsx"[^\n]*\n"report issue"[^\n]*/i, '')
+    .replace(/\n?———\n"export xlsx"[^\n]*\n"report issue"[^\n]*/i, '')
+    .trimEnd();
+}
+
+/**
+ * Build Block Kit blocks for an analyst bot response.
+ * Uses MarkdownBlock (type: 'markdown') for the main body — it accepts real
+ * markdown (headings, bold, pipe tables) and Slack renders it natively.
+ * This eliminates the need for toSlackMrkdwn() conversion.
+ *
+ * Follow-up suggestions stay as plain text in the body (too long for button labels).
+ * Footer has two action buttons: Export XLSX + Report Issue.
+ */
+function buildResponseBlocks(
+  bodyText: string,
+  channelId: string,
+  threadTs: string,
+): KnownBlock[] {
+  const blocks: KnownBlock[] = [];
+
+  // Main body — split into chunks for the 12K char MarkdownBlock limit
+  const chunks = splitSlackMessage(bodyText, 11_000);
+  for (const chunk of chunks) {
+    blocks.push({
+      type: 'markdown',
+      text: chunk,
+    } as KnownBlock);
+  }
+
+  // Footer action buttons — always present
+  blocks.push({ type: 'divider' } as KnownBlock);
+  blocks.push({
+    type: 'actions',
+    elements: [
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: ':bar_chart: Export XLSX', emoji: true },
+        action_id: 'export_xlsx_action',
+        value: JSON.stringify({ threadTs, channelId }),
+      },
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: ':triangular_flag_on_post: Report Issue', emoji: true },
+        action_id: 'report_issue_action',
+        value: JSON.stringify({ threadTs, channelId }),
+      },
+    ],
+  } as KnownBlock);
+
+  return blocks;
+}
+
+/**
+ * Handle a bot response — update working message in-place with Block Kit,
+ * upload chart/xlsx/snippets, post issues.
  */
 async function handleResponse(
   client: any,
@@ -355,24 +347,52 @@ async function handleResponse(
   threadTs: string,
   eventTs: string,
   userId: string,
-  result: Awaited<ReturnType<typeof processMessage>>
+  result: Awaited<ReturnType<typeof processMessage>>,
+  workingTs: string | null,
+  progressTimers: NodeJS.Timeout[],
 ): Promise<void> {
-  // Format for Slack, extract large tables as file snippets, then split text
-  const slackText = toSlackMrkdwn(result.text);
-  const { text: cleanText, snippets } = extractTableSnippets(slackText);
-  const chunks = splitSlackMessage(cleanText);
+  // Clear progress timers before final update
+  for (const t of progressTimers) clearTimeout(t);
 
-  // Post text message(s)
-  for (const chunk of chunks) {
+  // Strip the plain-text footer (replaced by interactive buttons) and extract table snippets
+  const bodyText = stripFooter(result.text);
+  const { text: cleanText, snippets } = extractTableSnippets(bodyText);
+
+  // Build Block Kit blocks — follow-up suggestion stays as inline text
+  const blocks = buildResponseBlocks(cleanText, channelId, threadTs);
+
+  // Plain-text fallback for push notifications
+  const fallback = cleanText.substring(0, 300).replace(/[*`#]/g, '');
+
+  // Update working message in-place with final Block Kit response (no flicker)
+  if (workingTs) {
+    try {
+      await client.chat.update({
+        channel: channelId,
+        ts: workingTs,
+        text: fallback,
+        blocks,
+      });
+    } catch (err) {
+      console.error('[slack] chat.update failed, falling back to postMessage:', (err as Error).message);
+      // Fallback: post as new message
+      await client.chat.postMessage({
+        channel: channelId,
+        thread_ts: threadTs,
+        text: fallback,
+        blocks,
+      });
+    }
+  } else {
     await client.chat.postMessage({
       channel: channelId,
       thread_ts: threadTs,
-      text: chunk,
+      text: fallback,
+      blocks,
     });
   }
 
-  // Upload large tables/matrices as text file snippets — Slack renders these
-  // with proper monospace, horizontal scroll, and collapse controls.
+  // Upload large tables/matrices as text file snippets
   for (const snippet of snippets) {
     try {
       await client.filesUploadV2({
@@ -410,7 +430,7 @@ async function handleResponse(
         thread_ts: threadTs,
         file: result.xlsxBuffer,
         filename: result.xlsxFilename,
-        title: result.xlsxFilename,
+        title: result.xlsxFilename.replace(/_/g, ' ').replace(/\.xlsx$/, ''),
       });
     } catch (err) {
       console.error('[slack] XLSX upload failed:', (err as Error).message);
@@ -440,6 +460,99 @@ async function handleResponse(
   }
 }
 
+/**
+ * Set up progressive mid-flight update timers on the working message.
+ * Updates at 60s and 120s so the user knows the bot is still alive.
+ * Returns timer handles so the caller can clear them on completion.
+ */
+function setupProgressTimers(
+  client: any,
+  channelId: string,
+  workingTs: string | null,
+): NodeJS.Timeout[] {
+  if (!workingTs) return [];
+
+  const t1 = setTimeout(async () => {
+    try {
+      await client.chat.update({
+        channel: channelId,
+        ts: workingTs,
+        text: ':hourglass: Still working — complex query in progress...',
+        blocks: [{
+          type: 'section',
+          text: { type: 'mrkdwn', text: ':hourglass: Still working — complex query in progress...' },
+        }],
+      });
+    } catch { /* non-critical */ }
+  }, 60_000);
+
+  const t2 = setTimeout(async () => {
+    try {
+      await client.chat.update({
+        channel: channelId,
+        ts: workingTs,
+        text: ':hourglass: Almost there — finalizing results...',
+        blocks: [{
+          type: 'section',
+          text: { type: 'mrkdwn', text: ':hourglass: Almost there — finalizing results...' },
+        }],
+      });
+    } catch { /* non-critical */ }
+  }, 120_000);
+
+  return [t1, t2];
+}
+
+/**
+ * Process a user query end-to-end: post working message, set progress timers,
+ * call Claude, update in-place with Block Kit response.
+ * Shared by app_mention and message handlers.
+ */
+async function processAndRespond(
+  client: any,
+  channelId: string,
+  threadTs: string,
+  eventTs: string,
+  userId: string,
+  userEmail: string,
+  text: string,
+): Promise<void> {
+  const workingTs = await postWorkingMessage(client, channelId, threadTs);
+  const progressTimers = setupProgressTimers(client, channelId, workingTs);
+
+  try {
+    const threadId = `${channelId}:${threadTs}`;
+    const slackThreadLink = buildThreadLink(channelId, threadTs);
+    const result = await processMessage(text, threadId, channelId, userEmail, { threadLink: slackThreadLink });
+    await handleResponse(client, channelId, threadTs, eventTs, userId, result, workingTs, progressTimers);
+  } catch (err) {
+    for (const t of progressTimers) clearTimeout(t);
+    console.error('[slack] handler error:', (err as Error).message);
+
+    // Update working message with error (or post new if no working message)
+    const errorText = `Sorry, I ran into a technical issue. Please try again or simplify your question.`;
+    if (workingTs) {
+      try {
+        await client.chat.update({
+          channel: channelId,
+          ts: workingTs,
+          text: errorText,
+          blocks: [{
+            type: 'section',
+            text: { type: 'mrkdwn', text: `:warning: ${errorText}` },
+          }],
+        });
+        return;
+      } catch { /* fall through */ }
+    }
+    await client.chat.postMessage({
+      channel: channelId,
+      thread_ts: threadTs,
+      text: errorText,
+    }).catch(() => {});
+  }
+}
+
 export async function startSlackApp(): Promise<void> {
   const useSocketMode = !!process.env.SLACK_APP_TOKEN;
 
@@ -460,150 +573,59 @@ export async function startSlackApp(): Promise<void> {
     logLevel: LogLevel.INFO,
   });
 
-  // ---- app_mention: bot is @mentioned in a channel ----
-  slackApp.event('app_mention', async ({ event, client, body }) => {
-    // Deduplicate Slack retries
-    const eventId = (body as any).event_id;
-    if (eventId && isDuplicate(eventId)) return;
+  // ---- Action handlers — registered BEFORE app.start() ----
 
-    if (!isAllowedChannel(event.channel)) return;
+  // Export XLSX button clicked → trigger export in the thread
+  slackApp.action<BlockAction<ButtonAction>>(
+    'export_xlsx_action',
+    async ({ ack, body, client }) => {
+      await ack();
 
-    const threadTs = (event as any).thread_ts ?? event.ts;
-    const threadId = `${event.channel}:${threadTs}`;
-    const userId = event.user ?? 'unknown';
-    const userEmail = await getUserEmail(client, userId);
+      const action = body.actions[0] as ButtonAction;
+      let channelId: string | undefined;
+      let threadTs: string | undefined;
 
-    // Strip the bot mention from the text
-    const text = event.text.replace(/<@[A-Z0-9]+>/g, '').trim();
-    if (!text) return;
+      try {
+        const parsed = JSON.parse(action.value ?? '{}');
+        channelId = parsed.channelId;
+        threadTs = parsed.threadTs;
+      } catch {
+        return;
+      }
+      if (!channelId || !threadTs) return;
 
-    // Issue reporting — show modal button instead of multi-turn Claude conversation
-    if (isIssueTrigger(text)) {
-      const prefill = extractIssueText(text);
-      await postIssueButton(client, event.channel, threadTs, threadId, prefill);
-      return;
+      const userId = body.user.id;
+      const userEmail = await getUserEmail(client, userId);
+
+      await processAndRespond(client, channelId, threadTs, threadTs, userId, userEmail, 'export xlsx');
     }
+  );
 
-    // Add thinking reaction + post working message
-    let workingTs: string | null = null;
-    try {
-      await client.reactions.add({
-        channel: event.channel,
-        timestamp: event.ts,
-        name: 'hourglass_flowing_sand',
-      });
-    } catch {
-      // Non-critical
-    }
-    workingTs = await postWorkingMessage(client, event.channel, threadTs);
+  // Report Issue button clicked → show issue modal
+  slackApp.action<BlockAction<ButtonAction>>(
+    'report_issue_action',
+    async ({ ack, body, client }) => {
+      await ack();
 
-    try {
-      const slackThreadLink = buildThreadLink(event.channel, threadTs);
-      const result = await processMessage(text, threadId, event.channel, userEmail, { threadLink: slackThreadLink });
-      await deleteWorkingMessage(client, event.channel, workingTs);
-      await handleResponse(client, event.channel, threadTs, event.ts, userId, result);
-    } catch (err) {
-      await deleteWorkingMessage(client, event.channel, workingTs);
-      console.error('[slack] app_mention handler error:', (err as Error).message);
-      await client.chat.postMessage({
-        channel: event.channel,
-        thread_ts: threadTs,
-        text: `Sorry, I ran into a technical issue: ${(err as Error).message}`,
-      }).catch(() => {});
-    }
-  });
+      const action = body.actions[0] as ButtonAction;
+      let channelId: string | undefined;
+      let threadTs: string | undefined;
 
-  // ---- message: user replies in an existing bot thread ----
-  // Only responds in threads the bot started (thread exists in bot_threads table).
-  // Ignores all other threads — the bot doesn't jump into random conversations.
-  slackApp.message(async ({ message, client, body }) => {
-    const msg = message as any;
+      try {
+        const parsed = JSON.parse(action.value ?? '{}');
+        channelId = parsed.channelId;
+        threadTs = parsed.threadTs;
+      } catch {
+        return;
+      }
+      if (!channelId || !threadTs) return;
 
-    // Deduplicate Slack retries
-    const eventId = (body as any).event_id;
-    if (eventId && isDuplicate(eventId)) return;
-
-    // Only handle normal user messages in threads — filter out subtypes
-    if (msg.subtype) return;
-    if (msg.bot_id) return;
-    if (!msg.thread_ts) return; // Only thread replies, not top-level messages
-
-    // Check allowlist
-    if (!isAllowedChannel(msg.channel)) return;
-
-    // Only respond in threads the bot started — check if thread exists in bot_threads
-    const threadId = `${msg.channel}:${msg.thread_ts}`;
-    const existingThread = await loadThread(threadId);
-    if (!existingThread) return; // Not a bot thread — ignore
-
-    const userId = msg.user;
-    const userEmail = await getUserEmail(client, userId);
-    const text = (msg.text ?? '').trim();
-    if (!text) return;
-
-    // Issue reporting — show modal button instead of multi-turn Claude conversation
-    if (isIssueTrigger(text)) {
-      const prefill = extractIssueText(text);
-      await postIssueButton(client, msg.channel, msg.thread_ts, threadId, prefill);
-      return;
-    }
-
-    const workingTs = await postWorkingMessage(client, msg.channel, msg.thread_ts);
-
-    try {
-      const slackThreadLink = buildThreadLink(msg.channel, msg.thread_ts);
-      const result = await processMessage(text, threadId, msg.channel, userEmail, { threadLink: slackThreadLink });
-      await deleteWorkingMessage(client, msg.channel, workingTs);
-      await handleResponse(client, msg.channel, msg.thread_ts, msg.ts, userId, result);
-    } catch (err) {
-      await deleteWorkingMessage(client, msg.channel, workingTs);
-      console.error('[slack] message handler error:', (err as Error).message);
-      await client.chat.postMessage({
-        channel: msg.channel,
-        thread_ts: msg.thread_ts,
-        text: `Sorry, I ran into a technical issue: ${(err as Error).message}`,
-      }).catch(() => {});
-    }
-  });
-
-  // ---- reaction_added: flag emoji triggers issue flow ----
-  slackApp.event('reaction_added', async ({ event, client, body }) => {
-    const eventId = (body as any).event_id;
-    if (eventId && isDuplicate(eventId)) return;
-
-    if (event.reaction !== 'triangular_flag_on_post') return;
-    if (!isAllowedChannel(event.item.channel)) return;
-    if (event.item.type !== 'message') return;
-
-    const channelId = event.item.channel;
-    const messageTs = event.item.ts;
-    const userId = event.user;
-    const userEmail = await getUserEmail(client, userId);
-
-    // Fetch the message that was reacted to for context
-    try {
-      await client.conversations.history({
-        channel: channelId,
-        latest: messageTs,
-        inclusive: true,
-        limit: 1,
-      });
-    } catch (err) {
-      console.error('[slack] Failed to fetch reacted message:', (err as Error).message);
-      return;
-    }
-
-    const threadTs = messageTs;
-    const threadId = `${channelId}:${threadTs}`;
-
-    try {
+      const threadId = `${channelId}:${threadTs}`;
       await postIssueButton(client, channelId, threadTs, threadId, '');
-    } catch (err) {
-      console.error('[slack] Failed to post issue button:', (err as Error).message);
     }
-  });
+  );
 
-  // ---- action: "Report Issue" button clicked → open modal form ----
+  // Existing: "Report Issue" modal button → open modal form
   slackApp.action('open_issue_modal', async ({ ack, body, client }) => {
     await ack();
 
@@ -696,7 +718,7 @@ export async function startSlackApp(): Promise<void> {
     });
   });
 
-  // ---- view: Issue modal submitted → file the issue ----
+  // ---- View: Issue modal submitted → file the issue ----
   slackApp.view('issue_report_submit', async ({ ack, body, view, client }) => {
     await ack();
 
@@ -733,21 +755,19 @@ export async function startSlackApp(): Promise<void> {
       timestamp: new Date().toISOString(),
     };
 
-    // File the issue to dashboard + BigQuery
     try {
       await createDashboardRequest(issue, userEmail);
     } catch (err) {
       console.error('[slack] Issue creation failed:', (err as Error).message);
     }
 
-    // Post to #data-issues channel
     try {
       await postIssueToChannel(client, issue);
     } catch (err) {
       console.error('[slack] Issue channel post failed:', (err as Error).message);
     }
 
-    // Confirm in the original thread
+    // Confirm in the original thread — plain text intentional (confirmation is simple)
     try {
       await client.chat.postMessage({
         channel: metadata.channelId,
@@ -759,8 +779,96 @@ export async function startSlackApp(): Promise<void> {
     }
   });
 
+  // ---- Event: app_mention — bot is @mentioned in a channel ----
+  slackApp.event('app_mention', async ({ event, client, body }) => {
+    const eventId = (body as any).event_id;
+    if (eventId && isDuplicate(eventId)) return;
+
+    if (!isAllowedChannel(event.channel)) return;
+
+    const threadTs = (event as any).thread_ts ?? event.ts;
+    const userId = event.user ?? 'unknown';
+    const userEmail = await getUserEmail(client, userId);
+
+    const text = event.text.replace(/<@[A-Z0-9]+>/g, '').trim();
+    if (!text) return;
+
+    // Issue reporting — show modal button
+    if (isIssueTrigger(text)) {
+      const threadId = `${event.channel}:${threadTs}`;
+      const prefill = extractIssueText(text);
+      await postIssueButton(client, event.channel, threadTs, threadId, prefill);
+      return;
+    }
+
+    // Add thinking reaction
+    try {
+      await client.reactions.add({
+        channel: event.channel,
+        timestamp: event.ts,
+        name: 'hourglass_flowing_sand',
+      });
+    } catch {
+      // Non-critical
+    }
+
+    await processAndRespond(client, event.channel, threadTs, event.ts, userId, userEmail, text);
+  });
+
+  // ---- Event: message — user replies in an existing bot thread ----
+  slackApp.message(async ({ message, client, body }) => {
+    const msg = message as any;
+
+    const eventId = (body as any).event_id;
+    if (eventId && isDuplicate(eventId)) return;
+
+    if (msg.subtype) return;
+    if (msg.bot_id) return;
+    if (!msg.thread_ts) return;
+
+    if (!isAllowedChannel(msg.channel)) return;
+
+    const threadId = `${msg.channel}:${msg.thread_ts}`;
+    const existingThread = await loadThread(threadId);
+    if (!existingThread) return;
+
+    const userId = msg.user;
+    const userEmail = await getUserEmail(client, userId);
+    const text = (msg.text ?? '').trim();
+    if (!text) return;
+
+    // Issue reporting — show modal button
+    if (isIssueTrigger(text)) {
+      const prefill = extractIssueText(text);
+      await postIssueButton(client, msg.channel, msg.thread_ts, threadId, prefill);
+      return;
+    }
+
+    await processAndRespond(client, msg.channel, msg.thread_ts, msg.ts, userId, userEmail, text);
+  });
+
+  // ---- Event: reaction_added — flag emoji triggers issue flow ----
+  slackApp.event('reaction_added', async ({ event, client, body }) => {
+    const eventId = (body as any).event_id;
+    if (eventId && isDuplicate(eventId)) return;
+
+    if (event.reaction !== 'triangular_flag_on_post') return;
+    if (!isAllowedChannel(event.item.channel)) return;
+    if (event.item.type !== 'message') return;
+
+    const channelId = event.item.channel;
+    const messageTs = event.item.ts;
+    const threadTs = messageTs;
+    const threadId = `${channelId}:${threadTs}`;
+
+    try {
+      await postIssueButton(client, channelId, threadTs, threadId, '');
+    } catch (err) {
+      console.error('[slack] Failed to post issue button:', (err as Error).message);
+    }
+  });
+
   // ---- Cleanup endpoint (POST /internal/cleanup) ----
-  // For Cloud Scheduler to call daily. Authenticated via CLEANUP_SECRET header.
   if (receiver) {
     receiver.router.post('/internal/cleanup', async (req, res) => {
       const secret = req.headers['x-cleanup-secret'];

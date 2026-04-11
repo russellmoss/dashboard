@@ -10,7 +10,8 @@ import { generateWorkbook } from './xlsx';
 import { loadThread, saveThread } from './thread-store';
 import { writeAuditRecord } from './audit';
 import { createDashboardRequest } from './dashboard-request';
-import { parseExportSqlBlock, stripExportSqlBlocks, runExportQuery } from './bq-query';
+import { parseExportSqlBlock, stripExportSqlBlocks, runExportQuery, runExportQueryDirect } from './bq-query';
+import type { ExportQueryResult } from './bq-query';
 import {
   ConversationMessage,
   ConversationResult,
@@ -117,16 +118,39 @@ export async function processMessage(
     if (userRequestedExport || hasExportSql || hasXlsxBlock) {
       exportTrigger = userRequestedExport ? 'explicit_request' : 'large_result_set';
 
-      // Path 1: [EXPORT_SQL] — Claude wrote the query, bot executes it directly
+      // Path 1: [EXPORT_SQL] — Claude wrote the query, bot validates and executes it
+      // Uses the same safety controls as the MCP server: read-only validation,
+      // LIMIT injection, 1GB byte cap, 120s timeout. Falls back to direct BQ on failure.
       if (hasExportSql) {
-        verbose('📋 Found [EXPORT_SQL] block — running query directly...');
+        verbose('📋 Found [EXPORT_SQL] block — executing with MCP-equivalent validation...');
         const exportReq = parseExportSqlBlock(responseText);
         if (exportReq) {
-          try {
-            verbose('🔍 Executing export query against BigQuery...');
-            const rows = await runExportQuery(exportReq.sql);
-            verbose(`📊 Got ${rows.length} rows from BigQuery`);
+          let rows: Record<string, any>[] = [];
+          let exportBytesScanned = 0;
 
+          try {
+            verbose('🔍 Executing validated export query against BigQuery...');
+            const result: ExportQueryResult = await runExportQuery(exportReq.sql);
+            rows = result.rows;
+            exportBytesScanned = result.bytesProcessed;
+            verbose(`📊 Got ${rows.length} rows, ${exportBytesScanned} bytes scanned`);
+
+            // Add export SQL and bytes to the audit trail
+            claudeResponse.sqlExecuted.push(exportReq.sql);
+            claudeResponse.bytesScanned += exportBytesScanned;
+          } catch (validatedErr) {
+            // Validated path failed — fall back to direct BQ (with jobTimeoutMs)
+            console.warn('[conversation] Validated export failed:', (validatedErr as Error).message);
+            try {
+              rows = await runExportQueryDirect(exportReq.sql);
+              claudeResponse.sqlExecuted.push(exportReq.sql);
+              verbose(`📊 Fallback: Got ${rows.length} rows from direct BQ`);
+            } catch (fallbackErr) {
+              console.error('[conversation] EXPORT_SQL execution failed (both paths):', (fallbackErr as Error).message);
+            }
+          }
+
+          if (rows.length > 0) {
             // Convert BQ rows to keyed objects matching column keys
             const keyedRows = rows.map((row: any) => {
               const obj: Record<string, any> = {};
@@ -151,8 +175,6 @@ export async function processMessage(
             });
             xlsxFilename = sanitizeFilename(exportReq.title) + '.xlsx';
             verbose(`📄 XLSX generated: ${xlsxBuffer.length} bytes, ${rows.length} rows`);
-          } catch (err) {
-            console.error('[conversation] EXPORT_SQL execution failed:', (err as Error).message);
           }
         }
         responseText = stripExportSqlBlocks(responseText);
