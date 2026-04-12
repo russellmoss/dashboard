@@ -16,9 +16,26 @@ import { Redis } from '@upstash/redis';
 import { Ratelimit } from '@upstash/ratelimit';
 import { processMessage } from './conversation';
 import { postIssueToChannel } from './issues';
-import { loadThread } from './thread-store';
+import { loadThread, saveUserQuery, getRecentQueriesForUser } from './thread-store';
 import { createDashboardRequest } from './dashboard-request';
-import { IssueReport, IssuePriority } from './types';
+import { buildHomeView, buildAdminHomeView } from './app-home';
+import { dmUser } from './dm-helper';
+import { createSchedule, getActiveSchedulesForUser, cancelSchedule, getAllSchedules, adminCancelSchedule, computeNextRunAt } from './schedule-store';
+import { isReportRequest, generateReport } from './report-generator';
+import { runDueSchedules } from './schedule-runner';
+import { getAllReports } from './report-store';
+import { IssueReport, IssuePriority, ScheduleFrequency } from './types';
+
+// Admin user IDs — see admin App Home view instead of regular user view.
+// Configured via ADMIN_SLACK_USER_IDS env var (comma-separated).
+// Falls back to hardcoded Russell Moss ID if env var is unset.
+const ADMIN_USER_IDS = new Set(
+  (process.env.ADMIN_SLACK_USER_IDS ?? 'U09DX3U7UTW').split(',').map(s => s.trim()).filter(Boolean)
+);
+
+function isAdmin(userId: string): boolean {
+  return ADMIN_USER_IDS.has(userId);
+}
 
 // In-memory cache for user email lookups
 const userEmailCache = new Map<string, string>();
@@ -321,9 +338,16 @@ interface TableSnippet {
 function extractTableSnippets(text: string, minLines = 5): { text: string; snippets: TableSnippet[] } {
   const snippets: TableSnippet[] = [];
 
-  const result = text.replace(/```\n([\s\S]*?\n)```/g, (match, content: string) => {
+  const result = text.replace(/```(?:sql)?\n([\s\S]*?\n)```/g, (match, content: string) => {
     const lines = content.trim().split('\n');
     if (lines.length < minLines) return match;
+
+    // Skip SQL code blocks — they should stay inline, not be extracted as file snippets.
+    // SQL blocks start with SELECT, WITH, INSERT, or common SQL keywords.
+    const firstLine = content.trim().split('\n')[0].trim().toUpperCase();
+    if (/^(SELECT|WITH|--|\/\*|CREATE|ALTER|INSERT|UPDATE|DELETE|EXPLAIN)\b/.test(firstLine)) {
+      return match; // keep SQL inline
+    }
 
     let title = 'Data Table';
     if (/[╔╗╚╝╠╣╬║═┌┐└┘├┤┬┴┼│]/.test(content)) {
@@ -354,6 +378,29 @@ function stripFooter(text: string): string {
 }
 
 /**
+ * Format query provenance for display in a Slack context block.
+ * Shows query count (singular/plural) and bytes scanned in human-readable units.
+ */
+function formatProvenance(queryCount: number, bytesScanned: number): string {
+  const queryLabel = queryCount === 1 ? '1 query' : `${queryCount} queries`;
+
+  let bytesLabel: string;
+  if (bytesScanned <= 0) {
+    bytesLabel = 'usage unavailable';
+  } else if (bytesScanned < 1_048_576) { // < 1 MB
+    bytesLabel = '< 1 MB scanned';
+  } else if (bytesScanned < 1_073_741_824) { // < 1 GB
+    const mb = (bytesScanned / 1_048_576).toFixed(1);
+    bytesLabel = `${mb} MB scanned`;
+  } else {
+    const gb = (bytesScanned / 1_073_741_824).toFixed(2);
+    bytesLabel = `${gb} GB scanned`;
+  }
+
+  return `:mag: ${queryLabel} · ${bytesLabel}`;
+}
+
+/**
  * Build Block Kit blocks for an analyst bot response.
  * Uses MarkdownBlock (type: 'markdown') for the main body — it accepts real
  * markdown (headings, bold, pipe tables) and Slack renders it natively.
@@ -361,11 +408,16 @@ function stripFooter(text: string): string {
  *
  * Follow-up suggestions stay as plain text in the body (too long for button labels).
  * Footer has two action buttons: Export XLSX + Report Issue.
+ * Provenance context block (query count + bytes scanned) is always last.
  */
 function buildResponseBlocks(
   bodyText: string,
   channelId: string,
   threadTs: string,
+  queryCount: number,
+  bytesScanned: number,
+  questionText?: string,
+  frozenSql?: string,
 ): KnownBlock[] {
   const blocks: KnownBlock[] = [];
 
@@ -380,23 +432,50 @@ function buildResponseBlocks(
 
   // Footer action buttons — always present
   blocks.push({ type: 'divider' } as KnownBlock);
-  blocks.push({
-    type: 'actions',
-    elements: [
-      {
-        type: 'button',
-        text: { type: 'plain_text', text: ':bar_chart: Export XLSX', emoji: true },
-        action_id: 'export_xlsx_action',
-        value: JSON.stringify({ threadTs, channelId }),
-      },
-      {
-        type: 'button',
-        text: { type: 'plain_text', text: ':triangular_flag_on_post: Report Issue', emoji: true },
-        action_id: 'report_issue_action',
-        value: JSON.stringify({ threadTs, channelId }),
-      },
-    ],
-  } as KnownBlock);
+
+  const footerElements: any[] = [
+    {
+      type: 'button',
+      text: { type: 'plain_text', text: ':bar_chart: Export XLSX', emoji: true },
+      action_id: 'export_xlsx_action',
+      value: JSON.stringify({ threadTs, channelId }),
+    },
+  ];
+
+  // "Schedule This" shortcut — opens the Report Builder modal with pre-filled question + SQL.
+  // Only shown when the response executed at least one SQL query.
+  console.log(`[buildResponseBlocks] queryCount=${queryCount}, questionText="${questionText?.substring(0, 50)}", frozenSql=${frozenSql ? 'present' : 'absent'}, footerElements=${footerElements.length}`);
+  if (queryCount > 0 && questionText) {
+    footerElements.push({
+      type: 'button',
+      text: { type: 'plain_text', text: ':calendar: Schedule This', emoji: true },
+      action_id: 'open_report_builder',
+      value: JSON.stringify({
+        prefillQuestion: questionText.substring(0, 500),
+        prefillSql: frozenSql?.substring(0, 2800) ?? '',
+      }),
+    });
+  }
+
+  footerElements.push({
+    type: 'button',
+    text: { type: 'plain_text', text: ':triangular_flag_on_post: Report Issue', emoji: true },
+    action_id: 'report_issue_action',
+    value: JSON.stringify({ threadTs, channelId }),
+  });
+
+  blocks.push({ type: 'actions', elements: footerElements } as KnownBlock);
+
+  // Provenance context block — always last, small grey text
+  if (queryCount > 0) {
+    blocks.push({
+      type: 'context',
+      elements: [{
+        type: 'mrkdwn',
+        text: formatProvenance(queryCount, bytesScanned),
+      }],
+    } as KnownBlock);
+  }
 
   return blocks;
 }
@@ -414,6 +493,7 @@ async function handleResponse(
   result: Awaited<ReturnType<typeof processMessage>>,
   workingTs: string | null,
   progressTimers: NodeJS.Timeout[],
+  questionText?: string,
 ): Promise<void> {
   // Clear progress timers before final update
   for (const t of progressTimers) clearTimeout(t);
@@ -422,8 +502,17 @@ async function handleResponse(
   const bodyText = stripFooter(result.text);
   const { text: cleanText, snippets } = extractTableSnippets(bodyText);
 
+  // Extract frozen SQL for the "Schedule This" button (last SQL executed is the main data query)
+  const frozenSql = (result as any).sqlExecuted?.length > 0
+    ? (result as any).sqlExecuted[(result as any).sqlExecuted.length - 1]
+    : undefined;
+
   // Build Block Kit blocks — follow-up suggestion stays as inline text
-  const blocks = buildResponseBlocks(cleanText, channelId, threadTs);
+  const blocks = buildResponseBlocks(
+    cleanText, channelId, threadTs,
+    result.provenanceQueryCount, result.provenanceBytesScanned,
+    questionText, frozenSql,
+  );
 
   // Plain-text fallback for push notifications
   const fallback = cleanText.substring(0, 300).replace(/[*`#]/g, '');
@@ -588,7 +677,9 @@ async function processAndRespond(
     const threadId = `${channelId}:${threadTs}`;
     const slackThreadLink = buildThreadLink(channelId, threadTs);
     const result = await processMessage(text, threadId, channelId, userEmail, { threadLink: slackThreadLink });
-    await handleResponse(client, channelId, threadTs, eventTs, userId, result, workingTs, progressTimers);
+    await handleResponse(client, channelId, threadTs, eventTs, userId, result, workingTs, progressTimers, text);
+    // Save query for App Home recent queries (fire-and-forget)
+    saveUserQuery(userId, text);
   } catch (err) {
     for (const t of progressTimers) clearTimeout(t);
     console.error('[slack] handler error:', (err as Error).message);
@@ -636,6 +727,115 @@ export async function startSlackApp(): Promise<void> {
     // Cloud Run must use --no-cpu-throttling to keep CPU alive after ack.
     logLevel: LogLevel.INFO,
   });
+
+  // ---- App Home tab ----
+
+  slackApp.event('app_home_opened', async ({ event, client }) => {
+    if (event.tab !== 'home') return;
+
+    const userId = event.user;
+
+    try {
+      if (isAdmin(userId)) {
+        // Admin view — fetch all data across all users
+        const [allSchedules, allReports] = await Promise.all([
+          getAllSchedules(),
+          getAllReports(),
+        ]);
+
+        await client.views.publish({
+          user_id: userId,
+          view: {
+            type: 'home',
+            blocks: buildAdminHomeView({ allSchedules, allReports }),
+          },
+        });
+      } else {
+        // Regular user view
+        const [recentQueries, activeSchedules] = await Promise.all([
+          getRecentQueriesForUser(userId),
+          getActiveSchedulesForUser(userId),
+        ]);
+
+        await client.views.publish({
+          user_id: userId,
+          view: {
+            type: 'home',
+            blocks: buildHomeView({ recentQueries, activeSchedules }),
+          },
+        });
+      }
+    } catch (err) {
+      console.error('[app_home_opened] views.publish failed:', (err as Error).message);
+    }
+  });
+
+  // Quick-launch and Ask Again buttons from App Home — each has a unique action_id
+  // but they all do the same thing: open a DM, post the question, run it.
+  const quickLaunchIds = [
+    'home_quick_pipeline', 'home_quick_sga', 'home_quick_funnel',
+    'home_quick_sqos', 'home_quick_leads', 'home_ask_again',
+  ];
+  for (const actionId of quickLaunchIds) {
+    slackApp.action<BlockAction<ButtonAction>>(
+      actionId,
+      async ({ ack, body, client }) => {
+        await ack(); // within 3 seconds
+
+        const action = body.actions[0] as ButtonAction;
+        const question = action.value;
+        const userId = body.user.id;
+        if (!question || !userId) return;
+
+        // Open a DM with the user to post results
+        let dmChannelId: string | undefined;
+        try {
+          const dm = await client.conversations.open({ users: userId });
+          dmChannelId = dm.channel?.id;
+        } catch (err) {
+          console.error('[app_home] Failed to open DM:', (err as Error).message);
+          return;
+        }
+        if (!dmChannelId) return;
+
+        // Post the question as a visible message in the DM
+        let questionTs: string | undefined;
+        try {
+          const posted = await client.chat.postMessage({
+            channel: dmChannelId,
+            text: question,
+          });
+          questionTs = posted.ts;
+        } catch (err) {
+          console.error('[app_home] Failed to post question:', (err as Error).message);
+          return;
+        }
+        if (!questionTs) return;
+
+        const userEmail = await getUserEmail(client, userId);
+
+        // Run through normal pipeline — post working message in thread, process, respond
+        await processAndRespond(client, dmChannelId, questionTs, questionTs, userId, userEmail, question);
+
+        // Refresh Home tab so recent queries + schedules update
+        const [recentQueries, activeSchedules] = await Promise.all([
+          getRecentQueriesForUser(userId),
+          getActiveSchedulesForUser(userId),
+        ]);
+        try {
+          await client.views.publish({
+            user_id: userId,
+            view: {
+              type: 'home',
+              blocks: buildHomeView({ recentQueries, activeSchedules }),
+            },
+          });
+        } catch (err) {
+          console.error('[app_home] Home refresh failed:', (err as Error).message);
+        }
+      }
+    );
+  }
 
   // ---- Action handlers — registered BEFORE app.start() ----
 
@@ -686,6 +886,423 @@ export async function startSlackApp(): Promise<void> {
 
       const threadId = `${channelId}:${threadTs}`;
       await postIssueButton(client, channelId, threadTs, threadId, '');
+    }
+  );
+
+  // ---- Report Builder modal: open from App Home or "Schedule This" footer button ----
+  slackApp.action<BlockAction<ButtonAction>>(
+    'open_report_builder',
+    async ({ ack, body, client }) => {
+      await ack();
+
+      // Parse prefill data if coming from "Schedule This" footer button
+      let prefillQuestion = '';
+      let prefillSql = '';
+      try {
+        const action = body.actions[0] as ButtonAction;
+        if (action.value) {
+          const parsed = JSON.parse(action.value);
+          prefillQuestion = parsed.prefillQuestion ?? '';
+          prefillSql = parsed.prefillSql ?? '';
+        }
+      } catch { /* no prefill — opened from App Home */ }
+
+      const triggerId = (body as any).trigger_id;
+      if (!triggerId) return;
+
+      // trigger_id expires in 3 seconds — open modal immediately, no async work before this
+      await client.views.open({
+        trigger_id: triggerId,
+        view: {
+          type: 'modal',
+          callback_id: 'report_builder_submit',
+          title: { type: 'plain_text', text: 'Create Recurring Report' },
+          submit: { type: 'plain_text', text: 'Preview Report' },
+          close: { type: 'plain_text', text: 'Cancel' },
+          // Store frozen SQL in private_metadata (max 3000 chars)
+          private_metadata: JSON.stringify({
+            prefillSql: prefillSql.substring(0, 2800),
+          }),
+          blocks: [
+            {
+              type: 'input',
+              block_id: 'report_name',
+              label: { type: 'plain_text', text: 'Report Name' },
+              hint: { type: 'plain_text', text: 'e.g. "Weekly SGA Leaderboard"' },
+              element: {
+                type: 'plain_text_input',
+                action_id: 'value',
+                placeholder: { type: 'plain_text', text: 'Give your report a name' },
+                max_length: 80,
+              },
+            },
+            {
+              type: 'input',
+              block_id: 'report_question',
+              label: { type: 'plain_text', text: 'What do you want in this report?' },
+              hint: { type: 'plain_text', text: 'Be specific — this is the question the bot will run on each delivery.' },
+              element: {
+                type: 'plain_text_input',
+                action_id: 'value',
+                multiline: true,
+                placeholder: { type: 'plain_text', text: 'e.g. "Show me SQO volume by SGA for the last 7 days with conversion rates"' },
+                ...(prefillQuestion ? { initial_value: prefillQuestion } : {}),
+                max_length: 500,
+              },
+            },
+            {
+              type: 'input',
+              block_id: 'delivery_type',
+              label: { type: 'plain_text', text: 'Delivery Format' },
+              element: {
+                type: 'static_select',
+                action_id: 'value',
+                initial_option: {
+                  text: { type: 'plain_text', text: 'Slack DM' },
+                  value: 'slack_dm',
+                },
+                options: [
+                  { text: { type: 'plain_text', text: 'Slack DM' }, value: 'slack_dm' },
+                  { text: { type: 'plain_text', text: 'Google Doc' }, value: 'google_doc' },
+                ],
+              },
+            },
+            {
+              type: 'input',
+              block_id: 'frequency',
+              label: { type: 'plain_text', text: 'Cadence' },
+              element: {
+                type: 'static_select',
+                action_id: 'value',
+                initial_option: {
+                  text: { type: 'plain_text', text: 'Weekly' },
+                  value: 'weekly',
+                },
+                options: [
+                  { text: { type: 'plain_text', text: 'Daily' }, value: 'daily' },
+                  { text: { type: 'plain_text', text: 'Weekly' }, value: 'weekly' },
+                  { text: { type: 'plain_text', text: 'Monthly' }, value: 'monthly' },
+                ],
+              },
+            },
+            {
+              type: 'input',
+              block_id: 'deliver_at_time',
+              label: { type: 'plain_text', text: 'Deliver At (Eastern Time)' },
+              hint: { type: 'plain_text', text: 'Pick any time — converted to UTC internally' },
+              element: {
+                type: 'timepicker',
+                action_id: 'value',
+                initial_time: '09:00',
+                placeholder: { type: 'plain_text', text: 'Pick a time' },
+              },
+            },
+          ],
+        },
+      });
+    }
+  );
+
+  // ---- View: Report Builder submitted → run live preview ----
+  slackApp.view('report_builder_submit', async ({ ack, body, view, client }) => {
+    // Extract form values
+    const reportName = view.state.values.report_name.value.value ?? '';
+    const question = view.state.values.report_question.value.value ?? '';
+    const deliveryType = view.state.values.delivery_type.value.selected_option?.value ?? 'slack_dm';
+    const frequency = (view.state.values.frequency.value.selected_option?.value ?? 'weekly') as ScheduleFrequency;
+    const userId = body.user.id;
+
+    // Timepicker returns "HH:MM" — treat as ET, convert to UTC (+4 EDT / +5 EST)
+    const etTime = view.state.values.deliver_at_time.value.selected_time ?? '09:00';
+    const [etHour, etMinute] = etTime.split(':').map(Number);
+    // Use EDT offset (+4) — DST-aware conversion would require a library.
+    // EDT: UTC = ET + 4. EST: UTC = ET + 5. Using 4 (EDT) since most of the year.
+    const utcHour = (etHour + 4) % 24;
+    // Store as minutes since midnight UTC for sub-hour precision
+    const deliverAtHour = utcHour * 60 + (etMinute ?? 0);
+
+    // Parse prefill SQL from private_metadata
+    let frozenSql = '';
+    try {
+      const meta = JSON.parse(view.private_metadata ?? '{}');
+      frozenSql = meta.prefillSql ?? '';
+    } catch { /* no prefill SQL */ }
+
+    // Ack with a loading update so Slack doesn't close the modal
+    await ack({
+      response_action: 'update',
+      view: {
+        type: 'modal',
+        callback_id: 'report_builder_submit',
+        title: { type: 'plain_text', text: 'Generating Preview...' },
+        close: { type: 'plain_text', text: 'Cancel' },
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `:hourglass: Running *"${question.substring(0, 100)}"* against live data...\n\nThis usually takes 10-30 seconds.`,
+            },
+          },
+        ],
+      },
+    });
+
+    // Run the query live for preview
+    const threadId = `preview:${userId}:${Date.now()}`;
+    let previewText = '';
+    let finalSql = frozenSql;
+
+    try {
+      const result = await processMessage(question, threadId, userId, userId);
+      previewText = result.text ?? '';
+
+      // Capture frozen SQL from the preview run if we don't have it from prefill
+      if (!finalSql && result.provenanceQueryCount > 0) {
+        try {
+          const { BigQuery } = require('@google-cloud/bigquery');
+          const bq = new BigQuery({ projectId: process.env.BIGQUERY_PROJECT });
+          const ds = process.env.AUDIT_DATASET ?? 'bot_audit';
+          const tbl = process.env.AUDIT_TABLE ?? 'interaction_log';
+          const [rows] = await bq.query({
+            query: `SELECT sql_executed FROM \`${process.env.BIGQUERY_PROJECT}.${ds}.${tbl}\`
+                    WHERE thread_id = @threadId ORDER BY timestamp DESC LIMIT 1`,
+            params: { threadId },
+          });
+          if (rows?.[0]?.sql_executed) {
+            const sqlArr = typeof rows[0].sql_executed === 'string'
+              ? JSON.parse(rows[0].sql_executed)
+              : rows[0].sql_executed;
+            if (Array.isArray(sqlArr) && sqlArr.length > 0) {
+              finalSql = sqlArr[sqlArr.length - 1];
+            }
+          }
+        } catch (sqlErr) {
+          console.error('[report_builder] Failed to retrieve preview SQL:', (sqlErr as Error).message);
+        }
+      }
+    } catch (err) {
+      previewText = ':warning: Could not generate a preview for this query. You can still schedule it.';
+    }
+
+    // Compute first delivery time for display
+    const nextRun = computeNextRunAt(frequency, deliverAtHour);
+    const frequencyLabel = frequency.charAt(0).toUpperCase() + frequency.slice(1);
+    const deliveryLabel = deliveryType === 'google_doc' ? 'Google Doc' : 'Slack DM';
+
+    // Push the preview modal (replaces the loading state)
+    try {
+      await client.views.update({
+        view_id: view.id,
+        view: {
+          type: 'modal',
+          callback_id: 'report_preview_confirm',
+          title: { type: 'plain_text', text: ('Preview: ' + reportName).substring(0, 24) },
+          submit: { type: 'plain_text', text: 'Schedule Report' },
+          close: { type: 'plain_text', text: 'Edit' },
+          private_metadata: JSON.stringify({
+            reportName,
+            question,
+            frequency,
+            deliverAtHour,
+            deliveryType,
+            frozenSql: (finalSql ?? '').substring(0, 2800),
+            userId,
+          }),
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `*Here's what your report will look like based on today's data:*`,
+              },
+            },
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: '```\n' + previewText.substring(0, 2800) + '\n```',
+              },
+            },
+            { type: 'divider' },
+            {
+              type: 'section',
+              fields: [
+                { type: 'mrkdwn', text: `*Report Name*\n${reportName}` },
+                { type: 'mrkdwn', text: `*Cadence*\n${frequencyLabel}` },
+                { type: 'mrkdwn', text: `*Delivery*\n${deliveryLabel}` },
+                { type: 'mrkdwn', text: `*First Delivery*\n${nextRun.toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' })} ET` },
+              ],
+            },
+          ],
+        },
+      });
+    } catch (err) {
+      console.error('[report_builder] Failed to push preview modal:', (err as Error).message);
+    }
+  });
+
+  // ---- View: Preview confirmed → save schedule ----
+  slackApp.view('report_preview_confirm', async ({ ack, body, view, client }) => {
+    await ack();
+
+    const userId = body.user.id;
+    let meta: any = {};
+    try { meta = JSON.parse(view.private_metadata ?? '{}'); } catch { /* ignore */ }
+
+    const { reportName, question, frequency, deliverAtHour, deliveryType, frozenSql } = meta;
+
+    if (!question || !reportName) {
+      await dmUser(client, userId, {
+        text: ':warning: Something went wrong saving your report. Please try again.',
+      });
+      return;
+    }
+
+    // If no frozen SQL was captured (BQ streaming buffer delay), use question text as fallback.
+    // The schedule runner will detect this and re-run through processMessage instead of raw SQL.
+    const effectiveSql = frozenSql || `QUESTION:${question}`;
+
+    const userEmail = await getUserEmail(client, userId);
+
+    try {
+      const schedule = await createSchedule({
+        userId,
+        userEmail: userEmail.endsWith('@unknown') ? null : userEmail,
+        reportName,
+        questionText: question,
+        frozenSql: effectiveSql,
+        frequency: frequency as ScheduleFrequency,
+        deliverAtHour: deliverAtHour ?? 9,
+        deliveryType: deliveryType ?? 'slack_dm',
+      });
+
+      const frequencyLabel = frequency.charAt(0).toUpperCase() + frequency.slice(1);
+      const deliveryLabel = deliveryType === 'google_doc' ? 'Google Doc' : 'Slack DM';
+
+      await dmUser(client, userId, {
+        text: `"${reportName}" has been scheduled.`,
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `:white_check_mark: *"${reportName}"* has been scheduled.\n\n*Cadence:* ${frequencyLabel}\n*Delivery:* ${deliveryLabel}\n*First delivery:* ${schedule.nextRunAt.toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' })} ET\n\nManage your reports in *App Home → Scheduled Reports*.`,
+            },
+          },
+        ],
+      });
+
+      // Refresh App Home so the new schedule appears immediately
+      const [recentQueries, activeSchedules] = await Promise.all([
+        getRecentQueriesForUser(userId),
+        getActiveSchedulesForUser(userId),
+      ]);
+      await client.views.publish({
+        user_id: userId,
+        view: { type: 'home', blocks: buildHomeView({ recentQueries, activeSchedules }) },
+      });
+    } catch (err) {
+      console.error('[report_preview_confirm] Failed to save schedule:', (err as Error).message);
+      await dmUser(client, userId, {
+        text: `:warning: Failed to schedule "${reportName}". Please try again.`,
+      });
+    }
+  });
+
+  // ---- Action: Cancel schedule (from App Home) ----
+  slackApp.action<BlockAction<ButtonAction>>(
+    'cancel_schedule',
+    async ({ ack, body, client }) => {
+      await ack();
+
+      const action = body.actions[0] as ButtonAction;
+      const scheduleId = action.value;
+      const userId = body.user.id;
+
+      if (!scheduleId) return;
+
+      try {
+        await cancelSchedule(scheduleId);
+
+        // Refresh App Home
+        const [recentQueries, activeSchedules] = await Promise.all([
+          getRecentQueriesForUser(userId),
+          getActiveSchedulesForUser(userId),
+        ]);
+        await client.views.publish({
+          user_id: userId,
+          view: {
+            type: 'home',
+            blocks: buildHomeView({ recentQueries, activeSchedules }),
+          },
+        });
+      } catch (err) {
+        console.error('[slack] Cancel schedule failed:', (err as Error).message);
+      }
+    }
+  );
+
+  // ---- Action: Admin cancel schedule (from Admin App Home) ----
+  slackApp.action<BlockAction<ButtonAction>>(
+    'admin_cancel_schedule',
+    async ({ ack, body, client }) => {
+      await ack();
+
+      const userId = body.user.id;
+
+      // Guard — only admins can use this action
+      if (!isAdmin(userId)) {
+        console.warn(`[admin] Non-admin user ${userId} attempted admin_cancel_schedule`);
+        return;
+      }
+
+      const action = body.actions[0] as ButtonAction;
+      const scheduleId = action.value;
+      if (!scheduleId) return;
+
+      try {
+        // Fetch the schedule first so we can DM the owner and log the name
+        const allSchedulesSnapshot = await getAllSchedules();
+        const target = allSchedulesSnapshot.find(s => s.id === scheduleId);
+
+        await adminCancelSchedule(scheduleId);
+
+        console.log(`[admin] ${userId} cancelled schedule ${scheduleId} (${target?.reportName ?? 'unknown'})`);
+
+        // If the schedule belonged to someone else, DM them
+        if (target && target.userId !== userId) {
+          await dmUser(client, target.userId, {
+            text: `Your scheduled report "${target.reportName}" was cancelled by an admin.`,
+            blocks: [{
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `:information_source: Your scheduled report *"${target.reportName}"* was cancelled by an admin. If you have questions, reach out in <#data-issues>.`,
+              },
+            }],
+          });
+        }
+
+        // Refresh admin App Home
+        const [allSchedulesRefresh, allReports] = await Promise.all([
+          getAllSchedules(),
+          getAllReports(),
+        ]);
+
+        await client.views.publish({
+          user_id: userId,
+          view: {
+            type: 'home',
+            blocks: buildAdminHomeView({
+              allSchedules: allSchedulesRefresh,
+              allReports,
+            }),
+          },
+        });
+      } catch (err) {
+        console.error('[admin_cancel_schedule] failed:', (err as Error).message);
+      }
     }
   );
 
@@ -882,6 +1499,30 @@ export async function startSlackApp(): Promise<void> {
       return;
     }
 
+    // Report intent check — redirect to report generator
+    if (isReportRequest(text)) {
+      try {
+        await client.reactions.add({
+          channel: event.channel,
+          timestamp: event.ts,
+          name: 'page_facing_up',
+        });
+      } catch { /* non-critical */ }
+
+      await client.chat.postMessage({
+        channel: event.channel,
+        thread_ts: threadTs,
+        text: ':page_facing_up: Working on your report — I\'ll DM you when it\'s ready. This usually takes 2-3 minutes.',
+      });
+
+      // Fire-and-forget — report generator handles its own error messages
+      const userName = userEmail.split('@')[0] ?? userId;
+      generateReport(client as any, userId, userEmail, userName, text, event.channel, threadTs).catch((err) => {
+        console.error('[slack] Report generation error:', (err as Error).message);
+      });
+      return;
+    }
+
     // Add thinking reaction
     try {
       await client.reactions.add({
@@ -937,6 +1578,21 @@ export async function startSlackApp(): Promise<void> {
       return;
     }
 
+    // Report intent check — redirect to report generator
+    if (isReportRequest(text)) {
+      await client.chat.postMessage({
+        channel: msg.channel,
+        thread_ts: msg.thread_ts,
+        text: ':page_facing_up: Working on your report — I\'ll DM you when it\'s ready. This usually takes 2-3 minutes.',
+      });
+
+      const userName = userEmail.split('@')[0] ?? userId;
+      generateReport(client as any, userId, userEmail, userName, text, msg.channel, msg.thread_ts).catch((err) => {
+        console.error('[slack] Report generation error:', (err as Error).message);
+      });
+      return;
+    }
+
     await processAndRespond(client, msg.channel, msg.thread_ts, msg.ts, userId, userEmail, text);
   });
 
@@ -977,6 +1633,29 @@ export async function startSlackApp(): Promise<void> {
         res.status(200).json({ deleted: count });
       } catch (err) {
         console.error('[cleanup] Error:', (err as Error).message);
+        res.status(500).json({ error: (err as Error).message });
+      }
+    });
+
+    // ---- Cron endpoint (POST /internal/run-schedules) ----
+    // Protected by CRON_SECRET header. Called by Cloud Scheduler every 15 minutes.
+    receiver.router.post('/internal/run-schedules', async (req, res) => {
+      const secret = req.headers['x-cron-secret'];
+      if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      try {
+        // Need a WebClient to send DMs — use the bot token
+        const { WebClient } = require('@slack/web-api');
+        const webClient = new WebClient(process.env.SLACK_BOT_TOKEN);
+
+        const summary = await runDueSchedules(webClient);
+        console.log(`[cron] Schedule run complete:`, summary);
+        res.status(200).json(summary);
+      } catch (err) {
+        console.error('[cron] run-schedules error:', (err as Error).message);
         res.status(500).json({ error: (err as Error).message });
       }
     });

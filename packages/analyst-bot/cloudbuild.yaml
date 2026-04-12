@@ -1,0 +1,14 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--no-cache'
+      - '-t'
+      - 'gcr.io/savvy-gtm-analytics/analyst-bot:latest'
+      - '.'
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/savvy-gtm-analytics/analyst-bot:latest'
+images:
+  - 'gcr.io/savvy-gtm-analytics/analyst-bot:latest'

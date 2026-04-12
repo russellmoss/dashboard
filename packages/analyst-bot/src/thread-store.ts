@@ -75,6 +75,51 @@ export async function deleteExpiredThreads(): Promise<number> {
 }
 
 /**
+ * Save a user query to the user_queries table for App Home recent queries.
+ * Fire-and-forget — never throws.
+ */
+export async function saveUserQuery(userId: string, questionText: string): Promise<void> {
+  try {
+    await getPool().query(
+      `INSERT INTO user_queries (user_id, question_text, created_at) VALUES ($1, $2, NOW())`,
+      [userId, questionText.substring(0, 2000)]
+    );
+  } catch (err) {
+    console.error('[thread-store] Failed to save user query:', (err as Error).message);
+  }
+}
+
+/**
+ * Get the 5 most recent distinct questions a user asked, ordered by recency.
+ * Returns [] on failure — never throws (App Home must always render).
+ */
+export async function getRecentQueriesForUser(userId: string): Promise<Array<{
+  questionText: string;
+  askedAt: Date;
+}>> {
+  try {
+    const result = await getPool().query(
+      `SELECT DISTINCT ON (question_text) question_text, created_at
+       FROM user_queries
+       WHERE user_id = $1
+       ORDER BY question_text, created_at DESC`,
+      [userId]
+    );
+    // Re-sort by recency and take top 5
+    return result.rows
+      .sort((a: any, b: any) => b.created_at.getTime() - a.created_at.getTime())
+      .slice(0, 5)
+      .map((row: any) => ({
+        questionText: row.question_text,
+        askedAt: row.created_at,
+      }));
+  } catch (err) {
+    console.error('[thread-store] Failed to get recent queries:', (err as Error).message);
+    return [];
+  }
+}
+
+/**
  * Close the pool. Call during graceful shutdown.
  */
 export async function closePool(): Promise<void> {

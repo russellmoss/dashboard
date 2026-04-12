@@ -291,6 +291,8 @@ export async function processMessage(
       issueDetails,
       exportTrigger,
       error: null,
+      provenanceQueryCount: claudeResponse.sqlExecuted.length,
+      provenanceBytesScanned: claudeResponse.bytesScanned,
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
@@ -306,6 +308,8 @@ export async function processMessage(
       issueDetails: null,
       exportTrigger: null,
       error: errorMsg,
+      provenanceQueryCount: 0,
+      provenanceBytesScanned: 0,
     };
   }
 }

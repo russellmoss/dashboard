@@ -17,6 +17,9 @@ COPY package*.json ./
 COPY tsconfig.json ./
 RUN npm ci
 
+# Force cache invalidation for source layer — bump this date on each deploy
+RUN echo "source-bust-20260412-v3"
+
 # Copy source and build
 COPY src/ ./src/
 RUN npm run build

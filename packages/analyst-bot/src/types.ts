@@ -166,4 +166,85 @@ export interface ConversationResult {
   issueDetails: IssueReport | null;
   exportTrigger: 'explicit_request' | 'large_result_set' | null;
   error: string | null;
+  provenanceQueryCount: number;
+  provenanceBytesScanned: number;
+}
+
+// ============================================================================
+// Scheduled Reports + Google Docs Report Generation types
+// ============================================================================
+
+/**
+ * Frequency for scheduled recurring reports.
+ */
+export type ScheduleFrequency = 'daily' | 'weekly' | 'monthly';
+
+/**
+ * A scheduled recurring report persisted in Neon Postgres (bot_schedules table).
+ * Users create these via the Report Builder modal (App Home or "Schedule This" shortcut).
+ */
+export interface ScheduleRecord {
+  id: string;
+  userId: string;
+  userEmail: string | null;
+  reportName: string;
+  questionText: string;
+  frozenSql: string;
+  frequency: ScheduleFrequency;
+  deliverAtHour: number;        // UTC hour 0-23
+  deliveryType: 'slack_dm' | 'google_doc';
+  nextRunAt: Date;
+  lastRunAt: Date | null;
+  failureCount: number;
+  createdAt: Date;
+  isActive: boolean;
+}
+
+/**
+ * Status of a single section within a generated report.
+ */
+export type ReportSectionStatus = 'pending' | 'running' | 'done' | 'failed';
+
+/**
+ * A section in a multi-section report (stored in bot_reports.sections_json).
+ */
+export interface ReportSection {
+  title: string;
+  question: string;
+  status: ReportSectionStatus;
+  narrativeText?: string;
+  errorMessage?: string;
+}
+
+/**
+ * Result of processing a single report section through the Claude pipeline.
+ */
+export interface SectionResult {
+  title: string;
+  text: string;
+  chartBuffer: Buffer | null;
+  tableData: Record<string, any>[] | null;
+  allTables?: Record<string, any>[][];
+}
+
+/**
+ * Status of a generated report.
+ */
+export type ReportStatus = 'pending' | 'running' | 'done' | 'failed';
+
+/**
+ * A generated report record persisted in Neon Postgres (bot_reports table).
+ */
+export interface ReportRecord {
+  id: string;
+  userId: string;
+  userEmail: string;
+  title: string;
+  sectionsJson: ReportSection[];
+  status: ReportStatus;
+  googleDocId: string | null;
+  googleDocUrl: string | null;
+  errorMessage: string | null;
+  createdAt: Date;
+  completedAt: Date | null;
 }
