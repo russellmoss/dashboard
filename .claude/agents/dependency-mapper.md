@@ -28,19 +28,21 @@ Given one or more target files/modules, determine:
 
 This is a Next.js 14 dashboard (App Router) with TypeScript and BigQuery.
 
+**Pre-read**: Before investigating, read `.claude/docs/LLD.md` — the Module Index table has current file counts, barrel file locations, and module details. Use these as a starting point. If what you find in the code contradicts these docs, trust the code, proceed with what the code shows, and note the discrepancy in your findings.
+
 - **Path alias**: `@/*` maps to `./src/*` (tsconfig.json)
 - **Barrel files exist at**: `src/components/ui/index.ts`, `src/components/advisor-map/index.ts`, `src/components/games/pipeline-catcher/index.ts`, `src/lib/semantic-layer/index.ts`
 - **No barrel file** in `src/lib/queries/` — each query file is imported directly by path
-- **Query layer**: multiple files in `src/lib/queries/` (currently ~33) — all imported by direct path from API routes
-- **Types**: multiple files in `src/types/` (currently ~18; key: `dashboard.ts`, `bigquery-raw.ts`, `drill-down.ts`, `filters.ts`, `sgm-hub.ts`, `sga-hub.ts`, `sga-activity.ts`)
+- **Query layer**: multiple files in `src/lib/queries/` — all imported by direct path from API routes
+- **Types**: multiple files in `src/types/` (key: `dashboard.ts`, `bigquery-raw.ts`, `drill-down.ts`, `filters.ts`, `sgm-hub.ts`, `sga-hub.ts`, `sga-activity.ts`)
 - **Shared utilities**: `src/lib/utils/` (date, format, filter, export, CSV helpers), `src/lib/sheets/` (Google Sheets export)
 - **Semantic layer**: `src/lib/semantic-layer/` with barrel `index.ts` — blocked by default; changes ripple into the Explore AI feature
-- **API routes**: 120+ route files under `src/app/api/` — routes are mostly thin pass-throughs to query functions
+- **API routes**: route files under `src/app/api/` — routes are mostly thin pass-throughs to query functions
 - **Two export paths**: `ExportButton` (`src/components/ui/ExportButton.tsx`, auto via `Object.keys`) and `ExportMenu` (`src/components/dashboard/ExportMenu.tsx`, explicit column mappings)
 - **Drill-down modals**: `MetricDrillDownModal` (`src/components/sga-hub/`), `VolumeDrillDownModal`, `ActivityDrillDownModal`, `AdvisorDrillDownModal` — each manually constructs typed records
 - **NextAuth route**: uses `export { handler as GET, handler as POST }` re-export pattern
-- **Dynamic imports**: 4 files currently use `next/dynamic` — `src/app/dashboard/page.tsx`, `src/app/dashboard/forecast/page.tsx`, `src/app/dashboard/sgm-hub/SGMHubContent.tsx`, `src/components/advisor-map/AdvisorMap.tsx`. If a refactor moves or renames a lazily-loaded component, the dynamic import string must be updated.
-- **Server/client boundary**: 178+ component files use `'use client'`. All `src/lib/` files are server-context by default (no `'use client'` directives). No `import 'server-only'` guards exist, so the boundary is implicit. Key risk: `src/lib/queries/` files depend on BigQuery SDK and must never be imported directly from `'use client'` components. `src/types/` files are safe to import from either context (pure types, no runtime Node dependencies).
+- **Dynamic imports**: check LLD.md for current list. If a refactor moves or renames a lazily-loaded component, the dynamic import string must be updated.
+- **Server/client boundary**: many component files use `'use client'`. All `src/lib/` files are server-context by default (no `'use client'` directives). No `import 'server-only'` guards exist, so the boundary is implicit. Key risk: `src/lib/queries/` files depend on BigQuery SDK and must never be imported directly from `'use client'` components. `src/types/` files are safe to import from either context (pure types, no runtime Node dependencies).
 
 ## Output goals
 

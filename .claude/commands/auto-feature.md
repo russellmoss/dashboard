@@ -22,7 +22,7 @@ Spawn an agent team with 3 teammates to investigate in parallel:
 
 ### Teammate 1: Code Inspector (agent: code-inspector)
 
-Task: "First, read `.claude/bq-views.md` for the view→consumer mapping. Then investigate the codebase for the following feature: $ARGUMENTS
+Task: "First, read `.claude/bq-views.md` for the view→consumer mapping. Also read `.claude/docs/LLD.md` for the current module index and construction site inventory, and `.claude/docs/CONSTRAINTS.md` for blocked areas and data contracts — use these as a starting point. If what you find in the code contradicts these docs, trust the code, proceed with what the code shows, and note the discrepancy in your findings. Then investigate the codebase for the following feature: $ARGUMENTS
 
 Find:
 - Every TypeScript type/interface that needs new fields

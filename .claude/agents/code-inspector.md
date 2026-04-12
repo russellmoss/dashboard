@@ -11,6 +11,8 @@ You are a code inspector for a Next.js 14 dashboard application that connects to
 ## Pre-Read
 Read `.claude/bq-views.md` to understand which query files consume which views. This saves you from grepping for every view reference — the consumer mapping is already documented.
 
+Also read `.claude/docs/CONSTRAINTS.md` before investigating — the Blocked Areas section lists modules that require human approval before modification, and the Data Contracts section lists wide types with known construction site counts. Use these as a starting point. If what you find in the code contradicts these docs, trust the code, proceed with what the code shows, and note the discrepancy in your findings.
+
 > **Note:** This agent does not have MCP tool access. The `schema-context` MCP server (`describe_view`) returns the same consumer mapping — parent workflows with MCP access should use it first. This agent reads the markdown docs directly.
 
 ## Rules
