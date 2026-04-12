@@ -183,6 +183,15 @@ export type ScheduleFrequency = 'daily' | 'weekly' | 'monthly';
  * A scheduled recurring report persisted in Neon Postgres (bot_schedules table).
  * Users create these via the Report Builder modal (App Home or "Schedule This" shortcut).
  */
+/**
+ * A recipient for a scheduled report.
+ * userId is the Slack user ID, email is resolved for Google Doc sharing.
+ */
+export interface ScheduleRecipient {
+  userId: string;
+  email?: string;
+}
+
 export interface ScheduleRecord {
   id: string;
   userId: string;
@@ -191,13 +200,15 @@ export interface ScheduleRecord {
   questionText: string;
   frozenSql: string;
   frequency: ScheduleFrequency;
-  deliverAtHour: number;        // UTC hour 0-23
+  deliverAtHour: number;        // minutes since midnight UTC (0-1439) or legacy hour (0-23)
   deliveryType: 'slack_dm' | 'google_doc';
   nextRunAt: Date;
   lastRunAt: Date | null;
   failureCount: number;
   createdAt: Date;
   isActive: boolean;
+  recipients: ScheduleRecipient[];  // additional recipients (creator always included)
+  scheduleDay: string | null;       // weekly: 'monday'-'sunday'; monthly: '1','15','last','first_monday', etc.
 }
 
 /**

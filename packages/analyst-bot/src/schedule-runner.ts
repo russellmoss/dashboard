@@ -8,7 +8,7 @@ import type { KnownBlock } from '@slack/types';
 import { getDueSchedules, markScheduleRun } from './schedule-store';
 import { runExportQuery } from './bq-query';
 import { processMessage } from './conversation';
-import { cleanTextForDoc, extractTablesFromText } from './report-generator';
+import { cleanTextForDoc, extractTablesFromText, splitNarrativeAndAppendix, isReportRequest, generateReport } from './report-generator';
 import {
   createDoc, appendHeading, appendParagraph, appendTable, embedChartImage, shareDoc,
 } from './google-docs';
@@ -59,12 +59,45 @@ async function runGoogleDocSchedule(
   schedule: ScheduleRecord
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // Run through Claude pipeline
-    const threadId = `schedule:${schedule.id}:${Date.now()}`;
     const question = schedule.frozenSql.startsWith('QUESTION:')
       ? schedule.frozenSql.substring('QUESTION:'.length)
       : schedule.questionText;
 
+    // If the question is a report-intent prompt ("generate a report..."),
+    // route through the full multi-section report generator instead of
+    // single processMessage. This creates a proper multi-section Google Doc.
+    if (isReportRequest(question)) {
+      const userName = schedule.userEmail?.split('@')[0] ?? schedule.userId;
+      console.log(`[schedule-runner] Routing Google Doc schedule ${schedule.id} through multi-section report generator`);
+
+      const docUrl = await generateReport(
+        client, schedule.userId,
+        schedule.userEmail ?? `${schedule.userId}@unknown`,
+        userName, question,
+        schedule.userId, // channelId — DM channel, used for processMessage context
+      );
+
+      // Also DM additional recipients
+      for (const recipient of (schedule.recipients ?? [])) {
+        await dmUser(client, recipient.userId, {
+          text: `Scheduled report "${schedule.reportName}" is ready: ${docUrl}`,
+          blocks: [{
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `:calendar: *Scheduled Report: ${schedule.reportName}*\n\n:page_facing_up: <${docUrl}|Open in Google Docs>`,
+            },
+          }] as KnownBlock[],
+        });
+        if (recipient.email) await shareDoc(docUrl.split('/d/')[1]?.split('/')[0] ?? '', recipient.email);
+      }
+
+      await markScheduleRun(schedule.id);
+      return { success: true };
+    }
+
+    // For non-report questions, run single processMessage and build doc manually
+    const threadId = `schedule:${schedule.id}:${Date.now()}`;
     const result = await processMessage(question, threadId, schedule.userId, schedule.userId);
 
     // Resolve user name for folder
@@ -78,11 +111,12 @@ async function runGoogleDocSchedule(
     // Add heading
     await appendHeading(docId, schedule.reportName, 1);
 
-    // Clean text for Google Docs (strips markdown, code blocks, tables, emojis, footers)
+    // Clean text and split into narrative vs appendix
     const cleanText = cleanTextForDoc(result.text);
+    const { narrative, appendix } = splitNarrativeAndAppendix(cleanText);
 
-    if (cleanText) {
-      await appendParagraph(docId, cleanText);
+    if (narrative) {
+      await appendParagraph(docId, narrative);
     }
 
     // Extract and insert all tables as native Doc tables
@@ -96,29 +130,50 @@ async function runGoogleDocSchedule(
       }
     }
 
+    // Add appendix if there are technical details
+    if (appendix) {
+      await appendHeading(docId, 'Appendix: Methodology & Assumptions', 2);
+      await appendParagraph(docId, appendix);
+    }
+
     // Embed chart if generated
     if (result.chartBuffer) {
       await embedChartImage(docId, result.chartBuffer);
     }
 
-    // Share with user
+    // Share with creator
     if (schedule.userEmail && !schedule.userEmail.endsWith('@unknown')) {
       await shareDoc(docId, schedule.userEmail);
     }
 
-    // DM the link
+    // Share with all additional recipients
+    for (const recipient of (schedule.recipients ?? [])) {
+      if (recipient.email) {
+        await shareDoc(docId, recipient.email);
+      }
+    }
+
+    // DM the creator
+    const docBlock = {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `:calendar: *Scheduled Report: ${schedule.reportName}*\n\n:page_facing_up: <${docUrl}|Open in Google Docs>\n\n_${schedule.frequency} · ${result.provenanceQueryCount} queries_`,
+      },
+    };
+
     await dmUser(client, schedule.userId, {
       text: `Your scheduled report "${schedule.reportName}" is ready: ${docUrl}`,
-      blocks: [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `:calendar: *Scheduled Report: ${schedule.reportName}*\n\n:page_facing_up: <${docUrl}|Open in Google Docs>\n\n_${schedule.frequency} · ${result.provenanceQueryCount} queries_`,
-          },
-        },
-      ] as KnownBlock[],
+      blocks: [docBlock] as KnownBlock[],
     });
+
+    // DM all additional recipients
+    for (const recipient of (schedule.recipients ?? [])) {
+      await dmUser(client, recipient.userId, {
+        text: `Scheduled report "${schedule.reportName}" is ready: ${docUrl}`,
+        blocks: [docBlock] as KnownBlock[],
+      });
+    }
 
     await markScheduleRun(schedule.id);
     return { success: true };
@@ -225,6 +280,22 @@ async function runSingleSchedule(
           },
         ] as KnownBlock[],
       });
+    }
+
+    // DM all additional recipients (same content as creator got)
+    for (const recipient of (schedule.recipients ?? [])) {
+      // Re-run the DM for each recipient with the same result
+      if (result.rows.length > 0) {
+        const tableText = formatResultsAsText(result.rows);
+        await dmUser(client, recipient.userId, {
+          text: `Scheduled report: ${schedule.reportName}`,
+          blocks: [
+            { type: 'section', text: { type: 'mrkdwn', text: `:calendar: *Scheduled Report: ${schedule.reportName}*` } },
+            { type: 'divider' },
+            { type: 'section', text: { type: 'mrkdwn', text: tableText } },
+          ] as KnownBlock[],
+        });
+      }
     }
 
     // Update schedule timestamps

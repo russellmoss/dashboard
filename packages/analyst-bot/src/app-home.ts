@@ -271,33 +271,65 @@ export function buildAdminHomeView(opts: AdminHomeViewOptions): KnownBlock[] {
           ? ` :warning: 1 failure`
           : ' :white_check_mark:';
 
+        // Recipients display
+        const recipientNames = (schedule.recipients ?? []).map(r => `<@${r.userId}>`);
+        const recipientLine = recipientNames.length > 0
+          ? `Recipients: ${recipientNames.join(', ')}`
+          : '';
+
+        // Convert deliverAtHour to ET display
+        const utcMin = schedule.deliverAtHour >= 24 ? schedule.deliverAtHour : schedule.deliverAtHour * 60;
+        const etH = ((Math.floor(utcMin / 60) - 4) + 24) % 24;
+        const etM = utcMin % 60;
+        const etTimeStr = `${etH > 12 ? etH - 12 : etH || 12}:${String(etM).padStart(2, '0')} ${etH >= 12 ? 'PM' : 'AM'} ET`;
+
         blocks.push({
           type: 'section',
           text: {
             type: 'mrkdwn',
             text: [
               `*${schedule.reportName}*${failureIndicator}`,
-              `${frequencyLabel} · ${deliveryLabel} · ${schedule.deliverAtHour}:00 UTC`,
+              `${frequencyLabel} · ${deliveryLabel} · ${etTimeStr}`,
               `Last run: ${lastRunText}  |  Next: ${nextRun}`,
+              recipientLine,
               `_"${schedule.questionText.substring(0, 80)}${schedule.questionText.length > 80 ? '...' : ''}"_`,
-            ].join('\n'),
+            ].filter(Boolean).join('\n'),
           },
-          accessory: {
-            type: 'button',
-            text: { type: 'plain_text', text: 'Cancel', emoji: true },
-            action_id: 'admin_cancel_schedule',
-            style: 'danger' as const,
-            value: schedule.id,
-            confirm: {
-              title: { type: 'plain_text', text: 'Cancel this schedule?' },
-              text: {
-                type: 'mrkdwn',
-                text: `Cancel *"${schedule.reportName}"* for ${userLabel}? This cannot be undone.`,
-              },
-              confirm: { type: 'plain_text', text: 'Yes, cancel it' },
-              deny: { type: 'plain_text', text: 'Keep it' },
+        });
+
+        // Edit + Edit Prompt + Cancel buttons in an actions block
+        blocks.push({
+          type: 'actions',
+          elements: [
+            {
+              type: 'button',
+              text: { type: 'plain_text', text: 'Edit Settings', emoji: true },
+              action_id: 'admin_edit_schedule',
+              value: schedule.id,
             },
-          },
+            {
+              type: 'button',
+              text: { type: 'plain_text', text: 'Edit Prompt', emoji: true },
+              action_id: 'admin_edit_prompt',
+              value: schedule.id,
+            },
+            {
+              type: 'button',
+              text: { type: 'plain_text', text: 'Cancel', emoji: true },
+              action_id: 'admin_cancel_schedule',
+              style: 'danger' as const,
+              value: schedule.id,
+              confirm: {
+                title: { type: 'plain_text', text: 'Cancel this schedule?' },
+                text: {
+                  type: 'mrkdwn',
+                  text: `Cancel *"${schedule.reportName}"* for ${userLabel}? This cannot be undone.`,
+                },
+                confirm: { type: 'plain_text', text: 'Yes, cancel it' },
+                deny: { type: 'plain_text', text: 'Keep it' },
+              },
+            },
+          ],
         });
       }
     }

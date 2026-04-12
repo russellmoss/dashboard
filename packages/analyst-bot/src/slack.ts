@@ -20,7 +20,7 @@ import { loadThread, saveUserQuery, getRecentQueriesForUser } from './thread-sto
 import { createDashboardRequest } from './dashboard-request';
 import { buildHomeView, buildAdminHomeView } from './app-home';
 import { dmUser } from './dm-helper';
-import { createSchedule, getActiveSchedulesForUser, cancelSchedule, getAllSchedules, adminCancelSchedule, computeNextRunAt } from './schedule-store';
+import { createSchedule, getActiveSchedulesForUser, cancelSchedule, getAllSchedules, adminCancelSchedule, updateSchedule, computeNextRunAt } from './schedule-store';
 import { isReportRequest, generateReport } from './report-generator';
 import { runDueSchedules } from './schedule-runner';
 import { getAllReports } from './report-store';
@@ -997,6 +997,66 @@ export async function startSlackApp(): Promise<void> {
                 placeholder: { type: 'plain_text', text: 'Pick a time' },
               },
             },
+            {
+              type: 'input',
+              block_id: 'weekly_day',
+              optional: true,
+              label: { type: 'plain_text', text: 'Day of Week (for Weekly)' },
+              hint: { type: 'plain_text', text: 'Only applies to weekly cadence. Ignored for daily.' },
+              element: {
+                type: 'static_select',
+                action_id: 'value',
+                placeholder: { type: 'plain_text', text: 'Select day' },
+                initial_option: { text: { type: 'plain_text', text: 'Monday' }, value: 'monday' },
+                options: [
+                  { text: { type: 'plain_text', text: 'Monday' }, value: 'monday' },
+                  { text: { type: 'plain_text', text: 'Tuesday' }, value: 'tuesday' },
+                  { text: { type: 'plain_text', text: 'Wednesday' }, value: 'wednesday' },
+                  { text: { type: 'plain_text', text: 'Thursday' }, value: 'thursday' },
+                  { text: { type: 'plain_text', text: 'Friday' }, value: 'friday' },
+                  { text: { type: 'plain_text', text: 'Saturday' }, value: 'saturday' },
+                  { text: { type: 'plain_text', text: 'Sunday' }, value: 'sunday' },
+                ],
+              },
+            },
+            {
+              type: 'input',
+              block_id: 'monthly_day',
+              optional: true,
+              label: { type: 'plain_text', text: 'Day of Month (for Monthly)' },
+              hint: { type: 'plain_text', text: 'Only applies to monthly cadence. Ignored for daily/weekly.' },
+              element: {
+                type: 'static_select',
+                action_id: 'value',
+                placeholder: { type: 'plain_text', text: 'Select day' },
+                options: [
+                  { text: { type: 'plain_text', text: '1st of month' }, value: '1' },
+                  { text: { type: 'plain_text', text: '15th of month' }, value: '15' },
+                  { text: { type: 'plain_text', text: 'Last day of month' }, value: 'last' },
+                  { text: { type: 'plain_text', text: 'First Monday' }, value: 'first_monday' },
+                  { text: { type: 'plain_text', text: 'First Tuesday' }, value: 'first_tuesday' },
+                  { text: { type: 'plain_text', text: 'First Wednesday' }, value: 'first_wednesday' },
+                  { text: { type: 'plain_text', text: 'First Thursday' }, value: 'first_thursday' },
+                  { text: { type: 'plain_text', text: 'First Friday' }, value: 'first_friday' },
+                  { text: { type: 'plain_text', text: 'Second Monday' }, value: 'second_monday' },
+                  { text: { type: 'plain_text', text: 'Second Wednesday' }, value: 'second_wednesday' },
+                  { text: { type: 'plain_text', text: 'Last Monday' }, value: 'last_monday' },
+                  { text: { type: 'plain_text', text: 'Last Friday' }, value: 'last_friday' },
+                ],
+              },
+            },
+            {
+              type: 'input',
+              block_id: 'recipients',
+              optional: true,
+              label: { type: 'plain_text', text: 'Also send to (optional)' },
+              hint: { type: 'plain_text', text: 'Select additional people who should receive this report. You are always included.' },
+              element: {
+                type: 'multi_users_select',
+                action_id: 'value',
+                placeholder: { type: 'plain_text', text: 'Select people' },
+              },
+            },
           ],
         },
       });
@@ -1011,6 +1071,14 @@ export async function startSlackApp(): Promise<void> {
     const deliveryType = view.state.values.delivery_type.value.selected_option?.value ?? 'slack_dm';
     const frequency = (view.state.values.frequency.value.selected_option?.value ?? 'weekly') as ScheduleFrequency;
     const userId = body.user.id;
+
+    // Day selectors — weekly day of week, monthly pattern
+    const weeklyDay = view.state.values.weekly_day?.value?.selected_option?.value ?? 'monday';
+    const monthlyDay = view.state.values.monthly_day?.value?.selected_option?.value ?? '1';
+    const scheduleDay = frequency === 'weekly' ? weeklyDay : frequency === 'monthly' ? monthlyDay : null;
+
+    // Multi-user select — additional recipients (creator always included separately)
+    const selectedRecipients: string[] = view.state.values.recipients?.value?.selected_users ?? [];
 
     // Timepicker returns "HH:MM" — treat as ET, convert to UTC (+4 EDT / +5 EST)
     const etTime = view.state.values.deliver_at_time.value.selected_time ?? '09:00';
@@ -1106,8 +1174,10 @@ export async function startSlackApp(): Promise<void> {
             frequency,
             deliverAtHour,
             deliveryType,
-            frozenSql: (finalSql ?? '').substring(0, 2800),
+            frozenSql: (finalSql ?? '').substring(0, 2500),
             userId,
+            recipients: selectedRecipients,
+            scheduleDay,
           }),
           blocks: [
             {
@@ -1150,7 +1220,7 @@ export async function startSlackApp(): Promise<void> {
     let meta: any = {};
     try { meta = JSON.parse(view.private_metadata ?? '{}'); } catch { /* ignore */ }
 
-    const { reportName, question, frequency, deliverAtHour, deliveryType, frozenSql } = meta;
+    const { reportName, question, frequency, deliverAtHour, deliveryType, frozenSql, recipients: recipientUserIds, scheduleDay } = meta;
 
     if (!question || !reportName) {
       await dmUser(client, userId, {
@@ -1160,10 +1230,17 @@ export async function startSlackApp(): Promise<void> {
     }
 
     // If no frozen SQL was captured (BQ streaming buffer delay), use question text as fallback.
-    // The schedule runner will detect this and re-run through processMessage instead of raw SQL.
     const effectiveSql = frozenSql || `QUESTION:${question}`;
 
     const userEmail = await getUserEmail(client, userId);
+
+    // Resolve recipient emails
+    const recipientList: Array<{ userId: string; email?: string }> = [];
+    for (const rid of (recipientUserIds ?? [])) {
+      if (rid === userId) continue; // creator is always included separately
+      const rEmail = await getUserEmail(client, rid);
+      recipientList.push({ userId: rid, email: rEmail.endsWith('@unknown') ? undefined : rEmail });
+    }
 
     try {
       const schedule = await createSchedule({
@@ -1175,6 +1252,8 @@ export async function startSlackApp(): Promise<void> {
         frequency: frequency as ScheduleFrequency,
         deliverAtHour: deliverAtHour ?? 9,
         deliveryType: deliveryType ?? 'slack_dm',
+        recipients: recipientList,
+        scheduleDay: scheduleDay ?? undefined,
       });
 
       const frequencyLabel = frequency.charAt(0).toUpperCase() + frequency.slice(1);
@@ -1305,6 +1384,335 @@ export async function startSlackApp(): Promise<void> {
       }
     }
   );
+
+  // ---- Action: Admin edit schedule ----
+  slackApp.action<BlockAction<ButtonAction>>(
+    'admin_edit_schedule',
+    async ({ ack, body, client }) => {
+      await ack();
+
+      const userId = body.user.id;
+      if (!isAdmin(userId)) return;
+
+      const action = body.actions[0] as ButtonAction;
+      const scheduleId = action.value;
+      if (!scheduleId) return;
+
+      const triggerId = (body as any).trigger_id;
+      if (!triggerId) return;
+
+      // Fetch the schedule to pre-fill the modal
+      const allSchedules = await getAllSchedules();
+      const schedule = allSchedules.find(s => s.id === scheduleId);
+      if (!schedule) return;
+
+      // Convert UTC minutes back to ET for display
+      const utcMinutes = schedule.deliverAtHour >= 24 ? schedule.deliverAtHour : schedule.deliverAtHour * 60;
+      const utcH = Math.floor(utcMinutes / 60);
+      const utcM = utcMinutes % 60;
+      const etH = ((utcH - 4) + 24) % 24; // EDT offset
+      const etTime = `${String(etH).padStart(2, '0')}:${String(utcM).padStart(2, '0')}`;
+
+      // Pre-select current recipients
+      const currentRecipientIds = (schedule.recipients ?? []).map(r => r.userId);
+
+      await client.views.open({
+        trigger_id: triggerId,
+        view: {
+          type: 'modal',
+          callback_id: 'admin_edit_schedule_submit',
+          title: { type: 'plain_text', text: 'Edit Schedule' },
+          submit: { type: 'plain_text', text: 'Save Changes' },
+          close: { type: 'plain_text', text: 'Cancel' },
+          private_metadata: JSON.stringify({ scheduleId, ownerId: schedule.userId }),
+          blocks: [
+            {
+              type: 'input',
+              block_id: 'report_name',
+              label: { type: 'plain_text', text: 'Report Name' },
+              element: {
+                type: 'plain_text_input',
+                action_id: 'value',
+                initial_value: schedule.reportName,
+                max_length: 80,
+              },
+            },
+            {
+              type: 'input',
+              block_id: 'delivery_type',
+              label: { type: 'plain_text', text: 'Delivery Format' },
+              element: {
+                type: 'static_select',
+                action_id: 'value',
+                initial_option: schedule.deliveryType === 'google_doc'
+                  ? { text: { type: 'plain_text', text: 'Google Doc' }, value: 'google_doc' }
+                  : { text: { type: 'plain_text', text: 'Slack DM' }, value: 'slack_dm' },
+                options: [
+                  { text: { type: 'plain_text', text: 'Slack DM' }, value: 'slack_dm' },
+                  { text: { type: 'plain_text', text: 'Google Doc' }, value: 'google_doc' },
+                ],
+              },
+            },
+            {
+              type: 'input',
+              block_id: 'frequency',
+              label: { type: 'plain_text', text: 'Cadence' },
+              element: {
+                type: 'static_select',
+                action_id: 'value',
+                initial_option: {
+                  text: { type: 'plain_text', text: schedule.frequency.charAt(0).toUpperCase() + schedule.frequency.slice(1) },
+                  value: schedule.frequency,
+                },
+                options: [
+                  { text: { type: 'plain_text', text: 'Daily' }, value: 'daily' },
+                  { text: { type: 'plain_text', text: 'Weekly' }, value: 'weekly' },
+                  { text: { type: 'plain_text', text: 'Monthly' }, value: 'monthly' },
+                ],
+              },
+            },
+            {
+              type: 'input',
+              block_id: 'deliver_at_time',
+              label: { type: 'plain_text', text: 'Deliver At (Eastern Time)' },
+              element: {
+                type: 'timepicker',
+                action_id: 'value',
+                initial_time: etTime,
+              },
+            },
+            {
+              type: 'input',
+              block_id: 'weekly_day',
+              optional: true,
+              label: { type: 'plain_text', text: 'Day of Week (for Weekly)' },
+              element: {
+                type: 'static_select',
+                action_id: 'value',
+                placeholder: { type: 'plain_text', text: 'Select day' },
+                ...(schedule.scheduleDay && schedule.frequency === 'weekly' ? {
+                  initial_option: { text: { type: 'plain_text', text: schedule.scheduleDay.charAt(0).toUpperCase() + schedule.scheduleDay.slice(1) }, value: schedule.scheduleDay },
+                } : {}),
+                options: [
+                  { text: { type: 'plain_text', text: 'Monday' }, value: 'monday' },
+                  { text: { type: 'plain_text', text: 'Tuesday' }, value: 'tuesday' },
+                  { text: { type: 'plain_text', text: 'Wednesday' }, value: 'wednesday' },
+                  { text: { type: 'plain_text', text: 'Thursday' }, value: 'thursday' },
+                  { text: { type: 'plain_text', text: 'Friday' }, value: 'friday' },
+                  { text: { type: 'plain_text', text: 'Saturday' }, value: 'saturday' },
+                  { text: { type: 'plain_text', text: 'Sunday' }, value: 'sunday' },
+                ],
+              },
+            },
+            {
+              type: 'input',
+              block_id: 'monthly_day',
+              optional: true,
+              label: { type: 'plain_text', text: 'Day of Month (for Monthly)' },
+              element: {
+                type: 'static_select',
+                action_id: 'value',
+                placeholder: { type: 'plain_text', text: 'Select day' },
+                ...(schedule.scheduleDay && schedule.frequency === 'monthly' ? {
+                  initial_option: { text: { type: 'plain_text', text: schedule.scheduleDay.replace(/_/g, ' ').replace(/^\w/, (c: string) => c.toUpperCase()) }, value: schedule.scheduleDay },
+                } : {}),
+                options: [
+                  { text: { type: 'plain_text', text: '1st of month' }, value: '1' },
+                  { text: { type: 'plain_text', text: '15th of month' }, value: '15' },
+                  { text: { type: 'plain_text', text: 'Last day of month' }, value: 'last' },
+                  { text: { type: 'plain_text', text: 'First Monday' }, value: 'first_monday' },
+                  { text: { type: 'plain_text', text: 'First Wednesday' }, value: 'first_wednesday' },
+                  { text: { type: 'plain_text', text: 'Second Monday' }, value: 'second_monday' },
+                  { text: { type: 'plain_text', text: 'Last Monday' }, value: 'last_monday' },
+                  { text: { type: 'plain_text', text: 'Last Friday' }, value: 'last_friday' },
+                ],
+              },
+            },
+            {
+              type: 'input',
+              block_id: 'recipients',
+              optional: true,
+              label: { type: 'plain_text', text: 'Also send to' },
+              hint: { type: 'plain_text', text: 'Owner is always included. Select additional recipients.' },
+              element: {
+                type: 'multi_users_select',
+                action_id: 'value',
+                ...(currentRecipientIds.length > 0 ? { initial_users: currentRecipientIds } : {}),
+                placeholder: { type: 'plain_text', text: 'Select people' },
+              },
+            },
+          ],
+        },
+      });
+    }
+  );
+
+  // ---- View: Admin edit schedule submitted ----
+  slackApp.view('admin_edit_schedule_submit', async ({ ack, body, view, client }) => {
+    await ack();
+
+    const userId = body.user.id;
+    if (!isAdmin(userId)) return;
+
+    let meta: any = {};
+    try { meta = JSON.parse(view.private_metadata ?? '{}'); } catch {}
+
+    const scheduleId = meta.scheduleId;
+    const ownerId = meta.ownerId;
+    if (!scheduleId) return;
+
+    const reportName = view.state.values.report_name.value.value ?? '';
+    const deliveryType = view.state.values.delivery_type.value.selected_option?.value ?? 'slack_dm';
+    const frequency = view.state.values.frequency.value.selected_option?.value ?? 'weekly';
+    const etTime = view.state.values.deliver_at_time.value.selected_time ?? '09:00';
+    const weeklyDay = view.state.values.weekly_day?.value?.selected_option?.value ?? 'monday';
+    const monthlyDay = view.state.values.monthly_day?.value?.selected_option?.value ?? '1';
+    const scheduleDay = frequency === 'weekly' ? weeklyDay : frequency === 'monthly' ? monthlyDay : null;
+    const selectedRecipients: string[] = view.state.values.recipients?.value?.selected_users ?? [];
+
+    // Convert ET → UTC minutes
+    const [etHour, etMinute] = etTime.split(':').map(Number);
+    const utcHour = (etHour + 4) % 24;
+    const deliverAtHour = utcHour * 60 + (etMinute ?? 0);
+
+    // Resolve recipient emails
+    const recipientList: Array<{ userId: string; email?: string }> = [];
+    for (const rid of selectedRecipients) {
+      if (rid === ownerId) continue;
+      const rEmail = await getUserEmail(client, rid);
+      recipientList.push({ userId: rid, email: rEmail.endsWith('@unknown') ? undefined : rEmail });
+    }
+
+    try {
+      await updateSchedule(scheduleId, {
+        reportName,
+        frequency: frequency as ScheduleFrequency,
+        deliverAtHour,
+        deliveryType: deliveryType as 'slack_dm' | 'google_doc',
+        recipients: recipientList,
+        scheduleDay: scheduleDay ?? undefined,
+      });
+
+      console.log(`[admin] ${userId} edited schedule ${scheduleId}`);
+
+      // Refresh admin App Home
+      const [allSchedules, allReports] = await Promise.all([
+        getAllSchedules(),
+        getAllReports(),
+      ]);
+      await client.views.publish({
+        user_id: userId,
+        view: {
+          type: 'home',
+          blocks: buildAdminHomeView({ allSchedules, allReports }),
+        },
+      });
+    } catch (err) {
+      console.error('[admin_edit_schedule] failed:', (err as Error).message);
+    }
+  });
+
+  // ---- Action: Admin edit prompt (view/edit the full question text) ----
+  slackApp.action<BlockAction<ButtonAction>>(
+    'admin_edit_prompt',
+    async ({ ack, body, client }) => {
+      await ack();
+
+      const userId = body.user.id;
+      if (!isAdmin(userId)) return;
+
+      const action = body.actions[0] as ButtonAction;
+      const scheduleId = action.value;
+      if (!scheduleId) return;
+
+      const triggerId = (body as any).trigger_id;
+      if (!triggerId) return;
+
+      const allSchedules = await getAllSchedules();
+      const schedule = allSchedules.find(s => s.id === scheduleId);
+      if (!schedule) return;
+
+      // Show the full question/prompt in an editable text area
+      const currentPrompt = schedule.frozenSql.startsWith('QUESTION:')
+        ? schedule.frozenSql.substring('QUESTION:'.length)
+        : schedule.questionText;
+
+      await client.views.open({
+        trigger_id: triggerId,
+        view: {
+          type: 'modal',
+          callback_id: 'admin_edit_prompt_submit',
+          title: { type: 'plain_text', text: 'Edit Report Prompt' },
+          submit: { type: 'plain_text', text: 'Save Prompt' },
+          close: { type: 'plain_text', text: 'Cancel' },
+          private_metadata: JSON.stringify({ scheduleId }),
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `*${schedule.reportName}*\n_${schedule.frequency} · ${schedule.deliveryType}_`,
+              },
+            },
+            { type: 'divider' },
+            {
+              type: 'input',
+              block_id: 'prompt_text',
+              label: { type: 'plain_text', text: 'Report Prompt' },
+              hint: { type: 'plain_text', text: 'This is the full question sent to Claude each time the report runs. Edit it to change what the report produces.' },
+              element: {
+                type: 'plain_text_input',
+                action_id: 'value',
+                multiline: true,
+                initial_value: currentPrompt,
+                max_length: 3000,
+              },
+            },
+          ],
+        },
+      });
+    }
+  );
+
+  // ---- View: Admin edit prompt submitted ----
+  slackApp.view('admin_edit_prompt_submit', async ({ ack, body, view, client }) => {
+    await ack();
+
+    const userId = body.user.id;
+    if (!isAdmin(userId)) return;
+
+    let meta: any = {};
+    try { meta = JSON.parse(view.private_metadata ?? '{}'); } catch {}
+    const scheduleId = meta.scheduleId;
+    if (!scheduleId) return;
+
+    const newPrompt = view.state.values.prompt_text.value.value ?? '';
+    if (!newPrompt.trim()) return;
+
+    try {
+      await updateSchedule(scheduleId, {
+        questionText: newPrompt.trim(),
+        frozenSql: `QUESTION:${newPrompt.trim()}`,
+      });
+
+      console.log(`[admin] ${userId} edited prompt for schedule ${scheduleId}`);
+
+      // Refresh admin App Home
+      const [allSchedules, allReports] = await Promise.all([
+        getAllSchedules(),
+        getAllReports(),
+      ]);
+      await client.views.publish({
+        user_id: userId,
+        view: {
+          type: 'home',
+          blocks: buildAdminHomeView({ allSchedules, allReports }),
+        },
+      });
+    } catch (err) {
+      console.error('[admin_edit_prompt] failed:', (err as Error).message);
+    }
+  });
 
   // Existing: "Report Issue" modal button → open modal form
   slackApp.action('open_issue_modal', async ({ ack, body, client }) => {

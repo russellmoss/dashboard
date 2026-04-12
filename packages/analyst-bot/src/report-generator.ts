@@ -59,6 +59,56 @@ export function cleanTextForDoc(text: string): string {
 }
 
 /**
+ * Split a section's cleaned text into reader-friendly narrative and technical appendix content.
+ * Narrative = the analysis, editorial, and key findings.
+ * Appendix = assumptions, filters, field names, SQL references, suggested follow-ups.
+ */
+export function splitNarrativeAndAppendix(text: string): { narrative: string; appendix: string } {
+  const lines = text.split('\n');
+  const narrativeLines: string[] = [];
+  const appendixLines: string[] = [];
+  let inAppendix = false;
+
+  for (const line of lines) {
+    const lower = line.toLowerCase().trim();
+
+    // Detect appendix-worthy content
+    const isAppendixLine =
+      /^(assumptions|key assumptions|filters|filter|technical notes|methodology)[\s:]/i.test(lower) ||
+      /^(note:|important:|caveat:)/i.test(lower) ||
+      // Lines with field name references (snake_case__c patterns, backtick-wrapped fields)
+      /\b\w+__c\b/.test(line) ||
+      // Lines mentioning recordtypeid, is_sqo_unique, etc.
+      /\b(recordtypeid|is_sqo_unique|is_joined_unique|is_primary_opp_record|eligible_for_|_progression)\b/.test(lower) ||
+      // "Suggested follow-up" lines
+      /^suggested follow[- ]?up/i.test(lower) ||
+      // Lines with SQL-like filter descriptions
+      /\bStageName\s+(NOT\s+)?IN\b/i.test(line) ||
+      /\bWHERE\b.*\b(AND|OR)\b/i.test(line);
+
+    if (isAppendixLine && !inAppendix) {
+      inAppendix = true;
+    }
+
+    // Some lines reset back to narrative (Editorial, Results, etc.)
+    if (inAppendix && /^(editorial|results|summary|key (findings|takeaways|insights))/i.test(lower)) {
+      inAppendix = false;
+    }
+
+    if (inAppendix) {
+      appendixLines.push(line);
+    } else {
+      narrativeLines.push(line);
+    }
+  }
+
+  return {
+    narrative: narrativeLines.join('\n').replace(/\n{3,}/g, '\n\n').trim(),
+    appendix: appendixLines.join('\n').replace(/\n{3,}/g, '\n\n').trim(),
+  };
+}
+
+/**
  * Parse ALL tables from Claude response text — handles both formats:
  * 1. Code block tables: ```\nSGA | Count\n----|------\nAmy | 34\n```
  * 2. Standard markdown: |SGA|Count|\n|---|---|\n|Amy|34|
@@ -302,15 +352,25 @@ export async function generateReport(
     const { docId, docUrl } = await createDoc(reportTitle, userName);
 
     // Step 4: Assemble sections into the doc
+    // Main body gets clean narrative + tables + charts.
+    // Technical details (assumptions, filters, field names) collected for appendix.
+    const appendixEntries: Array<{ title: string; content: string }> = [];
+
     for (const sectionResult of results) {
       await appendHeading(docId, sectionResult.title, 1);
 
-      // Clean text for Google Docs — strips markdown, code blocks, tables, emojis, footers
+      // Clean text and split into reader-friendly narrative vs technical appendix
       const cleanText = cleanTextForDoc(sectionResult.text);
+      const { narrative, appendix } = splitNarrativeAndAppendix(cleanText);
 
-      // Insert narrative text
-      if (cleanText) {
-        await appendParagraph(docId, cleanText);
+      // Insert narrative text (analysis, editorial, key findings only)
+      if (narrative) {
+        await appendParagraph(docId, narrative);
+      }
+
+      // Collect appendix content for this section
+      if (appendix) {
+        appendixEntries.push({ title: sectionResult.title, content: appendix });
       }
 
       // Insert ALL tables as native Google Doc tables
@@ -329,6 +389,17 @@ export async function generateReport(
       // Embed chart if available
       if (sectionResult.chartBuffer) {
         await embedChartImage(docId, sectionResult.chartBuffer);
+      }
+    }
+
+    // Step 4b: Add Appendix with technical details
+    if (appendixEntries.length > 0) {
+      await appendHeading(docId, 'Appendix: Methodology & Assumptions', 1);
+      await appendParagraph(docId, 'The following technical details describe the filters, field definitions, and assumptions used to generate each section of this report. Included for traceability and auditability.');
+
+      for (const entry of appendixEntries) {
+        await appendHeading(docId, entry.title, 2);
+        await appendParagraph(docId, entry.content);
       }
     }
 
