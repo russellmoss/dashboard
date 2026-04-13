@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Card } from '@tremor/react';
 import { OutreachEffectivenessFilters as FilterType } from '@/types/outreach-effectiveness';
+import MultiSelectCombobox from '@/components/ui/MultiSelectCombobox';
 
 interface OutreachEffectivenessFiltersProps {
   filters: FilterType;
@@ -18,7 +19,7 @@ const DEFAULT_FILTERS: FilterType = {
   dateRangeType: 'qtd',
   startDate: null,
   endDate: null,
-  campaignId: null,
+  campaignIds: [],
   zeroTouchMode: 'stale',
 };
 
@@ -67,12 +68,19 @@ const DATE_RANGE_PRESETS = [
   { value: 'custom', label: 'Custom Range' },
 ];
 
+function arraysEqualUnordered(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const aSorted = [...a].sort();
+  const bSorted = [...b].sort();
+  return aSorted.every((v, i) => v === bSorted[i]);
+}
+
 function filtersEqual(a: FilterType, b: FilterType): boolean {
   return a.sga === b.sga
     && a.dateRangeType === b.dateRangeType
     && a.startDate === b.startDate
     && a.endDate === b.endDate
-    && a.campaignId === b.campaignId
+    && arraysEqualUnordered(a.campaignIds, b.campaignIds)
     && a.zeroTouchMode === b.zeroTouchMode;
 }
 
@@ -188,24 +196,24 @@ export default function OutreachEffectivenessFilters({
           </div>
         )}
 
-        {/* Campaign Filter */}
-        <div className="min-w-[220px]">
+        {/* Campaign Filter — multi-select with substring search.
+            "Self Sourced" is a synthetic chip surfaced by the filter-options
+            API; the backend detects its sentinel id in buildCampaignFilter.
+            Empty selection = no campaign filter (all campaigns shown). */}
+        <div className="min-w-[260px] flex-1 max-w-[420px]">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
             Campaign
           </label>
-          <select
-            value={draft.campaignId || ''}
-            onChange={(e) => handleChange('campaignId', e.target.value === '' ? null : e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
-          >
-            <option value="">All Campaigns</option>
-            <option value="no_campaign">No Campaign</option>
-            {campaignOptions.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </select>
+          <MultiSelectCombobox
+            ariaLabel="Campaign"
+            placeholder="All campaigns — type to search…"
+            options={[
+              { value: 'no_campaign', label: 'No Campaign' },
+              ...campaignOptions,
+            ]}
+            selected={draft.campaignIds}
+            onChange={(next) => handleChange('campaignIds', next)}
+          />
         </div>
       </div>
 

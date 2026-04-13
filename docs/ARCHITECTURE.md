@@ -1118,7 +1118,15 @@ Lead-centric view of SGA outreach quality. Self-contained component (`OutreachEf
 
 **Data Sources**: `Tableau_Views.vw_funnel_master` (lead population) + `Tableau_Views.vw_sga_activity_performance` (activity counts) + `SavvyGTMData.User` (SGA list, start dates)
 
-**Filters**: SGA dropdown (Active/All toggle, IsSGA__c allowlist), date range (QTD default), campaign dropdown ("No Campaign" option filters `Campaign_Id__c IS NULL`, uses UNNEST for `all_campaigns`)
+**Filters**: SGA dropdown (Active/All toggle, IsSGA__c allowlist), date range (QTD default), campaign multi-select combobox (substring search, `OutreachEffectivenessFilters.campaignIds: string[]`).
+
+Campaign multi-select reserves two sentinel ids that live alongside real Salesforce campaign ids in the same dropdown:
+- `no_campaign` → expands to `f.Campaign_Id__c IS NULL`
+- `__self_sourced__` → synthetic "Self Sourced (LinkedIn + FinTrx)" chip, expands to `f.Original_source IN ('LinkedIn (Self Sourced)', 'Fintrx (Self-Sourced)')` (values verified against `vw_funnel_master` — note the inconsistent punctuation across the two strings)
+
+Selections are OR'd: `[Self Sourced, Campaign A, no_campaign]` returns leads matching any of the three predicates. Empty array = no campaign filter. Campaign summary card only renders when exactly **one real campaign** is selected (synthetic sentinels and multi-campaign don't roll up cleanly — `MAX(Campaign_Name__c)` would collapse).
+
+The combobox is a project-local vanilla primitive at `src/components/ui/MultiSelectCombobox.tsx` — no cmdk/headlessui dependency, matches the rest of the hand-rolled Tailwind components.
 
 **Scorecards (4)**:
 

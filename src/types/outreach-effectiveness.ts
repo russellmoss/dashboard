@@ -9,9 +9,27 @@ export interface OutreachEffectivenessFilters {
   dateRangeType: 'this_week' | 'last_30' | 'last_60' | 'last_90' | 'qtd' | 'all_time' | 'custom';
   startDate: string | null;
   endDate: string | null;
-  campaignId: string | null;
+  /**
+   * Multi-select campaign filter. Matches Salesforce Campaign_Id__c by default.
+   * Supports two reserved sentinel values that look like campaigns in the UI
+   * but expand to different SQL predicates server-side:
+   *   - 'no_campaign'       → f.Campaign_Id__c IS NULL
+   *   - '__self_sourced__'  → f.Original_source IN ('LinkedIn (Self Sourced)',
+   *                                                 'Fintrx (Self-Sourced)')
+   * Self-sourced is treated as a synthetic campaign chip because the product
+   * UX surfaces it alongside real campaigns in the same multi-select, even
+   * though it's really a source-channel filter on Original_source.
+   * Empty array = no campaign filter (all campaigns shown).
+   */
+  campaignIds: string[];
   zeroTouchMode: 'all' | 'stale';
 }
+
+/** Sentinel campaign id meaning "self-sourced from LinkedIn or FinTrx". */
+export const SELF_SOURCED_CAMPAIGN_ID = '__self_sourced__';
+
+/** Sentinel campaign id meaning "no campaign attached". */
+export const NO_CAMPAIGN_ID = 'no_campaign';
 
 // ============================================
 // DASHBOARD DATA (main response)

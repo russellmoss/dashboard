@@ -26,7 +26,7 @@ const DEFAULT_FILTERS: FilterType = {
   dateRangeType: 'qtd',
   startDate: null,
   endDate: null,
-  campaignId: null,
+  campaignIds: [],
   zeroTouchMode: 'stale',
 };
 

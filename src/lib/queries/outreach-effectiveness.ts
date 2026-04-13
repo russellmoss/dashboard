@@ -75,17 +75,48 @@ function extractDateValue(dateObj: any): string {
   return String(dateObj);
 }
 
+// Self-sourced values in vw_funnel_master.Original_source. Verified via BQ on
+// 2026-04-13: LinkedIn (Self Sourced) = 31,183 rows, Fintrx (Self-Sourced) =
+// 2,402 rows. Note the inconsistent punctuation across the two values — match
+// exact strings. If the product adds a new self-sourced channel, update both
+// this constant and the synthetic option label in _getOutreachFilterOptions.
+const SELF_SOURCED_ORIGINAL_SOURCES = [
+  'LinkedIn (Self Sourced)',
+  'Fintrx (Self-Sourced)',
+];
+
 function buildSgaFilter(filters: OutreachEffectivenessFilters): string {
   return filters.sga ? 'AND TRIM(f.SGA_Owner_Name__c) = @sga' : '';
 }
 
+/**
+ * Compile the multi-select campaign filter. Treats the two sentinel IDs
+ * ('no_campaign', '__self_sourced__') as synthetic chips that expand to
+ * different predicates, then UNIONs with the real-campaign IN-clause.
+ * Empty array → no filter.
+ */
 function buildCampaignFilter(filters: OutreachEffectivenessFilters): string {
-  if (!filters.campaignId) return '';
-  if (filters.campaignId === 'no_campaign') {
-    return 'AND f.Campaign_Id__c IS NULL';
+  const ids = filters.campaignIds ?? [];
+  if (ids.length === 0) return '';
+
+  const hasNoCampaign = ids.includes('no_campaign');
+  const hasSelfSourced = ids.includes('__self_sourced__');
+  const realIds = ids.filter(id => id !== 'no_campaign' && id !== '__self_sourced__');
+
+  const clauses: string[] = [];
+  if (realIds.length > 0) {
+    // Matches either the primary campaign or any entry in the all_campaigns array.
+    clauses.push(`f.Campaign_Id__c IN UNNEST(@campaignIds)`);
+    clauses.push(`(SELECT COUNT(1) FROM UNNEST(IFNULL(f.all_campaigns, [])) AS camp WHERE camp.id IN UNNEST(@campaignIds)) > 0`);
   }
-  return `AND (f.Campaign_Id__c = @campaignId
-    OR (SELECT COUNT(1) FROM UNNEST(IFNULL(f.all_campaigns, [])) AS camp WHERE camp.id = @campaignId) > 0)`;
+  if (hasNoCampaign) {
+    clauses.push(`f.Campaign_Id__c IS NULL`);
+  }
+  if (hasSelfSourced) {
+    clauses.push(`f.Original_source IN UNNEST(@selfSourcedSources)`);
+  }
+
+  return `AND (${clauses.join(' OR ')})`;
 }
 
 function buildParams(filters: OutreachEffectivenessFilters): Record<string, any> {
@@ -96,7 +127,12 @@ function buildParams(filters: OutreachEffectivenessFilters): Record<string, any>
     endDateTs: range.end + ' 23:59:59', // Include full end date for TIMESTAMP comparisons
   };
   if (filters.sga) params.sga = filters.sga;
-  if (filters.campaignId && filters.campaignId !== 'no_campaign') params.campaignId = filters.campaignId;
+
+  const ids = filters.campaignIds ?? [];
+  const realIds = ids.filter(id => id !== 'no_campaign' && id !== '__self_sourced__');
+  if (realIds.length > 0) params.campaignIds = realIds;
+  if (ids.includes('__self_sourced__')) params.selfSourcedSources = SELF_SOURCED_ORIGINAL_SOURCES;
+
   return params;
 }
 
@@ -456,9 +492,14 @@ async function _getOutreachDashboard(
     ORDER BY avg_initial_per_week DESC
   `;
 
-  // Campaign summary (only when campaign filter active)
+  // Campaign summary: only meaningful when exactly ONE real campaign is
+  // selected (synthetic sentinels and multi-campaign selections don't roll up
+  // cleanly — MAX(Campaign_Name__c) would collapse to one of several names).
   let campaignSummaryPromise: Promise<any[]> | null = null;
-  if (filters.campaignId && filters.campaignId !== 'no_campaign') {
+  const realCampaignIds = (filters.campaignIds ?? []).filter(
+    id => id !== 'no_campaign' && id !== '__self_sourced__'
+  );
+  if (realCampaignIds.length === 1) {
     const campaignQuery = `
       ${sharedCTE}
       SELECT
@@ -1030,16 +1071,29 @@ async function _getOutreachFilterOptions(): Promise<OutreachFilterOptions> {
     runQuery<any>(campaignsQuery),
   ]);
 
+  // Prepend synthetic campaign chips to the real-campaign list. These are not
+  // actual Salesforce campaigns — the backend (buildCampaignFilter) detects
+  // them via reserved sentinel IDs and expands each to a different SQL
+  // predicate. Surfacing them inside the same multi-select keeps the UX a
+  // single control; the user can combine "Self Sourced" with real campaigns
+  // to union the result sets.
+  const SYNTHETIC_CAMPAIGNS = [
+    { value: '__self_sourced__', label: 'Self Sourced (LinkedIn + FinTrx)' },
+  ];
+
   return {
     sgas: sgaRows.map((r: any) => ({
       value: String(r.value || ''),
       label: String(r.label || ''),
       isActive: Boolean(r.isActive),
     })),
-    campaigns: campaignRows.map((r: any) => ({
-      value: String(r.value || ''),
-      label: String(r.label || ''),
-    })),
+    campaigns: [
+      ...SYNTHETIC_CAMPAIGNS,
+      ...campaignRows.map((r: any) => ({
+        value: String(r.value || ''),
+        label: String(r.label || ''),
+      })),
+    ],
   };
 }
 
