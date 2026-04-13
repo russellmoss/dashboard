@@ -93,6 +93,16 @@ export function Scorecards({
       default: return metrics.sqos;
     }
   };
+
+  // Resolve SQO AUM based on disposition toggle — keeps count + AUM cohorts aligned
+  const getSqoAum = (): number => {
+    switch (sqoDisposition || 'all') {
+      case 'open': return metrics.sqoAum_open ?? 0;
+      case 'lost': return metrics.sqoAum_lost ?? 0;
+      case 'converted': return metrics.sqoAum_converted ?? 0;
+      default: return metrics.sqoAum ?? 0;
+    }
+  };
   
   // Don't render if no metrics are visible
   if (!visibleMetrics.sqls && !visibleMetrics.sqos && !visibleMetrics.signed && !visibleMetrics.signedAum &&
@@ -160,6 +170,15 @@ export function Scorecards({
             onChange={onSqoDispositionChange}
           />
         )}
+        <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+          <div className="flex items-center justify-between mb-2">
+            <Text className="text-gray-600 dark:text-gray-400">SQO AUM</Text>
+            <DollarSign className="w-5 h-5 text-green-500 dark:text-green-400" />
+          </div>
+          <Metric className="text-2xl font-bold text-gray-900 dark:text-white">
+            {formatAumCompact(getSqoAum())}
+          </Metric>
+        </div>
         {(sqoDisposition || 'all') === 'all' && goals && goals.sqos > 0 && (
           <GoalDisplay actual={metrics.sqos} goal={goals.sqos} label="SQO" />
         )}

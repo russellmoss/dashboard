@@ -28,6 +28,13 @@ export interface FunnelMetrics {
   sqos_open: number;
   sqos_lost: number;
   sqos_converted: number;
+  // SQO AUM (all + by disposition) — sum of COALESCE(Underwritten_AUM__c, Amount)
+  // for records matching the SQO cohort + disposition filter. Mirrors sqos_* counts
+  // so the UI can show internally consistent count + AUM under each toggle state.
+  sqoAum: number;
+  sqoAum_open: number;
+  sqoAum_lost: number;
+  sqoAum_converted: number;
 }
 
 // Forecast goals for any metric level

@@ -607,12 +607,28 @@ interface FunnelMetrics {
   mqls: number;
   sqls: number;
   sqos: number;
+  signed: number;
+  signedAum: number;
   joined: number;
-  pipelineAum: number;
   joinedAum: number;
+  pipelineAum: number;
   openPipelineAum: number;
+  // Disposition counts (all / open / lost / converted) for MQL, SQL, SQO
+  mqls_open: number; mqls_lost: number; mqls_converted: number;
+  sqls_open: number; sqls_lost: number; sqls_converted: number;
+  sqos_open: number; sqos_lost: number; sqos_converted: number;
+  // SQO AUM — mirrors SQO disposition counts so the UI toggle can switch
+  // count and AUM together against the same cohort. AUM formula:
+  // COALESCE(Underwritten_AUM__c, Amount, 0) filtered by
+  // is_sqo_unique = 1 AND is_primary_opp_record = 1 (matches Slack bot pattern).
+  sqoAum: number;
+  sqoAum_open: number;
+  sqoAum_lost: number;
+  sqoAum_converted: number;
 }
 ```
+
+**SQO scorecard layout** (`src/components/dashboard/Scorecards.tsx`): SQO count, subtitle, DispositionToggle, then a divider and a second `Metric`-sized **SQO AUM** block that switches with the toggle (`getSqoAum()`), then optional GoalDisplay when toggle = "all".
 
 Goals come from `vw_daily_forecast` table, aggregated by `getAggregateForecastGoals()`.
 

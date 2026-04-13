@@ -23,6 +23,11 @@ export interface RawFunnelMetricsResult {
   sqos_open?: number | null;
   sqos_lost?: number | null;
   sqos_converted?: number | null;
+  // SQO AUM (all + by disposition)
+  sqo_aum?: number | null;
+  sqo_aum_open?: number | null;
+  sqo_aum_lost?: number | null;
+  sqo_aum_converted?: number | null;
 }
 
 export interface RawOpenPipelineResult {

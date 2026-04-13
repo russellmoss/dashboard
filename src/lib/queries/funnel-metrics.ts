@@ -303,7 +303,71 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
             ${sgaFilterForOpp}
           THEN 1 ELSE 0
         END
-      ) as sqos_open
+      ) as sqos_open,
+
+      -- ═══════════════════════════════════════
+      -- SQO AUM (all + by disposition)
+      -- AUM = COALESCE(Underwritten_AUM__c, Amount, 0)
+      -- Uses both is_sqo_unique = 1 AND is_primary_opp_record = 1 to dedupe
+      -- (matches Slack bot analysis authoritative pattern)
+      -- ═══════════════════════════════════════
+      SUM(
+        CASE
+          WHEN v.Date_Became_SQO__c IS NOT NULL
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+            AND v.recordtypeid = @recruitingRecordType
+            AND v.is_sqo_unique = 1
+            AND v.is_primary_opp_record = 1
+            ${sgaFilterForOpp}
+          THEN COALESCE(v.Underwritten_AUM__c, v.Amount, 0)
+          ELSE 0
+        END
+      ) as sqo_aum,
+      SUM(
+        CASE
+          WHEN v.Date_Became_SQO__c IS NOT NULL
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+            AND v.recordtypeid = @recruitingRecordType
+            AND v.is_sqo_unique = 1
+            AND v.is_primary_opp_record = 1
+            AND (v.advisor_join_date__c IS NOT NULL OR v.StageName IN ('Joined', 'Signed'))
+            ${sgaFilterForOpp}
+          THEN COALESCE(v.Underwritten_AUM__c, v.Amount, 0)
+          ELSE 0
+        END
+      ) as sqo_aum_converted,
+      SUM(
+        CASE
+          WHEN v.Date_Became_SQO__c IS NOT NULL
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+            AND v.recordtypeid = @recruitingRecordType
+            AND v.is_sqo_unique = 1
+            AND v.is_primary_opp_record = 1
+            AND v.StageName = 'Closed Lost'
+            AND v.advisor_join_date__c IS NULL
+            ${sgaFilterForOpp}
+          THEN COALESCE(v.Underwritten_AUM__c, v.Amount, 0)
+          ELSE 0
+        END
+      ) as sqo_aum_lost,
+      SUM(
+        CASE
+          WHEN v.Date_Became_SQO__c IS NOT NULL
+            AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
+            AND v.recordtypeid = @recruitingRecordType
+            AND v.is_sqo_unique = 1
+            AND v.is_primary_opp_record = 1
+            AND v.StageName NOT IN ('Closed Lost', 'Joined', 'Signed')
+            AND v.advisor_join_date__c IS NULL
+            ${sgaFilterForOpp}
+          THEN COALESCE(v.Underwritten_AUM__c, v.Amount, 0)
+          ELSE 0
+        END
+      ) as sqo_aum_open
     FROM \`${FULL_TABLE}\` v
     LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user
       ON v.Opp_SGA_Name__c = sga_user.Id
@@ -365,6 +429,11 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
     sqos_open: toNumber(metrics.sqos_open),
     sqos_lost: toNumber(metrics.sqos_lost),
     sqos_converted: toNumber(metrics.sqos_converted),
+    // SQO AUM (all + by disposition) — respects disposition toggle in UI
+    sqoAum: toNumber(metrics.sqo_aum),
+    sqoAum_open: toNumber(metrics.sqo_aum_open),
+    sqoAum_lost: toNumber(metrics.sqo_aum_lost),
+    sqoAum_converted: toNumber(metrics.sqo_aum_converted),
   };
 };
 
