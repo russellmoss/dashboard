@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     const {
       type,
       filters: rawFilters,
-      sgaName,
+      sgaName: requestedSgaName,
       statusFilter,
       columnFilter,
       page = 1,
@@ -40,10 +40,12 @@ export async function POST(request: NextRequest) {
     } = body;
 
     let filters: OutreachEffectivenessFilters = rawFilters;
+    let sgaName: string = requestedSgaName;
 
-    // SGA role: force filter to own name
+    // SGA role: force both filter.sga AND the sgaName drill-down arg to own name
     if (permissions.role === 'sga' && permissions.sgaFilter) {
       filters = { ...filters, sga: permissions.sgaFilter };
+      sgaName = permissions.sgaFilter;
     }
 
     switch (type) {

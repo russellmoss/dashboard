@@ -539,16 +539,24 @@ interface UserPermissions {
 Some API routes enforce `sgaFilter`/`sgmFilter` by overriding the frontend-supplied filter with the user's own name:
 
 ```typescript
-// Pattern used in open-pipeline, forecast, export-sheets
+// Pattern used in open-pipeline, forecast, export-sheets, outreach-effectiveness
 if (permissions.sgaFilter) {
   filters.sga = permissions.sgaFilter; // Override — user can only see their own data
 }
 ```
 
+**Drill-down routes must override every SGA-identity input.** When a route accepts an `sgaName` (or similar) body arg distinct from `filters.sga`, that arg must be pinned too — otherwise a client can bypass the filter by supplying a different name. Current example: `POST /api/outreach-effectiveness/drill-down` rewrites both `filters.sga` and the standalone `sgaName` arg for `role === 'sga'`.
+
 **Exceptions** — the following routes pass the frontend-selected filter through directly (no override), allowing SGA users to see full-team data on the funnel performance page:
 - `GET /api/dashboard/filters` — SGA users see **all SGAs** in the dropdown (not filtered to their own name)
 - `POST /api/dashboard/funnel-metrics` — respects the SGA selected in the UI
 - `POST /api/dashboard/source-performance` — respects the SGA selected in the UI
+
+### Canonical SGA Name Resolution
+
+The value stored in `sgaFilter` needs to match `SGA_Owner_Name__c` in BigQuery exactly. The dashboard's `User.name` is populated from Google OAuth display name (freeform) and can drift from Salesforce `User.Name` (e.g. `Brian OHara` vs `Brian O'Hara`). To protect against this, `src/lib/sga-canonical-name.ts` resolves the user's email against `savvy-gtm-analytics.SavvyGTMData.User` (filtered to `IsSGA__c = TRUE AND IsActive = TRUE`) and returns the canonical `Name`.
+
+This runs in the NextAuth JWT callback at sign-in (and as a one-time backfill for pre-existing tokens), caching the result on the token as `sgaCanonicalName`. `getPermissionsFromToken` in `src/lib/permissions.ts` prefers this canonical value, falling back to `tokenData.name` only if the BQ lookup failed — so login never blocks on BQ hiccups. In-process LRU cache in the helper keeps repeat lookups cheap (10-min TTL).
 
 ### Middleware Protection
 

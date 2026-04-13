@@ -4,6 +4,7 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 import GoogleProvider from 'next-auth/providers/google';
 import { validateUser, getUserByEmail } from './users';
 import { getPermissionsFromToken, TokenUserData } from './permissions';
+import { resolveSgaCanonicalName } from './sga-canonical-name';
 import { ExtendedSession } from '@/types/auth';
 import { getLoginLimiter, checkRateLimit } from '@/lib/rate-limit';
 import { UserRole } from '@/types/user';
@@ -140,6 +141,7 @@ export const authOptions: NextAuthOptions = {
           name: (token.name as string) || '',
           role: ((token.role as string) || 'viewer') as UserRole,
           externalAgency: (token.externalAgency as string | null) || null,
+          sgaCanonicalName: (token.sgaCanonicalName as string | null | undefined) ?? null,
         };
 
         const permissions = getPermissionsFromToken(tokenData);
@@ -204,6 +206,26 @@ export const authOptions: NextAuthOptions = {
           }
         } catch (error) {
           console.error('[Auth] jwt callback: failed to backfill user data, continuing with existing token:', error);
+        }
+      }
+
+      // Resolve canonical SGA name from SavvyGTMData.User via email. Runs:
+      //   - on fresh sign-in (user set) — refresh each login
+      //   - on existing JWTs that don't yet have the field — backfill
+      // Uses an in-process 10-minute cache inside resolveSgaCanonicalName.
+      const shouldResolveSga =
+        typeof token.email === 'string' &&
+        token.role === 'sga' &&
+        (!!user || token.sgaCanonicalName === undefined);
+
+      if (shouldResolveSga) {
+        try {
+          token.sgaCanonicalName = await resolveSgaCanonicalName(token.email as string);
+        } catch (error) {
+          console.error('[Auth] jwt callback: failed to resolve SGA canonical name, falling back to dashboard User.name:', error);
+          if (token.sgaCanonicalName === undefined) {
+            token.sgaCanonicalName = null;
+          }
         }
       }
 

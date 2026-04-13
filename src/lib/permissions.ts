@@ -8,6 +8,10 @@ export interface TokenUserData {
   name: string;
   role: UserRole;
   externalAgency?: string | null;
+  // Canonical SGA name resolved from SavvyGTMData.User via email.
+  // Set at JWT sign-in for users with role 'sga'. Protects the SGA-role
+  // data-scope filter from dashboard-side User.name drift vs. Salesforce.
+  sgaCanonicalName?: string | null;
 }
 
 export const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmFilter' | 'recruiterFilter' | 'capitalPartnerFilter' | 'userId'>> = {
@@ -87,7 +91,7 @@ export function getPermissionsFromToken(tokenData: TokenUserData): UserPermissio
 
   return {
     ...basePermissions,
-    sgaFilter: tokenData.role === 'sga' ? tokenData.name : null,
+    sgaFilter: tokenData.role === 'sga' ? (tokenData.sgaCanonicalName ?? tokenData.name) : null,
     sgmFilter: tokenData.role === 'sgm' ? tokenData.name : null,
     recruiterFilter: tokenData.role === 'recruiter' ? (tokenData.externalAgency ?? null) : null,
     capitalPartnerFilter: tokenData.role === 'capital_partner' ? (tokenData.externalAgency ?? null) : null,
