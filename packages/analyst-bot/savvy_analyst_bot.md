@@ -592,16 +592,27 @@ CREATE TABLE bot_threads (
 ### Redeploy the Bot
 
 ```bash
+# 1. Bump source-bust line in Dockerfile to invalidate Docker cache
+# 2. Build and push image
 cd packages/analyst-bot
-npm run build
-gcloud run deploy savvy-analyst-bot \
-  --source . \
-  --region us-east1 \
-  --service-account dashboard-bigquery-reader@savvy-gtm-analytics.iam.gserviceaccount.com \
-  --set-secrets="SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest,SLACK_SIGNING_SECRET=SLACK_SIGNING_SECRET:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,MCP_API_KEY=MCP_API_KEY:latest,DATABASE_URL=DATABASE_URL:latest,CLEANUP_SECRET=CLEANUP_SECRET:latest" \
-  --set-env-vars="MCP_SERVER_URL=https://savvy-mcp-server-e2vyxy5ipa-ue.a.run.app/mcp,BIGQUERY_PROJECT=savvy-gtm-analytics,AUDIT_DATASET=bot_audit,AUDIT_TABLE=interaction_log,ALLOWED_CHANNELS=C0A6YL0EBH6,ISSUES_CHANNEL=C0A6YL0EBH6,MAINTAINER_SLACK_ID=U09DX3U7UTW,VERBOSE=true" \
-  --no-cpu-throttling --min-instances=1 --timeout=300 --allow-unauthenticated
+gcloud builds submit --config=cloudbuild.yaml --project=savvy-gtm-analytics .
+
+# 3. Deploy image only — preserves existing secrets and env vars
+gcloud run deploy savvy-analyst-bot --project=savvy-gtm-analytics --region=us-east1 \
+  --image=gcr.io/savvy-gtm-analytics/analyst-bot:latest
 ```
+
+> **WARNING**: Do NOT use `--set-secrets` or `--set-env-vars` unless intentionally reconfiguring the service. These flags overwrite ALL existing values. The secrets (SLACK_BOT_TOKEN, ANTHROPIC_API_KEY, etc.) are already configured on the Cloud Run service via Secret Manager references.
+
+### Redeploy the MCP Server
+
+The MCP server bundles `.claude/schema-config.yaml` — the single source of truth for field definitions, rules, and glossary terms. If you updated that file, redeploy:
+
+```bash
+bash mcp-server/deploy.sh
+```
+
+The script copies `.claude/schema-config.yaml` into the build context, builds the image, deploys to Cloud Run, and cleans up.
 
 ### Local Development
 

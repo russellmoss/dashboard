@@ -9,8 +9,60 @@ Savvy Wealth recruiting funnel analytics dashboard.
 
 - **Stack**: Next.js 14, TypeScript, Tailwind CSS, Tremor React
 - **Data**: Neon PostgreSQL (Prisma) + Google BigQuery (semantic layer)
-- **Deployment**: Vercel (serverless)
+- **Deployment**: Vercel (dashboard) + GCP Cloud Run (bot + MCP server)
 - **Integrations**: Salesforce, Wrike, SendGrid, Claude API (Explore feature)
+
+## GCP Services & Deployment
+
+All GCP services run in project `savvy-gtm-analytics`, region `us-east1`.
+
+| Service | Source Code | Purpose | Deploy Command |
+|---------|-------------|---------|----------------|
+| `savvy-analyst-bot` | `packages/analyst-bot/` | Slack bot — @Savvy Analyst Bot. Receives Slack events, calls Claude API with MCP tools, returns formatted answers + charts. | See below |
+| `savvy-mcp-server` | `mcp-server/` | MCP tool server — schema context, BigQuery query execution. Called by the analyst bot via Claude's remote MCP. | `bash mcp-server/deploy.sh` |
+| `analyst-bot` | (same as savvy-analyst-bot) | Legacy service name — still exists but `savvy-analyst-bot` is the active one receiving Slack traffic. |  |
+
+### How They Connect
+
+```
+Slack → savvy-analyst-bot → Claude API (Anthropic, remote MCP) → savvy-mcp-server → BigQuery
+                 ↓                                                       ↓
+         Neon Postgres (thread state)                          .claude/schema-config.yaml (baked into image)
+```
+
+### Deploying the Analyst Bot
+
+```bash
+cd packages/analyst-bot
+gcloud builds submit --config=cloudbuild.yaml --project=savvy-gtm-analytics .
+gcloud run deploy savvy-analyst-bot --project=savvy-gtm-analytics --region=us-east1 \
+  --image=gcr.io/savvy-gtm-analytics/analyst-bot:latest
+```
+
+- Bump the `source-bust-*` line in `packages/analyst-bot/Dockerfile` to invalidate Docker cache.
+- The `--image` only deploy preserves all existing secrets and env vars on the Cloud Run service.
+- Do **NOT** use `--set-secrets` or `--set-env-vars` unless intentionally reconfiguring — it overwrites everything.
+
+### Deploying the MCP Server
+
+```bash
+bash mcp-server/deploy.sh
+```
+
+The script copies `.claude/schema-config.yaml` (single source of truth) into the build context, builds, deploys, and cleans up.
+
+### When to Deploy What
+
+| You Changed… | Deploy… |
+|---|---|
+| `packages/analyst-bot/src/**` (system prompt, Slack handler, chart rendering) | Analyst bot |
+| `.claude/schema-config.yaml` (field definitions, rules, glossary) | MCP server (via `deploy.sh`) |
+| `mcp-server/src/**` (query validation, MCP tool handlers) | MCP server (via `deploy.sh`) |
+| `src/lib/semantic-layer/**` (dimensions, metrics, templates) | Nothing — these are used by the dashboard's Explore feature on Vercel, not the Slack bot |
+
+### Detailed Operations Guide
+
+See `packages/analyst-bot/savvy_analyst_bot.md` for: env vars, secrets, log commands, Slack app config, audit trail, scheduled reports, local dev setup.
 
 ## Environment
 
