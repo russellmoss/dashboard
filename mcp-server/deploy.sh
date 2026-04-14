@@ -10,13 +10,13 @@ SCHEMA_SOURCE="${SCRIPT_DIR}/../.claude/schema-config.yaml"
 
 echo "Building and deploying ${SERVICE_NAME} to Cloud Run..."
 
-# Copy schema-config.yaml from source of truth (.claude/) into build context
-if [ ! -f "${SCHEMA_SOURCE}" ]; then
-  echo "ERROR: ${SCHEMA_SOURCE} not found. This is the source of truth for MCP schema context."
-  exit 1
+# Copy schema-config.yaml as offline fallback (primary source is GitHub at runtime)
+if [ -f "${SCHEMA_SOURCE}" ]; then
+  cp "${SCHEMA_SOURCE}" "${SCRIPT_DIR}/schema-config.yaml"
+  echo "Copied schema-config.yaml as offline fallback"
+else
+  echo "WARNING: ${SCHEMA_SOURCE} not found. Server will rely on GitHub fetch only."
 fi
-cp "${SCHEMA_SOURCE}" "${SCRIPT_DIR}/schema-config.yaml"
-echo "Copied schema-config.yaml from .claude/ (source of truth)"
 
 # Build container and push to GCR
 cd "${SCRIPT_DIR}"

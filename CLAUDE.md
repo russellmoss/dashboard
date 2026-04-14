@@ -49,14 +49,24 @@ gcloud run deploy savvy-analyst-bot --project=savvy-gtm-analytics --region=us-ea
 bash mcp-server/deploy.sh
 ```
 
-The script copies `.claude/schema-config.yaml` (single source of truth) into the build context, builds, deploys, and cleans up.
+Only needed for changes to `mcp-server/src/**` (tool handlers, query validation, auth). NOT needed for schema-config.yaml changes.
+
+### Schema Config: Auto-Syncs from Git
+
+`.claude/schema-config.yaml` is the single source of truth. The MCP server fetches it **live from GitHub** (5-minute cache). Workflow:
+
+1. Edit `.claude/schema-config.yaml`
+2. Commit and push to `main`
+3. Within 5 minutes, both the Slack bot and all MCP users get the updated schema
+
+No rebuild or redeploy needed. The baked-in copy in the Docker image is only an offline fallback.
 
 ### When to Deploy What
 
 | You Changed… | Deploy… |
 |---|---|
 | `packages/analyst-bot/src/**` (system prompt, Slack handler, chart rendering) | Analyst bot |
-| `.claude/schema-config.yaml` (field definitions, rules, glossary) | MCP server (via `deploy.sh`) |
+| `.claude/schema-config.yaml` (field definitions, rules, glossary) | **Nothing** — just push to git, auto-syncs within 5 min |
 | `mcp-server/src/**` (query validation, MCP tool handlers) | MCP server (via `deploy.sh`) |
 | `src/lib/semantic-layer/**` (dimensions, metrics, templates) | Nothing — these are used by the dashboard's Explore feature on Vercel, not the Slack bot |
 

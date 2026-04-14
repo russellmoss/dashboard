@@ -18,13 +18,46 @@ const bigquery = new BigQuery();
 const app = express();
 const PORT = parseInt(process.env.PORT || '8080', 10);
 
-// Q3: Load schema-config.yaml at startup for the schema_context tool
-const schemaConfigPath = process.env.SCHEMA_CONFIG_PATH || '/app/schema-config.yaml';
+// Schema config: fetched from GitHub (single source of truth) with local fallback
+const SCHEMA_CONFIG_URL = process.env.SCHEMA_CONFIG_URL
+  || 'https://raw.githubusercontent.com/russellmoss/dashboard/main/.claude/schema-config.yaml';
+const SCHEMA_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 let schemaConfig = '';
+let schemaCacheExpiry = 0;
+
+// Load local copy as initial fallback
+const schemaConfigPath = process.env.SCHEMA_CONFIG_PATH || '/app/schema-config.yaml';
 try {
   schemaConfig = fs.readFileSync(schemaConfigPath, 'utf8');
+  console.log('[schema] Loaded local schema-config.yaml as initial fallback');
 } catch (e) {
-  console.warn('[schema] Could not load schema-config.yaml:', (e as Error).message);
+  console.warn('[schema] No local schema-config.yaml:', (e as Error).message);
+}
+
+async function getSchemaConfig(): Promise<string> {
+  const now = Date.now();
+  if (schemaConfig && now < schemaCacheExpiry) return schemaConfig;
+
+  try {
+    const res = await fetch(SCHEMA_CONFIG_URL, {
+      headers: { 'Cache-Control': 'no-cache' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      schemaConfig = await res.text();
+      schemaCacheExpiry = now + SCHEMA_CACHE_TTL_MS;
+      console.log('[schema] Refreshed schema-config.yaml from GitHub');
+    } else {
+      console.warn(`[schema] GitHub fetch failed (${res.status}), using cached copy`);
+      schemaCacheExpiry = now + 60_000; // retry in 1 min on failure
+    }
+  } catch (e) {
+    console.warn('[schema] GitHub fetch error, using cached copy:', (e as Error).message);
+    schemaCacheExpiry = now + 60_000; // retry in 1 min on failure
+  }
+
+  return schemaConfig;
 }
 
 // Track active transports by session ID (supports both SSE and Streamable HTTP)
@@ -281,7 +314,8 @@ function createMcpServer(user: AuthenticatedUser) {
         const term = (args as Record<string, unknown>)?.term as
           | string
           | undefined;
-        if (!schemaConfig) {
+        const config = await getSchemaConfig();
+        if (!config) {
           return {
             content: [
               { type: 'text', text: 'Schema context not available' },
@@ -289,7 +323,7 @@ function createMcpServer(user: AuthenticatedUser) {
           };
         }
         if (term) {
-          const lines = schemaConfig.split('\n');
+          const lines = config.split('\n');
           const relevant = lines.filter((l) =>
             l.toLowerCase().includes(term.toLowerCase())
           );
@@ -299,7 +333,7 @@ function createMcpServer(user: AuthenticatedUser) {
               : `No matches for "${term}". Try a different term or omit the term parameter for the full schema.`;
           return { content: [{ type: 'text', text: context }] };
         }
-        return { content: [{ type: 'text', text: schemaConfig }] };
+        return { content: [{ type: 'text', text: config }] };
       }
 
       default:
