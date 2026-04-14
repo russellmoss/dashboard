@@ -1561,7 +1561,7 @@ Dashboard Requests is an internal ticketing system for submitting and tracking a
 |---------|--------|
 | Statuses | SUBMITTED → PLANNED → IN_PROGRESS → DONE → ARCHIVED |
 | Wrike sync | Background (non-blocking); syncs creates, status changes, and comments |
-| Attachments | Images only (PNG, JPEG, GIF, WebP); max 5 MB; stored as base64 in DB |
+| Attachments | Images (PNG, JPEG, GIF, WebP), SQL, TXT, JSON; max 5 MB; stored as base64 in DB |
 | Edit history | All field changes recorded in `RequestEditHistory` |
 | Kanban view | 4 columns: SUBMITTED, PLANNED, IN_PROGRESS, DONE |
 
@@ -1616,7 +1616,7 @@ All non-recruiter users can submit requests. `canManageRequests` (RevOps Admin) 
 | POST | `/api/dashboard-requests/[id]/archive` | canManageRequests | Archive request; records history; Wrike sync |
 | POST | `/api/dashboard-requests/[id]/unarchive` | canManageRequests | Unarchive to DONE; records history; Wrike sync |
 | GET | `/api/dashboard-requests/[id]/attachments` | Non-recruiter | List attachments (metadata only, no binary data) |
-| POST | `/api/dashboard-requests/[id]/attachments` | Non-recruiter | Upload image (PNG/JPEG/GIF/WebP, max 5 MB, stored as base64) |
+| POST | `/api/dashboard-requests/[id]/attachments` | Non-recruiter | Upload file (PNG/JPEG/GIF/WebP/SQL/TXT/JSON, max 5 MB, stored as base64) |
 
 ### Analyst Bot Integration
 

@@ -134,9 +134,10 @@ export async function createDashboardRequest(
       : '[Bot Issue] Data issue reported via analyst bot';
 
     const descriptionParts: string[] = [];
+    if (issue.originalQuestion) descriptionParts.push(`**Original prompt:** ${issue.originalQuestion}`);
     if (issue.whatLooksWrong) descriptionParts.push(`**What looks wrong:** ${issue.whatLooksWrong}`);
     if (issue.whatExpected) descriptionParts.push(`**Expected:** ${issue.whatExpected}`);
-    if (issue.sqlExecuted?.length > 0) descriptionParts.push(`**SQL executed:**\n\`\`\`\n${issue.sqlExecuted.join('\n')}\n\`\`\``);
+    if (issue.sqlExecuted?.length > 0) descriptionParts.push(`**SQL executed:** See attached .sql file`);
     if (issue.schemaToolsCalled?.length > 0) descriptionParts.push(`**Schema tools called:** ${issue.schemaToolsCalled.join(', ')}`);
     descriptionParts.push(`**Reporter:** ${reporterName} (${userEmail})`);
     descriptionParts.push(`**Priority:** ${issue.priority ?? 'MEDIUM'}`);
@@ -162,6 +163,24 @@ export async function createDashboardRequest(
     );
 
     verbose(`📋 Dashboard request created: ${id} (submitter: ${reporterName})`);
+
+    // Attach SQL file if queries were executed
+    if (issue.sqlExecuted?.length > 0) {
+      const sqlContent = issue.sqlExecuted
+        .map((sql, i) => `-- Query ${i + 1}\n${sql}`)
+        .join('\n\n');
+      const sqlBase64 = Buffer.from(sqlContent, 'utf8').toString('base64');
+      const attachmentId = 'att_' + crypto.randomUUID().replace(/-/g, '').substring(0, 20);
+
+      getPool().query(
+        `INSERT INTO "RequestAttachment" (
+          id, filename, "mimeType", size, data, "requestId", "uploadedById", "createdAt"
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [attachmentId, 'bot-query.sql', 'application/sql', Buffer.byteLength(sqlContent, 'utf8'),
+          sqlBase64, id, submitterId, now],
+      ).then(() => verbose('📎 SQL attachment created'))
+        .catch((err) => console.error('[dashboard-request] SQL attachment insert failed:', err.message));
+    }
 
     // Write to BigQuery (fire-and-forget)
     syncIssueToBigQuery(id, title, description, priority, userEmail, reporterName, issue.threadLink, now);

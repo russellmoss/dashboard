@@ -8,7 +8,10 @@ export const dynamic = 'force-dynamic';
 
 // Max file size: 5MB
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
-const VALID_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const VALID_MIME_TYPES = [
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+  'application/sql', 'text/x-sql', 'text/plain', 'application/json',
+];
 
 /**
  * GET /api/dashboard-requests/[id]/attachments
@@ -111,7 +114,7 @@ export async function POST(
     // Validate file type
     if (!VALID_MIME_TYPES.includes(file.type)) {
       return NextResponse.json(
-        { error: 'Invalid file type. Please upload PNG, JPEG, GIF, or WebP.' },
+        { error: 'Invalid file type. Accepted: PNG, JPEG, GIF, WebP, SQL, TXT, JSON.' },
         { status: 400 }
       );
     }
