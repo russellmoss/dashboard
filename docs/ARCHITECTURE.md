@@ -518,7 +518,6 @@ interface UserPermissions {
 | 3 | Open Pipeline | `/dashboard/pipeline` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
 | 7 | Settings | `/dashboard/settings` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 8 | SGA Hub | `/dashboard/sga-hub` | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| 9 | SGA Management | `/dashboard/sga-management` | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | 10 | Explore (AI) | `/dashboard/explore` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
 | 11 | Chart Builder | `/dashboard/chart-builder` | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | 12 | Recruiter Hub | `/dashboard/recruiter-hub` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
@@ -869,19 +868,18 @@ User clicks Export → API copies template → Populates data → Shares with us
 
 ### Overview
 
-Two related pages for SGA performance tracking:
+Single page for SGA performance tracking with role-based tabs:
 
 | Page | ID | Purpose | Access |
 |------|-----|---------|--------|
-| **SGA Hub** | 8 | Individual SGA views their own performance | admin, manager, sga |
-| **SGA Management** | 9 | Admin/manager overview of all SGAs | admin, manager |
+| **SGA Hub** | 8 | SGA performance, goals, leaderboard, and admin management | admin, manager, sga, sgm, revops_admin |
 
 ### SGA Hub Tabs
 
-Six tabs defined in `src/components/sga-hub/SGAHubTabs.tsx` as `SGAHubTab` type:
-`leaderboard | weekly-goals | closed-lost | quarterly-progress | activity | outreach-effectiveness`
+Seven tabs defined in `src/components/sga-hub/SGAHubTabs.tsx` as `SGAHubTab` type:
+`leaderboard | weekly-goals | closed-lost | quarterly-progress | activity | outreach-effectiveness | management`
 
-Tab orchestrator: `src/app/dashboard/sga-hub/SGAHubContent.tsx` — renders each tab's content component conditionally. Activity and Outreach Effectiveness embed standalone content components with `embedded` prop.
+Tab orchestrator: `src/app/dashboard/sga-hub/SGAHubContent.tsx` — renders each tab's content component conditionally. Activity and Outreach Effectiveness embed standalone content components with `embedded` prop. The Management tab is only visible to `revops_admin` users (controlled via `showManagement` prop on `SGAHubTabs`).
 
 #### 0. Leaderboard Tab
 
@@ -1020,7 +1018,9 @@ Shows active re-engagement opportunities that SGAs are currently working.
 **Data Source**: Re-engagement opportunities from BigQuery
 **API Route**: `/api/sga-hub/re-engagement`
 
-### SGA Management Page (Admin)
+### SGA Management Tab (RevOps Admin Only)
+
+Embedded in the SGA Hub as the "SGA Management" tab, visible only to `revops_admin`. Component: `src/app/dashboard/sga-management/SGAManagementContent.tsx`.
 
 Overview dashboard showing all active SGAs:
 
@@ -1064,7 +1064,7 @@ Metric Click → Drill-Down Modal → Row Click → Record Detail Modal
                         "← Back" button returns here
 ```
 
-**MetricDrillDownModal Component**: Shared component used by both SGA Hub and SGA Management. Supports CSV export for all metric types.
+**MetricDrillDownModal Component**: Shared component used across SGA Hub tabs (including Management tab). Supports CSV export for all metric types.
 
 ### SGA Name Matching
 
@@ -2258,7 +2258,7 @@ Use these values to validate any query changes.
 6. **Section 8 (SGA Hub)**:
    - ✅ Verified Prisma schema has WeeklyGoal and QuarterlyGoal models (updated to match actual schema with cuid IDs)
    - ✅ Verified `src/app/dashboard/sga-hub/` page structure
-   - ✅ Verified `src/app/dashboard/sga-management/` page structure
+   - ✅ SGA Management moved from standalone page to SGA Hub tab (revops_admin only)
    - ✅ Verified all SGA Hub API routes exist (10 routes)
    - ✅ Added Re-Engagement tab documentation
    - ✅ Added sqo-details and re-engagement API routes

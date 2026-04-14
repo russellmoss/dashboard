@@ -27,6 +27,7 @@ import { MetricDrillDownModal } from '@/components/sga-hub/MetricDrillDownModal'
 import { RecordDetailModal } from '@/components/dashboard/RecordDetailModal';
 import SGAActivityContent from '@/app/dashboard/sga-activity/SGAActivityContent';
 import OutreachEffectivenessContent from '@/app/dashboard/outreach-effectiveness/OutreachEffectivenessContent';
+import { SGAManagementContent } from '@/app/dashboard/sga-management/SGAManagementContent';
 import {
   MetricType,
   DrillDownRecord,
@@ -38,6 +39,7 @@ export function SGAHubContent() {
   const { data: session } = useSession();
   const permissions = getSessionPermissions(session);
   const isAdmin = permissions?.role === 'admin' || permissions?.role === 'manager' || permissions?.role === 'revops_admin';
+  const isRevOpsAdmin = permissions?.role === 'revops_admin';
   const sgaName = session?.user?.name || 'Unknown';
   
   const [activeTab, setActiveTab] = useState<SGAHubTab>('leaderboard');
@@ -707,7 +709,7 @@ export function SGAHubContent() {
         <Text>Track your weekly goals, closed lost follow-ups, and quarterly progress</Text>
       </div>
       
-      <SGAHubTabs activeTab={activeTab} onTabChange={setActiveTab} />
+      <SGAHubTabs activeTab={activeTab} onTabChange={setActiveTab} showManagement={isRevOpsAdmin} />
       
       {activeTab === 'leaderboard' && (
         <>
@@ -886,6 +888,10 @@ export function SGAHubContent() {
 
       {activeTab === 'outreach-effectiveness' && (
         <OutreachEffectivenessContent embedded />
+      )}
+
+      {activeTab === 'management' && isRevOpsAdmin && (
+        <SGAManagementContent />
       )}
 
       <WeeklyGoalEditor

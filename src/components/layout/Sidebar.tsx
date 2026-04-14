@@ -8,7 +8,7 @@ import Image from 'next/image';
 import { useRef, useCallback, ReactNode } from 'react';
 import {
   BarChart3, BarChart2, Settings, Menu, X, Target,
-  Bot, Users, Layers, Briefcase, MessageSquarePlus, MapPin, Banknote, Trophy, TrendingUp
+  Bot, Layers, Briefcase, MessageSquarePlus, MapPin, Banknote, Trophy, TrendingUp
 } from 'lucide-react';
 
 // Easter egg component - triple-click to access Pipeline Catcher game
@@ -52,7 +52,6 @@ const PAGES = [
   { id: 10, name: 'Explore', href: '/dashboard/explore', icon: Bot },
   { id: 8, name: 'SGA Hub', href: '/dashboard/sga-hub', icon: Target },
   { id: 18, name: 'SGM Hub', href: '/dashboard/sgm-hub', icon: Trophy },
-  { id: 9, name: 'SGA Management', href: '/dashboard/sga-management', icon: Users },
   { id: 12, name: 'Recruiter Hub', href: '/dashboard/recruiter-hub', icon: Briefcase },
   { id: 13, name: 'Dashboard Requests', href: '/dashboard/requests', icon: MessageSquarePlus },
   { id: 14, name: 'Chart Builder', href: '/dashboard/chart-builder', icon: BarChart2 },

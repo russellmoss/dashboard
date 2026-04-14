@@ -1,16 +1,17 @@
 'use client';
 
 import { Button } from '@tremor/react';
-import { Trophy, Target, AlertCircle, TrendingUp, PhoneCall, Crosshair } from 'lucide-react';
+import { Trophy, Target, AlertCircle, TrendingUp, PhoneCall, Crosshair, Settings } from 'lucide-react';
 
-export type SGAHubTab = 'leaderboard' | 'weekly-goals' | 'closed-lost' | 'quarterly-progress' | 'activity' | 'outreach-effectiveness';
+export type SGAHubTab = 'leaderboard' | 'weekly-goals' | 'closed-lost' | 'quarterly-progress' | 'activity' | 'outreach-effectiveness' | 'management';
 
 interface SGAHubTabsProps {
   activeTab: SGAHubTab;
   onTabChange: (tab: SGAHubTab) => void;
+  showManagement?: boolean;
 }
 
-export function SGAHubTabs({ activeTab, onTabChange }: SGAHubTabsProps) {
+export function SGAHubTabs({ activeTab, onTabChange, showManagement }: SGAHubTabsProps) {
   const tabs: { id: SGAHubTab; label: string; icon: React.ReactNode }[] = [
     { id: 'leaderboard', label: 'Leaderboard', icon: <Trophy className="w-4 h-4" /> },
     { id: 'weekly-goals', label: 'Weekly Goals vs. Actuals', icon: <Target className="w-4 h-4" /> },
@@ -18,6 +19,7 @@ export function SGAHubTabs({ activeTab, onTabChange }: SGAHubTabsProps) {
     { id: 'quarterly-progress', label: 'Quarterly Progress', icon: <TrendingUp className="w-4 h-4" /> },
     { id: 'activity', label: 'Activity', icon: <PhoneCall className="w-4 h-4" /> },
     { id: 'outreach-effectiveness', label: 'Outreach Effectiveness', icon: <Crosshair className="w-4 h-4" /> },
+    ...(showManagement ? [{ id: 'management' as SGAHubTab, label: 'SGA Management', icon: <Settings className="w-4 h-4" /> }] : []),
   ];
   
   return (
