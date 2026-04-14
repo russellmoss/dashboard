@@ -547,7 +547,8 @@ export const DIMENSIONS = {
 
   source: {
     name: 'Source',
-    description: 'Lead source (e.g., LPL, Schwab, Google Ads)',
+    description:
+      'Atomic lead source (Original_source / Final_Source__c). Sources nest within channels — multiple sources roll up to one Channel_Grouping_Name. E.g., LinkedIn (Self Sourced) and Fintrx (Self-Sourced) both roll up to the Outbound channel.',
     field: 'v.Original_source',
     rawField: 'Original_source',
     requiresJoin: false,

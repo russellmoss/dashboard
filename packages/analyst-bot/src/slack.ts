@@ -149,12 +149,12 @@ function buildThreadLink(channelId: string, threadTs: string): string {
 // ---- "Working on it" personality messages ----
 
 const WORKING_MESSAGES = [
-  ':pickaxe: Off to the mines of BigQuery to fetch your answers. Back in a sec.',
+  ':pick: Off to the mines of BigQuery to fetch your answers. Back in a sec.',
   ':mag: Diving into the data warehouse. Hold tight.',
   ':rocket: On it. Querying the mothership now.',
   ':gear: Crunching the numbers. This is the fun part (for me, anyway).',
   ':books: Let me check the receipts. One moment.',
-  ':detective: Investigating. I love a good data mystery.',
+  ':male-detective: Investigating. I love a good data mystery.',
   ':coffee: Brewing up your answer. Give me a moment.',
   ':satellite: Pinging the data warehouse. Stand by for results.',
   ':bar_chart: Running the numbers. I live for this.',
@@ -947,7 +947,7 @@ export async function startSlackApp(): Promise<void> {
                 multiline: true,
                 placeholder: { type: 'plain_text', text: 'e.g. "Show me SQO volume by SGA for the last 7 days with conversion rates"' },
                 ...(prefillQuestion ? { initial_value: prefillQuestion } : {}),
-                max_length: 500,
+                max_length: 3000,
               },
             },
             {

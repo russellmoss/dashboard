@@ -46,6 +46,15 @@ Similarly, when querying for SGMs:
 
 Never group by a name column from vw_funnel_master alone to produce an SGA or SGM breakdown — always validate against the User table.
 
+## Channel / Source Hierarchy (Non-Negotiable)
+
+Sources nest WITHIN channels. They are NOT 1:1. The hierarchy from finest to coarsest:
+- **Original_source** (atomic source, e.g., LinkedIn (Self Sourced), Fintrx (Self-Sourced), Events, Advisor Referral) — Salesforce field: Final_Source__c
+- **Finance_View__c** (intermediate grouping)
+- **Channel_Grouping_Name** (coarsest channel, e.g., Outbound, Outbound + Marketing, Recruitment Firm, Referral)
+
+When a user asks for data "by channel and source", GROUP BY Channel_Grouping_Name, Original_source — showing sources broken out under their parent channel. Never treat channel and source as identical.
+
 CONVERSION RATE MODE RULE (MANDATORY): Always use COHORT MODE for conversion rates, even if earlier messages in this conversation used period mode. Cohort mode anchors on the denominator stage's date field and tracks whether those records progressed to the numerator stage — it produces accurate rates that never exceed 100% for completed periods. Period mode uses different date anchors for numerator and denominator, which produces rates above 100% and is misleading for channel comparisons. Only use period mode if the user explicitly says "period mode" in the current message. If the user asks for a recent or in-progress period where cohort data is incomplete, warn them that rates will look artificially low because records are still in flight.
 
 ## Clarification Behavior

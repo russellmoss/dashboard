@@ -109,6 +109,7 @@ views:
     grain: "One row per task (activity)"
     key_filters:
       outbound_effort: "direction = 'Outbound' AND is_engagement_tracking = 0 AND COALESCE(task_subject, '') NOT LIKE '%[lemlist]%' AND COALESCE(task_subtype, '') != 'ListEmail'"
+      dashboard_total_activity: "USE task_activity_date (not task_created_date_est) for the date filter. Base-level filters: COALESCE(is_marketing_activity,0) = 0 AND task_subject NOT LIKE '[lemlist] Call -%' AND task_subject NOT LIKE '[lemlist] Task -%'. Then include rows matching ANY of: (activity_channel_group='SMS' AND direction='Outbound') OR (activity_channel_group='LinkedIn') OR (activity_channel_group='Call' AND direction='Outbound' AND LOWER(COALESCE(task_subject,'')) NOT LIKE '%[lemlist]%') OR (activity_channel_group='Email' AND COALESCE(is_engagement_tracking,0)=0 AND COALESCE(is_marketing_activity,0)=0) OR (activity_channel_group='Email (Engagement)' OR (activity_channel_group='Email' AND is_engagement_tracking=1)). See metrics.sga_total_activity.reference_query for the full canonical query including the SGA exclusion list."
       cold_calls: "is_true_cold_call = 1"
       meaningful_connects: "is_meaningful_connect = 1"
     consumers:
@@ -280,13 +281,22 @@ terms:
     gotcha: "This is a categorical classification from FinTrx advisor_segments, not a score. Do not confuse with Lead_Score_Tier__c."
 
   channel:
-    definition: "Marketing channel — the source/medium through which a prospect entered the funnel. The canonical field is Finance_View__c, grouped into Channel_Grouping_Name."
+    definition: "Marketing channel — the coarsest grouping of how a prospect entered the funnel. The canonical field is Channel_Grouping_Name (derived from Finance_View__c). Channels contain one or more sources (Original_source). Hierarchy: Original_source (finest) → Finance_View__c (intermediate) → Channel_Grouping_Name (coarsest = channel)."
     related_fields:
       - Finance_View__c
       - Channel_Grouping_Name
+      - Original_source
     related_rules:
       - no_new_mapping
-    gotcha: "Do not use new_mapping (deprecated). Finance_View__c is the canonical source. Channel_Grouping_Name groups Finance_View__c values into Recruitment Firm, Marketing, Referral, etc."
+    gotcha: "Do not use new_mapping (deprecated). Sources nest WITHIN channels. When a user asks for 'by channel and source', GROUP BY Channel_Grouping_Name, Original_source — show sources indented under their parent channel."
+
+  source:
+    definition: "The atomic lead source (Original_source field) — the finest-grained classification of where a prospect came from. Sources nest within channels. Original_source = COALESCE(Opp.Final_Source__c, Lead.Final_Source__c, 'Unknown'). Examples: LinkedIn (Self Sourced), Fintrx (Self-Sourced), Events, Advisor Referral, Provided List (Lead Scoring), Recruitment Firm, Re-Engagement."
+    related_fields:
+      - Original_source
+      - Finance_View__c
+      - Channel_Grouping_Name
+    gotcha: "Source is NOT the same as channel. Multiple sources can roll up to one channel. When a user says 'by source within channel', use GROUP BY Channel_Grouping_Name, Original_source."
 
   joined_advisor:
     definition: "An advisor who has completed onboarding and is actively on the Savvy platform. Identified by is_joined_unique = 1 in vw_funnel_master or presence in vw_joined_advisor_location."
@@ -432,12 +442,16 @@ fields:
     dangerous: true
     gotcha: "DO NOT use this field to infer SGA-to-SGM team assignments, reporting relationships, or org structure. SGAs are not assigned to specific SGMs — lead routing is round-robin. This field only reflects which SGM is next in the routing queue, not who 'manages' the SGA."
 
+  Original_source:
+    meaning: "COALESCE(Opp.Final_Source__c, Lead.Final_Source__c, 'Unknown') — atomic lead source. This is the finest-grained source classification. Sources nest within channels (Channel_Grouping_Name). Salesforce field: Final_Source__c."
+    gotcha: "This is the field to use when users say 'source' or 'original source'. Multiple Original_source values roll up into one Channel_Grouping_Name. Do NOT treat channel and source as 1:1."
+
   Finance_View__c:
-    meaning: "COALESCE(Opp.Finance_View__c, Lead.Finance_View__c, 'Other') — canonical channel source."
+    meaning: "COALESCE(Opp.Finance_View__c, Lead.Finance_View__c, 'Other') — intermediate channel classification between Original_source (finest) and Channel_Grouping_Name (coarsest)."
     gotcha: "Replaces the deprecated new_mapping table. vw_funnel_master computes Channel_Grouping_Name inline from this field."
 
   Channel_Grouping_Name:
-    meaning: "Marketing channel grouping derived from Finance_View__c via CASE statement. Values: Partnerships→Recruitment Firm, Job Applications→Marketing, Employee/Advisor Referral→Referral, else passthrough."
+    meaning: "Marketing channel grouping derived from Finance_View__c via CASE statement. Values: Partnerships→Recruitment Firm, Job Applications→Marketing, Employee/Advisor Referral→Referral, else passthrough. This is the coarsest grouping — multiple Original_source values roll up to one Channel_Grouping_Name."
 
   Opportunity_AUM:
     meaning: "COALESCE(Underwritten_AUM__c, Amount) — best available AUM for the opportunity."
@@ -470,7 +484,16 @@ fields:
 
   activity_channel:
     meaning: "Detailed activity channel classification (10 values): Marketing, SMS, LinkedIn, Call, Email (Blast), Email (Engagement), Email (Campaign), Email (Manual), Meeting, Other."
-    gotcha: "CASE waterfall — earlier matches win. SMS is checked before Call."
+    gotcha: "CASE waterfall — earlier matches win. SMS is checked before Call. NARROW field — 'Email (Manual)' excludes lemlist/ListEmail auto-sends. For dashboard-aligned totals use activity_channel_group (wide) instead."
+
+  activity_channel_group:
+    meaning: "Coarser 7-value channel bucket used by the SGA Activity dashboard. Values: Marketing, SMS, LinkedIn, Call, Email, Email (Engagement), Meeting, Other (plus NULL for skipped/campaign-reminder tasks)."
+    gotcha: "WIDE field — the 'Email' bucket INCLUDES lemlist, ListEmail, and blast sends. Filter those out with is_engagement_tracking = 0 AND is_marketing_activity = 0 (not subject LIKE). Use activity_channel_group (not activity_channel) when mirroring the SGA Activity dashboard on /dashboard/sga-activity. Use activity_channel='Email (Manual)' only if the question specifically asks for hand-typed emails only."
+
+  is_marketing_activity:
+    meaning: "Binary flag (0/1): task was generated by marketing automation (HubSpot form submissions, Savvy Marketing system account)."
+    type: INTEGER
+    gotcha: "Exclude (= 0) when mirroring the SGA Activity dashboard's outbound volume. Different from is_engagement_tracking — this flags marketing-origin tasks, not link-click events."
 
   is_meaningful_connect:
     meaning: "Binary flag (0/1): A real two-way interaction occurred. Incoming SMS, answered call, or call > 120s."
@@ -493,9 +516,14 @@ fields:
     gotcha: "Exclude these (= 0) when counting SGA outbound effort."
 
   task_created_date_est:
-    meaning: "DATE(CreatedDate, 'America/New_York') — primary date field for activity queries."
+    meaning: "DATE(CreatedDate, 'America/New_York') — when the Task record was created, Eastern Time."
     type: DATE
-    gotcha: "Use this for date filtering in activity queries, not task_created_date_utc."
+    gotcha: "Use this for 'when was the activity logged' questions. For dashboard-aligned activity counts (SGA Activity page), use task_activity_date instead — dashboard aligns with SFDC report DUE_DATE, not created date."
+
+  task_activity_date:
+    meaning: "COALESCE(ActivityDate, DATE(CreatedDate, 'America/New_York')) — the dashboard-aligned activity date. Aligns with Salesforce report DUE_DATE so dashboard totals match what SGAs see in SFDC."
+    type: DATE
+    gotcha: "Use this date field (not task_created_date_est) for any query that should match the /dashboard/sga-activity numbers. Scheduled tasks created in advance land on their ActivityDate, not their CreatedDate — the two can differ by days."
 
   task_id:
     meaning: "Salesforce Task record ID. Unique identifier per activity."
@@ -775,3 +803,51 @@ metrics:
         numerator: advisor_join_date__c
         denominator: Date_Became_SQO__c
         gotcha: "Can exceed 100%. Both numerator and denominator need recordtypeid filter."
+
+  sga_total_activity:
+    description: "Per-SGA outbound activity count, broken down by channel, mirroring the SGA Activity dashboard on /dashboard/sga-activity. Use this (NOT the narrower outbound_effort key_filter) when the user asks for 'activity' / 'volume' / 'leaderboard' numbers that should match what they see on the SGA dashboard. The dashboard's 'Total Activities' column = sum of the 6 channel buckets below."
+    view: vw_sga_activity_performance
+    date_anchor: task_activity_date
+    date_anchor_note: "CRITICAL: use task_activity_date (COALESCE of ActivityDate and task_created_date_est) — NOT task_created_date_est. The dashboard aligns with Salesforce report DUE_DATE. Using task_created_date_est will drift for scheduled tasks where CreatedDate ≠ ActivityDate."
+    required_filters:
+      - "direction = 'Outbound'"
+      - "task_subject NOT LIKE '[lemlist] Call -%' AND task_subject NOT LIKE '[lemlist] Task -%' (lemlist REMINDER tasks — not real activities, these are reminders TO the SGA. Distinct from real lemlist sends like 'Email: [lemlist] Email sent...' which are kept.)"
+      - "COALESCE(is_marketing_activity, 0) = 0 (applied at base level, before channel breakdown)"
+      - "Active SGA filter: INNER JOIN SavvyGTMData.User u ON u.Name = task_executor_name WHERE u.IsSGA__c = TRUE AND u.IsActive = TRUE"
+    excluded_sgas: "The dashboard additionally EXCLUDES these names even when IsSGA__c = TRUE: Anett Diaz, Ariana Butler, Bre McDaniel, Bryan Belville, GinaRose Galli, Jacqueline Tully, Jed Entin, Russell Moss, Savvy Marketing, Savvy Operations, Lauren George. These are SGMs, system accounts, admins, or former SGAs mis-flagged in the User table. Add: AND u.Name NOT IN ('Anett Diaz','Ariana Butler','Bre McDaniel','Bryan Belville','GinaRose Galli','Jacqueline Tully','Jed Entin','Russell Moss','Savvy Marketing','Savvy Operations','Lauren George')"
+    channel_breakdown:
+      outbound_sms: "activity_channel_group = 'SMS' AND direction = 'Outbound'"
+      linkedin: "activity_channel_group = 'LinkedIn'"
+      cold_call: "activity_channel_group = 'Call' AND direction = 'Outbound' AND (Initial_Call_Scheduled_Date__c IS NULL OR task_created_date_est != DATE(Initial_Call_Scheduled_Date__c)) AND LOWER(COALESCE(task_subject,'')) NOT LIKE '%[lemlist]%'"
+      scheduled_call: "activity_channel_group = 'Call' AND direction = 'Outbound' AND Initial_Call_Scheduled_Date__c IS NOT NULL AND task_created_date_est = DATE(Initial_Call_Scheduled_Date__c) AND LOWER(COALESCE(task_subject,'')) NOT LIKE '%[lemlist]%'"
+      manual_email: "activity_channel_group = 'Email' AND COALESCE(is_engagement_tracking,0) = 0 AND COALESCE(is_marketing_activity,0) = 0"
+      email_engagement: "activity_channel_group = 'Email (Engagement)' OR (activity_channel_group = 'Email' AND is_engagement_tracking = 1)"
+    gotcha: "Four things must ALL be right for dashboard parity: (1) date = task_activity_date NOT task_created_date_est; (2) exclude [lemlist] Call -% and [lemlist] Task -% reminder tasks at the base level; (3) is_marketing_activity = 0 at the base level; (4) apply the excluded_sgas NOT IN list in the SGA join. Note the Cold/Scheduled Call split still compares against task_created_date_est (that's intentional — it's the date the task was logged vs. the scheduled call date)."
+    source_of_truth: "src/lib/queries/sga-activity.ts:28-61 (ACTIVE_SGAS_CTE, LEMLIST_TASK_REMINDER_FILTER) and lines 1813-1835 (getActivityBreakdownDrillDown base_tasks + channel COUNTIFs)"
+    reference_query: |
+      WITH active_sgas AS (
+        SELECT TRIM(u.Name) as sga_name
+        FROM `savvy-gtm-analytics.SavvyGTMData.User` u
+        WHERE u.IsSGA__c = TRUE AND u.IsActive = TRUE
+          AND u.Name NOT IN ('Anett Diaz','Ariana Butler','Bre McDaniel','Bryan Belville','GinaRose Galli','Jacqueline Tully','Jed Entin','Russell Moss','Savvy Marketing','Savvy Operations','Lauren George')
+      ),
+      base_tasks AS (
+        SELECT a.*
+        FROM `savvy-gtm-analytics.Tableau_Views.vw_sga_activity_performance` a
+        INNER JOIN active_sgas s ON a.task_executor_name = s.sga_name
+        WHERE a.task_activity_date BETWEEN @start_date AND @end_date
+          AND COALESCE(a.is_marketing_activity, 0) = 0
+          AND a.task_subject NOT LIKE '[lemlist] Call -%'
+          AND a.task_subject NOT LIKE '[lemlist] Task -%'
+      )
+      SELECT
+        task_executor_name AS sga_name,
+        COUNTIF(activity_channel_group = 'SMS' AND direction = 'Outbound') AS outbound_sms,
+        COUNTIF(activity_channel_group = 'LinkedIn') AS linkedin,
+        COUNTIF(activity_channel_group = 'Call' AND direction = 'Outbound' AND (Initial_Call_Scheduled_Date__c IS NULL OR task_created_date_est != DATE(Initial_Call_Scheduled_Date__c)) AND LOWER(COALESCE(task_subject,'')) NOT LIKE '%[lemlist]%') AS cold_calls,
+        COUNTIF(activity_channel_group = 'Call' AND direction = 'Outbound' AND Initial_Call_Scheduled_Date__c IS NOT NULL AND task_created_date_est = DATE(Initial_Call_Scheduled_Date__c) AND LOWER(COALESCE(task_subject,'')) NOT LIKE '%[lemlist]%') AS scheduled_calls,
+        COUNTIF(activity_channel_group = 'Email' AND COALESCE(is_engagement_tracking,0) = 0 AND COALESCE(is_marketing_activity,0) = 0) AS manual_email,
+        COUNTIF(activity_channel_group = 'Email (Engagement)' OR (activity_channel_group = 'Email' AND is_engagement_tracking = 1)) AS email_engagement
+      FROM base_tasks
+      GROUP BY sga_name
+      ORDER BY (outbound_sms + linkedin + cold_calls + scheduled_calls + manual_email + email_engagement) DESC

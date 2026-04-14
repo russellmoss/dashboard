@@ -1276,8 +1276,8 @@ Grouping fields for breakdowns:
 
 | Dimension | Field | Mapping | Notes |
 |-----------|-------|---------|-------|
-| `channel` | `Channel_Grouping_Name` | Via `new_mapping` JOIN | Uses COALESCE pattern |
-| `source` | `Original_source` | Direct | |
+| `channel` | `Channel_Grouping_Name` | Inline from `Finance_View__c` | Coarsest grouping; sources nest within channels |
+| `source` | `Original_source` | Direct (`Final_Source__c`) | Atomic lead source; multiple sources roll up to one channel |
 | `sga` | `SGA_Owner_Name__c` | Direct | Supports fuzzy matching (partial names) |
 | `sgm` | `SGM_Owner_Name__c` | Direct | Supports fuzzy matching (partial names) |
 | `stage` | `StageName` | Direct | |
