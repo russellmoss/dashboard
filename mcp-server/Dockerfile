@@ -11,7 +11,7 @@ WORKDIR /app
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
-# Q3: Bundle schema-config.yaml for the schema_context tool
+# Copied from .claude/schema-config.yaml by cloudbuild pre-step (single source of truth)
 COPY schema-config.yaml /app/schema-config.yaml
 ENV PORT=8080
 ENV SCHEMA_CONFIG_PATH=/app/schema-config.yaml

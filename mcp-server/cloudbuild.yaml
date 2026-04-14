@@ -1,0 +1,16 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--no-cache'
+      - '-t'
+      - 'gcr.io/savvy-gtm-analytics/savvy-mcp-server:latest'
+      - '.'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/savvy-gtm-analytics/savvy-mcp-server:latest'
+
+images:
+  - 'gcr.io/savvy-gtm-analytics/savvy-mcp-server:latest'
