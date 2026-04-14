@@ -450,6 +450,17 @@ app.all('/mcp', express.json(), async (req, res) => {
   res.status(400).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request: no session ID and not an initialize request' }, id: null });
 });
 
+app.post('/refresh-schema', async (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token || token !== process.env.CRON_SECRET) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  schemaCacheExpiry = 0; // force re-fetch
+  const config = await getSchemaConfig();
+  res.json({ ok: true, length: config.length, refreshedAt: new Date().toISOString() });
+});
+
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', version: '1.0.0' });
 });

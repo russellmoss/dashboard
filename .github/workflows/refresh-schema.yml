@@ -1,0 +1,18 @@
+name: Refresh MCP Schema Config
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.claude/schema-config.yaml'
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify MCP server to refresh schema
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.MCP_CRON_SECRET }}" \
+            -H "Content-Length: 0" \
+            https://savvy-mcp-server-154995667624.us-east1.run.app/refresh-schema
