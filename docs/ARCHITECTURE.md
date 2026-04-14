@@ -2422,7 +2422,7 @@ The Savvy Analyst Bot (`packages/analyst-bot/`) is a conversational BI tool that
 | Package | `packages/analyst-bot/` (`@savvy/analyst-bot`) |
 | Runtime | Node.js 20 on Google Cloud Run (us-east1) |
 | LLM | Claude Sonnet 4.6 via Anthropic API (beta MCP client) |
-| Schema Context | Remote MCP server (`schema-context`) for view/field/rule lookups |
+| Schema Context | Remote MCP server — fetches `.claude/schema-config.yaml` live from GitHub (auto-refreshed on push via GitHub Action) |
 | Slack Framework | `@slack/bolt` 4.x (ExpressReceiver, HTTP mode) |
 | Thread Storage | Neon PostgreSQL (`bot_threads` table, JSONB messages) |
 | Audit Log | BigQuery `bot_audit.interaction_log` (streaming inserts) |
@@ -2469,9 +2469,9 @@ When a user says "report issue" (or similar triggers), the bot skips Claude enti
    - **What did you expect?** — textarea (optional)
    - **Priority** — dropdown (Low / Medium / High, defaults to Medium)
 3. On submit, the issue is filed to three places simultaneously:
-   - **Neon** — `DashboardRequest` row (type `DATA_ERROR`, ID prefix `cbot_`)
+   - **Neon** — `DashboardRequest` row (type `DATA_ERROR`, ID prefix `cbot_`) with original prompt in description and SQL attached as `.sql` file (`RequestAttachment`)
    - **BigQuery** — `bot_audit.issues` row + `bot_audit.issue_events` "created" event
-   - **Slack** — Formatted report posted to `#data-issues` channel
+   - **Slack** — Formatted report posted to alerts channel (`ISSUES_CHANNEL`)
 4. Confirmation message posted in the original thread
 
 Other issue triggers: "this doesn't look right", "flag this", "this looks wrong", "something is off", or the :triangular_flag_on_post: reaction emoji.
@@ -2507,11 +2507,37 @@ The system prompt (`system-prompt.ts`) enforces:
 | Entry point | `node dist/index.js --mode slack` |
 | Cleanup | `POST /internal/cleanup` (authenticated, deletes threads >48h old) |
 
-**Deploy command:**
+**Deploy command (image-only — preserves secrets/env vars):**
 ```bash
 cd packages/analyst-bot
-gcloud builds submit --tag gcr.io/savvy-gtm-analytics/savvy-analyst-bot
-gcloud run deploy savvy-analyst-bot --image gcr.io/savvy-gtm-analytics/savvy-analyst-bot --region us-east1 --no-cpu-throttling
+gcloud builds submit --config=cloudbuild.yaml --project=savvy-gtm-analytics .
+gcloud run deploy savvy-analyst-bot --project=savvy-gtm-analytics --region=us-east1 \
+  --image=gcr.io/savvy-gtm-analytics/analyst-bot:latest
+```
+
+> Do NOT use `--set-secrets` or `--set-env-vars` — it overwrites all existing values. Secrets are configured on the Cloud Run service via Secret Manager refs.
+
+### MCP Server
+
+The MCP server (`savvy-mcp-server`) provides schema context and BigQuery access to both the analyst bot and external MCP users.
+
+| Property | Value |
+|----------|-------|
+| Image | `gcr.io/savvy-gtm-analytics/savvy-mcp-server` |
+| Region | us-east1 |
+| Source | `mcp-server/` |
+| Schema Source | Fetched live from GitHub (`raw.githubusercontent.com/.../main/.claude/schema-config.yaml`) with 5-minute cache |
+| Auto-refresh | GitHub Action (`.github/workflows/refresh-schema.yml`) calls `/refresh-schema` on push to `main` |
+| Tools | `schema_context`, `execute_sql`, `list_datasets`, `list_tables`, `describe_table` |
+
+**Schema config update workflow:**
+1. Edit `.claude/schema-config.yaml`, commit, push to `main`
+2. GitHub Action triggers → curls `/refresh-schema` → MCP server re-fetches from GitHub
+3. Live immediately for all consumers (Slack bot, MCP users) — no rebuild needed
+
+**Deploy (only for `mcp-server/src/**` changes):**
+```bash
+bash mcp-server/deploy.sh
 ```
 
 ### Environment Variables
@@ -2528,7 +2554,7 @@ gcloud run deploy savvy-analyst-bot --image gcr.io/savvy-gtm-analytics/savvy-ana
 | `SLACK_BOT_TOKEN` | Secret Manager | Slack Bot OAuth token |
 | `SLACK_SIGNING_SECRET` | Secret Manager | Slack request verification |
 | `ALLOWED_CHANNELS` | Config | Comma-separated channel IDs the bot responds in |
-| `ISSUES_CHANNEL` | Config | Channel ID for #data-issues |
+| `ISSUES_CHANNEL` | Config | Channel ID for alerts/issues |
 | `MAINTAINER_SLACK_ID` | Config | User ID tagged on issue reports |
 | `BOT_SUBMITTER_ID` | Config | Fallback DashboardRequest submitter |
 | `CLEANUP_SECRET` | Secret Manager | Auth header for cleanup endpoint |
