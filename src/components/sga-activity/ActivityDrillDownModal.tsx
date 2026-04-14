@@ -160,7 +160,7 @@ export default function ActivityDrillDownModal({
       />
       
       {/* Modal */}
-      <Card className="relative z-10 w-full max-w-4xl max-h-[80vh] overflow-hidden flex flex-col m-4 dark:bg-gray-800 dark:border-gray-700">
+      <Card className="relative z-10 max-h-[90vh] overflow-hidden flex flex-col mx-6 dark:bg-gray-800 dark:border-gray-700" style={{ width: 'calc(100vw - 48px)' }}>
         {/* Header */}
         <div className="flex justify-between items-center mb-4 pb-4 border-b">
           <Text className="text-lg font-semibold">{title}</Text>

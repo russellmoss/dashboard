@@ -322,7 +322,8 @@ export function AdvisorDrillDownModal({
 
       {/* Modal */}
       <div
-        className="relative z-[1001] bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-6xl max-h-[85vh] overflow-hidden flex flex-col"
+        className="relative z-[1001] bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-h-[90vh] overflow-hidden flex flex-col"
+        style={{ width: 'calc(100vw - 48px)' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

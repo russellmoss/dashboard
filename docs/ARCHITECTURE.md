@@ -1064,6 +1064,8 @@ Metric Click → Drill-Down Modal → Row Click → Record Detail Modal
                         "← Back" button returns here
 ```
 
+**Drill-Down Modal Sizing**: All table-based drill-down modals use a consistent full-window layout: `width: calc(100vw - 48px)`, `max-height: 90vh`. This applies to `MetricDrillDownModal`, `VolumeDrillDownModal`, `ActivityDrillDownModal`, `AdvisorDrillDownModal`, `OutreachDrillDownModal`, and `ActivityBreakdownDrillDownModal`. The `RecordDetailModal` (detail view opened from a drill-down row) retains its own sizing.
+
 **MetricDrillDownModal Component**: Shared component used across SGA Hub tabs (including Management tab). Supports CSV export for all metric types.
 
 ### SGA Name Matching
