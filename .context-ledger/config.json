@@ -5,7 +5,8 @@
       "dist/",
       "node_modules/",
       ".next/",
-      "coverage/"
+      "coverage/",
+      ".agent-guard/"
     ],
     "scope_mappings": {
       "src/lib/queries/": { "type": "domain", "id": "query-layer" },

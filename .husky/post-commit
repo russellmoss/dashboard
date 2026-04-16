@@ -1,5 +1,7 @@
 node scripts/post-commit-wrike.js &
 
 # context-ledger post-commit hook
-# Instantaneous, deterministic â€” zero LLM calls, zero network calls.
-node -e "import('@mossrussell/context-ledger/dist/capture/hook.js').then(m => m.postCommit()).catch(() => {})" 2>/dev/null || true
+# v1.1.0 adds LLM-synthesized decision drafts in the inbox.
+# Requires ANTHROPIC_API_KEY in process.env — loaded via dotenv/config.
+# Gracefully degrades to empty placeholders if the key is missing or the API call fails.
+node -r dotenv/config -e "import('@mossrussell/context-ledger/dist/capture/hook.js').then(m => m.postCommit()).catch(() => {})" 2>/dev/null || true
