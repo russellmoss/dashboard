@@ -7,6 +7,10 @@ export type ViewMode = 'focused' | 'fullFunnel';
 export interface FunnelMetrics {
   prospects: number;  // Count by FilterDate
   contacted: number; // Count by stage_entered_contacting__c with is_contacted=1
+  // Contacted disposition counts
+  contacted_open: number;      // is_contacted=1 AND is_mql=0 AND lead_closed_date IS NULL
+  contacted_lost: number;      // is_contacted=1 AND is_mql=0 AND lead_closed_date IS NOT NULL
+  contacted_converted: number; // is_contacted=1 AND is_mql=1
   mqls: number;       // Already calculated in query, just add to type
   sqls: number;
   sqos: number;

@@ -104,6 +104,50 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
           ELSE 0 
         END
       ) as contacted,
+
+      -- ═══════════════════════════════════════
+      -- CONTACTED DISPOSITION COUNTS
+      -- Cohort: entered Contacting stage in the period (is_contacted = 1)
+      -- converted: advanced to MQL (is_mql = 1)
+      -- lost:      never MQL'd AND lead is closed
+      -- open:      never MQL'd AND still not closed
+      -- ═══════════════════════════════════════
+      SUM(
+        CASE
+          WHEN v.stage_entered_contacting__c IS NOT NULL
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+            AND v.is_contacted = 1
+            AND v.is_mql = 1
+            ${sgaFilterForLead}
+          THEN 1 ELSE 0
+        END
+      ) as contacted_converted,
+      SUM(
+        CASE
+          WHEN v.stage_entered_contacting__c IS NOT NULL
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+            AND v.is_contacted = 1
+            AND v.is_mql = 0
+            AND v.lead_closed_date IS NOT NULL
+            ${sgaFilterForLead}
+          THEN 1 ELSE 0
+        END
+      ) as contacted_lost,
+      SUM(
+        CASE
+          WHEN v.stage_entered_contacting__c IS NOT NULL
+            AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@startDate)
+            AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@endDate)
+            AND v.is_contacted = 1
+            AND v.is_mql = 0
+            AND v.lead_closed_date IS NULL
+            ${sgaFilterForLead}
+          THEN 1 ELSE 0
+        END
+      ) as contacted_open,
+
       -- FIX: MQLs use mql_stage_entered_ts (Call Scheduled), NOT stage_entered_contacting__c
       SUM(
         CASE 
@@ -408,6 +452,10 @@ const _getFunnelMetrics = async (filters: DashboardFilters): Promise<FunnelMetri
   return {
     prospects: toNumber(metrics.prospects),
     contacted: toNumber(metrics.contacted),
+    // Contacted disposition counts
+    contacted_open: toNumber(metrics.contacted_open),
+    contacted_lost: toNumber(metrics.contacted_lost),
+    contacted_converted: toNumber(metrics.contacted_converted),
     mqls: toNumber(metrics.mqls),
     sqls: toNumber(metrics.sqls),
     sqos: toNumber(metrics.sqos),

@@ -612,7 +612,8 @@ interface FunnelMetrics {
   joinedAum: number;
   pipelineAum: number;
   openPipelineAum: number;
-  // Disposition counts (all / open / lost / converted) for MQL, SQL, SQO
+  // Disposition counts (all / open / lost / converted) for Contacted, MQL, SQL, SQO
+  contacted_open: number; contacted_lost: number; contacted_converted: number;
   mqls_open: number; mqls_lost: number; mqls_converted: number;
   sqls_open: number; sqls_lost: number; sqls_converted: number;
   sqos_open: number; sqos_lost: number; sqos_converted: number;
@@ -628,6 +629,8 @@ interface FunnelMetrics {
 ```
 
 **SQO scorecard layout** (`src/components/dashboard/Scorecards.tsx`): SQO count, subtitle, DispositionToggle, then a divider and a second `Metric`-sized **SQO AUM** block that switches with the toggle (`getSqoAum()`), then optional GoalDisplay when toggle = "all".
+
+**Contacted scorecard** (`src/components/dashboard/FullFunnelScorecards.tsx`): Full-funnel view also exposes a DispositionToggle on the Contacted card. Cohort anchor is `is_contacted = 1` with `stage_entered_contacting__c` in the date range. Converted = advanced to MQL (`is_mql = 1`), Lost = never MQL'd and closed (`is_mql = 0 AND lead_closed_date IS NOT NULL`), Open = never MQL'd and still open (`is_mql = 0 AND lead_closed_date IS NULL`). Drill-down (`src/lib/queries/detail-records.ts`) honors the same `metricDisposition` filter.
 
 Goals come from `vw_daily_forecast` table, aggregated by `getAggregateForecastGoals()`.
 

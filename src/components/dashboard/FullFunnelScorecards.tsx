@@ -26,6 +26,8 @@ interface FullFunnelScorecardsProps {
   // Disposition toggle state
   mqlDisposition?: MetricDisposition;
   onMqlDispositionChange?: (value: MetricDisposition) => void;
+  contactedDisposition?: MetricDisposition;
+  onContactedDispositionChange?: (value: MetricDisposition) => void;
 }
 
 /**
@@ -75,6 +77,8 @@ export function FullFunnelScorecards({
   visibleMetrics = { prospects: true, contacted: true, mqls: true },
   mqlDisposition,
   onMqlDispositionChange,
+  contactedDisposition,
+  onContactedDispositionChange,
 }: FullFunnelScorecardsProps) {
   if (!metrics) return null;
 
@@ -88,6 +92,17 @@ export function FullFunnelScorecards({
       case 'lost': return metrics.mqls_lost ?? 0;
       case 'converted': return metrics.mqls_converted ?? 0;
       default: return metrics.mqls;
+    }
+  };
+
+  // Resolve Contacted count based on disposition toggle
+  const getContactedCount = (): number => {
+    if (!metrics) return 0;
+    switch (contactedDisposition || 'all') {
+      case 'open': return metrics.contacted_open ?? 0;
+      case 'lost': return metrics.contacted_lost ?? 0;
+      case 'converted': return metrics.contacted_converted ?? 0;
+      default: return metrics.contacted;
     }
   };
   
@@ -139,11 +154,17 @@ export function FullFunnelScorecards({
           <MessageSquare className="w-5 h-5 text-zinc-500 dark:text-zinc-400" />
         </div>
         <Metric className="text-2xl font-bold text-gray-900 dark:text-white">
-          {loading ? '...' : formatNumber(metrics.contacted)}
+          {loading ? '...' : formatNumber(getContactedCount())}
         </Metric>
         <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">
           Leads contacted
         </Text>
+        {onContactedDispositionChange && (
+          <DispositionToggle
+            value={contactedDisposition || 'all'}
+            onChange={onContactedDispositionChange}
+          />
+        )}
         {/* No goals for contacted */}
       </Card>
       )}

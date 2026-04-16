@@ -11,6 +11,10 @@ export interface RawFunnelMetricsResult {
   joined: number | null;
   pipeline_aum: number | null;
   joined_aum: number | null;
+  // Contacted disposition counts
+  contacted_open?: number | null;
+  contacted_lost?: number | null;
+  contacted_converted?: number | null;
   // MQL disposition counts
   mqls_open?: number | null;
   mqls_lost?: number | null;

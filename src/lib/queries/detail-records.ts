@@ -207,9 +207,24 @@ const _getDetailRecords = async (
       }
   }
 
-  // Disposition filtering (Open/Lost/Converted sub-filter for MQL/SQL/SQO)
+  // Disposition filtering (Open/Lost/Converted sub-filter for Contacted/MQL/SQL/SQO)
   if (filters.metricDisposition && filters.metricDisposition !== 'all') {
     switch (filters.metricFilter) {
+      case 'contacted':
+        switch (filters.metricDisposition) {
+          case 'open':
+            conditions.push('is_mql = 0');
+            conditions.push('lead_closed_date IS NULL');
+            break;
+          case 'lost':
+            conditions.push('is_mql = 0');
+            conditions.push('lead_closed_date IS NOT NULL');
+            break;
+          case 'converted':
+            conditions.push('is_mql = 1');
+            break;
+        }
+        break;
       case 'mql':
         switch (filters.metricDisposition) {
           case 'open':
@@ -255,7 +270,7 @@ const _getDetailRecords = async (
             break;
         }
         break;
-      // No disposition filtering for other metrics (prospect, contacted, joined, etc.)
+      // No disposition filtering for other metrics (prospect, joined, etc.)
     }
   }
 

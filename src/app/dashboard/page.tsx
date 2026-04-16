@@ -282,7 +282,8 @@ export default function DashboardPage() {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
 
-  // Disposition toggle state for MQL/SQL/SQO cards
+  // Disposition toggle state for Contacted/MQL/SQL/SQO cards
+  const [contactedDisposition, setContactedDisposition] = useState<MetricDisposition>('all');
   const [mqlDisposition, setMqlDisposition] = useState<MetricDisposition>('all');
   const [sqlDisposition, setSqlDisposition] = useState<MetricDisposition>('all');
   const [sqoDisposition, setSqoDisposition] = useState<MetricDisposition>('all');
@@ -871,7 +872,8 @@ export default function DashboardPage() {
 
     // Determine active disposition for the clicked metric
     let activeDisposition: MetricDisposition = 'all';
-    if (metricFilter === 'mql') activeDisposition = mqlDisposition;
+    if (metricFilter === 'contacted') activeDisposition = contactedDisposition;
+    else if (metricFilter === 'mql') activeDisposition = mqlDisposition;
     else if (metricFilter === 'sql') activeDisposition = sqlDisposition;
     else if (metricFilter === 'sqo') activeDisposition = sqoDisposition;
 
@@ -913,6 +915,7 @@ export default function DashboardPage() {
       setFilters(prev => ({ ...prev, metricFilter: 'all' }));
     }
     // Reset disposition toggles when switching view modes
+    setContactedDisposition('all');
     setMqlDisposition('all');
     setSqlDisposition('all');
     setSqoDisposition('all');
@@ -1127,6 +1130,8 @@ export default function DashboardPage() {
                   }}
                   mqlDisposition={mqlDisposition}
                   onMqlDispositionChange={setMqlDisposition}
+                  contactedDisposition={contactedDisposition}
+                  onContactedDispositionChange={setContactedDisposition}
                 />
               </CardErrorBoundary>
             )
