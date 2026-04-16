@@ -3,6 +3,11 @@
     <apiVersion>65.0</apiVersion>
     <description>Record-triggered flow that populates Account.Original_Closed_Lost_Reason__c and Account.Original_Closed_Lost_Details__c with the earliest Recruiting Closed Lost opportunity&apos;s values. Fires on every Recruiting opp entering Closed Lost to ensure the Account always reflects the true original.</description>
     <environments>Default</environments>
+    <formulas>
+        <name>Closed_Lost_Details_Truncated</name>
+        <dataType>String</dataType>
+        <expression>LEFT({!Get_Earliest_Recruiting_Opp.Closed_Lost_Details__c}, 255)</expression>
+    </formulas>
     <interviewLabel>Populate Original Closed Lost {!$Flow.CurrentDateTime}</interviewLabel>
     <label>Populate Original Closed Lost</label>
     <processMetadataValues>
@@ -77,7 +82,7 @@
         <inputAssignments>
             <field>Original_Closed_Lost_Details_Short__c</field>
             <value>
-                <elementReference>Get_Earliest_Recruiting_Opp.Closed_Lost_Details__c</elementReference>
+                <elementReference>Closed_Lost_Details_Truncated</elementReference>
             </value>
         </inputAssignments>
         <inputAssignments>

@@ -3,8 +3,210 @@
     <fullName>Re_Engagement</fullName>
     <active>true</active>
     <businessProcess>ReEngagement</businessProcess>
-    <description>A re-engagement opportunity to try and re-engage an advisor with a Closed Lost Recruiting Opportunity</description>
     <label>Re-Engagement</label>
+    <picklistValues>
+        <picklist>External_Agency__c</picklist>
+        <values>
+            <fullName>Bluebix</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Bridgemark</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>BrokerHunter</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Career Solutions</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Catalyst</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Club Level Consulting</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Coda</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Complete Staffing Solutions</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>De Pardo Consulting</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Diamond Consulting</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>ECP</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Encore</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Essence Search</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Excelon Solutions</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>FA Match</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Freelance Recruiters</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Full Circle Advisor Solutions</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Goodwin Recruiting</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Harrison Gray</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>HeyRecruiting</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Immensetec</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>JCW</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Larson Maddox</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Merkle</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>MJ Recruiting</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Muriel</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>MXT</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Occulus</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Other</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Otterbrook</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Parcc Associates</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Professions</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>QntmLogic</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Radium</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Recruiter 360</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Rittenhouse</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Rocklyn</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Rummage Group</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Selby Jennings</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Specialized Recruiting Group</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Storm2</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Talent Staffing Solutions</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>UCare</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Urgent Partners</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Vantage Impact</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>W3Global</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>WealthRight</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Willis Consulting</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Winthrop %26 Co</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Zero Staffing</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
     <picklistValues>
         <picklist>ForecastCategoryName</picklist>
         <values>

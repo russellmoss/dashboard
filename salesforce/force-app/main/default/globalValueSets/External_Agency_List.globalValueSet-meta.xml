@@ -1,0 +1,328 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GlobalValueSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <customValue>
+        <fullName>Bluebix</fullName>
+        <default>false</default>
+        <label>Bluebix</label>
+    </customValue>
+    <customValue>
+        <fullName>Bridgemark</fullName>
+        <default>false</default>
+        <label>Bridgemark</label>
+    </customValue>
+    <customValue>
+        <fullName>BrokerHunter</fullName>
+        <default>false</default>
+        <label>BrokerHunter</label>
+    </customValue>
+    <customValue>
+        <fullName>Career Solutions</fullName>
+        <default>false</default>
+        <label>Career Solutions</label>
+    </customValue>
+    <customValue>
+        <fullName>Catalyst</fullName>
+        <default>false</default>
+        <label>Catalyst</label>
+    </customValue>
+    <customValue>
+        <fullName>Club Level Consulting</fullName>
+        <default>false</default>
+        <label>Club Level Consulting</label>
+    </customValue>
+    <customValue>
+        <fullName>Coda</fullName>
+        <default>false</default>
+        <label>Coda</label>
+    </customValue>
+    <customValue>
+        <fullName>Complete Staffing Solutions</fullName>
+        <default>false</default>
+        <label>Complete Staffing Solutions</label>
+    </customValue>
+    <customValue>
+        <fullName>De Pardo Consulting</fullName>
+        <default>false</default>
+        <label>De Pardo Consulting</label>
+    </customValue>
+    <customValue>
+        <fullName>Diamond Consulting</fullName>
+        <default>false</default>
+        <label>Diamond Consulting</label>
+    </customValue>
+    <customValue>
+        <fullName>ECP</fullName>
+        <default>false</default>
+        <label>ECP</label>
+    </customValue>
+    <customValue>
+        <fullName>Encore</fullName>
+        <default>false</default>
+        <label>Encore</label>
+    </customValue>
+    <customValue>
+        <fullName>Essence Search</fullName>
+        <default>false</default>
+        <label>Essence Search</label>
+    </customValue>
+    <customValue>
+        <fullName>Excelon Solutions</fullName>
+        <default>false</default>
+        <label>Excelon Solutions</label>
+    </customValue>
+    <customValue>
+        <fullName>FA Match</fullName>
+        <default>false</default>
+        <label>FA Match</label>
+    </customValue>
+    <customValue>
+        <fullName>Freelance Recruiters</fullName>
+        <default>false</default>
+        <label>Freelance Recruiters</label>
+    </customValue>
+    <customValue>
+        <fullName>Full Circle Advisor Solutions</fullName>
+        <default>false</default>
+        <label>Full Circle Advisor Solutions</label>
+    </customValue>
+    <customValue>
+        <fullName>Goodwin Recruiting</fullName>
+        <default>false</default>
+        <label>Goodwin Recruiting</label>
+    </customValue>
+    <customValue>
+        <fullName>Harrison Gray</fullName>
+        <default>false</default>
+        <label>Harrison Gray</label>
+    </customValue>
+    <customValue>
+        <fullName>HeyRecruiting</fullName>
+        <default>false</default>
+        <label>HeyRecruiting</label>
+    </customValue>
+    <customValue>
+        <fullName>Immensetec</fullName>
+        <default>false</default>
+        <label>Immensetec</label>
+    </customValue>
+    <customValue>
+        <fullName>JCW</fullName>
+        <default>false</default>
+        <label>JCW</label>
+    </customValue>
+    <customValue>
+        <fullName>Larson Maddox</fullName>
+        <default>false</default>
+        <label>Larson Maddox</label>
+    </customValue>
+    <customValue>
+        <fullName>Merkle</fullName>
+        <default>false</default>
+        <label>Merkle</label>
+    </customValue>
+    <customValue>
+        <fullName>MJ Recruiting</fullName>
+        <default>false</default>
+        <label>MJ Recruiting</label>
+    </customValue>
+    <customValue>
+        <fullName>Muriel</fullName>
+        <default>false</default>
+        <label>Muriel</label>
+    </customValue>
+    <customValue>
+        <fullName>MXT</fullName>
+        <default>false</default>
+        <label>MXT</label>
+    </customValue>
+    <customValue>
+        <fullName>Occulus</fullName>
+        <default>false</default>
+        <label>Occulus</label>
+    </customValue>
+    <customValue>
+        <fullName>Other</fullName>
+        <default>false</default>
+        <label>Other</label>
+    </customValue>
+    <customValue>
+        <fullName>Otterbrook</fullName>
+        <default>false</default>
+        <label>Otterbrook</label>
+    </customValue>
+    <customValue>
+        <fullName>Parcc Associates</fullName>
+        <default>false</default>
+        <label>Parcc Associates</label>
+    </customValue>
+    <customValue>
+        <fullName>Professions</fullName>
+        <default>false</default>
+        <label>Professions</label>
+    </customValue>
+    <customValue>
+        <fullName>QntmLogic</fullName>
+        <default>false</default>
+        <label>QntmLogic</label>
+    </customValue>
+    <customValue>
+        <fullName>Radium</fullName>
+        <default>false</default>
+        <label>Radium</label>
+    </customValue>
+    <customValue>
+        <fullName>Recruiter 360</fullName>
+        <default>false</default>
+        <label>Recruiter 360</label>
+    </customValue>
+    <customValue>
+        <fullName>Rittenhouse</fullName>
+        <default>false</default>
+        <label>Rittenhouse</label>
+    </customValue>
+    <customValue>
+        <fullName>Rocklyn</fullName>
+        <default>false</default>
+        <label>Rocklyn</label>
+    </customValue>
+    <customValue>
+        <fullName>Rummage Group</fullName>
+        <default>false</default>
+        <label>Rummage Group</label>
+    </customValue>
+    <customValue>
+        <fullName>Selby Jennings</fullName>
+        <default>false</default>
+        <label>Selby Jennings</label>
+    </customValue>
+    <customValue>
+        <fullName>Specialized Recruiting Group</fullName>
+        <default>false</default>
+        <label>Specialized Recruiting Group</label>
+    </customValue>
+    <customValue>
+        <fullName>Storm2</fullName>
+        <default>false</default>
+        <label>Storm2</label>
+    </customValue>
+    <customValue>
+        <fullName>Talent Staffing Solutions</fullName>
+        <default>false</default>
+        <label>Talent Staffing Solutions</label>
+    </customValue>
+    <customValue>
+        <fullName>UCare</fullName>
+        <default>false</default>
+        <label>UCare</label>
+    </customValue>
+    <customValue>
+        <fullName>Urgent Partners</fullName>
+        <default>false</default>
+        <label>Urgent Partners</label>
+    </customValue>
+    <customValue>
+        <fullName>Vantage Impact</fullName>
+        <default>false</default>
+        <label>Vantage Impact</label>
+    </customValue>
+    <customValue>
+        <fullName>W3Global</fullName>
+        <default>false</default>
+        <label>W3Global</label>
+    </customValue>
+    <customValue>
+        <fullName>WealthRight</fullName>
+        <default>false</default>
+        <label>WealthRight</label>
+    </customValue>
+    <customValue>
+        <fullName>Willis Consulting</fullName>
+        <default>false</default>
+        <label>Willis Consulting</label>
+    </customValue>
+    <customValue>
+        <fullName>Winthrop &amp; Co</fullName>
+        <default>false</default>
+        <label>Winthrop &amp; Co</label>
+    </customValue>
+    <customValue>
+        <fullName>Zero Staffing</fullName>
+        <default>false</default>
+        <label>Zero Staffing</label>
+    </customValue>
+    <customValue>
+        <fullName>Elanden</fullName>
+        <default>false</default>
+        <isActive>false</isActive>
+        <label>Elanden</label>
+    </customValue>
+    <customValue>
+        <fullName>Infinia</fullName>
+        <default>false</default>
+        <isActive>false</isActive>
+        <label>Infinia</label>
+    </customValue>
+    <customValue>
+        <fullName>Uptick</fullName>
+        <default>false</default>
+        <isActive>false</isActive>
+        <label>Uptick</label>
+    </customValue>
+    <customValue>
+        <fullName>Entech</fullName>
+        <default>false</default>
+        <isActive>false</isActive>
+        <label>Entech</label>
+    </customValue>
+    <customValue>
+        <fullName>Avior Search</fullName>
+        <default>false</default>
+        <isActive>false</isActive>
+        <label>Avior Search</label>
+    </customValue>
+    <customValue>
+        <fullName>TruTalent</fullName>
+        <default>false</default>
+        <isActive>false</isActive>
+        <label>TruTalent</label>
+    </customValue>
+    <customValue>
+        <fullName>Tech Intelli</fullName>
+        <default>false</default>
+        <isActive>false</isActive>
+        <label>Tech Intelli</label>
+    </customValue>
+    <customValue>
+        <fullName>Oreva</fullName>
+        <default>false</default>
+        <isActive>false</isActive>
+        <label>Oreva</label>
+    </customValue>
+    <customValue>
+        <fullName>Green Key</fullName>
+        <default>false</default>
+        <isActive>false</isActive>
+        <label>Green Key</label>
+    </customValue>
+    <customValue>
+        <fullName>Vantage Recruiting</fullName>
+        <default>false</default>
+        <isActive>false</isActive>
+        <label>Vantage Recruiting</label>
+    </customValue>
+    <customValue>
+        <fullName>Black Ridge Consultants</fullName>
+        <default>false</default>
+        <isActive>false</isActive>
+        <label>Black Ridge Consultants</label>
+    </customValue>
+    <customValue>
+        <fullName>RussellTobin</fullName>
+        <default>false</default>
+        <isActive>false</isActive>
+        <label>RussellTobin</label>
+    </customValue>
+    <description>The list of external agencies which are possibly sending us candidates.</description>
+    <masterLabel>External Agency List</masterLabel>
+    <sorted>false</sorted>
+</GlobalValueSet>
