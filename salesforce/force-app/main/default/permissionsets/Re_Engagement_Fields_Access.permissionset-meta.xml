@@ -19,6 +19,11 @@
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
+        <field>Account.Prior_Joined_Opps__c</field>
+        <editable>false</editable>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
         <field>Account.Most_Recent_Closed_Date__c</field>
         <editable>false</editable>
         <readable>true</readable>
@@ -30,6 +35,11 @@
     </fieldPermissions>
     <fieldPermissions>
         <field>Opportunity.Open_Recruiting_Opps__c</field>
+        <editable>false</editable>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>Opportunity.Account_Prior_Joined_Opps__c</field>
         <editable>false</editable>
         <readable>true</readable>
     </fieldPermissions>

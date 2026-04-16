@@ -5,7 +5,7 @@
 import { ExternalLink } from 'lucide-react';
 
 const RE_ENGAGEMENT_LIST_URL =
-  'https://savvywealth.lightning.force.com/lightning/o/Opportunity/list?filterName=Re_Engagement_Eligible';
+  'https://savvywealth.lightning.force.com/lightning/r/Report/00OVS0000082GSH2A2/view?queryScope=userFolders';
 
 const funnelStats = [
   { stage: 'Contact \u2192 MQL', reEngagement: '34.5%', other: '2.2%' },

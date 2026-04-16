@@ -427,7 +427,7 @@ Claude outputs Slack `mrkdwn` natively (single `*bold*`, backtick code). The `to
 
 ### Allowed Channels
 
-Only responds in channel IDs listed in `ALLOWED_CHANNELS` env var (comma-separated). Currently: `C0A6YL0EBH6`.
+Only responds in channel IDs listed in `ALLOWED_CHANNELS` env var (comma-separated). Currently: `C0A6YL0EBH6,C0ASC9GCW02,C0APUB35TQU`.
 
 ---
 
@@ -580,8 +580,8 @@ CREATE TABLE bot_threads (
 | `BIGQUERY_PROJECT` | `savvy-gtm-analytics` |
 | `AUDIT_DATASET` | `bot_audit` |
 | `AUDIT_TABLE` | `interaction_log` |
-| `ALLOWED_CHANNELS` | `C0A6YL0EBH6` |
-| `ISSUES_CHANNEL` | `C0A6YL0EBH6` |
+| `ALLOWED_CHANNELS` | `C0A6YL0EBH6,C0ASC9GCW02,C0APUB35TQU` |
+| `ISSUES_CHANNEL` | `C0ATMP48BUY` |
 | `MAINTAINER_SLACK_ID` | `U09DX3U7UTW` |
 | `VERBOSE` | `true` |
 

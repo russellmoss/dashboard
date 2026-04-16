@@ -76,6 +76,7 @@ export function splitNarrativeAndAppendix(text: string): { narrative: string; ap
     const isAppendixLine =
       /^(assumptions|key assumptions|filters|filter|technical notes|methodology)[\s:]/i.test(lower) ||
       /^(note:|important:|caveat:)/i.test(lower) ||
+      /^(note on data|note on |data completeness)/i.test(lower) ||
       // Lines with field name references (snake_case__c patterns, backtick-wrapped fields)
       /\b\w+__c\b/.test(line) ||
       // Lines mentioning recordtypeid, is_sqo_unique, etc.
@@ -84,7 +85,19 @@ export function splitNarrativeAndAppendix(text: string): { narrative: string; ap
       /^suggested follow[- ]?up/i.test(lower) ||
       // Lines with SQL-like filter descriptions
       /\bStageName\s+(NOT\s+)?IN\b/i.test(line) ||
-      /\bWHERE\b.*\b(AND|OR)\b/i.test(line);
+      /\bWHERE\b.*\b(AND|OR)\b/i.test(line) ||
+      // Claude reasoning/thinking patterns — date calculation monologues, self-correction
+      /^(good —|okay —|let me|now let me|wait —|actually|i see|i need|i'll|the result|now i have|i can see|i still need|i don't have)/i.test(lower) ||
+      /\b(DATE_TRUNC|DATE_SUB|DATE_DIFF|DATE_ADD|CURRENT_DATE|INTERVAL|WEEK\(MONDAY\))\b/.test(line) ||
+      /\b(last_?completed|prior completed|most recent completed)\b/i.test(lower) ||
+      // Self-narration about query plans, computation, or verification
+      /\b(the query|the numbers|this looks correct|is confirmed|the results stand|let me (re)?consider|let me (now )?build|let me verify|let me compute|let me now|presenting results|i have (all |everything )?(the |I )?need)/i.test(lower) ||
+      // "Now I have all the raw data" type narration
+      /^now i have\b/i.test(lower) ||
+      // Threshold/window/baseline computation narration
+      /\b(threshold:|prior week =|90-day (baseline|avg|window)|baseline =|window =|excluding )/i.test(lower) ||
+      // References to other sections the reader can't see
+      /\b(section \d|from section|in section|see section)\b/i.test(lower);
 
     if (isAppendixLine && !inAppendix) {
       inAppendix = true;
@@ -203,24 +216,31 @@ export function isReportRequest(text: string): boolean {
 async function planSections(userText: string): Promise<ReportSection[]> {
   const plannerPrompt = `You are a report planner. Given the user request below, produce a JSON array of sections for a data report. Each section has:
 - title (string): A clear section heading
-- question (string): The specific question to ask the data analyst bot to fill this section
+- question (string): The specific data question for this section. Copy the user's instructions for this section VERBATIM — do not summarize or paraphrase. Include all field names, filters, record type IDs, and attribution rules exactly as written.
 
-Return ONLY a valid JSON array, no markdown fences, no prose. Limit to 6 sections max.
+Return ONLY a valid JSON array, no markdown fences, no explanation. Limit to 6 sections max. Keep titles SHORT (under 8 words).
 
 User request: "${userText}"`;
 
   const response = await callClaude(
     [{ role: 'user', content: plannerPrompt }],
-    { maxTokens: 2048 }
+    { maxTokens: 8192 }
   );
 
   const jsonText = response.text.trim();
 
-  // Try to parse the JSON (Claude sometimes wraps in ```json ... ```)
-  let cleaned = jsonText;
-  const fenceMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenceMatch) {
-    cleaned = fenceMatch[1].trim();
+  // Strip markdown code fences — Claude often wraps in ```json ... ``` despite instructions
+  let cleaned = jsonText
+    .replace(/^```(?:json)?\s*\n?/, '')
+    .replace(/\n?```\s*$/, '')
+    .trim();
+
+  // Fallback: if still not valid JSON, try to extract the first [...] array
+  if (!cleaned.startsWith('[')) {
+    const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+    if (arrayMatch) {
+      cleaned = arrayMatch[0];
+    }
   }
 
   let sections: Array<{ title: string; question: string }>;
@@ -274,9 +294,68 @@ async function processSection(
 }
 
 /**
+ * Compute standard reporting date anchors so every section uses identical dates.
+ * Returns a date context string to prepend to each section question.
+ * Uses America/New_York to match the team's timezone.
+ */
+function computeDateContext(): string {
+  // "Today" in ET
+  const now = new Date();
+  const etFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  });
+  const [m, d, y] = etFormatter.format(now).split('/');
+  const todayET = new Date(`${y}-${m}-${d}T00:00:00`);
+
+  // Day of week: 0=Sun, 1=Mon, ..., 6=Sat
+  const dow = todayET.getDay();
+
+  // Prior completed Mon-Sun week:
+  // If today is Monday (dow=1), prior week ended yesterday (Sunday).
+  // If today is Sunday (dow=0), the current week isn't done yet — prior week ended last Sunday (7 days ago).
+  // Otherwise, prior week ended on the most recent Sunday before this week started.
+  const daysSinceMonday = dow === 0 ? 6 : dow - 1; // days since this week's Monday
+  const thisMonday = new Date(todayET);
+  thisMonday.setDate(todayET.getDate() - daysSinceMonday);
+  const priorWeekEnd = new Date(thisMonday);
+  priorWeekEnd.setDate(thisMonday.getDate() - 1); // Sunday before this Monday
+  const priorWeekStart = new Date(priorWeekEnd);
+  priorWeekStart.setDate(priorWeekEnd.getDate() - 6); // Monday of that week
+
+  // Quarter start (calendar quarters)
+  const month = todayET.getMonth(); // 0-indexed
+  const qStartMonth = Math.floor(month / 3) * 3;
+  const quarterStart = new Date(todayET.getFullYear(), qStartMonth, 1);
+  const quarterNum = Math.floor(month / 3) + 1;
+
+  // 90-day benchmark window: ends the day before the prior week started
+  const benchmarkEnd = new Date(priorWeekStart);
+  benchmarkEnd.setDate(priorWeekStart.getDate() - 1);
+  const benchmarkStart = new Date(benchmarkEnd);
+  benchmarkStart.setDate(benchmarkEnd.getDate() - 89); // 90 days inclusive
+
+  // Monday-anchored weeks in benchmark window
+  const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+  const benchmarkWeeks = Math.floor((benchmarkEnd.getTime() - benchmarkStart.getTime()) / msPerWeek);
+
+  const fmt = (d: Date) => d.toISOString().split('T')[0]; // YYYY-MM-DD
+
+  return [
+    `DATE CONTEXT (use these exact dates, do not recalculate):`,
+    `- Prior completed week: ${fmt(priorWeekStart)} (Monday) through ${fmt(priorWeekEnd)} (Sunday)`,
+    `- Quarter to date: ${fmt(quarterStart)} through ${fmt(priorWeekEnd)} (Q${quarterNum} ${todayET.getFullYear()})`,
+    `- 90-day benchmark window: ${fmt(benchmarkStart)} through ${fmt(benchmarkEnd)} (${benchmarkWeeks} complete weeks)`,
+    `- Number of active weeks for benchmark averaging: ${benchmarkWeeks}`,
+    `Do not show these dates or how you derived them. Go straight to results.\n`,
+  ].join('\n');
+}
+
+/**
  * Main report generation orchestrator.
  *
  * 1. Plan sections via Claude
+ * 1b. Compute date context and prepend to each section question
  * 2. Run sections concurrently (max 3 at a time) via processMessage
  * 3. Create Google Doc
  * 4. Assemble sections into doc (heading + narrative + table + chart)
@@ -300,6 +379,13 @@ export async function generateReport(
   try {
     // Step 1: Plan sections
     sections = await planSections(text);
+
+    // Step 1b: Compute date anchors and prepend to every section question
+    // This ensures all sections use identical dates regardless of when each runs
+    const dateContext = computeDateContext();
+    for (const section of sections) {
+      section.question = `${dateContext}${section.question}`;
+    }
 
     // Create report record in Neon
     const report = await createReport({

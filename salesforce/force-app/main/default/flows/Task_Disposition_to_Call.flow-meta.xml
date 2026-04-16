@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>66.0</apiVersion>
+    <description>When a Disposition-type Task is created by Kixie, find the most recent Call-type Task on the same Lead/Contact within 5 minutes, write the parsed disposition to CallDispose__c on that call Task, then delete the Disposition Task.</description>
+    <environments>Default</environments>
+    <interviewLabel>Task Disposition to Call {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>Task Disposition to Call</label>
+    <processMetadataValues>
+        <name>BuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processType>AutoLaunchedFlow</processType>
+    <start>
+        <locationX>50</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Get_Recent_Call_Task</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Type</field>
+            <operator>EqualTo</operator>
+            <value>
+                <stringValue>Disposition</stringValue>
+            </value>
+        </filters>
+        <object>Task</object>
+        <recordTriggerType>Create</recordTriggerType>
+        <triggerType>RecordAfterSave</triggerType>
+    </start>
+    <status>Active</status>
+
+    <!-- Formula: Parse disposition from Subject (after 'Outgoing Call: ' or 'Incoming Call: ') -->
+    <formulas>
+        <name>ParsedDisposition</name>
+        <dataType>String</dataType>
+        <expression>IF(
+    CONTAINS({!$Record.Subject}, 'Outgoing Call: '),
+    MID({!$Record.Subject}, FIND('Outgoing Call: ', {!$Record.Subject}) + 15, 255),
+    IF(
+        CONTAINS({!$Record.Subject}, 'Incoming Call: '),
+        MID({!$Record.Subject}, FIND('Incoming Call: ', {!$Record.Subject}) + 15, 255),
+        {!$Record.Subject}
+    )
+)</expression>
+    </formulas>
+
+    <!-- Formula: 5 minutes before the disposition task was created -->
+    <formulas>
+        <name>FiveMinutesAgo</name>
+        <dataType>DateTime</dataType>
+        <expression>{!$Record.CreatedDate} - (5 / 1440)</expression>
+    </formulas>
+
+    <!-- Get Records: Find the most recent Call task on the same WhoId within 5 minutes -->
+    <recordLookups>
+        <name>Get_Recent_Call_Task</name>
+        <label>Get Recent Call Task</label>
+        <locationX>176</locationX>
+        <locationY>158</locationY>
+        <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
+        <connector>
+            <targetReference>Check_Call_Found</targetReference>
+        </connector>
+        <faultConnector>
+            <targetReference>Delete_Disposition_Task_Only</targetReference>
+        </faultConnector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>WhoId</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>$Record.WhoId</elementReference>
+            </value>
+        </filters>
+        <filters>
+            <field>Type</field>
+            <operator>EqualTo</operator>
+            <value>
+                <stringValue>Call</stringValue>
+            </value>
+        </filters>
+        <filters>
+            <field>CreatedDate</field>
+            <operator>GreaterThanOrEqualTo</operator>
+            <value>
+                <elementReference>FiveMinutesAgo</elementReference>
+            </value>
+        </filters>
+        <filters>
+            <field>CreatedDate</field>
+            <operator>LessThanOrEqualTo</operator>
+            <value>
+                <elementReference>$Record.CreatedDate</elementReference>
+            </value>
+        </filters>
+        <getFirstRecordOnly>true</getFirstRecordOnly>
+        <object>Task</object>
+        <sortField>CreatedDate</sortField>
+        <sortOrder>Desc</sortOrder>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </recordLookups>
+
+    <!-- Decision: Was a Call task found? -->
+    <decisions>
+        <name>Check_Call_Found</name>
+        <label>Check Call Found</label>
+        <locationX>176</locationX>
+        <locationY>318</locationY>
+        <defaultConnector>
+            <targetReference>Delete_Disposition_Task_Only</targetReference>
+        </defaultConnector>
+        <defaultConnectorLabel>No Call Found</defaultConnectorLabel>
+        <rules>
+            <name>Call_Found</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>Get_Recent_Call_Task</leftValueReference>
+                <operator>IsNull</operator>
+                <rightValue>
+                    <booleanValue>false</booleanValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Update_Call_Task</targetReference>
+            </connector>
+            <label>Call Found</label>
+        </rules>
+    </decisions>
+
+    <!-- Update Records: Write parsed disposition to the Call task by ID -->
+    <recordUpdates>
+        <name>Update_Call_Task</name>
+        <label>Update Call Task</label>
+        <locationX>50</locationX>
+        <locationY>478</locationY>
+        <connector>
+            <targetReference>Delete_Disposition_Task</targetReference>
+        </connector>
+        <faultConnector>
+            <targetReference>Delete_Disposition_Task</targetReference>
+        </faultConnector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Id</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>Get_Recent_Call_Task.Id</elementReference>
+            </value>
+        </filters>
+        <inputAssignments>
+            <field>CallDispose__c</field>
+            <value>
+                <elementReference>ParsedDisposition</elementReference>
+            </value>
+        </inputAssignments>
+        <object>Task</object>
+    </recordUpdates>
+
+    <!-- Delete Records: Delete the Disposition task (after updating call) -->
+    <recordDeletes>
+        <name>Delete_Disposition_Task</name>
+        <label>Delete Disposition Task</label>
+        <locationX>50</locationX>
+        <locationY>638</locationY>
+        <inputReference>$Record</inputReference>
+    </recordDeletes>
+
+    <!-- Delete Records: Delete the Disposition task (no call found path) -->
+    <recordDeletes>
+        <name>Delete_Disposition_Task_Only</name>
+        <label>Delete Disposition Task Only</label>
+        <locationX>302</locationX>
+        <locationY>478</locationY>
+        <inputReference>$Record</inputReference>
+    </recordDeletes>
+</Flow>

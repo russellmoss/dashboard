@@ -5,4 +5,14 @@
         <field>Activity.CallDispose__c</field>
         <readable>true</readable>
     </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>Account.Prior_Joined_Opps__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>Opportunity.Account_Prior_Joined_Opps__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
 </Profile>

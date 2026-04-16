@@ -8,6 +8,7 @@
 
 import type { KnownBlock } from '@slack/types';
 import type { ScheduleRecord, ReportRecord } from './types';
+import type { ApprovedDMUser } from './dm-access-store';
 
 interface HomeViewOptions {
   recentQueries: Array<{ questionText: string; askedAt: Date }>;
@@ -202,6 +203,7 @@ function formatTimeAgo(date: Date): string {
 interface AdminHomeViewOptions {
   allSchedules: ScheduleRecord[];
   allReports: ReportRecord[];
+  approvedDMUsers: ApprovedDMUser[];
 }
 
 /**
@@ -224,6 +226,72 @@ export function buildAdminHomeView(opts: AdminHomeViewOptions): KnownBlock[] {
       text: `Viewing as admin · ${opts.allSchedules.length} active schedules · ${opts.allReports.length} reports`,
     }],
   });
+  blocks.push({ type: 'divider' });
+
+  // ── Approved DM Users ─────────────────────────────────
+  blocks.push({
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text: `*Approved DM Users* (${opts.approvedDMUsers.length})`,
+    },
+    accessory: {
+      type: 'button',
+      text: { type: 'plain_text', text: ':heavy_plus_sign: Add User', emoji: true },
+      action_id: 'admin_add_dm_user',
+      style: 'primary' as const,
+    },
+  });
+
+  if (opts.approvedDMUsers.length === 0) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: '_No approved DM users yet. Admins always have DM access._',
+      },
+    });
+  } else {
+    for (const user of opts.approvedDMUsers) {
+      const label = user.displayName
+        ? `<@${user.slackUserId}> (${user.displayName})`
+        : `<@${user.slackUserId}>`;
+      const addedAgo = formatTimeAgo(user.addedAt);
+
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${label} · added ${addedAgo} ago by <@${user.addedBy}>`,
+        },
+        accessory: {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Remove', emoji: false },
+          action_id: 'admin_remove_dm_user',
+          style: 'danger' as const,
+          value: user.slackUserId,
+          confirm: {
+            title: { type: 'plain_text', text: 'Remove DM access?' },
+            text: {
+              type: 'mrkdwn',
+              text: `Remove DM access for <@${user.slackUserId}>? They can still use the bot in channels.`,
+            },
+            confirm: { type: 'plain_text', text: 'Yes, remove' },
+            deny: { type: 'plain_text', text: 'Keep' },
+          },
+        },
+      });
+    }
+  }
+
+  blocks.push({
+    type: 'context',
+    elements: [{
+      type: 'mrkdwn',
+      text: ':information_source: Admins always have DM access and are not listed here.',
+    }],
+  });
+
   blocks.push({ type: 'divider' });
 
   // ── All Scheduled Reports ──────────────────────────────

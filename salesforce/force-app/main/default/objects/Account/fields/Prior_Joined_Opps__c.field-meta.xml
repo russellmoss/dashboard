@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Prior_Joined_Opps__c</fullName>
+    <label>Prior Joined Opps</label>
+    <type>Summary</type>
+    <summaryOperation>count</summaryOperation>
+    <summaryForeignKey>Opportunity.AccountId</summaryForeignKey>
+    <summaryFilterItems>
+        <field>Opportunity.RecordTypeId</field>
+        <operation>equals</operation>
+        <value>Recruiting</value>
+    </summaryFilterItems>
+    <summaryFilterItems>
+        <field>Opportunity.Stage_Entered_Joined__c</field>
+        <operation>notEqual</operation>
+        <value></value>
+    </summaryFilterItems>
+    <description>Count of Recruiting Opportunities on this Account that ever reached Joined stage. Used to exclude previously-joined advisors from re-engagement hunting lists.</description>
+    <inlineHelpText>Number of prior Recruiting Opportunities where this advisor joined Savvy (even if they later quit).</inlineHelpText>
+</CustomField>

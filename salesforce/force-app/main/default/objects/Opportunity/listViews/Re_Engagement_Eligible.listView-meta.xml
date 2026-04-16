@@ -41,28 +41,13 @@
     </filters>
     <filters>
         <field>Closed_Lost_Reason__c</field>
-        <operation>notEqual</operation>
-        <value>Savvy Declined - No Book of Business</value>
+        <operation>notContain</operation>
+        <value>Savvy Declined</value>
     </filters>
     <filters>
-        <field>Closed_Lost_Reason__c</field>
-        <operation>notEqual</operation>
-        <value>Savvy Declined - Insufficient Revenue</value>
-    </filters>
-    <filters>
-        <field>Closed_Lost_Reason__c</field>
-        <operation>notEqual</operation>
-        <value>Savvy Declined – Book Not Transferable</value>
-    </filters>
-    <filters>
-        <field>Closed_Lost_Reason__c</field>
-        <operation>notEqual</operation>
-        <value>Savvy Declined - Poor Culture Fit</value>
-    </filters>
-    <filters>
-        <field>Closed_Lost_Reason__c</field>
-        <operation>notEqual</operation>
-        <value>Savvy Declined - Compliance</value>
+        <field>Account_Prior_Joined_Opps__c</field>
+        <operation>equals</operation>
+        <value>0</value>
     </filters>
     <label>Re-Engagement Eligible</label>
     <sharedTo>

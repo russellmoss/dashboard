@@ -987,6 +987,8 @@ Shows opportunities that closed lost and have **not yet been re-engaged**. These
 - **Admins / Managers / SGAs**: See all records across all SGAs (`showAll=true` passed to API; `sga` role is explicitly allowed by the route guard)
 - **Other roles**: See only their own records (filtered by `sga_name` to the logged-in user's name)
 
+**Salesforce Link**: The "Open Re-Engagement List in Salesforce" button links to the Re-Engagement Eligible report (`00OVS0000082GSH2A2`), which shows all re-engagement fields including Closed Lost Time Bucket and Original Closed Lost Reason.
+
 **Next Step**: If SGA decides to re-engage, a Re-engagement opportunity is created (see Re-Engagement Tab).
 
 #### 4. Re-Engagement Tab

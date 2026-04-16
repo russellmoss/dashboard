@@ -20,6 +20,7 @@ import { loadThread, saveUserQuery, getRecentQueriesForUser } from './thread-sto
 import { createDashboardRequest } from './dashboard-request';
 import { buildHomeView, buildAdminHomeView } from './app-home';
 import { dmUser } from './dm-helper';
+import { isApprovedForDM, addApprovedUser, removeApprovedUser, getAllApprovedUsers } from './dm-access-store';
 import { createSchedule, getActiveSchedulesForUser, cancelSchedule, getAllSchedules, adminCancelSchedule, updateSchedule, computeNextRunAt } from './schedule-store';
 import { isReportRequest, generateReport } from './report-generator';
 import { runDueSchedules } from './schedule-runner';
@@ -738,16 +739,17 @@ export async function startSlackApp(): Promise<void> {
     try {
       if (isAdmin(userId)) {
         // Admin view — fetch all data across all users
-        const [allSchedules, allReports] = await Promise.all([
+        const [allSchedules, allReports, approvedDMUsers] = await Promise.all([
           getAllSchedules(),
           getAllReports(),
+          getAllApprovedUsers(),
         ]);
 
         await client.views.publish({
           user_id: userId,
           view: {
             type: 'home',
-            blocks: buildAdminHomeView({ allSchedules, allReports }),
+            blocks: buildAdminHomeView({ allSchedules, allReports, approvedDMUsers }),
           },
         });
       } else {
@@ -1364,9 +1366,10 @@ export async function startSlackApp(): Promise<void> {
         }
 
         // Refresh admin App Home
-        const [allSchedulesRefresh, allReports] = await Promise.all([
+        const [allSchedulesRefresh, allReports, approvedDMUsers] = await Promise.all([
           getAllSchedules(),
           getAllReports(),
+          getAllApprovedUsers(),
         ]);
 
         await client.views.publish({
@@ -1376,6 +1379,7 @@ export async function startSlackApp(): Promise<void> {
             blocks: buildAdminHomeView({
               allSchedules: allSchedulesRefresh,
               allReports,
+              approvedDMUsers,
             }),
           },
         });
@@ -1596,15 +1600,16 @@ export async function startSlackApp(): Promise<void> {
       console.log(`[admin] ${userId} edited schedule ${scheduleId}`);
 
       // Refresh admin App Home
-      const [allSchedules, allReports] = await Promise.all([
+      const [allSchedules, allReports, approvedDMUsers] = await Promise.all([
         getAllSchedules(),
         getAllReports(),
+        getAllApprovedUsers(),
       ]);
       await client.views.publish({
         user_id: userId,
         view: {
           type: 'home',
-          blocks: buildAdminHomeView({ allSchedules, allReports }),
+          blocks: buildAdminHomeView({ allSchedules, allReports, approvedDMUsers }),
         },
       });
     } catch (err) {
@@ -1698,21 +1703,170 @@ export async function startSlackApp(): Promise<void> {
       console.log(`[admin] ${userId} edited prompt for schedule ${scheduleId}`);
 
       // Refresh admin App Home
-      const [allSchedules, allReports] = await Promise.all([
+      const [allSchedules, allReports, approvedDMUsers] = await Promise.all([
         getAllSchedules(),
         getAllReports(),
+        getAllApprovedUsers(),
       ]);
       await client.views.publish({
         user_id: userId,
         view: {
           type: 'home',
-          blocks: buildAdminHomeView({ allSchedules, allReports }),
+          blocks: buildAdminHomeView({ allSchedules, allReports, approvedDMUsers }),
         },
       });
     } catch (err) {
       console.error('[admin_edit_prompt] failed:', (err as Error).message);
     }
   });
+
+  // ---- Action: Admin add DM user — opens user-select modal ----
+  slackApp.action('admin_add_dm_user', async ({ ack, body, client }) => {
+    await ack();
+    const payload = body as any;
+    const userId = payload.user.id;
+    if (!isAdmin(userId)) return;
+
+    try {
+      await client.views.open({
+        trigger_id: payload.trigger_id,
+        view: {
+          type: 'modal',
+          callback_id: 'admin_add_dm_user_submit',
+          title: { type: 'plain_text', text: 'Add DM User' },
+          submit: { type: 'plain_text', text: 'Add' },
+          close: { type: 'plain_text', text: 'Cancel' },
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: 'Select a Slack user to grant DM access to the Analyst Bot. They\'ll receive a welcome message.',
+              },
+            },
+            {
+              type: 'input',
+              block_id: 'user_select_block',
+              label: { type: 'plain_text', text: 'User' },
+              element: {
+                type: 'users_select',
+                action_id: 'selected_user',
+                placeholder: { type: 'plain_text', text: 'Pick a user...' },
+              },
+            },
+          ],
+        },
+      });
+    } catch (err) {
+      console.error('[admin_add_dm_user] Failed to open modal:', (err as Error).message);
+    }
+  });
+
+  // ---- View submission: Add DM user confirmed ----
+  slackApp.view('admin_add_dm_user_submit', async ({ ack, body, view, client }) => {
+    await ack();
+
+    const adminUserId = body.user.id;
+    if (!isAdmin(adminUserId)) return;
+
+    const selectedUserId = view.state.values.user_select_block.selected_user.selected_user;
+    if (!selectedUserId) return;
+
+    try {
+      // Resolve user info for display name and email
+      let email: string | null = null;
+      let displayName: string | null = null;
+      try {
+        const userInfo = await client.users.info({ user: selectedUserId });
+        email = userInfo.user?.profile?.email ?? null;
+        displayName = userInfo.user?.profile?.display_name
+          || userInfo.user?.real_name
+          || null;
+      } catch { /* non-critical */ }
+
+      const wasNew = await addApprovedUser(selectedUserId, adminUserId, email, displayName);
+
+      if (wasNew) {
+        // Send welcome DM to the newly approved user
+        await dmUser(client, selectedUserId, {
+          text: `Hi! :wave: You've been granted DM access to the Savvy Analyst Bot. You can now message me directly — just type your question here and I'll get you answers from the data warehouse. No need to go to a channel!\n\nTry something like: _"Show me the SGA leaderboard for this month"_`,
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: ':wave: *You\'ve been granted DM access to the Savvy Analyst Bot!*\n\nYou can now message me directly — just type your question here and I\'ll get you answers from the data warehouse. No need to go to a channel.',
+              },
+            },
+            { type: 'divider' },
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: ':bulb: *Try something like:*\n• _"Show me the SGA leaderboard for this month"_\n• _"How many SQOs were created this week?"_\n• _"Funnel conversion rates by stage this quarter"_',
+              },
+            },
+          ],
+        });
+        console.log(`[admin] ${adminUserId} granted DM access to ${selectedUserId} (${displayName ?? email ?? 'unknown'})`);
+      }
+
+      // Refresh admin App Home
+      const [allSchedules, allReports, approvedDMUsers] = await Promise.all([
+        getAllSchedules(),
+        getAllReports(),
+        getAllApprovedUsers(),
+      ]);
+      await client.views.publish({
+        user_id: adminUserId,
+        view: {
+          type: 'home',
+          blocks: buildAdminHomeView({ allSchedules, allReports, approvedDMUsers }),
+        },
+      });
+    } catch (err) {
+      console.error('[admin_add_dm_user] failed:', (err as Error).message);
+    }
+  });
+
+  // ---- Action: Admin remove DM user ----
+  slackApp.action<BlockAction<ButtonAction>>(
+    'admin_remove_dm_user',
+    async ({ ack, body, client }) => {
+      await ack();
+
+      const userId = body.user.id;
+      if (!isAdmin(userId)) {
+        console.warn(`[admin] Non-admin user ${userId} attempted admin_remove_dm_user`);
+        return;
+      }
+
+      const action = body.actions[0] as ButtonAction;
+      const targetUserId = action.value;
+      if (!targetUserId) return;
+
+      try {
+        await removeApprovedUser(targetUserId);
+        console.log(`[admin] ${userId} removed DM access for ${targetUserId}`);
+
+        // Refresh admin App Home
+        const [allSchedules, allReports, approvedDMUsers] = await Promise.all([
+          getAllSchedules(),
+          getAllReports(),
+          getAllApprovedUsers(),
+        ]);
+        await client.views.publish({
+          user_id: userId,
+          view: {
+            type: 'home',
+            blocks: buildAdminHomeView({ allSchedules, allReports, approvedDMUsers }),
+          },
+        });
+      } catch (err) {
+        console.error('[admin_remove_dm_user] failed:', (err as Error).message);
+      }
+    }
+  );
 
   // Existing: "Report Issue" modal button → open modal form
   slackApp.action('open_issue_modal', async ({ ack, body, client }) => {
@@ -1945,7 +2099,7 @@ export async function startSlackApp(): Promise<void> {
     await processAndRespond(client, event.channel, threadTs, event.ts, userId, userEmail, text);
   });
 
-  // ---- Event: message — user replies in an existing bot thread ----
+  // ---- Event: message — thread replies in channels + DM conversations ----
   slackApp.message(async ({ message, client, body }) => {
     const msg = message as any;
 
@@ -1955,15 +2109,78 @@ export async function startSlackApp(): Promise<void> {
 
     if (msg.subtype) return;
     if (msg.bot_id) return;
-    if (!msg.thread_ts) return;
 
+    const userId = msg.user;
+    const isDM = msg.channel_type === 'im';
+
+    // ── DM handling ──────────────────────────────────────────────
+    // Approved users and admins can DM the bot directly. New messages
+    // start a fresh conversation; replies in a DM thread continue it.
+    if (isDM) {
+      if (!isAdmin(userId) && !(await isApprovedForDM(userId))) {
+        await client.chat.postMessage({
+          channel: msg.channel,
+          thread_ts: msg.ts,
+          text: ':lock: You don\'t have DM access to this bot. Ask an admin to add you from the bot\'s App Home.',
+        }).catch(() => {});
+        return;
+      }
+
+      // Rate limit
+      if (await isRateLimited(userId)) {
+        await client.chat.postMessage({
+          channel: msg.channel,
+          thread_ts: msg.thread_ts ?? msg.ts,
+          text: ':warning: You\'re sending requests too quickly. Please wait a moment before trying again.',
+        }).catch(() => {});
+        return;
+      }
+
+      const userEmail = await getUserEmail(client, userId);
+      const text = (msg.text ?? '').trim();
+      if (!text) return;
+
+      // Thread reply in DM — continue existing conversation if it exists
+      const threadTs = msg.thread_ts ?? msg.ts;
+      const threadId = `${msg.channel}:${threadTs}`;
+
+      if (msg.thread_ts) {
+        const existingThread = await loadThread(threadId);
+        if (!existingThread) return; // Not a bot thread — ignore
+      }
+
+      // Report intent
+      if (isReportRequest(text)) {
+        await client.chat.postMessage({
+          channel: msg.channel,
+          thread_ts: threadTs,
+          text: ':page_facing_up: Working on your report — I\'ll DM you when it\'s ready. This usually takes 2-3 minutes.',
+        });
+        const userName = userEmail.split('@')[0] ?? userId;
+        generateReport(client as any, userId, userEmail, userName, text, msg.channel, threadTs).catch((err) => {
+          console.error('[slack] Report generation error (DM):', (err as Error).message);
+        });
+        return;
+      }
+
+      // Issue reporting
+      if (isIssueTrigger(text)) {
+        const prefill = extractIssueText(text);
+        await postIssueButton(client, msg.channel, threadTs, threadId, prefill);
+        return;
+      }
+
+      await processAndRespond(client, msg.channel, threadTs, msg.ts, userId, userEmail, text);
+      return;
+    }
+
+    // ── Channel thread replies (existing behavior) ───────────────
+    if (!msg.thread_ts) return;
     if (!isAllowedChannel(msg.channel)) return;
 
     const threadId = `${msg.channel}:${msg.thread_ts}`;
     const existingThread = await loadThread(threadId);
     if (!existingThread) return;
-
-    const userId = msg.user;
 
     // Per-user rate limit: 5 requests per 60 seconds
     if (await isRateLimited(userId)) {

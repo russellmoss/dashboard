@@ -223,7 +223,7 @@ function stripLeadingNarration(text: string): string {
   if (match && match.index && match.index > 0) {
     // Only strip if the narration before it is < 500 chars (safety check)
     const before = text.substring(0, match.index).trim();
-    if (before.length > 0 && before.length < 500) {
+    if (before.length > 0 && before.length < 2000) {
       verbose('[narration-strip] Removed', before.length, 'chars of leading narration');
       return text.substring(match.index);
     }

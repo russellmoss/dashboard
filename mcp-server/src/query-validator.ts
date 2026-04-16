@@ -55,9 +55,11 @@ export function validateQuery(sql: string): ValidationResult {
   }
 
   // 2. Block DML/DDL keywords (word-boundary check)
+  // Strip string literals before checking so 'Call', 'Outbound', etc. don't false-positive
+  const withoutStrings = trimmed.replace(/'[^']*'/g, "''");
   for (const keyword of BLOCKED_KEYWORDS) {
     const regex = new RegExp(`\\b${keyword}\\b`, 'i');
-    if (regex.test(trimmed)) {
+    if (regex.test(withoutStrings)) {
       return { valid: false, error: `Blocked keyword detected: ${keyword}`, datasetsReferenced: [], sanitizedQuery: sql };
     }
   }
