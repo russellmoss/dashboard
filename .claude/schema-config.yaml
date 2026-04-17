@@ -99,10 +99,40 @@ views:
   vw_lost_to_competition:
     purpose: "Matches closed-lost SQOs to FinTrx regulatory data to determine which firm the advisor moved to after declining Savvy. Uses CRD (Central Registration Depository) number matching."
     grain: "One row per closed-lost opportunity with a CRD match"
+    key_filters:
+      excluded_re_engagement_wins: "Rows where Account.Status__c = 'Joined' are excluded (advisor was closed-lost once but ultimately re-engaged and joined Savvy)."
+      excluded_current_savvy: "Rows where FinTrx PRIMARY_FIRM_NAME = 'Savvy' are excluded (advisor's current firm is Savvy, so not actually lost to a competitor)."
     consumers:
       - "src/lib/reporting/context.ts"
       - "src/lib/reporting/tools.ts"
     freshness_notes: "Depends on Opportunity sync (6h) and FinTrx monthly refresh. Not consumed by direct dashboard pages — reporting agents only."
+
+  vw_close_won:
+    purpose: "Mirror of vw_lost_to_competition for won deals. One row per licensed advisor (FA_CRD__c populated) on a Savvy Account with Status__c IN ('Joined','Churned'). Shows prior firm before Savvy, SQO/Joined dates, current Savvy status, and — if churned — churn date and destination firm from FinTrx."
+    grain: "One row per advisor Contact with FA_CRD__c, on a Joined or Churned Account"
+    key_filters:
+      licensed_advisors_only: "Contact.FA_CRD__c IS NOT NULL — excludes ops/support/paraplanners on the same Account"
+      account_status: "Account.Status__c IN ('Joined','Churned') — these are the two states that constitute a closed-won outcome"
+    annotated_columns:
+      - name: is_still_at_savvy
+        meaning: "Boolean — TRUE when account_status = 'Joined', FALSE when 'Churned'."
+      - name: prior_firm
+        meaning: "COALESCE(Opportunity.Firm_Name__c on the joining opp, FinTrx latest employment history firm where PREVIOUS_REGISTRATION_COMPANY_NAME != 'Savvy'). NULL only when FinTrx has no record or no prior employment history for the advisor."
+      - name: prior_firm_source
+        meaning: "'Opportunity.Firm_Name__c' | 'FinTrx employment history' | NULL — indicates which source populated prior_firm."
+      - name: sqo_date
+        meaning: "DATE — Date_Became_SQO__c from the opportunity the advisor joined through."
+      - name: joined_date
+        meaning: "DATE — advisor_join_date__c from the opportunity the advisor joined through."
+      - name: churn_date
+        meaning: "DATE, nullable — only populated when account_status = 'Churned'. COALESCE(AccountHistory Status__c → 'Churned' timestamp, FinTrx new-firm start date where current_firm != 'Savvy')."
+      - name: churned_to_firm
+        meaning: "STRING, nullable — only populated when churned AND FinTrx shows a non-Savvy current firm."
+      - name: months_at_savvy
+        meaning: "Living metric — DATE_DIFF(churn_date or CURRENT_DATE, joined_date, DAY) / 30.44. For still-at-Savvy advisors, continues growing each day."
+    consumers: []
+    freshness_notes: "Depends on Contact/Account/Opportunity sync (6h), AccountHistory sync (weekly), and FinTrx monthly refresh."
+    notes: "Opportunity dedup: ranked per AccountId — SQO'd opps preferred, then earliest advisor_join_date__c, then earliest Date_Became_SQO__c. Prior firm fallback to FinTrx handles cases where Firm_Name__c was not captured on the opp. Data coverage gap: a small number of advisors may have NULL prior_firm when FinTrx has no employment history for their CRD (broker-only CRDs, new-to-industry advisors, or stale/incorrect CRDs in SFDC)."
 
   vw_sga_activity_performance:
     purpose: "Joins Salesforce Task records to vw_funnel_master to categorize SGA activities (calls, SMS, email, LinkedIn, meetings) with direction, quality signals, cold call classification, and ramp status."
