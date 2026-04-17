@@ -103,7 +103,10 @@ export interface AdvisorLocationsResponse {
 const _getAdvisorLocations = async (
   filters: AdvisorLocationFilters = {}
 ): Promise<AdvisorLocationsResponse> => {
-  const conditions: string[] = [];
+  // Exclude advisors whose Account.Status__c = 'Churned' — map shows only advisors
+  // currently at Savvy. Geocoded rows for churned advisors remain in the warehouse
+  // (cron keeps populating them) so no data is lost if they later rejoin.
+  const conditions: string[] = ["(v.account_status IS NULL OR v.account_status != 'Churned')"];
   const params: Record<string, any> = {};
 
   // Date filters (v = view alias)

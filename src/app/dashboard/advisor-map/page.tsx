@@ -45,9 +45,11 @@ export default async function AdvisorMapPage() {
     redirect('/dashboard');
   }
 
+  // h-[calc(100vh-7rem)] = viewport minus Header (h-16 = 4rem) minus main's p-6 top+bottom (3rem)
+  // The -m-6 cancels main's p-6 so this page can claim its own padding and full height.
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="-m-6 p-6 flex flex-col gap-6 h-[calc(100vh-4rem)]">
+      <div className="flex items-center justify-between flex-none">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
             Advisor Map
@@ -58,7 +60,9 @@ export default async function AdvisorMapPage() {
         </div>
       </div>
 
-      <AdvisorMap />
+      <div className="flex-1 min-h-0">
+        <AdvisorMap />
+      </div>
     </div>
   );
 }

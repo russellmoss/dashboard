@@ -13,7 +13,7 @@ const AdvisorMapClient = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex items-center justify-center h-[500px] bg-gray-100 dark:bg-gray-800 rounded-lg">
+      <div className="flex items-center justify-center h-full bg-gray-100 dark:bg-gray-800 rounded-lg">
         <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
           <RefreshCw className="w-5 h-5 animate-spin" />
           <span>Loading map...</span>
@@ -184,8 +184,8 @@ export function AdvisorMap({ filters }: AdvisorMapProps) {
 
   if (loading) {
     return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="flex flex-col gap-4 h-full">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 flex-none">
           {[1, 2, 3, 4].map((i) => (
             <div key={i} className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 animate-pulse">
               <div className="flex items-center gap-3">
@@ -198,7 +198,7 @@ export function AdvisorMap({ filters }: AdvisorMapProps) {
             </div>
           ))}
         </div>
-        <div className="h-[500px] bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse flex items-center justify-center">
+        <div className="flex-1 min-h-0 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse flex items-center justify-center">
           <RefreshCw className="w-8 h-8 text-gray-400 animate-spin" />
         </div>
       </div>
@@ -207,7 +207,7 @@ export function AdvisorMap({ filters }: AdvisorMapProps) {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-[500px] bg-red-50 dark:bg-red-900/20 rounded-lg">
+      <div className="flex items-center justify-center h-full bg-red-50 dark:bg-red-900/20 rounded-lg">
         <div className="text-center">
           <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-2" />
           <p className="text-red-600 dark:text-red-400">{error}</p>
@@ -217,10 +217,10 @@ export function AdvisorMap({ filters }: AdvisorMapProps) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4 h-full">
       {/* Stats Row */}
       {stats && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 flex-none">
           <StatsCard
             icon={Users}
             label="Total Advisors"
@@ -256,7 +256,7 @@ export function AdvisorMap({ filters }: AdvisorMapProps) {
       )}
 
       {/* Filters */}
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 flex-none">
         <div className="flex flex-wrap items-center gap-4">
           {/* Search Input */}
           <div className="relative flex-1 min-w-[200px]">
@@ -313,8 +313,8 @@ export function AdvisorMap({ filters }: AdvisorMapProps) {
       </div>
 
       {/* Map */}
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 flex-1 min-h-0 flex flex-col">
+        <div className="flex items-center justify-between mb-4 flex-none">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
             <MapPin className="w-5 h-5" />
             Advisor Locations
@@ -330,7 +330,7 @@ export function AdvisorMap({ filters }: AdvisorMapProps) {
             </div>
           </div>
         </div>
-        <div className="h-[500px]">
+        <div className="flex-1 min-h-0">
           <AdvisorMapClient
             advisors={filteredAdvisors}
             onViewDetails={handleViewDetails}

@@ -89,8 +89,15 @@ views:
     freshness_notes: "Backed by external forecast model, likely manually maintained."
 
   vw_joined_advisor_location:
-    purpose: "One row per joined advisor with best-available address for map visualization. Coalesces addresses from Contact, FinTrx regulatory data, and Account records. Includes geocoded lat/long."
+    purpose: "One row per joined advisor with best-available address for map visualization. Coalesces addresses from Contact, FinTrx regulatory data, and Account records. Includes geocoded lat/long. Exposes account_status and is_still_at_savvy so display consumers can hide churned advisors while the geocoding cron continues to process their addresses."
     grain: "One row per joined advisor"
+    key_filters:
+      display_filter: "For map display, filter WHERE account_status IS NULL OR account_status != 'Churned' (or equivalently is_still_at_savvy = TRUE). The geocoding cron intentionally does NOT filter by churn — we keep geocoded rows for churned advisors in case they re-engage."
+    annotated_columns:
+      - name: account_status
+        meaning: "Passed through from Account.Status__c. NULL, 'Joined', 'Churned', 'Signed', or 'Opportunity'."
+      - name: is_still_at_savvy
+        meaning: "Boolean — account_status IS NULL OR account_status != 'Churned'. TRUE means the advisor should appear on the map."
     consumers:
       - "src/lib/queries/advisor-locations.ts"
       - "src/app/api/cron/geocode-advisors/route.ts"
