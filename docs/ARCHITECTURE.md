@@ -1686,17 +1686,7 @@ Advisor Map visualizes financial advisor locations on a Google Maps interface. A
 | Geocoding | Google Maps API (`GOOGLE_MAPS_API_KEY` env var) |
 | Override model | `AdvisorAddressOverride` Prisma model |
 | Access | Blocks recruiter and capital_partner |
-| Display filter | Shows only advisors currently at Savvy — churned advisors (`Account.Status__c = 'Churned'`) are hidden from the map even though their geocoded addresses remain in the warehouse |
 | Layout | Fills the viewport vertically — map grows to the bottom of the window via `flex flex-col h-[calc(100vh-4rem)]` on the page and `flex-1 min-h-0` on the map section |
-
-### Churn-aware Display
-
-The underlying view `vw_joined_advisor_location` exposes two columns used to split display from data preservation:
-
-- `account_status` — passthrough of `Account.Status__c` (values: NULL, 'Joined', 'Churned', 'Signed', 'Opportunity')
-- `is_still_at_savvy` — `account_status IS NULL OR account_status != 'Churned'`
-
-The display query in `src/lib/queries/advisor-locations.ts` filters `WHERE v.account_status IS NULL OR v.account_status != 'Churned'`. The geocoding cron at `src/app/api/cron/geocode-advisors/route.ts` intentionally does **not** filter — churned advisors remain geocoded in case they re-engage, and the filter applies only at display time.
 
 ### Address Override Flow
 
