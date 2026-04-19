@@ -91,3 +91,6 @@ nul
 mcp-server/schema-config.yaml
 mcp-server/node_modules
 mcp-server/dist
+
+# Editor backup files
+*.bak
