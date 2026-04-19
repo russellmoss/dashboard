@@ -6,7 +6,7 @@
 
 import type { WebClient } from '@slack/web-api';
 import type { KnownBlock } from '@slack/types';
-import { callClaude } from './claude';
+import { callClaude, callClaudePlain } from './claude';
 import { processMessage } from './conversation';
 import { parseChartBlock, renderChart, stripChartBlocks } from './charts';
 import {
@@ -218,26 +218,29 @@ async function planSections(userText: string): Promise<ReportSection[]> {
 - title (string): A clear section heading
 - question (string): The specific data question for this section. Copy the user's instructions for this section VERBATIM — do not summarize or paraphrase. Include all field names, filters, record type IDs, and attribution rules exactly as written.
 
-Return ONLY a valid JSON array, no markdown fences, no explanation. Limit to 6 sections max. Keep titles SHORT (under 8 words).
+Return ONLY a valid JSON array, no markdown fences, no explanation, no [CHART] blocks. Limit to 6 sections max. Keep titles SHORT (under 8 words).
 
 User request: "${userText}"`;
 
-  const response = await callClaude(
-    [{ role: 'user', content: plannerPrompt }],
-    { maxTokens: 8192 }
-  );
+  // Use callClaudePlain — bypasses the analyst system prompt + MCP so Claude
+  // does not run SQL or wrap output in [CHART] blocks. Without this, the
+  // planner inherits the system prompt's "every data response must include a
+  // [CHART] block" rule and returns malformed JSON.
+  const rawText = await callClaudePlain(plannerPrompt, { maxTokens: 4096 });
 
-  const jsonText = response.text.trim();
-
-  // Strip markdown code fences — Claude often wraps in ```json ... ``` despite instructions
-  let cleaned = jsonText
+  // Defensive cleanup. Even on the plain call, strip any markdown fences or
+  // stray [CHART] blocks that might leak through.
+  let cleaned = rawText
+    .trim()
+    .replace(/\[CHART\][\s\S]*?\[\/CHART\]/g, '')
     .replace(/^```(?:json)?\s*\n?/, '')
     .replace(/\n?```\s*$/, '')
     .trim();
 
-  // Fallback: if still not valid JSON, try to extract the first [...] array
-  if (!cleaned.startsWith('[')) {
-    const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+  // Fallback: extract the first JSON array in the text. Anchor on "[" followed
+  // by whitespace + "{" or "]" so we don't match bracket tokens like [CHART].
+  if (!/^\[\s*[{[\]]/.test(cleaned)) {
+    const arrayMatch = cleaned.match(/\[\s*\{[\s\S]*\}\s*\]/);
     if (arrayMatch) {
       cleaned = arrayMatch[0];
     }

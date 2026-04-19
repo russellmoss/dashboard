@@ -123,6 +123,48 @@ export async function callClaude(
 }
 
 /**
+ * Minimal Claude call for utility tasks (section planning, short classifications).
+ * No system prompt, no MCP tools — just a text-in / text-out completion.
+ *
+ * Required because the analyst system prompt instructs Claude to call schema-context,
+ * run SQL, and wrap data in [CHART] blocks. Passing a simple "return a JSON array"
+ * prompt through callClaude() causes Claude to run the full analytical pipeline and
+ * emit [CHART] output instead of the expected JSON.
+ */
+export async function callClaudePlain(
+  prompt: string,
+  opts?: { maxTokens?: number; model?: string }
+): Promise<string> {
+  const anthropic = getClient();
+  const maxTokens = opts?.maxTokens ?? 2048;
+  const model = opts?.model ?? 'claude-sonnet-4-6';
+
+  const abortController = new AbortController();
+  const abortTimer = setTimeout(() => abortController.abort(), CLAUDE_TIMEOUT_MS);
+
+  try {
+    const response = await anthropic.messages.create(
+      {
+        model,
+        max_tokens: maxTokens,
+        messages: [{ role: 'user', content: prompt }],
+      },
+      { timeout: CLAUDE_TIMEOUT_MS, signal: abortController.signal as any }
+    );
+    clearTimeout(abortTimer);
+
+    const text = response.content
+      .filter((b: any) => b.type === 'text')
+      .map((b: any) => b.text)
+      .join('');
+    return text;
+  } catch (error) {
+    clearTimeout(abortTimer);
+    throw error;
+  }
+}
+
+/**
  * Parse the beta API response into our ClaudeResponse type.
  * Extracts text, tool calls, SQL executed, and bytes scanned from content blocks.
  */
