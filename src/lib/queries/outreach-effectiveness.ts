@@ -139,7 +139,7 @@ function buildParams(filters: OutreachEffectivenessFilters): Record<string, any>
 const SGA_EXCLUSION_LIST = `
   'Anett Diaz', 'Ariana Butler', 'Bre McDaniel', 'Bryan Belville',
   'GinaRose Galli', 'Jacqueline Tully', 'Jed Entin', 'Russell Moss',
-  'Savvy Marketing', 'Savvy Operations', 'Lauren George'
+  'Savvy Marketing', 'Savvy Operations'
 `;
 
 // ============================================

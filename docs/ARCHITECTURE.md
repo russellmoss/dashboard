@@ -1173,7 +1173,7 @@ The combobox is a project-local vanilla primitive at `src/components/ui/MultiSel
 - **Zero-touch exclusions**: Ghost contacts, bad leads, replied leads, "No Response" disposition (proves outreach happened)
 - **Zero-touch Stale/All toggle**: "Stale" (default) only shows closed zero-touch leads OR leads untouched for 30+ days. "All" shows every zero-touch lead regardless of age. Toggle is on the scorecard and affects the SGA breakdown table.
 - **1-day date buffer**: `DATE_SUB(filter_date, INTERVAL 1 DAY)` for activity date lower bound (self-sourced lead timing)
-- **SGA allowlist**: `IsSGA__c = TRUE` subquery, not just name blocklist
+- **SGA allowlist**: `IsSGA__c = TRUE` + `IsActive = TRUE` subquery, with a small local `SGA_EXCLUSION_LIST` (operational/test accounts only: Savvy Marketing, Savvy Operations, plus a handful of inactive or non-outreach SGA users). Maintained at `src/lib/queries/outreach-effectiveness.ts:139` and scoped to this dashboard only — other SGA views apply their own filters.
 - **Event-date MQL/SQL/SQO**: `endDateTs` = endDate + ' 23:59:59' for TIMESTAMP comparisons
 
 **Files**:
