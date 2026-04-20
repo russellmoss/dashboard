@@ -60,7 +60,6 @@ export function AdvancedFilters({
   const [sourceSearch, setSourceSearch] = useState('');
   const [sgaSearch, setSgaSearch] = useState('');
   const [sgmSearch, setSgmSearch] = useState('');
-  const [experimentationTagSearch, setExperimentationTagSearch] = useState('');
   const [campaignSearch, setCampaignSearch] = useState('');
   const [leadScoreTierSearch, setLeadScoreTierSearch] = useState('');
 
@@ -92,13 +91,6 @@ export function AdvancedFilters({
     );
   }, [filterOptions, sgmSearch]);
 
-  const filteredExperimentationTags = useMemo(() => {
-    if (!filterOptions?.experimentationTags) return [];
-    return filterOptions.experimentationTags.filter(tag => 
-      tag.toLowerCase().includes(experimentationTagSearch.toLowerCase())
-    );
-  }, [filterOptions, experimentationTagSearch]);
-
   const filteredCampaigns = useMemo(() => {
     if (!filterOptions?.campaigns) return [];
     return filterOptions.campaigns.filter(c =>
@@ -119,7 +111,7 @@ export function AdvancedFilters({
 
   // Handlers
   const handleMultiSelectChange = (
-    filterKey: 'channels' | 'sources' | 'sgas' | 'sgms' | 'experimentationTags' | 'campaigns' | 'leadScoreTiers',
+    filterKey: 'channels' | 'sources' | 'sgas' | 'sgms' | 'campaigns' | 'leadScoreTiers',
     value: string,
     checked: boolean
   ) => {
@@ -143,7 +135,7 @@ export function AdvancedFilters({
     });
   };
 
-  const handleSelectAll = (filterKey: 'channels' | 'sources' | 'sgas' | 'sgms' | 'experimentationTags' | 'campaigns' | 'leadScoreTiers') => {
+  const handleSelectAll = (filterKey: 'channels' | 'sources' | 'sgas' | 'sgms' | 'campaigns' | 'leadScoreTiers') => {
     setLocalFilters(prev => {
       const current = prev[filterKey];
       // Toggle: if currently "All" is selected, uncheck it (set to false with empty selection)
@@ -259,18 +251,6 @@ export function AdvancedFilters({
                   searchable
                 />
                 
-                {/* Experimentation Tags */}
-                <MultiSelectFilterControl
-                  label="Experimentation Tags"
-                  options={filteredExperimentationTags.map(tag => ({ value: tag, label: tag, isActive: true }))}
-                  filter={localFilters.experimentationTags}
-                  onSelectAll={() => handleSelectAll('experimentationTags')}
-                  onChange={(value, checked) => handleMultiSelectChange('experimentationTags', value, checked)}
-                  searchValue={experimentationTagSearch}
-                  onSearchChange={setExperimentationTagSearch}
-                  searchable
-                />
-
                 {/* Campaigns */}
                 <MultiSelectFilterControl
                   label="Campaigns"

@@ -684,13 +684,20 @@ Shows individual records with:
 
 ### Global Filters
 
-Available filters applied to all queries:
+Available filters applied to all queries (Funnel Performance & Efficiency page):
+
+Main filter bar (`src/components/dashboard/GlobalFilters.tsx`):
 - **Date Preset**: YTD, QTD, Q1-Q4, Last 30/90 days, Custom
 - **Year**: Defaults to current year
 - **Channel**: From distinct values in data
 - **Source**: From distinct values in data
 - **SGA**: From distinct values (may be auto-set by permissions)
 - **SGM**: From distinct values (may be auto-set by permissions)
+- **Campaign**: From distinct values in data
+
+Advanced Filters modal (`src/components/dashboard/AdvancedFilters.tsx`) — multi-select variants of: Channel, Source, SGA, SGM, Campaign, Lead Score Tier.
+
+Note: **Experimentation Tag** has been deprecated and removed from both the main filter bar and the Advanced Filters modal. The field still exists on the shared `Filters` type because Record Detail Modal, Explore AI results, and the semantic layer continue to reference it; a full cross-codebase deprecation is a possible follow-up.
 
 ### API Route Pattern
 
