@@ -684,20 +684,27 @@ Shows individual records with:
 
 ### Global Filters
 
-Available filters applied to all queries (Funnel Performance & Efficiency page):
+Available filters applied to all queries (Funnel Performance & Efficiency page).
 
 Main filter bar (`src/components/dashboard/GlobalFilters.tsx`):
-- **Date Preset**: YTD, QTD, Q1-Q4, Last 30/90 days, Custom
-- **Year**: Defaults to current year
-- **Channel**: From distinct values in data
-- **Source**: From distinct values in data
-- **SGA**: From distinct values (may be auto-set by permissions)
-- **SGM**: From distinct values (may be auto-set by permissions)
-- **Campaign**: From distinct values in data
+- **Date Preset** (single-select): YTD, QTD, Q1-Q4, Last 30/90 days, Custom
+- **Year** (single-select): defaults to current year
+- **Channel** (multi-select with type-to-search): from distinct values in data
+- **Source** (multi-select with type-to-search): from distinct values in data
+- **SGA** (multi-select with type-to-search, Active/All toggle): may be auto-scoped by permissions
+- **SGM** (multi-select with type-to-search, Active/All toggle): may be auto-scoped by permissions
+- **Campaign** (multi-select with type-to-search): from distinct values in data
 
-Advanced Filters modal (`src/components/dashboard/AdvancedFilters.tsx`) — multi-select variants of: Channel, Source, SGA, SGM, Campaign, Lead Score Tier.
+The five multi-select filters share the `MultiSelectCombobox` primitive from `src/components/ui/MultiSelectCombobox.tsx`, which is also used by the Outreach Effectiveness campaign filter.
 
-Note: **Experimentation Tag** has been deprecated and removed from both the main filter bar and the Advanced Filters modal. The field still exists on the shared `Filters` type because Record Detail Modal, Explore AI results, and the semantic layer continue to reference it; a full cross-codebase deprecation is a possible follow-up.
+Main-bar multi-select state is stored on `filters.advancedFilters.{channels,sources,sgas,sgms,campaigns}` (shape: `{ selectAll: boolean, selected: string[] }`) — one source of truth with the query layer's `buildAdvancedFilterClauses`. Empty selection = `selectAll: true` = "all values". The legacy single-select fields on `DashboardFilters` (`channel`, `source`, `sga`, `sgm`, `campaignId`) remain on the type because Record Detail Modal, Explore AI, and the semantic layer still reference them, but the main bar no longer writes to them.
+
+Advanced Filters slide-out panel (`src/components/dashboard/AdvancedFilters.tsx`):
+- **Lead Score Tier** (multi-select) — the only filter still exclusive to the panel after the main-bar refactor.
+
+`countActiveAdvancedFilters` (in `src/types/filters.ts`) only counts filters exclusive to the slide-out panel, so toggling a main-bar filter doesn't increment the "Advanced Filters" badge.
+
+Note: **Experimentation Tag** has been deprecated and removed from all filter UI. The field still exists on the shared `Filters` type because Record Detail Modal, Explore AI results, and the semantic layer continue to reference it; a full cross-codebase deprecation is a possible follow-up.
 
 ### API Route Pattern
 

@@ -97,17 +97,14 @@ export function hasActiveAdvancedFilters(filters: AdvancedFilters): boolean {
   );
 }
 
-// Helper to count active filters
+// Count active filters shown ONLY in the Advanced Filters slide-out.
+// channels/sources/sgas/sgms/campaigns are surfaced in the main GlobalFilters
+// bar now, so they don't count toward the "advanced" badge even when active.
+// experimentationTags is deprecated (no UI).
 export function countActiveAdvancedFilters(filters: AdvancedFilters): number {
   let count = 0;
   if (filters.initialCallScheduled.enabled) count++;
   if (filters.qualificationCallDate.enabled) count++;
-  if (!filters.channels.selectAll) count++;
-  if (!filters.sources.selectAll) count++;
-  if (!filters.sgas.selectAll) count++;
-  if (!filters.sgms.selectAll) count++;
-  if (!filters.experimentationTags.selectAll) count++;
-  if (!filters.campaigns.selectAll) count++;
   if (!filters.leadScoreTiers.selectAll) count++;
   return count;
 }

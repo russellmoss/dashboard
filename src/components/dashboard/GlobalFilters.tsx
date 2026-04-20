@@ -2,11 +2,15 @@
 
 import { useState, useMemo } from 'react';
 import { Button } from '@tremor/react';
-import { FilterOptions, DashboardFilters } from '@/types/filters';
+import { FilterOptions, DashboardFilters, DEFAULT_ADVANCED_FILTERS, AdvancedFilters } from '@/types/filters';
 import { Save } from 'lucide-react';
 import { DataFreshnessIndicator } from '@/components/dashboard/DataFreshnessIndicator';
 import { SavedReportsDropdown } from './SavedReportsDropdown';
 import { SavedReport } from '@/types/saved-reports';
+import MultiSelectCombobox from '@/components/ui/MultiSelectCombobox';
+
+// Keys on AdvancedFilters that are surfaced as multi-selects in the main bar.
+type MainBarMultiKey = 'channels' | 'sources' | 'sgas' | 'sgms' | 'campaigns';
 
 interface GlobalFiltersProps {
   filters: DashboardFilters;
@@ -142,38 +146,26 @@ export function GlobalFilters({
     });
   };
 
-  const handleChannelChange = (value: string) => {
-    onFiltersChange({
-      ...filters,
-      channel: value === '' ? null : value,
-    });
+  // Main-bar multi-select state reads from filters.advancedFilters so it shares
+  // one source of truth with the Advanced Filters panel and the query layer.
+  // Empty selection == "All X" (selectAll: true).
+  const adv: AdvancedFilters = filters.advancedFilters ?? DEFAULT_ADVANCED_FILTERS;
+
+  const getSelected = (key: MainBarMultiKey): string[] => {
+    const slot = adv[key];
+    return slot.selectAll ? [] : slot.selected;
   };
 
-  const handleSourceChange = (value: string) => {
+  const handleMultiSelectChange = (key: MainBarMultiKey, next: string[]) => {
     onFiltersChange({
       ...filters,
-      source: value === '' ? null : value,
-    });
-  };
-
-  const handleSgaChange = (value: string) => {
-    onFiltersChange({
-      ...filters,
-      sga: value === '' ? null : value,
-    });
-  };
-
-  const handleSgmChange = (value: string) => {
-    onFiltersChange({
-      ...filters,
-      sgm: value === '' ? null : value,
-    });
-  };
-
-  const handleCampaignChange = (value: string) => {
-    onFiltersChange({
-      ...filters,
-      campaignId: value === '' ? null : value,
+      advancedFilters: {
+        ...adv,
+        [key]: {
+          selectAll: next.length === 0,
+          selected: next,
+        },
+      },
     });
   };
 
@@ -298,18 +290,13 @@ export function GlobalFilters({
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
             Channel
           </label>
-          <select
-            value={filters.channel || ''}
-            onChange={(e) => handleChannelChange(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
-          >
-            <option value="">All Channels</option>
-            {filterOptions.channels.map((channel) => (
-              <option key={channel} value={channel}>
-                {channel}
-              </option>
-            ))}
-          </select>
+          <MultiSelectCombobox
+            ariaLabel="Channel"
+            placeholder="All channels — type to search…"
+            options={filterOptions.channels.map((c) => ({ value: c, label: c }))}
+            selected={getSelected('channels')}
+            onChange={(next) => handleMultiSelectChange('channels', next)}
+          />
         </div>
 
         {/* Source */}
@@ -317,73 +304,66 @@ export function GlobalFilters({
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
             Source
           </label>
-          <select
-            value={filters.source || ''}
-            onChange={(e) => handleSourceChange(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
-          >
-            <option value="">All Sources</option>
-            {filterOptions.sources.map((source) => (
-              <option key={source} value={source}>
-                {source}
-              </option>
-            ))}
-          </select>
+          <MultiSelectCombobox
+            ariaLabel="Source"
+            placeholder="All sources — type to search…"
+            options={filterOptions.sources.map((s) => ({ value: s, label: s }))}
+            selected={getSelected('sources')}
+            onChange={(next) => handleMultiSelectChange('sources', next)}
+          />
         </div>
 
         {/* SGA */}
         {filterOptions.sgas.length > 0 && (
           <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-1">
               <label className="text-sm font-medium text-gray-700 dark:text-gray-200">
                 SGA
               </label>
-              <ActiveToggle 
-                isActiveOnly={sgaActiveOnly} 
-                onToggle={() => setSgaActiveOnly(!sgaActiveOnly)} 
+              <ActiveToggle
+                isActiveOnly={sgaActiveOnly}
+                onToggle={() => setSgaActiveOnly(!sgaActiveOnly)}
                 label="SGA"
               />
             </div>
-            <select
-              value={filters.sga || ''}
-              onChange={(e) => handleSgaChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
-            >
-              <option value="">All SGAs</option>
-              {filteredSgaOptions.map((sga) => (
-                <option key={sga.value} value={sga.value}>
-                  {sga.label}{!sgaActiveOnly && !sga.isActive ? ' (Inactive)' : ''}
-                </option>
-              ))}
-            </select>
+            <MultiSelectCombobox
+              ariaLabel="SGA"
+              placeholder="All SGAs — type to search…"
+              options={filteredSgaOptions.map((s) => ({
+                value: s.value,
+                label: s.label,
+                hint: !sgaActiveOnly && !s.isActive ? 'Inactive' : undefined,
+              }))}
+              selected={getSelected('sgas')}
+              onChange={(next) => handleMultiSelectChange('sgas', next)}
+            />
           </div>
         )}
 
         {/* SGM */}
         {filterOptions.sgms.length > 0 && (
           <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-1">
               <label className="text-sm font-medium text-gray-700 dark:text-gray-200">
                 SGM
               </label>
-              <ActiveToggle 
-                isActiveOnly={sgmActiveOnly} 
-                onToggle={() => setSgmActiveOnly(!sgmActiveOnly)} 
+              <ActiveToggle
+                isActiveOnly={sgmActiveOnly}
+                onToggle={() => setSgmActiveOnly(!sgmActiveOnly)}
                 label="SGM"
               />
             </div>
-            <select
-              value={filters.sgm || ''}
-              onChange={(e) => handleSgmChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
-            >
-              <option value="">All SGMs</option>
-              {filteredSgmOptions.map((sgm) => (
-                <option key={sgm.value} value={sgm.value}>
-                  {sgm.label}{!sgmActiveOnly && !sgm.isActive ? ' (Inactive)' : ''}
-                </option>
-              ))}
-            </select>
+            <MultiSelectCombobox
+              ariaLabel="SGM"
+              placeholder="All SGMs — type to search…"
+              options={filteredSgmOptions.map((s) => ({
+                value: s.value,
+                label: s.label,
+                hint: !sgmActiveOnly && !s.isActive ? 'Inactive' : undefined,
+              }))}
+              selected={getSelected('sgms')}
+              onChange={(next) => handleMultiSelectChange('sgms', next)}
+            />
           </div>
         )}
 
@@ -393,18 +373,13 @@ export function GlobalFilters({
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
               Campaign
             </label>
-            <select
-              value={filters.campaignId || ''}
-              onChange={(e) => handleCampaignChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
-            >
-              <option value="">All Campaigns</option>
-              {filterOptions.campaigns.map((campaign) => (
-                <option key={campaign.value} value={campaign.value}>
-                  {campaign.label}
-                </option>
-              ))}
-            </select>
+            <MultiSelectCombobox
+              ariaLabel="Campaign"
+              placeholder="All campaigns — type to search…"
+              options={filterOptions.campaigns.map((c) => ({ value: c.value, label: c.label }))}
+              selected={getSelected('campaigns')}
+              onChange={(next) => handleMultiSelectChange('campaigns', next)}
+            />
           </div>
         )}
       </div>

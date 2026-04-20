@@ -55,48 +55,13 @@ export function AdvancedFilters({
   filterOptions,
 }: AdvancedFiltersProps) {
   const [localFilters, setLocalFilters] = useState<AdvancedFiltersType>(filters);
-  
-  // Search states for multi-select dropdowns
-  const [sourceSearch, setSourceSearch] = useState('');
-  const [sgaSearch, setSgaSearch] = useState('');
-  const [sgmSearch, setSgmSearch] = useState('');
-  const [campaignSearch, setCampaignSearch] = useState('');
+
   const [leadScoreTierSearch, setLeadScoreTierSearch] = useState('');
 
   // Sync local filters when prop changes
   useEffect(() => {
     setLocalFilters(filters);
   }, [filters]);
-
-  // Filter sources/SGAs/SGMs by search
-  // Note: filterOptions.sources is string[], filterOptions.sgas/sgms are FilterOption[]
-  const filteredSources = useMemo(() => {
-    if (!filterOptions?.sources) return [];
-    return filterOptions.sources.filter(s => 
-      s.toLowerCase().includes(sourceSearch.toLowerCase())
-    );
-  }, [filterOptions, sourceSearch]);
-
-  const filteredSGAs = useMemo(() => {
-    if (!filterOptions?.sgas) return [];
-    return filterOptions.sgas.filter(s => 
-      s.label.toLowerCase().includes(sgaSearch.toLowerCase())
-    );
-  }, [filterOptions, sgaSearch]);
-
-  const filteredSGMs = useMemo(() => {
-    if (!filterOptions?.sgms) return [];
-    return filterOptions.sgms.filter(s => 
-      s.label.toLowerCase().includes(sgmSearch.toLowerCase())
-    );
-  }, [filterOptions, sgmSearch]);
-
-  const filteredCampaigns = useMemo(() => {
-    if (!filterOptions?.campaigns) return [];
-    return filterOptions.campaigns.filter(c =>
-      c.label.toLowerCase().includes(campaignSearch.toLowerCase())
-    );
-  }, [filterOptions, campaignSearch]);
 
   const filteredLeadScoreTiers = useMemo(() => {
     if (!filterOptions?.leadScoreTiers) return [];
@@ -111,7 +76,7 @@ export function AdvancedFilters({
 
   // Handlers
   const handleMultiSelectChange = (
-    filterKey: 'channels' | 'sources' | 'sgas' | 'sgms' | 'campaigns' | 'leadScoreTiers',
+    filterKey: 'leadScoreTiers',
     value: string,
     checked: boolean
   ) => {
@@ -135,7 +100,7 @@ export function AdvancedFilters({
     });
   };
 
-  const handleSelectAll = (filterKey: 'channels' | 'sources' | 'sgas' | 'sgms' | 'campaigns' | 'leadScoreTiers') => {
+  const handleSelectAll = (filterKey: 'leadScoreTiers') => {
     setLocalFilters(prev => {
       const current = prev[filterKey];
       // Toggle: if currently "All" is selected, uncheck it (set to false with empty selection)
@@ -200,68 +165,10 @@ export function AdvancedFilters({
             </div>
           ) : (
             <>
-              {/* Attribution Filters Section */}
               <div>
                 <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
-                  🏷️ Attribution Filters
+                  🎯 Additional Filters
                 </h3>
-                
-                {/* Channels */}
-                <MultiSelectFilterControl
-                  label="Channels"
-                  options={filterOptions.channels.map(c => ({ value: c, label: c, isActive: true }))}
-                  filter={localFilters.channels}
-                  onSelectAll={() => handleSelectAll('channels')}
-                  onChange={(value, checked) => handleMultiSelectChange('channels', value, checked)}
-                />
-                
-                {/* Sources */}
-                <MultiSelectFilterControl
-                  label="Sources"
-                  options={filteredSources.map(s => ({ value: s, label: s, isActive: true }))}
-                  filter={localFilters.sources}
-                  onSelectAll={() => handleSelectAll('sources')}
-                  onChange={(value, checked) => handleMultiSelectChange('sources', value, checked)}
-                  searchValue={sourceSearch}
-                  onSearchChange={setSourceSearch}
-                  searchable
-                />
-                
-                {/* SGAs */}
-                <MultiSelectFilterControl
-                  label="SGAs (Lead Owner)"
-                  options={filteredSGAs}
-                  filter={localFilters.sgas}
-                  onSelectAll={() => handleSelectAll('sgas')}
-                  onChange={(value, checked) => handleMultiSelectChange('sgas', value, checked)}
-                  searchValue={sgaSearch}
-                  onSearchChange={setSgaSearch}
-                  searchable
-                />
-                
-                {/* SGMs */}
-                <MultiSelectFilterControl
-                  label="SGMs (Opportunity Owner)"
-                  options={filteredSGMs}
-                  filter={localFilters.sgms}
-                  onSelectAll={() => handleSelectAll('sgms')}
-                  onChange={(value, checked) => handleMultiSelectChange('sgms', value, checked)}
-                  searchValue={sgmSearch}
-                  onSearchChange={setSgmSearch}
-                  searchable
-                />
-                
-                {/* Campaigns */}
-                <MultiSelectFilterControl
-                  label="Campaigns"
-                  options={filteredCampaigns.map(c => ({ value: c.value, label: c.label, isActive: true }))}
-                  filter={localFilters.campaigns}
-                  onSelectAll={() => handleSelectAll('campaigns')}
-                  onChange={(value, checked) => handleMultiSelectChange('campaigns', value, checked)}
-                  searchValue={campaignSearch}
-                  onSearchChange={setCampaignSearch}
-                  searchable
-                />
 
                 {/* Lead Score Tiers */}
                 <MultiSelectFilterControl

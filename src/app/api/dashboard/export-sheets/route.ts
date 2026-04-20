@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
 import { forbidRecruiter, forbidCapitalPartner } from '@/lib/api-authz';
-import { DashboardFilters } from '@/types/filters';
+import { DashboardFilters, MultiSelectFilter } from '@/types/filters';
 import { GoogleSheetsExporter } from '@/lib/sheets/google-sheets-exporter';
 import { SheetsExportData } from '@/lib/sheets/sheets-types';
 import { getExportDetailRecords, buildConversionAnalysis } from '@/lib/queries/export-records';
@@ -120,10 +120,10 @@ export async function POST(request: NextRequest) {
         preset: filters.datePreset,
       },
       filtersApplied: {
-        channel: filters.channel,
-        source: filters.source,
-        sga: filters.sga,
-        sgm: filters.sgm,
+        channel: resolveFilterLabel(filters.advancedFilters?.channels, filters.channel),
+        source: resolveFilterLabel(filters.advancedFilters?.sources, filters.source),
+        sga: resolveFilterLabel(filters.advancedFilters?.sgas, filters.sga),
+        sgm: resolveFilterLabel(filters.advancedFilters?.sgms, filters.sgm),
       },
       mode, // Include mode in export data for reference
       metrics: metricsResult,
@@ -161,4 +161,15 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+// Collapse a main-bar multi-select into a display string. Falls back to the
+// legacy single-select field if no multi-selection is active (keeps older
+// callers working).
+function resolveFilterLabel(
+  ms: MultiSelectFilter | undefined,
+  legacy: string | null,
+): string | null {
+  if (!ms || ms.selectAll || ms.selected.length === 0) return legacy;
+  return ms.selected.join(', ');
 }
