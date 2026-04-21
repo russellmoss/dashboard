@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ListView xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>April_2026_Re_Engagement</fullName>
+    <columns>OPPORTUNITY.NAME</columns>
+    <columns>User__c</columns>
+    <columns>Previous_Recruiting_Opportunity_CLR__c</columns>
+    <columns>CORE.USERS.FULL_NAME</columns>
+    <columns>OPPORTUNITY.STAGE_NAME</columns>
+    <columns>FA_CRD__c</columns>
+    <columns>LinkedIn_Profile_URL__c</columns>
+    <columns>Personal_Email__c</columns>
+    <columns>Primary_Phone_Number__c</columns>
+    <columns>OPPORTUNITY.LAST_ACTIVITY</columns>
+    <columns>OPPORTUNITY.NEXT_STEP</columns>
+    <columns>OPPORTUNITY.CREATED_DATE</columns>
+    <filterScope>Everything</filterScope>
+    <filters>
+        <field>OPPORTUNITY.RECORDTYPE</field>
+        <operation>equals</operation>
+        <value>Opportunity.Re_Engagement</value>
+    </filters>
+    <filters>
+        <field>OPPORTUNITY.CREATED_DATE</field>
+        <operation>greaterThan</operation>
+        <value>4/6/2026 12:00 AM</value>
+    </filters>
+    <filters>
+        <field>OPPORTUNITY.CREATED_DATE</field>
+        <operation>lessOrEqual</operation>
+        <value>4/8/2026 12:00 AM</value>
+    </filters>
+    <filters>
+        <field>Opportunity_Owner_Name__c</field>
+        <operation>contains</operation>
+        <value>chann</value>
+    </filters>
+    <label>April 2026 [Re-Engagement]</label>
+</ListView>

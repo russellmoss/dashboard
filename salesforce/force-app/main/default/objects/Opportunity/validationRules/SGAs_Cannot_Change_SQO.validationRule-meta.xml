@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>SGAs_Cannot_Change_SQO</fullName>
+    <active>true</active>
+    <description>SGAs cannot change the SQO flag themselves on opportunities</description>
+    <errorConditionFormula>AND(
+     ISCHANGED( SQL__c ),
+     ISPICKVAL(SQL__c, &quot;Yes&quot;),
+     $User.IsSGA__c = TRUE
+)</errorConditionFormula>
+    <errorDisplayField>SQL__c</errorDisplayField>
+    <errorMessage>Only non-SGA team members can mark Opportunities SQOs. Please contact your manager or a Salesforce admin if you see this error.</errorMessage>
+</ValidationRule>

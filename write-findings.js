@@ -1,0 +1,1 @@
+const fs=require("fs");fs.writeFileSync("pattern-finder-findings.md","# test");console.log("done");

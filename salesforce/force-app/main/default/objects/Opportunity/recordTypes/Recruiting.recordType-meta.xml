@@ -5,6 +5,315 @@
     <businessProcess>Recruiting</businessProcess>
     <label>Recruiting</label>
     <picklistValues>
+        <picklist>Closed_Lost_Reason__c</picklist>
+        <values>
+            <fullName>Candidate Declined - Economics</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Candidate Declined - Fear of Change</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Candidate Declined - Lost to Competitor</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Candidate Declined - Operational Constraints</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Candidate Declined - Timing</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>No Longer Responsive</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>No Show %E2%80%93 Intro Call</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Other</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Savvy Declined %E2%80%93 Book Not Transferable</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Savvy Declined - Compliance</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Savvy Declined - Insufficient Revenue</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Savvy Declined - Poor Culture Fit</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Computer_Type__c</picklist>
+        <values>
+            <fullName>Mac</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Windows</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Conversion_Channel__c</picklist>
+        <values>
+            <fullName>Advisor Referral</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Advisor Waitlist</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Ashby</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Cold Calling</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Dover</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Email - Dover</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Email - Savvy</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Employee Referral</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Event</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>LinkedIn %28Automation%29</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>LinkedIn %28SGA%29</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>LinkedIn Lead Gen Form</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Re-Engagement</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Recruitment Firm</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Text</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Dover_Channel__c</picklist>
+        <values>
+            <fullName>BrokerHunter</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>DOVER</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Dover Careers</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Indeed</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Indeed - Metro</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Lever</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>LinkedIn</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Manatal</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Other</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Wellfound</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>ZipRecruiter</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>eFinancialCareers</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Draw_Payment_Frequency__c</picklist>
+        <values>
+            <fullName>Monthly</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Semi-Monthly</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Employment_Type__c</picklist>
+        <values>
+            <fullName>1099</fullName>
+            <default>true</default>
+        </values>
+        <values>
+            <fullName>W-2</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Experimentation_Tag__c</picklist>
+        <values>
+            <fullName>2024 May EDGE Conference</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2024-03 New Scoring Test - Independent</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2024-04 M%26A Lead List</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2024-05 Advisor Referral Support</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2024-07-01 BRiley Leads</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2024-08-09 New LinkedIn Followers</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2024-09-01 Futureproof</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2024-11 New Scoring Test</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2025 FutureProof Phase 3 Outreach</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2025 Futureproof Pre-Show Phase 1</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2025-02 New Scoring Test - Small Firms</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2025-03 San Diego Campaign</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2025-04 Commonwealth Advisors</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2025-05 Futureproof Denver</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2025-08 AdvisorHub Webinar Attended</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2025-08 AdvisorHub Webinar_Missed</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2025-08 CL Power Hour</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2025-08 Lead Scoring v2</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2025-09 Futureproof Direct Mail</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2025-09 Futureproof Ground Game</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2025-09 LPL MultiChannel Blitz</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2025-12 Osaic List</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>2025-Nov Impact</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>ECI Experiment December 2025</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>FPA Conference 2025</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Savvy Pirate</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>XYPN Nov 2025</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
         <picklist>External_Agency__c</picklist>
         <values>
             <fullName>Bluebix</fullName>
@@ -99,19 +408,19 @@
             <default>false</default>
         </values>
         <values>
-            <fullName>Merkle</fullName>
-            <default>false</default>
-        </values>
-        <values>
             <fullName>MJ Recruiting</fullName>
             <default>false</default>
         </values>
         <values>
-            <fullName>Muriel</fullName>
+            <fullName>MXT</fullName>
             <default>false</default>
         </values>
         <values>
-            <fullName>MXT</fullName>
+            <fullName>Merkle</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Muriel</fullName>
             <default>false</default>
         </values>
         <values>
@@ -208,6 +517,170 @@
         </values>
     </picklistValues>
     <picklistValues>
+        <picklist>Final_Source__c</picklist>
+        <values>
+            <fullName>Advisor Referral</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Blog</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Candidate Referral</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Direct Mail</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Direct Traffic</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Events</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Fintrx %28Self-Sourced%29</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Google Ads</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Job Applications</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>LinkedIn %28Self Sourced%29</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>LinkedIn Ads</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>LinkedIn Savvy</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>LinkedIn Social</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Meta</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Other</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Provided List %28Lead Scoring%29</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Provided List %28Marketing%29</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Re-Engagement</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Recruitment Firm</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Search</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Webinar</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Finance_View__c</picklist>
+        <values>
+            <fullName>Advisor Referral</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Job Applications</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Marketing</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Other</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Outbound</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Outbound %2B Marketing</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Re-Engagement</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Recruitment Firm</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Firm_Type__c</picklist>
+        <values>
+            <fullName>Bank or Wirehouse</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Captive RIA %28Non-Owned Book%29</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Large RIA %2F BD</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Small RIA %28Owned Book%29</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Solo RIA</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Firm_Type_old__c</picklist>
+        <values>
+            <fullName>Bank</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Broker Dealer</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>RIA</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Self-Owned RIA</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
         <picklist>ForecastCategoryName</picklist>
         <values>
             <fullName>Closed</fullName>
@@ -227,6 +700,17 @@
         </values>
         <values>
             <fullName>Pipeline</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Grid_Type__c</picklist>
+        <values>
+            <fullName>Flat</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Waterfall</fullName>
             <default>false</default>
         </values>
     </picklistValues>
@@ -295,6 +779,245 @@
         <values>
             <fullName>Search</fullName>
             <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Marketing_Segment__c</picklist>
+        <values>
+            <fullName>CAPTIVE_W2</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>INDEPENDENT_PLATFORM</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>OTHER</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>RIA_OWNER</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Previous_Custodians__c</picklist>
+        <values>
+            <fullName>Bank of America</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Edward Jones</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Fidelity %28IWS%29</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Fidelity %28NFS%29</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>JP Morgan</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>LPL</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Merrill Lynch</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Other %28please specify%29</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Pershing</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Raymond James</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Schwab</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>TIAA</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Truist</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>UBS</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>USBank</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Previous_Recruiting_Opportunity_CLR__c</picklist>
+        <values>
+            <fullName>Candidate Declined - Economics</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Candidate Declined - Fear of Change</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Candidate Declined - Lost to Competitor</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Candidate Declined - Operational Constraints</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Candidate Declined - Timing</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>No Longer Responsive</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>No Show %E2%80%93 Intro Call</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Other</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Savvy Declined %E2%80%93 Book Not Transferable</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Savvy Declined - Compliance</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Savvy Declined - Insufficient Revenue</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Savvy Declined - Poor Culture Fit</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Re_Engagement_Priority__c</picklist>
+        <values>
+            <fullName>High</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Low</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Medium</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Re_Engagement_Reason__c</picklist>
+        <values>
+            <fullName>Building Stronger Client Relationships</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Compensation Concerns</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Nervous about litigation</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Other</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Recent Transition</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Timing %28too early%29</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Restrictive_Covenants__c</picklist>
+        <values>
+            <fullName>Non-Compete</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Non-Compete %2B Non-Solicit</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Non-Solicit</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>None</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Other Restrictive Covenants</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Revenue_Aggregation__c</picklist>
+        <values>
+            <fullName>Individual</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Team</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>SQL__c</picklist>
+        <values>
+            <fullName>No</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Yes</fullName>
+            <default>false</default>
+        </values>
+    </picklistValues>
+    <picklistValues>
+        <picklist>Transferability_Probability__c</picklist>
+        <values>
+            <fullName>High</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Low</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Medium</fullName>
+            <default>false</default>
+        </values>
+        <values>
+            <fullName>Unknown</fullName>
+            <default>true</default>
         </values>
     </picklistValues>
     <picklistValues>

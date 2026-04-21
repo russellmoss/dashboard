@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ListView xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Re_Engagement_Eligible_recruitment_firm</fullName>
+    <columns>FA_CRD__c</columns>
+    <columns>OPPORTUNITY.LAST_ACTIVITY</columns>
+    <columns>OPPORTUNITY.NAME</columns>
+    <columns>SGA__c</columns>
+    <columns>Stage_Entered_Closed__c</columns>
+    <columns>SQL__c</columns>
+    <columns>Closed_Lost_Reason__c</columns>
+    <columns>Closed_Lost_Details__c</columns>
+    <filterScope>Everything</filterScope>
+    <filters>
+        <field>OPPORTUNITY.RECORDTYPE</field>
+        <operation>equals</operation>
+        <value>Opportunity.Recruiting</value>
+    </filters>
+    <filters>
+        <field>OPPORTUNITY.STAGE_NAME</field>
+        <operation>equals</operation>
+        <value>Closed Lost</value>
+    </filters>
+    <filters>
+        <field>Open_Re_Engagement_Opps__c</field>
+        <operation>equals</operation>
+        <value>0</value>
+    </filters>
+    <filters>
+        <field>Closed_Lost_Reason__c</field>
+        <operation>notEqual</operation>
+        <value>Savvy Declined - No Book of Business</value>
+    </filters>
+    <filters>
+        <field>Closed_Lost_Reason__c</field>
+        <operation>notEqual</operation>
+        <value>Savvy Declined - Insufficient Revenue</value>
+    </filters>
+    <filters>
+        <field>Closed_Lost_Reason__c</field>
+        <operation>notEqual</operation>
+        <value>Savvy Declined – Book Not Transferable</value>
+    </filters>
+    <filters>
+        <field>Closed_Lost_Reason__c</field>
+        <operation>notEqual</operation>
+        <value>Savvy Declined - Compliance</value>
+    </filters>
+    <filters>
+        <field>Closed_Lost_Reason__c</field>
+        <operation>notEqual</operation>
+        <value>Savvy Declined - Poor Culture Fit</value>
+    </filters>
+    <filters>
+        <field>Closed_Lost_Reason__c</field>
+        <operation>notEqual</operation>
+        <value>Candidate Declined - Economics</value>
+    </filters>
+    <filters>
+        <field>Conversion_Channel__c</field>
+        <operation>equals</operation>
+        <value>Recruitment Firm</value>
+    </filters>
+    <label>Re-Engagement Eligible -Recruitment firm</label>
+</ListView>

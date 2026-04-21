@@ -4,7 +4,7 @@
     <description>Marketing UTM Campaign</description>
     <externalId>false</externalId>
     <label>UTM Campaign</label>
-    <length>50</length>
+    <length>150</length>
     <required>false</required>
     <trackFeedHistory>false</trackFeedHistory>
     <trackHistory>false</trackHistory>
