@@ -1289,6 +1289,23 @@ Pre-defined calculations with proper date fields and filters. **Location**: `src
 - **Lead-level**: `WHERE SGA_Owner_Name__c = @sgaName`
 - **Opportunity-level**: `WHERE (SGA_Owner_Name__c = @sgaName OR Opp_SGA_Name__c = @sgaName)`
 
+**Attribution Mode — `ATTRIBUTION_MODEL` env var (Phase 3, 2026-04)**
+
+The Funnel Performance & Efficiency page (and every query in `src/lib/queries/` that it drives — `funnel-metrics`, `conversion-rates`, `detail-records`, `source-performance`, `export-records`) routes SGA filtering through a single helper, `buildSgaFilterClause` in `src/lib/utils/filter-helpers.ts`. The helper reads `ATTRIBUTION_MODEL` via `src/lib/utils/attribution-mode.ts`:
+
+| Mode | Env | SGA predicate | Notes |
+|---|---|---|---|
+| **v1** (default) | unset / `'v1'` | `v.SGA_Owner_Name__c IN UNNEST(@sgas)` | Current-owner filtering; subject to Savvy Ops sweep distortion when the filter excludes sweep rows |
+| **v2** | `ATTRIBUTION_MODEL=v2` | `LEFT JOIN vw_lead_primary_sga p … WHERE p.primary_sga_name IN UNNEST(@sgas)` | Lead-era attribution from `vw_lead_primary_sga` (119,262 rows); sweep-proof |
+
+When no SGA filter is active, the helper short-circuits (empty JOIN + empty WHERE), making v1 and v2 emit byte-identical SQL. Unfiltered invariance is structural.
+
+**Scope limitation:** v2 uses the LEAD-era primary SGA. Opp-era metrics (SQO, Joined, AUM) filtered by SGA may understate for leads where the lead-era primary was orphan/none but the opp-era owner was a real SGA. Phase 4 (future) will add a dedicated opp-era view. Do NOT COALESCE-fallback on the filter predicate — that reintroduces Savvy-Ops-sweep noise.
+
+**`ATTRIBUTION_DEBUG` env var** (server-side only; no `NEXT_PUBLIC_` twin). When `true`, the funnel-metrics API route — only for admins (`revops_admin`/`admin`) with an active SGA filter — computes Contacted→MQL under both v1 and v2 and attaches a `debug: { v1, v2 }` payload to `FunnelMetrics`. The `AttributionDebugPanel` component (mounted above `GlobalFilters`) renders the side-by-side only when the payload is present AND the session role is admin.
+
+**Rule-3 UI collapse** (`src/components/dashboard/GlobalFilters.tsx`): when a user individually ticks every visible SGA (or SGM), `handleMultiSelectChange` collapses to `{selectAll: true, selected: []}`. This alone removes the Savvy-Ops-sweep distortion at the UI level, independent of the `ATTRIBUTION_MODEL` setting.
+
 #### Dimensions
 
 Grouping fields for breakdowns:

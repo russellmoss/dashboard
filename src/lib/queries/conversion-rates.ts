@@ -1,7 +1,7 @@
 import { runQuery } from '../bigquery';
 import { ConversionRates, TrendDataPoint, ConversionRatesResponse } from '@/types/dashboard';
 import { DashboardFilters, DEFAULT_ADVANCED_FILTERS } from '@/types/filters';
-import { buildAdvancedFilterClauses } from '../utils/filter-helpers';
+import { buildAdvancedFilterClauses, buildSgaFilterClause } from '../utils/filter-helpers';
 import { 
   buildDateRangeFromFilters,
   getQuarterFromDate,
@@ -51,9 +51,18 @@ const _getConversionRates = async (
   const advancedFilters = filters.advancedFilters || DEFAULT_ADVANCED_FILTERS;
   
   // Build advanced filter clauses
-  const { whereClauses: advFilterClauses, params: advFilterParams } = 
+  const { whereClauses: advFilterClauses, params: advFilterParams } =
     buildAdvancedFilterClauses(advancedFilters, 'adv');
-  
+
+  // SGA clause — honors ATTRIBUTION_MODEL. Prefer multi-select; fall back to legacy single-SGA.
+  const sgasFilter =
+    advancedFilters.sgas && !advancedFilters.sgas.selectAll && advancedFilters.sgas.selected.length > 0
+      ? advancedFilters.sgas
+      : filters.sga
+        ? { selectAll: false, selected: [filters.sga] }
+        : undefined;
+  const sgaClause = buildSgaFilterClause(sgasFilter, 'adv');
+
   const params: Record<string, any> = {
     startDate,
     endDate: endDate + ' 23:59:59',
@@ -70,10 +79,6 @@ const _getConversionRates = async (
   if (filters.source) {
     conditions.push('v.Original_source = @source');
     params.source = filters.source;
-  }
-  if (filters.sga) {
-    conditions.push('v.SGA_Owner_Name__c = @sga');
-    params.sga = filters.sga;
   }
   if (filters.sgm) {
     conditions.push('v.SGM_Owner_Name__c = @sgm');
@@ -96,8 +101,15 @@ const _getConversionRates = async (
   conditions.push(...advFilterClauses);
   Object.assign(params, advFilterParams);
 
-  const filterWhereClause = conditions.length > 0 
-    ? 'AND ' + conditions.join(' AND ') 
+  // Attribution-aware SGA clause.
+  if (sgaClause.whereClause) {
+    conditions.push(sgaClause.whereClause);
+  }
+  Object.assign(params, sgaClause.params);
+
+  const sgaJoinClause = sgaClause.joinClause;
+  const filterWhereClause = conditions.length > 0
+    ? 'AND ' + conditions.join(' AND ')
     : '';
 
   let query: string;
@@ -259,6 +271,7 @@ const _getConversionRates = async (
         ) as sqo_numer
 
       FROM \`${FULL_TABLE}\` v
+      ${sgaJoinClause}
       WHERE 1=1 ${filterWhereClause}
     `;
   } else {
@@ -320,8 +333,9 @@ const _getConversionRates = async (
             AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@endDate)
           THEN v.eligible_for_sqo_conversions ELSE 0 
         END) as sqo_denom
-        
+
       FROM \`${FULL_TABLE}\` v
+      ${sgaJoinClause}
       WHERE 1=1 ${filterWhereClause}
     `;
   }
@@ -501,16 +515,25 @@ export async function getConversionTrends(
   const advancedFilters = filters.advancedFilters || DEFAULT_ADVANCED_FILTERS;
   
   // Build advanced filter clauses
-  const { whereClauses: advFilterClauses, params: advFilterParams } = 
+  const { whereClauses: advFilterClauses, params: advFilterParams } =
     buildAdvancedFilterClauses(advancedFilters, 'adv');
-  
+
+  // SGA clause — honors ATTRIBUTION_MODEL.
+  const sgasFilter =
+    advancedFilters.sgas && !advancedFilters.sgas.selectAll && advancedFilters.sgas.selected.length > 0
+      ? advancedFilters.sgas
+      : filters.sga
+        ? { selectAll: false, selected: [filters.sga] }
+        : undefined;
+  const sgaClause = buildSgaFilterClause(sgasFilter, 'adv');
+
   const conditions: string[] = [];
   const params: Record<string, any> = {
     trendStartDate,
     trendEndDate,
     recruitingRecordType: RECRUITING_RECORD_TYPE,
   };
-  
+
   if (filters.channel) {
     // Channel_Grouping_Name now comes directly from Finance_View__c in the view
     conditions.push('v.Channel_Grouping_Name = @channel');
@@ -519,10 +542,6 @@ export async function getConversionTrends(
   if (filters.source) {
     conditions.push('v.Original_source = @source');
     params.source = filters.source;
-  }
-  if (filters.sga) {
-    conditions.push('v.SGA_Owner_Name__c = @sga');
-    params.sga = filters.sga;
   }
   if (filters.sgm) {
     conditions.push('v.SGM_Owner_Name__c = @sgm');
@@ -544,9 +563,16 @@ export async function getConversionTrends(
   // Add advanced filter clauses to existing conditions
   conditions.push(...advFilterClauses);
   Object.assign(params, advFilterParams);
-  
+
+  // Attribution-aware SGA clause.
+  if (sgaClause.whereClause) {
+    conditions.push(sgaClause.whereClause);
+  }
+  Object.assign(params, sgaClause.params);
+
   // Build WHERE clause for filters (applied in each CTE after date filter)
   const filterWhereClause = conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : '';
+  const sgaJoinClause = sgaClause.joinClause;
   
   // ═══════════════════════════════════════════════════════════════════════════
   // PERIOD FORMAT FUNCTION
@@ -563,9 +589,9 @@ export async function getConversionTrends(
   // ═══════════════════════════════════════════════════════════════════════════
   // STEP 4: BUILD AND EXECUTE QUERY BASED ON MODE
   // ═══════════════════════════════════════════════════════════════════════════
-  const query = mode === 'cohort' 
-    ? buildCohortModeQuery(periodFn, filterWhereClause, expectedPeriods, granularity)
-    : buildPeriodModeQuery(periodFn, filterWhereClause, expectedPeriods, granularity);
+  const query = mode === 'cohort'
+    ? buildCohortModeQuery(periodFn, filterWhereClause, sgaJoinClause, expectedPeriods, granularity)
+    : buildPeriodModeQuery(periodFn, filterWhereClause, sgaJoinClause, expectedPeriods, granularity);
   
   const results = await runQuery<RawConversionTrendResult>(query, params);
   
@@ -635,6 +661,7 @@ export async function getConversionTrends(
 function buildPeriodModeQuery(
   periodFn: (field: string) => string,
   filterWhereClause: string,
+  sgaJoinClause: string,
   expectedPeriods: string[],
   granularity: 'month' | 'quarter'
 ): string {
@@ -675,6 +702,7 @@ function buildPeriodModeQuery(
           AND v.is_mql = 1
         ) as contacted_numer
       FROM \`${FULL_TABLE}\` v
+      ${sgaJoinClause}
       WHERE v.stage_entered_contacting__c IS NOT NULL
         AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@trendStartDate)
         AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@trendEndDate)
@@ -692,6 +720,7 @@ function buildPeriodModeQuery(
         COUNT(*) as mql_to_sql_numer,
         COUNT(*) as sqls
       FROM \`${FULL_TABLE}\` v
+      ${sgaJoinClause}
       WHERE v.converted_date_raw IS NOT NULL
         AND v.is_sql = 1
         AND DATE(v.converted_date_raw) >= DATE(@trendStartDate)
@@ -714,6 +743,7 @@ function buildPeriodModeQuery(
           )
         ) as mql_to_sql_denom
       FROM \`${FULL_TABLE}\` v
+      ${sgaJoinClause}
       WHERE v.mql_stage_entered_ts IS NOT NULL
         AND v.is_mql = 1
         AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@trendStartDate)
@@ -738,6 +768,7 @@ function buildPeriodModeQuery(
         ) as sql_to_sqo_numer
         -- ✅ REMOVED: sqos field - now using separate sqo_volume CTE
       FROM \`${FULL_TABLE}\` v
+      ${sgaJoinClause}
       WHERE v.converted_date_raw IS NOT NULL
         AND v.is_sql = 1
         AND DATE(v.converted_date_raw) >= DATE(@trendStartDate)
@@ -767,6 +798,7 @@ function buildPeriodModeQuery(
           )
         ) as sql_to_sqo_denom
       FROM \`${FULL_TABLE}\` v
+      ${sgaJoinClause}
       WHERE v.converted_date_raw IS NOT NULL
         AND v.is_sql = 1
         AND DATE(v.converted_date_raw) >= DATE(@trendStartDate)
@@ -790,6 +822,7 @@ function buildPeriodModeQuery(
         ) as sqo_to_joined_numer
         -- ✅ REMOVED: joined field - now using separate joined_volume CTE
       FROM \`${FULL_TABLE}\` v
+      ${sgaJoinClause}
       WHERE v.Date_Became_SQO__c IS NOT NULL
         AND LOWER(v.SQO_raw) = 'yes'
         AND v.is_sqo_unique = 1
@@ -821,6 +854,7 @@ function buildPeriodModeQuery(
           )
         ) as sqo_to_joined_denom
       FROM \`${FULL_TABLE}\` v
+      ${sgaJoinClause}
       WHERE v.Date_Became_SQO__c IS NOT NULL
         AND LOWER(v.SQO_raw) = 'yes'
         AND v.is_sqo_unique = 1
@@ -840,6 +874,7 @@ function buildPeriodModeQuery(
         ${periodFn('v.Date_Became_SQO__c')} as period,  -- ✅ Use SQO date for period grouping
         COUNT(*) as sqos
       FROM \`${FULL_TABLE}\` v
+      ${sgaJoinClause}
       WHERE v.Date_Became_SQO__c IS NOT NULL  -- ✅ Filter by SQO date
         AND LOWER(v.SQO_raw) = 'yes'
         AND v.is_sqo_unique = 1
@@ -859,6 +894,7 @@ function buildPeriodModeQuery(
         } as period,  -- ✅ Use Joined date for period grouping (explicit format to match expectedPeriods)
         COUNT(*) as joined
       FROM \`${FULL_TABLE}\` v
+      ${sgaJoinClause}
       WHERE v.advisor_join_date__c IS NOT NULL  -- ✅ Filter by Joined date
         AND v.is_joined_unique = 1
         AND DATE(v.advisor_join_date__c) >= DATE(@trendStartDate)  -- ✅ Use Joined date
@@ -907,6 +943,7 @@ function buildPeriodModeQuery(
 function buildCohortModeQuery(
   periodFn: (field: string) => string,
   filterWhereClause: string,
+  sgaJoinClause: string,
   expectedPeriods: string[],
   granularity: 'month' | 'quarter'
 ): string {
@@ -927,6 +964,7 @@ function buildCohortModeQuery(
         SUM(v.eligible_for_contacted_conversions_30d) as eligible_contacts,
         SUM(v.contacted_to_mql_progression) as progressed_to_mql
       FROM \`${FULL_TABLE}\` v
+      ${sgaJoinClause}
       WHERE v.stage_entered_contacting__c IS NOT NULL
         AND TIMESTAMP(v.stage_entered_contacting__c) >= TIMESTAMP(@trendStartDate)
         AND TIMESTAMP(v.stage_entered_contacting__c) <= TIMESTAMP(@trendEndDate)
@@ -942,6 +980,7 @@ function buildCohortModeQuery(
         SUM(v.eligible_for_mql_conversions) as eligible_mqls,
         SUM(v.mql_to_sql_progression) as progressed_to_sql
       FROM \`${FULL_TABLE}\` v
+      ${sgaJoinClause}
       WHERE v.mql_stage_entered_ts IS NOT NULL
         AND TIMESTAMP(v.mql_stage_entered_ts) >= TIMESTAMP(@trendStartDate)
         AND TIMESTAMP(v.mql_stage_entered_ts) <= TIMESTAMP(@trendEndDate)
@@ -958,6 +997,7 @@ function buildCohortModeQuery(
         SUM(v.sql_to_sqo_progression) as progressed_to_sqo,
         COUNTIF(v.is_sql = 1) as sqls  -- Volume: all SQLs (for display)
       FROM \`${FULL_TABLE}\` v
+      ${sgaJoinClause}
       WHERE v.converted_date_raw IS NOT NULL
         AND DATE(v.converted_date_raw) >= DATE(@trendStartDate)
         AND DATE(v.converted_date_raw) <= DATE(@trendEndDate)
@@ -975,6 +1015,7 @@ function buildCohortModeQuery(
         COUNTIF(v.recordtypeid = @recruitingRecordType AND v.is_sqo_unique = 1) as sqos,
         COUNTIF(v.is_joined_unique = 1) as joined  -- Volume: joined (for display)
       FROM \`${FULL_TABLE}\` v
+      ${sgaJoinClause}
       WHERE v.Date_Became_SQO__c IS NOT NULL
         AND TIMESTAMP(v.Date_Became_SQO__c) >= TIMESTAMP(@trendStartDate)
         AND TIMESTAMP(v.Date_Became_SQO__c) <= TIMESTAMP(@trendEndDate)
@@ -991,6 +1032,7 @@ function buildCohortModeQuery(
         ${periodFn('v.Date_Became_SQO__c')} as period,  -- ✅ Use SQO date for period grouping
         COUNT(*) as sqos
       FROM \`${FULL_TABLE}\` v
+      ${sgaJoinClause}
       WHERE v.Date_Became_SQO__c IS NOT NULL  -- ✅ Filter by SQO date
         AND LOWER(v.SQO_raw) = 'yes'
         AND v.is_sqo_unique = 1
@@ -1010,6 +1052,7 @@ function buildCohortModeQuery(
         } as period,  -- ✅ Use Joined date for period grouping (explicit format to match expectedPeriods)
         COUNT(*) as joined
       FROM \`${FULL_TABLE}\` v
+      ${sgaJoinClause}
       WHERE v.advisor_join_date__c IS NOT NULL  -- ✅ Filter by Joined date
         AND v.is_joined_unique = 1
         AND DATE(v.advisor_join_date__c) >= DATE(@trendStartDate)  -- ✅ Use Joined date

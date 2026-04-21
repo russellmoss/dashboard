@@ -25,6 +25,9 @@ views:
         use_instead: is_sqo_unique
       - column: is_primary_opp_record
         reason: "Only use for AUM aggregation, not for volume counts."
+      - column: SGA_Owner_Name__c
+        reason: "CURRENT lead owner — subject to the Savvy Operations sweep that reassigns leads ~90 days after Contacting without MQL. Filtering per-SGA conversion rates on this field inflates rates 3-15× (swept failures drop out of the denominator). For per-SGA lead-era rates (Contacted, MQL, SQL), JOIN Tableau_Views.vw_lead_primary_sga and filter primary_sga_name."
+        use_instead: "primary_sga_name (via LEFT JOIN Tableau_Views.vw_lead_primary_sga p ON p.lead_id = v.Full_prospect_id__c)"
     consumers:
       - "src/lib/queries/funnel-metrics.ts"
       - "src/lib/queries/conversion-rates.ts"
@@ -54,6 +57,66 @@ views:
       closed_date: "Stage_Entered_Closed__c (TIMESTAMP)"
     freshness_notes: "Depends on SavvyGTMData tables: Lead/Opportunity sync every 6 hours, OpportunityFieldHistory syncs weekly, FinTrx refreshes monthly."
     notes: "Re-engagement records (recordtypeid = '012VS000009VoxrYAC') are UNION ALL'd into the lead side via ReEngagement_As_Lead CTE and DO affect lead-level metrics. To join activity data from vw_sga_activity_performance, use Full_prospect_id__c as the join key."
+
+  vw_lead_primary_sga:
+    purpose: "Per-lead primary SGA assignment — reconstructs lead-era ownership from LeadHistory to attribute each lead to the SGA who actually worked it during the lead/contacting phase, immune to the Savvy Operations sweep that rewrites v.SGA_Owner_Name__c ~90 days after MQL/contacting. Use this view for per-SGA conversion metrics anchored on lead-era stages (Contacted, MQL, SQL) when filtering by SGA. Introduced Phase 2.6/2.8 (Apr 2026), deployed at Tableau_Views.vw_lead_primary_sga."
+    grain: "One row per lead (strictly 119,262 rows as of 2026-04; unique on lead_id)."
+    key_filters:
+      exclude_orphan_mql: "is_orphan_mql = FALSE  -- leads that MQL'd from Closed/Nurture/Qualified with no real-SGA owner at MQL time"
+      real_sga_only: "primary_sga_name IS NOT NULL  -- drops orphan (0.27%) + none (13.81%) leads"
+      self_sourced_only: "lead_is_self_sourced = TRUE  -- matches the Q3 2025 cohort used in Phase 3 validation gates"
+      complete_history_only: "has_complete_history = TRUE  -- 67% of rows; filter when historical accuracy matters more than coverage"
+    annotated_columns:
+      - name: lead_id
+        meaning: "Salesforce Lead ID — primary key. Joins to vw_funnel_master.Full_prospect_id__c (100% match rate for self-sourced leads; some opp-only vw_funnel_master rows have `006`-prefixed Opp IDs here and will not match)."
+      - name: primary_sga_user_id
+        meaning: "Salesforce User ID of the lead-era primary SGA. NULL when primary_sga_reason IN ('none','orphan')."
+      - name: primary_sga_name
+        meaning: "Display name of the lead-era primary SGA (reflects the SGA who actually worked the lead, not the current owner). NULL (14.08% of rows) when primary_sga_reason IN ('none','orphan'). Excludes Savvy Operations and Savvy Marketing by construction (ref_non_sga_users denylist)."
+      - name: primary_sga_reason
+        meaning: |
+          Why this lead was assigned to primary_sga_user_id. Five values:
+            • last_real_sga_before_close (56.1%) — lead closed; primary = last real SGA who owned it pre-close
+            • last_real_sga_still_open (26.6%) — lead still open; primary = most recent real SGA owner
+            • mql_time (3.3%) — lead MQL'd and a real SGA owned it at MQL ts; that SGA is primary
+            • none (13.8%) — lead never owned by a real SGA → primary_sga_name = NULL
+            • orphan (0.3%) — lead MQL'd from Closed/Nurture/Qualified with no real-SGA owner at MQL time → flagged is_orphan_mql=TRUE, primary_sga_name = NULL
+      - name: is_orphan_mql
+        meaning: "Boolean — TRUE when lead MQL'd but primary_sga_reason = 'orphan'. Exclude from SGA-filtered rate calculations to avoid crediting an SGA who didn't work the lead."
+      - name: lead_final_source
+        meaning: "Snapshot of Lead.Final_Source__c. Paired with lead_is_self_sourced for Phase 3 validation cohorts."
+      - name: lead_is_self_sourced
+        meaning: "Boolean — TRUE when lead_final_source IN ('Fintrx (Self-Sourced)', 'LinkedIn (Self Sourced)'). Used to reproduce the Phase 3 6.5063% baseline in Q3 2025."
+      - name: has_complete_history
+        meaning: "Boolean — TRUE (67%) when LeadHistory has complete owner/status timeline for this lead. FALSE for older leads where field tracking was missing."
+    consumers:
+      - "src/lib/utils/filter-helpers.ts (buildSgaFilterClause — v2 mode emits LEFT JOIN to this view)"
+      - "src/lib/queries/funnel-metrics.ts (when ATTRIBUTION_MODEL=v2 + SGA filter)"
+      - "src/lib/queries/conversion-rates.ts (when v2 + SGA filter)"
+      - "src/lib/queries/detail-records.ts (when v2 + SGA filter; sgaDisplayCol uses COALESCE(p.primary_sga_name, v.SGA_Owner_Name__c))"
+      - "src/lib/queries/source-performance.ts (when v2 + SGA filter)"
+      - "src/lib/queries/export-records.ts (when v2 + SGA filter)"
+      - "views/vw_lead_primary_sga.sql (DDL source of truth)"
+    freshness_notes: "Derived from SavvyGTMData.LeadHistory (synced every 6h) + SavvyGTMData.User (6h) + ref_non_sga_users (static). Re-evaluates per query — no materialization."
+    notes: |
+      Use this view ONLY when filtering by SGA (i.e., when answering "how did SGA X perform?"). For unfiltered funnel-wide metrics or aggregates that don't segment by SGA, continue using vw_funnel_master directly — this view is for per-SGA attribution correction only. The Phase 3 helper `buildSgaFilterClause` in filter-helpers.ts abstracts this: callers pass the multi-SGA filter selection and the helper emits the correct JOIN + WHERE per ATTRIBUTION_MODEL.
+
+      Scope limitation: this is a LEAD-era view. Opp-era metrics (SQO count, Joined count, AUM) filtered by SGA may understate when the lead-era primary was orphan/none but an opp-era SGA worked the deal post-conversion. Phase 4 will add a vw_opp_primary_sga companion.
+
+  ref_non_sga_users:
+    purpose: "Denylist of Salesforce User.Name values that must NOT be counted as real SGAs for attribution purposes. Currently contains 'Savvy Operations' and 'Savvy Marketing'. Used as the authoritative source for excluding system accounts from SGA filters in vw_lead_primary_sga and any direct SQL that filters for real SGA owners."
+    grain: "One row per non-SGA system user (currently 2 rows)."
+    status: "reference_table"
+    annotated_columns:
+      - name: user_name
+        meaning: "Exact User.Name string to exclude. Case- and whitespace-sensitive — use TRIM() when comparing to User.Name."
+      - name: reason
+        meaning: "Free-text rationale (e.g. 'sweep destination', 'marketing automation')."
+    consumers:
+      - "vw_lead_primary_sga (filters out these names from the lead-era ownership reconstruction)"
+      - "Any direct SQL that computes per-SGA metrics — use instead of hardcoded name lists."
+    freshness_notes: "Static. Updated only when new system accounts need to be added to the denylist."
+    notes: "The active_sga_filter rule still applies IsSGA__c + IsActive + an inline NOT IN list at query time for direct vw_sga_activity_performance queries; ref_non_sga_users is the preferred canonical source going forward. Do NOT add exclusions inline in new code — extend ref_non_sga_users instead."
 
   vw_forecast_p2:
     purpose: "Deterministic expected-value pipeline forecast. Computes P(Join), projected join dates, and expected AUM for each open SQO based on historical stage-to-stage conversion rates from resolved deals (Jun-Dec 2025)."
@@ -272,7 +335,38 @@ terms:
       - SGA__c
       - IsSGA
       - task_executor_name
-    gotcha: "SGA__c is a User ID, not a boolean. Join to User table to get the name. Do NOT use Lead_Routing_SGM_Name__c to infer SGA-to-SGM team assignments — it reflects round-robin lead routing, not org chart relationships."
+      - SGA_Owner_Name__c
+      - primary_sga_name
+    related_rules:
+      - active_sga_filter
+      - savvy_ops_sweep_awareness
+      - dual_sga_attribution
+    gotcha: |
+      SGA__c is a User ID, not a boolean — join to User table to get the name. Do NOT use Lead_Routing_SGM_Name__c to infer SGA-to-SGM team assignments (round-robin routing, not org chart).
+
+      CRITICAL for per-SGA rate questions: `v.SGA_Owner_Name__c` is the CURRENT lead owner at query time, not the SGA who historically worked the lead. The Savvy Operations sweep (~90 days unresolved → ownership changes to Savvy Ops) removes a lead from its original SGA's current-owner view. This inflates per-SGA conversion rates (e.g., Russell Armitage Q3 2025 Contacted→MQL reads 61.3% via v.SGA_Owner_Name__c but 4.4% via lead-era attribution). For lead-era per-SGA analysis, JOIN Tableau_Views.vw_lead_primary_sga on lead_id and filter `primary_sga_name = @sga` instead. See the `savvy_ops_sweep` term and the `savvy_ops_sweep_awareness` rule.
+
+  primary_sga:
+    definition: "Lead-era primary SGA — the SGA who owned the lead during the lead/contacting phase, reconstructed from LeadHistory and stored in Tableau_Views.vw_lead_primary_sga. This is the sweep-proof attribution anchor for per-SGA metrics on lead-era stages (Contacted, MQL, SQL)."
+    related_fields:
+      - primary_sga_name
+      - primary_sga_user_id
+      - primary_sga_reason
+      - is_orphan_mql
+    related_rules:
+      - savvy_ops_sweep_awareness
+    gotcha: |
+      Use primary_sga_name (from vw_lead_primary_sga) — NOT SGA_Owner_Name__c — when answering per-SGA rate or cohort questions filtered by an SGA. Excludes Savvy Operations and Savvy Marketing by construction (via ref_non_sga_users). NULL for ~14% of leads (primary_sga_reason IN 'none','orphan') — these leads correctly drop out of per-SGA filters. For opp-era metrics (SQO, Joined, AUM) filtered by SGA, primary_sga is a Phase 3 scope limitation; a vw_opp_primary_sga companion is Phase 4 work.
+
+  savvy_ops_sweep:
+    definition: "Automated process that transfers lead ownership to the 'Savvy Operations' system user after ~90 days in an unresolved stage (typically Contacting without MQL'ing). Once swept, the lead's v.SGA_Owner_Name__c reflects 'Savvy Operations' rather than the SGA who originally worked it. The sweep is a valid operational cleanup — but it systematically biases per-SGA conversion rates upward when filtering by SGA on current-owner fields."
+    related_fields:
+      - SGA_Owner_Name__c
+      - primary_sga_name
+    related_rules:
+      - savvy_ops_sweep_awareness
+    gotcha: |
+      Observable symptoms: (1) per-SGA Contacted→MQL rates look implausibly high (e.g., 40-60% when overall is 4-7%); (2) sum of per-SGA denominators ≪ unfiltered denominator; (3) 'Savvy Operations' has no outbound activity but owns thousands of leads. To diagnose, compare denominator counts between SGA_Owner_Name__c filter and a vw_lead_primary_sga join filter for the same SGA in the same period. The fix is structural — always use primary_sga_name for lead-era per-SGA metrics. See the Phase 3 Attribution Routing section in docs/ARCHITECTURE.md.
 
   SGM:
     definition: "Sales Growth Manager — the SQO qualification gate. SGMs review SQLs routed from SGAs (via round-robin, not fixed assignment) and decide whether they qualify as SQOs. SGMs do NOT 'manage' or 'supervise' SGAs — they are independent pipeline roles."
@@ -464,8 +558,52 @@ fields:
     gotcha: "This is a User ID, not a boolean or name. Join to the User table to resolve the name."
 
   SGA_Owner_Name__c:
-    meaning: "COALESCE(Lead.SGA_Owner_Name__c, User lookup of Opp.SGA__c) — the SGA who owns the lead."
-    gotcha: "For activity analysis, this is lead ownership. For actual effort measurement, use task_executor_name instead."
+    meaning: "COALESCE(Lead.SGA_Owner_Name__c, User lookup of Opp.SGA__c) — the CURRENT SGA who owns the lead at query time. Reflects live Salesforce state, NOT historical ownership."
+    dangerous: true
+    gotcha: |
+      Two pitfalls:
+
+      (1) Activity vs ownership: for actual effort measurement, use task_executor_name (who did the work), not SGA_Owner_Name__c (who owns the record).
+
+      (2) Savvy Operations sweep bias: ~90 days after contacting without MQL, leads sweep to the 'Savvy Operations' system user, removing them from the original SGA's current-owner view. Filtering `v.SGA_Owner_Name__c = @sga` for per-SGA conversion rates systematically inflates those rates because swept leads (the failures) leave the denominator while retained leads (often the successes) stay. For lead-era per-SGA metrics (Contacted, MQL, SQL rates filtered by a specific SGA), JOIN Tableau_Views.vw_lead_primary_sga on lead_id and filter `primary_sga_name = @sga`. See the savvy_ops_sweep_awareness rule, the savvy_ops_sweep term, and the Phase 3 Attribution Routing section in docs/ARCHITECTURE.md.
+
+  primary_sga_name:
+    meaning: "Lead-era primary SGA display name from vw_lead_primary_sga — the SGA who owned the lead during the lead/contacting phase, reconstructed from LeadHistory. Immune to the Savvy Operations sweep."
+    type: STRING
+    gotcha: "Available ONLY via JOIN to Tableau_Views.vw_lead_primary_sga on lead_id = Full_prospect_id__c. NULL for ~14% of leads (orphan/none reasons) — those leads correctly drop out of per-SGA IN (...) filters. Use this field instead of SGA_Owner_Name__c when answering per-SGA rate questions on lead-era stages."
+
+  primary_sga_user_id:
+    meaning: "Salesforce User ID of the lead-era primary SGA (from vw_lead_primary_sga). Companion to primary_sga_name for cases where you need the ID rather than the display name."
+    type: STRING
+
+  primary_sga_reason:
+    meaning: "Why the lead was assigned to primary_sga_user_id in vw_lead_primary_sga. Values: 'last_real_sga_before_close' (56.1%), 'last_real_sga_still_open' (26.6%), 'none' (13.8% — never owned by a real SGA), 'mql_time' (3.3%), 'orphan' (0.3% — MQL'd from Closed/Nurture/Qualified with no real-SGA owner at MQL time)."
+    type: STRING
+    gotcha: "When answering 'who worked this lead' questions, prefer primary_sga_name. Use primary_sga_reason for debugging attribution edge cases or explaining NULL primary_sga_name values (which come from 'none' and 'orphan' reasons)."
+
+  is_orphan_mql:
+    meaning: "Boolean flag from vw_lead_primary_sga — TRUE when lead MQL'd with primary_sga_reason='orphan' (no real-SGA owner at MQL time). Small population (322 rows, 0.27%)."
+    type: BOOLEAN
+    gotcha: "Exclude from per-SGA rate calculations (is_orphan_mql = FALSE) to avoid crediting or debiting an SGA who didn't work the lead. Orphan MQLs still count toward unfiltered totals on vw_funnel_master — this flag only matters for SGA-filtered queries."
+
+  lead_is_self_sourced:
+    meaning: "Boolean from vw_lead_primary_sga — TRUE when lead_final_source IN ('Fintrx (Self-Sourced)', 'LinkedIn (Self Sourced)'). 28.85% of rows."
+    type: BOOLEAN
+    gotcha: "Used to reproduce the Phase 3 validation baselines (Q3 2025 self-sourced Contacted→MQL = 6.5063% unfiltered). Equivalent to filtering Original_source IN (self-sourced values) on vw_funnel_master."
+
+  has_complete_history:
+    meaning: "Boolean from vw_lead_primary_sga — TRUE (67% of rows) when LeadHistory has a complete owner/status timeline for this lead. FALSE for older leads where Salesforce field tracking was incomplete."
+    type: BOOLEAN
+    gotcha: "Filter has_complete_history = TRUE when historical attribution accuracy matters more than coverage. Most production metrics do NOT filter on this — the attribution logic is still valid for the visible portion of history."
+
+  lead_final_source:
+    meaning: "Snapshot of Lead.Final_Source__c at the time of vw_lead_primary_sga construction. Same domain as Original_source on vw_funnel_master."
+    type: STRING
+
+  lead_id:
+    meaning: "Salesforce Lead ID — primary key of vw_lead_primary_sga. Join to vw_funnel_master via lead_id = Full_prospect_id__c."
+    type: STRING
+    gotcha: "100% match rate for vw_funnel_master rows that come from the Lead table. Some vw_funnel_master rows are opp-only (006-prefixed Full_prospect_id__c values) and will not have a lead_id match — LEFT JOIN preserves them; in v2 mode they correctly fall out of SGA-filtered results because primary_sga_name is NULL."
 
   Lead_Routing_SGM_Name__c:
     meaning: "Name of the SGM in the lead routing round-robin for this user. This is a routing configuration field, NOT an org chart relationship."
@@ -747,7 +885,29 @@ rules:
       - "SGA_Owner_Name__c"
     required: "Opp_SGA_Name__c"
     severity: warning
-    message: "For opportunity-level SGA attribution (SQOs, Joined, AUM), filter on BOTH SGA_Owner_Name__c and Opp_SGA_Name__c (OR condition). SGA attribution can come from lead or opportunity path."
+    message: |
+      Scope: this rule applies to OPP-ERA metrics only (SQO count, Signed, Joined, AUM). For those, filter on BOTH SGA_Owner_Name__c AND Opp_SGA_Name__c (OR condition) because opp-era attribution can come from either path.
+
+      For LEAD-ERA per-SGA metrics (Contacted, MQL, SQL rates filtered by a specific SGA), do NOT rely on dual attribution — instead JOIN Tableau_Views.vw_lead_primary_sga on lead_id and filter `primary_sga_name = @sga`. This avoids the Savvy Operations sweep bias. See rule `savvy_ops_sweep_awareness` and the Phase 3 Attribution Routing section in docs/ARCHITECTURE.md.
+
+  - id: savvy_ops_sweep_awareness
+    type: prefer_field
+    found: "SGA_Owner_Name__c"
+    prefer: "primary_sga_name (via JOIN to Tableau_Views.vw_lead_primary_sga)"
+    context: "per-SGA conversion rate queries on lead-era stages (Contacted, MQL, SQL)"
+    severity: warning
+    message: |
+      When filtering by SGA for per-SGA conversion rates on lead-era stages, prefer `primary_sga_name` from Tableau_Views.vw_lead_primary_sga over `v.SGA_Owner_Name__c`. The current-owner field reflects post-sweep ownership: leads that fail to MQL within ~90 days get reassigned to 'Savvy Operations' and silently leave the SGA's denominator, inflating per-SGA rates 3-15×.
+
+      Symptom: per-SGA Contacted→MQL rates > 20% when the unfiltered rate is 4-7%. Observed live: Russell Armitage Q3 2025 reads 61.3% via SGA_Owner_Name__c vs 4.4% via primary_sga_name (the latter is true). Pattern:
+
+        SELECT … FROM vw_funnel_master v
+        LEFT JOIN Tableau_Views.vw_lead_primary_sga p ON p.lead_id = v.Full_prospect_id__c
+        WHERE p.primary_sga_name = @sga
+          AND v.is_contacted = 1
+          AND DATE(v.stage_entered_contacting__c) BETWEEN @start AND @end
+
+      Exception: queries that are EXPLICITLY about the current owner (e.g., "who currently owns these leads?") correctly use SGA_Owner_Name__c — the sweep result is the intended answer there. For unfiltered or aggregate metrics (no SGA-level filter), no change needed.
 
   - id: active_sga_filter
     type: require_filter
@@ -756,7 +916,10 @@ rules:
       - "sga"
     required: "IsSGA__c = TRUE AND IsActive = TRUE"
     severity: error
-    message: "When querying for SGAs, always JOIN to SavvyGTMData.User and filter IsSGA__c = TRUE AND IsActive = TRUE. This is the canonical active-SGA definition used by the SGA Hub leaderboard (src/lib/queries/sga-leaderboard.ts). Without this filter, results include SGMs, inactive reps, terminated reps, and system accounts like 'Savvy Operations'."
+    message: |
+      When querying SavvyGTMData.User for SGAs, filter IsSGA__c = TRUE AND IsActive = TRUE. This is the canonical active-SGA definition used by the SGA Hub leaderboard (src/lib/queries/sga-leaderboard.ts). Without this filter, results include SGMs, inactive reps, terminated reps, and system accounts like 'Savvy Operations'.
+
+      Authoritative denylist: for excluding non-SGA system accounts (Savvy Operations, Savvy Marketing) from attribution, prefer JOINing against Tableau_Views.ref_non_sga_users over inline name lists. vw_lead_primary_sga already applies this denylist by construction. The inline `Name NOT IN ('Savvy Operations', …)` list in metrics.sga_total_activity is a legacy pattern kept for dashboard parity — new code should reference ref_non_sga_users.
 
   - id: active_sgm_filter
     type: require_filter
@@ -775,7 +938,7 @@ rules:
 
 metrics:
   contacted_to_mql:
-    description: "Conversion rate from Contacted to MQL (Call Scheduled) stage."
+    description: "Conversion rate from Contacted to MQL (Call Scheduled) stage. Most sweep-sensitive of all funnel conversions — the Savvy Operations sweep (~90 days in Contacting without MQL) specifically targets this stage transition, so per-SGA rates via v.SGA_Owner_Name__c are systematically inflated. Per-SGA versions of this metric MUST use primary_sga_name from Tableau_Views.vw_lead_primary_sga, not SGA_Owner_Name__c. See the savvy_ops_sweep term and the savvy_ops_sweep_awareness rule."
     modes:
       cohort:
         numerator: contacted_to_mql_progression
@@ -788,6 +951,22 @@ metrics:
         numerator: mql_stage_entered_ts
         denominator: stage_entered_contacting__c
         gotcha: "Can exceed 100% — numerator and denominator use different date anchors."
+    per_sga_pattern: |
+      For SGA-filtered Contacted→MQL rates, ALWAYS join vw_lead_primary_sga and filter on primary_sga_name:
+
+        SELECT
+          SUM(IFNULL(v.contacted_to_mql_progression, 0)) AS num,
+          SUM(IFNULL(v.eligible_for_contacted_conversions_30d, 0)) AS den,
+          SAFE_DIVIDE(SUM(IFNULL(v.contacted_to_mql_progression, 0)),
+                      SUM(IFNULL(v.eligible_for_contacted_conversions_30d, 0))) AS rate
+        FROM `savvy-gtm-analytics.Tableau_Views.vw_funnel_master` v
+        LEFT JOIN `savvy-gtm-analytics.Tableau_Views.vw_lead_primary_sga` p
+          ON p.lead_id = v.Full_prospect_id__c
+        WHERE p.primary_sga_name = @sga
+          AND v.is_contacted = 1
+          AND DATE(v.stage_entered_contacting__c) BETWEEN @start AND @end
+
+      Spot check: Russell Armitage / Q3 2025 / all sources returns 76 / 1,741 ≈ 4.37% (lead-era, correct). The same cohort via v.SGA_Owner_Name__c = 'Russell Armitage' returns 68 / 111 ≈ 61.26% — that's the sweep distortion, not his actual performance.
 
   mql_to_sql:
     description: "Conversion rate from MQL to SQL (Lead conversion to Opportunity)."

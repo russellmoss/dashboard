@@ -1,7 +1,7 @@
 import { runQuery } from '../bigquery';
 import { SourcePerformance, ChannelPerformance } from '@/types/dashboard';
 import { DashboardFilters, DEFAULT_ADVANCED_FILTERS } from '@/types/filters';
-import { buildAdvancedFilterClauses } from '../utils/filter-helpers';
+import { buildAdvancedFilterClauses, buildSgaFilterClause } from '../utils/filter-helpers';
 import { buildDateRangeFromFilters } from '../utils/date-helpers';
 import { RawSourcePerformanceResult, toNumber, toString } from '@/types/bigquery-raw';
 import { FULL_TABLE, RECRUITING_RECORD_TYPE } from '@/config/constants';
@@ -9,14 +9,23 @@ import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
 const _getChannelPerformance = async (filters: DashboardFilters): Promise<ChannelPerformance[]> => {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
-  
+
   // Extract advancedFilters from filters object
   const advancedFilters = filters.advancedFilters || DEFAULT_ADVANCED_FILTERS;
-  
+
   // Build advanced filter clauses
-  const { whereClauses: advFilterClauses, params: advFilterParams } = 
+  const { whereClauses: advFilterClauses, params: advFilterParams } =
     buildAdvancedFilterClauses(advancedFilters, 'adv');
-  
+
+  // SGA clause — honors ATTRIBUTION_MODEL.
+  const sgasFilter =
+    advancedFilters.sgas && !advancedFilters.sgas.selectAll && advancedFilters.sgas.selected.length > 0
+      ? advancedFilters.sgas
+      : filters.sga
+        ? { selectAll: false, selected: [filters.sga] }
+        : undefined;
+  const sgaClause = buildSgaFilterClause(sgasFilter, 'adv');
+
   // Build conditions manually since we need table aliases
   const conditions: string[] = [];
   // Use separate DATE and TIMESTAMP parameters to avoid type conflicts
@@ -29,11 +38,7 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
     endDateTimestamp: endDate + ' 23:59:59', // Used for TIMESTAMP() comparisons
     recruitingRecordType: RECRUITING_RECORD_TYPE,
   };
-  
-  if (filters.sga) {
-    conditions.push('v.SGA_Owner_Name__c = @sga');
-    params.sga = filters.sga;
-  }
+
   if (filters.sgm) {
     conditions.push('v.SGM_Owner_Name__c = @sgm');
     params.sgm = filters.sgm;
@@ -54,7 +59,13 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
   // Add advanced filter clauses to existing conditions
   conditions.push(...advFilterClauses);
   Object.assign(params, advFilterParams);
-  
+
+  // Attribution-aware SGA clause.
+  if (sgaClause.whereClause) {
+    conditions.push(sgaClause.whereClause);
+  }
+  Object.assign(params, sgaClause.params);
+
   // Channel_Grouping_Name now comes directly from Finance_View__c in the view
   conditions.push('v.Channel_Grouping_Name IS NOT NULL');
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -196,6 +207,7 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
         END
       ) as aum
     FROM \`${FULL_TABLE}\` v
+    ${sgaClause.joinClause}
     ${whereClause}
     GROUP BY v.Channel_Grouping_Name
     ORDER BY sqls DESC
@@ -221,14 +233,23 @@ const _getChannelPerformance = async (filters: DashboardFilters): Promise<Channe
 
 const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourcePerformance[]> => {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
-  
+
   // Extract advancedFilters from filters object
   const advancedFilters = filters.advancedFilters || DEFAULT_ADVANCED_FILTERS;
-  
+
   // Build advanced filter clauses
-  const { whereClauses: advFilterClauses, params: advFilterParams } = 
+  const { whereClauses: advFilterClauses, params: advFilterParams } =
     buildAdvancedFilterClauses(advancedFilters, 'adv');
-  
+
+  // SGA clause — honors ATTRIBUTION_MODEL.
+  const sgasFilter =
+    advancedFilters.sgas && !advancedFilters.sgas.selectAll && advancedFilters.sgas.selected.length > 0
+      ? advancedFilters.sgas
+      : filters.sga
+        ? { selectAll: false, selected: [filters.sga] }
+        : undefined;
+  const sgaClause = buildSgaFilterClause(sgasFilter, 'adv');
+
   // Build conditions manually since we need table aliases
   const conditions: string[] = [];
   // Use separate DATE and TIMESTAMP parameters to avoid type conflicts
@@ -241,15 +262,11 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
     endDateTimestamp: endDate + ' 23:59:59', // Used for TIMESTAMP() comparisons
     recruitingRecordType: RECRUITING_RECORD_TYPE,
   };
-  
+
   if (filters.channel) {
     // Channel_Grouping_Name now comes directly from Finance_View__c in the view
     conditions.push('v.Channel_Grouping_Name = @channel');
     params.channel = filters.channel;
-  }
-  if (filters.sga) {
-    conditions.push('v.SGA_Owner_Name__c = @sga');
-    params.sga = filters.sga;
   }
   if (filters.sgm) {
     conditions.push('v.SGM_Owner_Name__c = @sgm');
@@ -271,7 +288,13 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
   // Add advanced filter clauses to existing conditions
   conditions.push(...advFilterClauses);
   Object.assign(params, advFilterParams);
-  
+
+  // Attribution-aware SGA clause.
+  if (sgaClause.whereClause) {
+    conditions.push(sgaClause.whereClause);
+  }
+  Object.assign(params, sgaClause.params);
+
   conditions.push('v.Original_source IS NOT NULL');
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   
@@ -413,6 +436,7 @@ const _getSourcePerformance = async (filters: DashboardFilters): Promise<SourceP
         END
       ) as aum
     FROM \`${FULL_TABLE}\` v
+    ${sgaClause.joinClause}
     ${whereClause}
     GROUP BY v.Original_source, v.Channel_Grouping_Name
     ORDER BY sqls DESC

@@ -4,6 +4,24 @@ export type TrendMode = 'period' | 'cohort'; // Alias for compatibility
 // View mode for funnel display
 export type ViewMode = 'focused' | 'fullFunnel';
 
+/**
+ * ATTRIBUTION_DEBUG side-by-side payload. Present only when:
+ *  - server env var ATTRIBUTION_DEBUG=true
+ *  - caller is a revops_admin / admin
+ *  - SGA filter is active
+ * Client gates panel display on presence of this payload + role (no client env var).
+ */
+export interface AttributionDebugFigure {
+  num: number;
+  den: number;
+  rate: number;  // 0..1 scale
+}
+
+export interface AttributionDebugPayload {
+  v1: AttributionDebugFigure;
+  v2: AttributionDebugFigure;
+}
+
 export interface FunnelMetrics {
   prospects: number;  // Count by FilterDate
   contacted: number; // Count by stage_entered_contacting__c with is_contacted=1
@@ -39,6 +57,9 @@ export interface FunnelMetrics {
   sqoAum_open: number;
   sqoAum_lost: number;
   sqoAum_converted: number;
+  // Optional Phase 3 Attribution debug payload — present only when server-side
+  // ATTRIBUTION_DEBUG=true + requestor is admin + SGA filter active. See Phase 5 guide.
+  debug?: AttributionDebugPayload;
 }
 
 // Forecast goals for any metric level

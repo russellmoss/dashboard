@@ -1,7 +1,7 @@
 import { runQuery } from '../bigquery';
 import { DetailRecord } from '@/types/dashboard';
 import { DashboardFilters, DEFAULT_ADVANCED_FILTERS } from '@/types/filters';
-import { buildAdvancedFilterClauses } from '../utils/filter-helpers';
+import { buildAdvancedFilterClauses, buildSgaFilterClause } from '../utils/filter-helpers';
 import { buildDateRangeFromFilters, formatCurrency, calculateDaysInStage } from '../utils/date-helpers';
 import { RawDetailRecordResult, toNumber, toString } from '@/types/bigquery-raw';
 import { FULL_TABLE, OPEN_PIPELINE_STAGES, RECRUITING_RECORD_TYPE } from '@/config/constants';
@@ -16,9 +16,18 @@ const _getDetailRecords = async (
   const advancedFilters = filters.advancedFilters || DEFAULT_ADVANCED_FILTERS;
   
   // Build advanced filter clauses
-  const { whereClauses: advFilterClauses, params: advFilterParams } = 
+  const { whereClauses: advFilterClauses, params: advFilterParams } =
     buildAdvancedFilterClauses(advancedFilters, 'adv');
-  
+
+  // SGA clause — honors ATTRIBUTION_MODEL. Prefer multi-select; fall back to legacy single-SGA.
+  const sgasFilter =
+    advancedFilters.sgas && !advancedFilters.sgas.selectAll && advancedFilters.sgas.selected.length > 0
+      ? advancedFilters.sgas
+      : filters.sga
+        ? { selectAll: false, selected: [filters.sga] }
+        : undefined;
+  const sgaClause = buildSgaFilterClause(sgasFilter, 'adv');
+
   // Build parameterized query conditions
   const conditions: string[] = [];
   const params: Record<string, any> = {
@@ -26,11 +35,11 @@ const _getDetailRecords = async (
     endDate: endDate + ' 23:59:59',
     limit,
   };
-  
-  // Determine if this is an opportunity-level metric (needs Opp_SGA_Name__c check)
+
+  // Determine if this is an opportunity-level metric (retained for legacy User join — see below)
   const isOpportunityLevelMetric = ['sqo', 'signed', 'joined', 'openPipeline'].includes(filters.metricFilter || '');
-  
-  // Add channel/source/sga/sgm filters (no date filter here - we'll add date filter based on metric)
+
+  // Add channel/source/sgm filters (no date filter here - we'll add date filter based on metric)
   if (filters.channel) {
     // Channel_Grouping_Name now comes directly from Finance_View__c in the view
     conditions.push('v.Channel_Grouping_Name = @channel');
@@ -39,19 +48,6 @@ const _getDetailRecords = async (
   if (filters.source) {
     conditions.push('v.Original_source = @source');
     params.source = filters.source;
-  }
-  if (filters.sga) {
-    // For opportunity-level metrics (SQOs, Signed, Joined), check BOTH SGA_Owner_Name__c AND Opp_SGA_Name__c
-    // For lead-level metrics (Prospects, Contacted, MQLs, SQLs), only check SGA_Owner_Name__c
-    if (isOpportunityLevelMetric) {
-      // Opportunity-level: Check both fields and resolve User IDs
-      // Note: User table join will be added to the query below
-      conditions.push('(v.SGA_Owner_Name__c = @sga OR v.Opp_SGA_Name__c = @sga OR COALESCE(sga_user.Name, v.Opp_SGA_Name__c) = @sga)');
-    } else {
-      // Lead-level: Only check SGA_Owner_Name__c
-      conditions.push('v.SGA_Owner_Name__c = @sga');
-    }
-    params.sga = filters.sga;
   }
   if (filters.sgm) {
     conditions.push('v.SGM_Owner_Name__c = @sgm');
@@ -73,7 +69,13 @@ const _getDetailRecords = async (
   // Add advanced filter clauses to existing conditions
   conditions.push(...advFilterClauses);
   Object.assign(params, advFilterParams);
-  
+
+  // Attribution-aware SGA clause.
+  if (sgaClause.whereClause) {
+    conditions.push(sgaClause.whereClause);
+  }
+  Object.assign(params, sgaClause.params);
+
   // Determine date field and metric filter based on metricFilter
   let dateField = '';
   let dateFieldAlias = '';
@@ -275,13 +277,20 @@ const _getDetailRecords = async (
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  
-  // Add User table join for opportunity-level metrics when SGA filter is present
+
+  // Add User table join for opportunity-level metrics when legacy SGA filter is present
   // This allows us to resolve Opp_SGA_Name__c User IDs to names
-  const userJoin = (isOpportunityLevelMetric && filters.sga) 
+  const userJoin = (isOpportunityLevelMetric && filters.sga)
     ? `LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` sga_user ON v.Opp_SGA_Name__c = sga_user.Id`
     : '';
-  
+
+  // Per Q1 (b): under v2 with SGA filter active, display the lead-era primary SGA so
+  // the table row matches the filter math. Without the JOIN (v1 or unfiltered v2), the
+  // legacy display column is preserved.
+  const sgaDisplayCol = sgaClause.joinClause
+    ? 'COALESCE(p.primary_sga_name, v.SGA_Owner_Name__c)'
+    : 'v.SGA_Owner_Name__c';
+
   const query = `
     SELECT
       v.primary_key as id,
@@ -289,7 +298,7 @@ const _getDetailRecords = async (
       v.Original_source as source,
       v.Channel_Grouping_Name as channel,
       v.StageName as stage,
-      v.SGA_Owner_Name__c as sga,
+      ${sgaDisplayCol} as sga,
       v.SGM_Owner_Name__c as sgm,
       v.Campaign_Id__c as campaign_id,
       v.Campaign_Name__c as campaign_name,
@@ -327,6 +336,7 @@ const _getDetailRecords = async (
       v.Opp_CreatedDate as opp_created_date
     FROM \`${FULL_TABLE}\` v
     ${userJoin}
+    ${sgaClause.joinClause}
     ${whereClause}
     ORDER BY v.Opportunity_AUM DESC NULLS LAST
     LIMIT @limit

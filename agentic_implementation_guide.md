@@ -49,6 +49,28 @@ WHERE v.Original_source IN ('Fintrx (Self-Sourced)', 'LinkedIn (Self Sourced)')
   AND DATE(v.stage_entered_contacting__c) BETWEEN '2025-07-01' AND '2025-09-30';
 ```
 
+### Pre-flight — Baseline invariance snapshot
+
+Capture these six numbers from the v1 dashboard (`ATTRIBUTION_MODEL` unset) for the Q3 2025 self-sourced cohort. All six MUST remain byte-identical under v2 unfiltered. Any drift indicates JOIN fanout or predicate leakage. The Phase 3 duplication audit and Phase 7 Gate 6 both diff against this snapshot.
+
+Run against the running app or directly in BigQuery:
+
+```sql
+SELECT
+  SUM(is_contacted)                 AS contacted_count,
+  SUM(is_mql)                       AS mql_count,
+  SUM(is_sql)                       AS sql_count,
+  SUM(is_sqo_unique)                AS sqo_count,
+  SUM(is_joined_unique)             AS joined_count,
+  SUM(COALESCE(Opportunity_AUM, 0)) AS total_aum
+FROM `savvy-gtm-analytics.Tableau_Views.vw_funnel_master`
+WHERE Original_source IN ('Fintrx (Self-Sourced)', 'LinkedIn (Self Sourced)')
+  AND is_contacted = 1
+  AND DATE(stage_entered_contacting__c) BETWEEN '2025-07-01' AND '2025-09-30';
+```
+
+Write the six numbers to `docs/phase3-baseline-snapshot.md`. Every subsequent duplication-sensitive validation references this file.
+
 ### Pre-flight build
 
 ```bash
@@ -299,6 +321,37 @@ For each query function:
     : 'v.SGA_Owner_Name__c';
   ```
   Replace `v.SGA_Owner_Name__c as sga` (line 70) with `${sgaDisplayCol} as sga`. Exported Sheet will match dashboard under v2 filter.
+- **Duplication check for export:** After v2 routing is wired, run a single-filtered export (SGA = Lauren George, Q3 2025 self-sourced) and confirm the exported CSV has **exactly 272 rows** (matches Gate 4's denominator). If the CSV has > 272 rows, the JOIN fanned out. If < 272, the filter is over-eager. The number must be exactly 272.
+
+### Phase 3 — Duplication audit (run before the validation gate)
+
+After all 6 query files are wired but before declaring Phase 3 complete, run the unfiltered six-number query from `docs/phase3-baseline-snapshot.md` against the dashboard in BOTH modes:
+
+- `ATTRIBUTION_MODEL` unset or `'v1'` → all 6 numbers must equal the snapshot **exactly**.
+- `ATTRIBUTION_MODEL=v2` with **no SGA filter applied** → all 6 numbers must **still** equal the snapshot **exactly** (zero tolerance — this is the bit-identity check).
+
+Additionally, run this row-count parity check directly in BigQuery:
+
+```sql
+-- Expected: row counts identical between the two queries below
+SELECT COUNT(*) AS row_count
+FROM `savvy-gtm-analytics.Tableau_Views.vw_funnel_master` v
+WHERE Original_source IN ('Fintrx (Self-Sourced)', 'LinkedIn (Self Sourced)')
+  AND is_contacted = 1
+  AND DATE(stage_entered_contacting__c) BETWEEN '2025-07-01' AND '2025-09-30';
+
+SELECT COUNT(*) AS row_count
+FROM `savvy-gtm-analytics.Tableau_Views.vw_funnel_master` v
+LEFT JOIN `savvy-gtm-analytics.Tableau_Views.vw_lead_primary_sga` p
+  ON p.lead_id = v.Full_prospect_id__c
+WHERE Original_source IN ('Fintrx (Self-Sourced)', 'LinkedIn (Self Sourced)')
+  AND is_contacted = 1
+  AND DATE(stage_entered_contacting__c) BETWEEN '2025-07-01' AND '2025-09-30';
+```
+
+Both `COUNT(*)` values MUST be identical. If the JOIN produces more rows than `vw_funnel_master` alone, `vw_lead_primary_sga` has a duplicate `lead_id` that the pre-flight assertion missed — **STOP AND REPORT**.
+
+If any of the 6 unfiltered numbers drifts between v1 and v2, or if the row-count parity fails, **STOP AND REPORT**. Do not proceed to Phase 4.
 
 **Validation gate:**
 ```bash
@@ -616,7 +669,15 @@ npm run build 2>&1 | tail -20
 # Expected: build succeeds, zero errors.
 ```
 
-**STOP AND REPORT**: all 5 gates pass. Include observed number per gate.
+### Gate 6 — Unfiltered invariance across all metrics
+
+With `ATTRIBUTION_MODEL=v2`, **no SGA filter applied**, Q3 2025 self-sourced cohort: all six baseline numbers (`contacted`, `mql`, `sql`, `sqo`, `joined`, `total_aum`) must equal `docs/phase3-baseline-snapshot.md` **exactly**. Zero tolerance on this gate.
+
+Gates 1–4 only cover the Contacted→MQL rate. Gate 6 covers the full funnel plus AUM, which is where any JOIN-induced duplication would surface first.
+
+If `total_aum` drifts by even one dollar, the JOIN is producing extra rows somewhere. **STOP AND REPORT**.
+
+**STOP AND REPORT**: all 6 gates pass. Include observed number per gate.
 
 ---
 
@@ -718,3 +779,11 @@ Applied post-council-review (see `council-feedback.md`, `triage-results.md`).
 - **Q5 (a) applied — Accept opp-era limitation; do NOT COALESCE-fallback on filter predicate.** Added scope-limitation note to the top of the guide and to the admin-only AttributionDebugPanel UI. No change to `buildSgaFilterClause`'s filter predicate — it remains strict `p.primary_sga_name IN UNNEST(@...)`. Russell's rationale: "Opp-era attribution is Phase 4 work with its own view. Do NOT COALESCE-fallback — that reintroduces Savvy-Ops-sweep noise we worked to eliminate."
   - Note the asymmetry: Q1 (b) COALESCE applies to the SELECT display column only (to reconcile row-level display with the filter that was applied). Q5 (a) rejects COALESCE in the WHERE predicate (to preserve the strict lead-era attribution semantics). These are two different SQL locations with opposite answers — both correct.
 - **Q6 (a) applied — No "22-SGA cliff" UI warning.** Phase 8 documents the case as a known Rule-3 collapse edge behavior under v1; no UI change. The cliff disappears when v2 becomes default. Russell's rationale: "Not worth building UX for a behavior we're retiring."
+
+### Pre-execution hardening (2026-04-21)
+
+1. Added baseline-invariance snapshot step to Pre-Flight. Captures 6 numbers (`contacted`, `mql`, `sql`, `sqo`, `joined`, `total_aum`) that must remain identical between v1 and v2 unfiltered.
+2. Added duplication audit to Phase 3 that runs the 6-number diff and a `COUNT(*)` parity check between `vw_funnel_master` alone vs `vw_funnel_master JOIN vw_lead_primary_sga`.
+3. Added Gate 6 to Phase 7 — unfiltered invariance across all 6 metrics including AUM. Gates 1–4 only cover the one Contacted→MQL ratio; Gate 6 catches JOIN fanout that affects other metrics.
+4. Added duplication check to `export-records.ts` subsection — Lauren George Q3 2025 self-sourced export must have exactly 272 rows.
+5. Rationale: `vw_funnel_master` can produce multiple rows per `lead_id` via the FULL OUTER JOIN + `ROW_NUMBER()` pattern at lines 180–183 (exposed via `is_primary_opp_record`, `is_sqo_unique`, `is_joined_unique`). `vw_lead_primary_sga` is one-row-per-lead and will not fanout on its own, but the combined behavior needs explicit validation at multiple stages, not just via the single Contacted→MQL gate.

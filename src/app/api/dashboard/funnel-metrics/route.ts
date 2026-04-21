@@ -42,12 +42,16 @@ export async function POST(request: NextRequest) {
     const { startDate, endDate } = buildDateRangeFromFilters(filters);
     logger.debug('[Funnel Metrics API] Date range', { startDate, endDate, datePreset: filters.datePreset, year: filters.year, viewMode });
     
+    // Server-side role gate for the Phase 3 ATTRIBUTION_DEBUG payload. Only admins pay
+    // the cost of the v1/v2 side-by-side double-query; viewer requests stay single-cost.
+    const isAdmin = permissions.role === 'revops_admin' || permissions.role === 'admin';
+
     // Fetch metrics and goals in parallel
     // getFunnelMetrics now returns prospects, contacted, mqls (always)
     // getAggregateForecastGoals already includes prospects, mqls, sqls, sqos, joined
     // Use allSettled so goals failure doesn't break the entire request
     const [metricsResult, goalsResult] = await Promise.allSettled([
-      getFunnelMetrics(filters),
+      getFunnelMetrics(filters, { isAdmin }),
       getAggregateForecastGoals(filters).catch((error) => {
         // Log but don't fail - goals are optional
         logger.warn('[Funnel Metrics API] Forecast goals query failed (non-critical)', error);

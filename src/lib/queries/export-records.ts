@@ -1,7 +1,8 @@
 import { runQuery } from '../bigquery';
 import { ExportDetailRecord, ConversionAnalysisRecord } from '../sheets/sheets-types';
-import { DashboardFilters } from '@/types/filters';
+import { DashboardFilters, DEFAULT_ADVANCED_FILTERS } from '@/types/filters';
 import { buildDateRangeFromFilters } from '../utils/date-helpers';
+import { buildAdvancedFilterClauses, buildSgaFilterClause } from '../utils/filter-helpers';
 import { FULL_TABLE, RECRUITING_RECORD_TYPE } from '@/config/constants';
 
 /**
@@ -19,8 +20,22 @@ export async function getExportDetailRecords(
   limit: number = 50000  // Increased from 10000 to ensure all records included
 ): Promise<ExportDetailRecord[]> {
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
-  
-  // Build optional filter conditions (channel, source, sga, sgm)
+
+  // Extract advancedFilters and build advanced filter clauses (multi-SGA via helper).
+  const advancedFilters = filters.advancedFilters || DEFAULT_ADVANCED_FILTERS;
+  const { whereClauses: advFilterClauses, params: advFilterParams } =
+    buildAdvancedFilterClauses(advancedFilters, 'adv');
+
+  // SGA clause — honors ATTRIBUTION_MODEL. Prefer multi-select; fall back to legacy single-SGA.
+  const sgasFilter =
+    advancedFilters.sgas && !advancedFilters.sgas.selectAll && advancedFilters.sgas.selected.length > 0
+      ? advancedFilters.sgas
+      : filters.sga
+        ? { selectAll: false, selected: [filters.sga] }
+        : undefined;
+  const sgaClause = buildSgaFilterClause(sgasFilter, 'adv');
+
+  // Build optional filter conditions (channel, source, sgm)
   const filterConditions: string[] = [];
   const params: Record<string, any> = {
     startDate,
@@ -38,18 +53,29 @@ export async function getExportDetailRecords(
     filterConditions.push('v.Original_source = @source');
     params.source = filters.source;
   }
-  if (filters.sga) {
-    filterConditions.push('v.SGA_Owner_Name__c = @sga');
-    params.sga = filters.sga;
-  }
   if (filters.sgm) {
     filterConditions.push('v.SGM_Owner_Name__c = @sgm');
     params.sgm = filters.sgm;
   }
 
-  const optionalFilters = filterConditions.length > 0 
-    ? 'AND ' + filterConditions.join(' AND ') 
+  // Advanced filter clauses (channels, sources, SGMs, campaigns, lead score tiers, dates)
+  filterConditions.push(...advFilterClauses);
+  Object.assign(params, advFilterParams);
+
+  // Attribution-aware SGA clause.
+  if (sgaClause.whereClause) {
+    filterConditions.push(sgaClause.whereClause);
+  }
+  Object.assign(params, sgaClause.params);
+
+  const optionalFilters = filterConditions.length > 0
+    ? 'AND ' + filterConditions.join(' AND ')
     : '';
+
+  // Per Q1 (b): under v2 with SGA filter active, display lead-era primary SGA to match filter math.
+  const sgaDisplayCol = sgaClause.joinClause
+    ? 'COALESCE(p.primary_sga_name, v.SGA_Owner_Name__c)'
+    : 'v.SGA_Owner_Name__c';
 
   const query = `
     WITH base_select AS (
@@ -67,7 +93,7 @@ export async function getExportDetailRecords(
         -- Attribution
         v.Original_source as original_source,
         IFNULL(v.Channel_Grouping_Name, 'Other') as channel,
-        v.SGA_Owner_Name__c as sga,
+        ${sgaDisplayCol} as sga,
         v.SGM_Owner_Name__c as sgm,
         
         -- Stage Info
@@ -123,6 +149,7 @@ export async function getExportDetailRecords(
         v.advisor_join_date__c as _joined_date
 
       FROM \`${FULL_TABLE}\` v
+      ${sgaClause.joinClause}
       WHERE 1=1 ${optionalFilters}
     ),
     

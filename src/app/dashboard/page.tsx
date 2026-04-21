@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react';
 import nextDynamic from 'next/dynamic';
 import { Title, Text } from '@tremor/react';
 import { GlobalFilters } from '@/components/dashboard/GlobalFilters';
+import { AttributionDebugPanel } from '@/components/dashboard/AttributionDebugPanel';
 import { Scorecards } from '@/components/dashboard/Scorecards';
 import { ConversionRateCards } from '@/components/dashboard/ConversionRateCards';
 import { ExportToSheetsButton } from '@/components/dashboard/ExportToSheetsButton';
@@ -1057,6 +1058,7 @@ export default function DashboardPage() {
       
       <FilterErrorBoundary>
         <div className="mb-4">
+          <AttributionDebugPanel debug={metrics?.debug} />
           <GlobalFilters
             filters={filters}
             filterOptions={filterOptions}

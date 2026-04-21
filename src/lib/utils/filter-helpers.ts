@@ -1,10 +1,64 @@
 // src/lib/utils/filter-helpers.ts
 
 import { AdvancedFilters, DEFAULT_ADVANCED_FILTERS } from '@/types/filters';
+import { getAttributionModel, AttributionModel } from './attribution-mode';
 
 interface FilterClauseResult {
   whereClauses: string[];
   params: Record<string, unknown>;
+}
+
+export interface SgaFilterClause {
+  joinClause: string;
+  whereClause: string;
+  params: Record<string, unknown>;
+}
+
+/**
+ * Build the SGA filter clause. Respects ATTRIBUTION_MODEL unless forceMode is given.
+ *
+ * v1 (default/unset): filters on v.SGA_Owner_Name__c (current owner, can drift via Savvy
+ * Ops sweep). v2: LEFT JOINs vw_lead_primary_sga and filters on primary_sga_name
+ * (lead-era attribution, Savvy Ops sweep excluded).
+ *
+ * When selectAll or empty, returns empty strings/params — caller drops in unchanged.
+ *
+ * @param sgasFilter  { selectAll, selected } from advancedFilters.sgas, or a synthetic
+ *                    wrapper for legacy single-SGA: { selectAll: false, selected: [filters.sga] }
+ * @param paramPrefix e.g. 'adv' (default; matches existing caller prefix)
+ * @param forceMode   optional override; ignores getAttributionModel() when given. Used
+ *                    by the ATTRIBUTION_DEBUG double-query in Phase 5 to compute v1 and
+ *                    v2 in parallel.
+ */
+export function buildSgaFilterClause(
+  sgasFilter: { selectAll: boolean; selected: string[] } | undefined,
+  paramPrefix: string = 'adv',
+  forceMode?: AttributionModel
+): SgaFilterClause {
+  const selected = sgasFilter?.selected ?? [];
+  const selectAll = sgasFilter?.selectAll ?? true;
+
+  if (selectAll || selected.length === 0) {
+    return { joinClause: '', whereClause: '', params: {} };
+  }
+
+  const mode = forceMode ?? getAttributionModel();
+  const paramName = `${paramPrefix}_sgas`;
+
+  if (mode === 'v2') {
+    return {
+      joinClause:
+        'LEFT JOIN `savvy-gtm-analytics.Tableau_Views.vw_lead_primary_sga` p ON p.lead_id = v.Full_prospect_id__c',
+      whereClause: `p.primary_sga_name IN UNNEST(@${paramName})`,
+      params: { [paramName]: selected },
+    };
+  }
+
+  return {
+    joinClause: '',
+    whereClause: `v.SGA_Owner_Name__c IN UNNEST(@${paramName})`,
+    params: { [paramName]: selected },
+  };
 }
 
 /**
@@ -99,14 +153,9 @@ export function buildAdvancedFilterClauses(
     params[`${paramPrefix}_sources`] = safeFilters.sources.selected;
   }
 
-  // SGA filter (multi-select)
-  // NOTE: For lead metrics, use SGA_Owner_Name__c
-  // For opportunity metrics, queries should use Opp_SGA_Name__c
-  // Since advanced filters apply at view level, we use SGA_Owner_Name__c
-  if (!safeFilters.sgas.selectAll && safeFilters.sgas.selected.length > 0) {
-    whereClauses.push(`v.SGA_Owner_Name__c IN UNNEST(@${paramPrefix}_sgas)`);
-    params[`${paramPrefix}_sgas`] = safeFilters.sgas.selected;
-  }
+  // SGA filter moved to buildSgaFilterClause — see Phase 3 attribution routing.
+  // Callers must invoke buildSgaFilterClause(safeFilters.sgas, paramPrefix) separately to
+  // get the JOIN fragment (v2) + WHERE clause + params. This file only emits non-SGA clauses.
 
   // SGM filter (multi-select)
   // NOTE: SGM only applies to opportunity-level metrics

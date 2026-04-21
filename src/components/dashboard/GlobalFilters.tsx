@@ -157,13 +157,24 @@ export function GlobalFilters({
   };
 
   const handleMultiSelectChange = (key: MainBarMultiKey, next: string[]) => {
+    // Rule 3 bug fix: when the user individually ticks every VISIBLE SGA/SGM, collapse
+    // to selectAll=true. Matches user intent (the "visible-set" per Q2 council rec) —
+    // ticking all of what you can see is semantically "don't filter". Also removes the
+    // v1 Savvy-Ops-sweep distortion that surfaced at 6.5% unfiltered vs 39% all-ticked.
+    const visibleCount =
+      key === 'sgas' ? (filteredSgaOptions?.length ?? 0) :
+      key === 'sgms' ? (filteredSgmOptions?.length ?? 0) :
+      0;
+
+    const allVisibleSelected = visibleCount > 0 && next.length >= visibleCount;
+
     onFiltersChange({
       ...filters,
       advancedFilters: {
         ...adv,
         [key]: {
-          selectAll: next.length === 0,
-          selected: next,
+          selectAll: next.length === 0 || allVisibleSelected,
+          selected: allVisibleSelected ? [] : next,
         },
       },
     });
