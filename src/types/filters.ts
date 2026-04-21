@@ -82,33 +82,6 @@ export const DEFAULT_ADVANCED_FILTERS: AdvancedFilters = {
   },
 };
 
-// Helper to check if any advanced filters are active
-export function hasActiveAdvancedFilters(filters: AdvancedFilters): boolean {
-  return (
-    filters.initialCallScheduled.enabled ||
-    filters.qualificationCallDate.enabled ||
-    !filters.channels.selectAll ||
-    !filters.sources.selectAll ||
-    !filters.sgas.selectAll ||
-    !filters.sgms.selectAll ||
-    !filters.experimentationTags.selectAll ||
-    !filters.campaigns.selectAll ||
-    !filters.leadScoreTiers.selectAll
-  );
-}
-
-// Count active filters shown ONLY in the Advanced Filters slide-out.
-// channels/sources/sgas/sgms/campaigns are surfaced in the main GlobalFilters
-// bar now, so they don't count toward the "advanced" badge even when active.
-// experimentationTags is deprecated (no UI).
-export function countActiveAdvancedFilters(filters: AdvancedFilters): number {
-  let count = 0;
-  if (filters.initialCallScheduled.enabled) count++;
-  if (filters.qualificationCallDate.enabled) count++;
-  if (!filters.leadScoreTiers.selectAll) count++;
-  return count;
-}
-
 export interface DashboardFilters {
   startDate: string;
   endDate: string;

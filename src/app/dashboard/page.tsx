@@ -61,12 +61,11 @@ const DetailRecordsTable = nextDynamic(
     ssr: false,
   }
 );
-import { AdvancedFilters, AdvancedFiltersButton } from '@/components/dashboard/AdvancedFilters';
 import { RecordDetailModal } from '@/components/dashboard/RecordDetailModal';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ChartErrorBoundary, TableErrorBoundary, CardErrorBoundary, FilterErrorBoundary } from '@/components/ui';
 import { dashboardApi, handleApiError } from '@/lib/api-client';
-import { DashboardFilters, FilterOptions, DEFAULT_ADVANCED_FILTERS, countActiveAdvancedFilters, MetricDisposition } from '@/types/filters';
+import { DashboardFilters, FilterOptions, DEFAULT_ADVANCED_FILTERS, MetricDisposition } from '@/types/filters';
 import { 
   FunnelMetrics, 
   FunnelMetricsWithGoals,  // Changed from FunnelMetrics
@@ -279,7 +278,6 @@ export default function DashboardPage() {
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [trendGranularity, setTrendGranularity] = useState<'month' | 'quarter'>('quarter');
   const [trendMode, setTrendMode] = useState<ConversionTrendMode>('cohort');
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
 
   // Disposition toggle state for Contacted/MQL/SQL/SQO cards
@@ -1058,42 +1056,36 @@ export default function DashboardPage() {
       </div>
       
       <FilterErrorBoundary>
-        <div className="flex items-center gap-3 mb-4">
-          <div className="flex-1">
-            <GlobalFilters
-              filters={filters}
-              filterOptions={filterOptions}
-              hasPendingChanges={!filtersAreEqual(filters, appliedFilters)}
-              onFiltersChange={(newFilters) => {
-                setFilters(newFilters);
-                setActiveReportId(null); // Clear active report when manually changing filters
-              }}
-              onApply={handleApplyFilters}
-              onReset={() => {
-                setFilters(DEFAULT_FILTERS);
-                setAppliedFilters(DEFAULT_FILTERS);
-                setActiveReportId(null);
-                setFeatureSelection(DEFAULT_FEATURE_SELECTION);
-                // Reset disposition toggles
-                setMqlDisposition('all');
-                setSqlDisposition('all');
-                setSqoDisposition('all');
-              }}
-              savedReports={savedReports}
-              activeReportId={activeReportId}
-              onSelectReport={handleSelectReport}
-              onEditReport={handleEditReport}
-              onDuplicateReport={handleDuplicateReport}
-              onDeleteReport={handleDeleteReport}
-              onSetDefault={handleSetDefault}
-              onSaveReport={handleOpenSaveModal}
-              isLoadingReports={isLoadingReports}
-              isAdmin={isAdmin}
-            />
-          </div>
-          <AdvancedFiltersButton
-            onClick={() => setShowAdvancedFilters(true)}
-            activeCount={countActiveAdvancedFilters(filters.advancedFilters || DEFAULT_ADVANCED_FILTERS)}
+        <div className="mb-4">
+          <GlobalFilters
+            filters={filters}
+            filterOptions={filterOptions}
+            hasPendingChanges={!filtersAreEqual(filters, appliedFilters)}
+            onFiltersChange={(newFilters) => {
+              setFilters(newFilters);
+              setActiveReportId(null); // Clear active report when manually changing filters
+            }}
+            onApply={handleApplyFilters}
+            onReset={() => {
+              setFilters(DEFAULT_FILTERS);
+              setAppliedFilters(DEFAULT_FILTERS);
+              setActiveReportId(null);
+              setFeatureSelection(DEFAULT_FEATURE_SELECTION);
+              // Reset disposition toggles
+              setMqlDisposition('all');
+              setSqlDisposition('all');
+              setSqoDisposition('all');
+            }}
+            savedReports={savedReports}
+            activeReportId={activeReportId}
+            onSelectReport={handleSelectReport}
+            onEditReport={handleEditReport}
+            onDuplicateReport={handleDuplicateReport}
+            onDeleteReport={handleDeleteReport}
+            onSetDefault={handleSetDefault}
+            onSaveReport={handleOpenSaveModal}
+            isLoadingReports={isLoadingReports}
+            isAdmin={isAdmin}
           />
         </div>
       </FilterErrorBoundary>
@@ -1268,24 +1260,6 @@ export default function DashboardPage() {
         </>
       )}
       
-      {/* Advanced Filters Modal */}
-      {filterOptions && (
-        <AdvancedFilters
-          filters={filters.advancedFilters || DEFAULT_ADVANCED_FILTERS}
-          onFiltersChange={(newAdvancedFilters) => {
-            setFilters(prev => ({ ...prev, advancedFilters: newAdvancedFilters }));
-          }}
-          onApply={(updatedAdvancedFilters) => {
-            // Pass the updated advanced filters to handleApplyFilters so it can apply all filters together
-            handleApplyFilters(updatedAdvancedFilters);
-          }}
-          viewMode={viewMode}
-          onClose={() => setShowAdvancedFilters(false)}
-          isOpen={showAdvancedFilters}
-          filterOptions={filterOptions}
-        />
-      )}
-
       {/* Volume Drill-Down Modal */}
       {volumeDrillDownMetric && (
         <VolumeDrillDownModal

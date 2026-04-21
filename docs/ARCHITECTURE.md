@@ -694,15 +694,13 @@ Main filter bar (`src/components/dashboard/GlobalFilters.tsx`):
 - **SGA** (multi-select with type-to-search, Active/All toggle): may be auto-scoped by permissions
 - **SGM** (multi-select with type-to-search, Active/All toggle): may be auto-scoped by permissions
 - **Campaign** (multi-select with type-to-search): from distinct values in data
+- **Lead Score Tiers** (multi-select with type-to-search): includes synthetic "(No Tier)" option (`__NO_TIER__` sentinel, handled in `src/lib/utils/filter-helpers.ts`)
 
-The five multi-select filters share the `MultiSelectCombobox` primitive from `src/components/ui/MultiSelectCombobox.tsx`, which is also used by the Outreach Effectiveness campaign filter.
+All six multi-select filters share the `MultiSelectCombobox` primitive from `src/components/ui/MultiSelectCombobox.tsx`, which is also used by the Outreach Effectiveness campaign filter.
 
-Main-bar multi-select state is stored on `filters.advancedFilters.{channels,sources,sgas,sgms,campaigns}` (shape: `{ selectAll: boolean, selected: string[] }`) — one source of truth with the query layer's `buildAdvancedFilterClauses`. Empty selection = `selectAll: true` = "all values". The legacy single-select fields on `DashboardFilters` (`channel`, `source`, `sga`, `sgm`, `campaignId`) remain on the type because Record Detail Modal, Explore AI, and the semantic layer still reference them, but the main bar no longer writes to them.
+Main-bar multi-select state is stored on `filters.advancedFilters.{channels,sources,sgas,sgms,campaigns,leadScoreTiers}` (shape: `{ selectAll: boolean, selected: string[] }`) — one source of truth with the query layer's `buildAdvancedFilterClauses`. Empty selection = `selectAll: true` = "all values". The legacy single-select fields on `DashboardFilters` (`channel`, `source`, `sga`, `sgm`, `campaignId`) remain on the type because Record Detail Modal, Explore AI, and the semantic layer still reference them, but the main bar no longer writes to them.
 
-Advanced Filters slide-out panel (`src/components/dashboard/AdvancedFilters.tsx`):
-- **Lead Score Tier** (multi-select) — the only filter still exclusive to the panel after the main-bar refactor.
-
-`countActiveAdvancedFilters` (in `src/types/filters.ts`) only counts filters exclusive to the slide-out panel, so toggling a main-bar filter doesn't increment the "Advanced Filters" badge.
+The Advanced Filters slide-out panel has been removed — all filters now live on the main bar. The `AdvancedFilters` type and `DEFAULT_ADVANCED_FILTERS` remain in `src/types/filters.ts` because they are the storage shape for main-bar multi-select state.
 
 Note: **Experimentation Tag** has been deprecated and removed from all filter UI. The field still exists on the shared `Filters` type because Record Detail Modal, Explore AI results, and the semantic layer continue to reference it; a full cross-codebase deprecation is a possible follow-up.
 

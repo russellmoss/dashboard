@@ -10,7 +10,7 @@ import { SavedReport } from '@/types/saved-reports';
 import MultiSelectCombobox from '@/components/ui/MultiSelectCombobox';
 
 // Keys on AdvancedFilters that are surfaced as multi-selects in the main bar.
-type MainBarMultiKey = 'channels' | 'sources' | 'sgas' | 'sgms' | 'campaigns';
+type MainBarMultiKey = 'channels' | 'sources' | 'sgas' | 'sgms' | 'campaigns' | 'leadScoreTiers';
 
 interface GlobalFiltersProps {
   filters: DashboardFilters;
@@ -379,6 +379,25 @@ export function GlobalFilters({
               options={filterOptions.campaigns.map((c) => ({ value: c.value, label: c.label }))}
               selected={getSelected('campaigns')}
               onChange={(next) => handleMultiSelectChange('campaigns', next)}
+            />
+          </div>
+        )}
+
+        {/* Lead Score Tiers */}
+        {filterOptions.leadScoreTiers && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+              Lead Score Tiers
+            </label>
+            <MultiSelectCombobox
+              ariaLabel="Lead Score Tiers"
+              placeholder="All tiers — type to search…"
+              options={[
+                { value: '__NO_TIER__', label: '(No Tier)' },
+                ...filterOptions.leadScoreTiers.map((t) => ({ value: t.value, label: t.label })),
+              ]}
+              selected={getSelected('leadScoreTiers')}
+              onChange={(next) => handleMultiSelectChange('leadScoreTiers', next)}
             />
           </div>
         )}
