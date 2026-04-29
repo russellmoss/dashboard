@@ -290,37 +290,52 @@ views:
       Number_of_Team_Members__c: "Salesforce roll-up of total team members including support staff — DO NOT use for advisor-only metrics."
     dangerous_columns:
       - column: Number_of_Advisors__c
-        reason: "Salesforce roll-up of unknown formula. May include Onboarding, Churned, or non-Advisor team roles depending on how the formula was defined. For producing-advisor counts, derive from SavvyGTMData.Contact filtered to Team_Role__c = 'Advisor' AND Contact_Status__c = 'Joined' AND Churn_Date__c IS NULL."
-        use_instead: "COUNT(*) from SavvyGTMData.Contact GROUP BY AccountId WHERE Team_Role__c = 'Advisor' AND Contact_Status__c = 'Joined' AND Churn_Date__c IS NULL AND IsDeleted = FALSE"
+        reason: "Salesforce roll-up of unknown formula. May include Onboarding, Churned, or non-Advisor team roles. For producing-advisor counts per account, anchor on vw_funnel_master (Tableau_Views.vw_funnel_master) filtered to is_joined_unique = 1 AND recordtypeid = '012Dn000000mrO3IAI' — that's the recruiting-funnel system of record (one row per advisor join event). Optionally cross-reference Contact for individual-advisor churn."
+        use_instead: "COUNT(*) FROM Tableau_Views.vw_funnel_master WHERE is_joined_unique = 1 AND recordtypeid = '012Dn000000mrO3IAI' GROUP BY AccountId — this matches the authoritative ~113-114 currently-joined count after firm-churn filter (Account.Status__c='Joined')."
       - column: Number_of_Team_Members__c
         reason: "Includes support staff (Assistants, CSAs) — not appropriate for advisor-only metrics like ARR per advisor."
-        use_instead: "Filter Contact by Team_Role__c if you need advisor-only or staff-only counts."
+        use_instead: "For producing advisors: vw_funnel_master (see above). For support-staff counts: Contact filtered to Team_Role__c IN ('Assistant','CSA')."
     freshness_notes: "Synced from Salesforce every 6 hours."
 
   Contact:
-    purpose: "Salesforce Contact — person-grain record. The ONLY reliable source for distinguishing producing advisors from support staff (Assistants, CSAs) on each account. Account.Number_of_Advisors__c is a stale roll-up; vw_joined_advisors is opportunity-grain. Use Contact for any 'how many advisors are on this account' question."
+    purpose: |
+      Salesforce Contact — person-grain record covering everyone associated with a joined account: producing advisors, support staff (Assistants, CSAs), and team members added manually post-join.
+
+      IMPORTANT — Contact is NOT the authoritative source for counting recruiting-verified producing advisors. It systematically OVER-counts because:
+
+      (1) Team members get added to existing accounts manually after the firm joins — they're tagged Team_Role__c='Advisor' AND Contact_Status__c='Joined' but never came through a recruiting opportunity.
+
+      (2) Some advisor contacts have NULL Advisor_Join_Date__c (data hygiene gaps).
+
+      Live evidence (2026-04-29): Contact-level filter Team_Role__c='Advisor' AND Contact_Status__c='Joined' AND Churn_Date__c IS NULL returns 125 rows. The recruiting-verified count is 113-114 (117 ever joined per the funnel, ~3-4 churned). The 11-12 row gap is the over-count described above.
+
+      USE CONTACT FOR: support_staff classification (Team_Role__c IN ('Assistant','CSA')), and as a SECONDARY cross-check for individual-advisor churn within still-active firms.
+
+      USE vw_funnel_master FOR: the canonical "how many recruiting-verified advisors joined / are currently here per account" count. Filter is_joined_unique = 1 AND recordtypeid = '012Dn000000mrO3IAI'.
     dataset: SavvyGTMData
-    grain: "One row per person (advisor or support staff member)"
+    grain: "One row per person (advisor or support staff member or team-member-added-post-join)"
     key_filters:
-      producing_advisor: "Team_Role__c = 'Advisor' AND Contact_Status__c = 'Joined' AND Churn_Date__c IS NULL AND IsDeleted = FALSE"
-      current_team_member: "Contact_Status__c IN ('Joined','Onboarding') AND Churn_Date__c IS NULL AND IsDeleted = FALSE"
       support_staff: "Team_Role__c IN ('Assistant','CSA') AND Contact_Status__c = 'Joined' AND Churn_Date__c IS NULL"
-      churned_advisor: "Team_Role__c = 'Advisor' AND (Contact_Status__c = 'Churned' OR Churn_Date__c IS NOT NULL)"
+      individual_churn_check: "Contact_Status__c = 'Joined' AND Churn_Date__c IS NULL — use joined to the funnel-derived advisor list to confirm an individual hasn't personally churned even though their firm is still here"
+      current_team_member: "Contact_Status__c IN ('Joined','Onboarding') AND Churn_Date__c IS NULL AND IsDeleted = FALSE"
     key_fields:
       AccountId: "Roll-up key to SavvyGTMData.Account.Id."
-      Team_Role__c: "Producer-vs-support classifier. Values: 'Advisor' (producing), 'Assistant' (support), 'CSA' (Client Service Associate, support), 'Other'. THE filter for excluding support staff."
-      Contact_Status__c: "Lifecycle status. Values: 'Joined' (currently active producer/staff), 'Onboarding' (in onboarding), 'Signed' (signed but not yet onboarding), 'Opportunity' (still in pipeline), 'Churned' (left). Use 'Joined' for current-state filtering."
-      Churn_Date__c: "DATE — populated when the contact churned. NULL means still active. Use IS NULL alongside Contact_Status__c for belt-and-suspenders current filtering."
-      Advisor_Join_Date__c: "DATE the contact joined as an advisor. Presence does NOT mean currently producing — Churned advisors retain their join date."
-      Savvy_Advisor_ID__c: "Internal advisor identifier. ~98% populated for Team_Role='Advisor' AND Contact_Status='Joined'. Useful as a sanity check but Team_Role + Status + Churn_Date is the canonical filter."
-      AdvisorJoinDateFilter__c: "BOOL convenience flag — roughly equivalent to Advisor_Join_Date__c IS NOT NULL. Does NOT account for churn. Use Contact_Status__c + Churn_Date__c instead."
+      Team_Role__c: "Producer-vs-support classifier. Values: 'Advisor' (producing), 'Assistant' (support), 'CSA' (Client Service Associate, support), 'Other'. Reliable for excluding support staff. NOT reliable on its own as a producer count — see purpose."
+      Contact_Status__c: "Lifecycle status. Values: 'Joined' (currently active), 'Onboarding', 'Signed', 'Opportunity', 'Churned'. Use 'Joined' + Churn_Date__c IS NULL for current-state filtering."
+      Churn_Date__c: "DATE — populated when the contact personally churned. NULL means still active. Use to detect individual-advisor churn that wouldn't show up at firm/Account level."
+      Advisor_Join_Date__c: "DATE the contact joined as an advisor. NOT a reliable count anchor — populated by manual data entry and missing for some advisors. To match a Contact to a vw_funnel_master row, join on AccountId + DATE(Advisor_Join_Date__c) = vw_funnel_master.advisor_join_date__c."
+      Savvy_Advisor_ID__c: "Internal advisor identifier. ~98% populated for Team_Role='Advisor' AND Contact_Status='Joined'. Useful as a sanity check, not a count anchor."
+      AdvisorJoinDateFilter__c: "BOOL convenience flag — roughly equivalent to Advisor_Join_Date__c IS NOT NULL. Does NOT account for churn or recruiting-verification."
     dangerous_columns:
+      - column: Team_Role__c
+        reason: "Filtering on Team_Role__c='Advisor' alone (or with Contact_Status__c='Joined') over-counts producing advisors because team members get added to firms post-join with this tag. Over-count observed 2026-04-29: 125 vs authoritative 113-114."
+        use_instead: "For producing-advisor counts, anchor on vw_funnel_master (is_joined_unique=1 + recruiting recordtypeid). Use Contact only as a secondary cross-check for individual churn."
       - column: Advisor_Join_Date__c
         reason: "Presence does NOT mean currently producing — Churned advisors retain their join date. Filtering on this alone over-counts current advisors."
-        use_instead: "Combine with Contact_Status__c = 'Joined' AND Churn_Date__c IS NULL."
+        use_instead: "For currently-still-here advisors, anchor on vw_funnel_master and join Contact for Churn_Date__c IS NULL filter."
       - column: AdvisorJoinDateFilter__c
-        reason: "Convenience BOOL flag, but doesn't account for churn. Will return TRUE for advisors who have already left Savvy."
-        use_instead: "Contact_Status__c + Churn_Date__c filtering for true current-producer state."
+        reason: "Convenience BOOL flag, but doesn't account for churn or recruiting-verification."
+        use_instead: "vw_funnel_master is_joined_unique = 1 + recruiting recordtype, plus Contact join for current-state."
     freshness_notes: "Synced from Salesforce every 6 hours."
 
 terms:
@@ -344,40 +359,58 @@ terms:
     gotcha: "Always COALESCE(Underwritten_AUM__c, Amount) — never add them. Use is_primary_opp_record = 1 for AUM aggregation to avoid double-counting."
 
   ARR:
-    definition: "Annual Recurring Revenue from a joined advisor's book. Stored at the Account (firm) level in Account_Total_ARR__c, NOT per advisor — accounts can host multiple producing advisors plus support staff. Per-advisor ARR requires dividing Account_Total_ARR__c by the count of producing advisors derived from the Contact table."
+    definition: "Annual Recurring Revenue from a joined advisor's book. Stored at the Account (firm) level in Account_Total_ARR__c, NOT per advisor — accounts can host multiple producing advisors. Per-advisor ARR requires dividing Account_Total_ARR__c by a recruiting-verified producing-advisor count anchored on vw_funnel_master."
     related_fields:
       - Account_Total_ARR__c
     related_rules:
-      - arr_per_advisor_count_from_contact
-      - vw_joined_advisors_grain_warning
+      - producing_advisor_count_from_funnel
     gotcha: |
-      Three pitfalls when computing per-advisor ARR:
+      Three pitfalls when computing per-advisor ARR — get these wrong and the count drifts by ~10% (we observed 125 vs the authoritative 113-114 on 2026-04-29):
 
-      (1) DO NOT divide Account_Total_ARR__c by Account.Number_of_Advisors__c — that field is a Salesforce roll-up of unknown formula and may include Onboarding, Churned, or non-Advisor team roles.
+      (1) DO NOT divide by Account.Number_of_Advisors__c — Salesforce roll-up of unknown formula, may include Onboarding/Churned/non-Advisor roles.
 
-      (2) DO NOT divide by a row count from vw_joined_advisors — that view is opportunity-grain (one row per StageName='Joined' opp), not advisor-grain. One opp can carry multiple advisors and one account can have multiple opps.
+      (2) DO NOT use Contact (Team_Role__c='Advisor' AND Contact_Status__c='Joined') as the count anchor — Contact OVER-counts because team members get added to firms post-join without coming through recruiting. See the Contact view warning.
 
-      (3) DO use a Contact-derived count: COUNT(*) FROM SavvyGTMData.Contact GROUP BY AccountId WHERE Team_Role__c = 'Advisor' AND Contact_Status__c = 'Joined' AND Churn_Date__c IS NULL. Then prefer SUM(ARR)/SUM(advisor_count) over AVG(arr_per_account) so big firms aren't equal-weighted with one-person shops (unless equal-weight-per-firm is what you want).
+      (3) DO anchor on vw_funnel_master: COUNT(*) WHERE is_joined_unique = 1 AND recordtypeid = '012Dn000000mrO3IAI' GROUP BY AccountId — this is the recruiting-funnel system of record, one row per advisor join event. Then filter to currently-here by joining Account on Status__c='Joined' (firm-level churn) and optionally cross-reference Contact for individual-advisor churn within still-active firms (match on AccountId + DATE(Contact.Advisor_Join_Date__c) = vw_funnel_master.advisor_join_date__c, require Contact_Status__c='Joined' AND Churn_Date__c IS NULL).
+
+      (4) Population-weighted average (SUM(ARR)/SUM(advisor_count)) treats each advisor equally. Firm-weighted (AVG of per-account arr/advisor) treats each firm equally. Default to population-weighted unless asked otherwise.
+
+      (5) Reconciliation: a correctly-computed currently-joined advisor count for Q1/Q2 2026 should land in the 113-114 range. If your number is materially higher (e.g. 120+), you've fallen into pitfall (2). Stop and re-anchor.
 
   producing_advisor:
-    definition: "A current Savvy advisor who generates revenue — explicitly NOT support staff (Assistants, CSAs) or other team roles that may also be on a joined account. The canonical Contact filter is: Team_Role__c = 'Advisor' AND Contact_Status__c = 'Joined' AND Churn_Date__c IS NULL AND IsDeleted = FALSE."
+    definition: "A recruiting-verified Savvy advisor who is currently on the platform and generating (or about to generate) revenue. Anchored on the recruiting funnel — NOT on Contact alone. Canonical filter: vw_funnel_master.is_joined_unique = 1 AND recordtypeid = '012Dn000000mrO3IAI', joined to Account.Status__c = 'Joined' for firm-level churn, optionally cross-referenced with Contact for individual-advisor churn."
     related_fields:
-      - Team_Role__c
-      - Contact_Status__c
-      - Churn_Date__c
-      - Advisor_Join_Date__c
-      - Savvy_Advisor_ID__c
+      - is_joined_unique
+      - advisor_join_date__c
+      - recordtypeid
     related_rules:
-      - arr_per_advisor_count_from_contact
-      - vw_joined_advisors_grain_warning
-    gotcha: "Joined accounts often have multiple producing advisors plus support staff (Assistants, CSAs). Counting Account.Number_of_Advisors__c, vw_joined_advisors rows, or all Contacts on the account will all give different (and wrong) numbers. The Contact-level Team_Role__c filter is the only correct way to count producing advisors per firm."
+      - producing_advisor_count_from_funnel
+    gotcha: |
+      Two-tier verification — be pedantic about both:
+
+      (1) RECRUITING-VERIFIED: the advisor came through the recruiting funnel (is_joined_unique=1 + recruiting recordtype in vw_funnel_master). This rules out the contamination from Contacts manually added to accounts post-join.
+
+      (2) CURRENTLY HERE: filter by both firm-level (Account.Status__c='Joined') and individual-level (Contact join showing Contact_Status__c='Joined' AND Churn_Date__c IS NULL) churn.
+
+      Live evidence (2026-04-29): authoritative count is ~113-114 (117 ever joined per funnel, 3-4 churned). A Contact-only filter returns 125 — that's the wrong answer.
+
+  recruiting_verified_advisor:
+    definition: "An advisor whose presence at Savvy is verified by a Joined recruiting opportunity in the funnel — i.e., they came through the recruiting process and reached StageName='Joined'. This is the authoritative population for any 'how many advisors at Savvy' question. Distinct from 'Contact tagged as Team_Role=Advisor', which includes manually-added team members who never came through recruiting."
+    related_fields:
+      - is_joined_unique
+      - recordtypeid
+      - advisor_join_date__c
+      - StageName
+    related_rules:
+      - producing_advisor_count_from_funnel
+    gotcha: "Use vw_funnel_master with is_joined_unique=1 AND recordtypeid='012Dn000000mrO3IAI' — that's the system of record. vw_joined_advisors is a derived view at the same grain (one row per joined recruiting opp) and is also acceptable, though it inner-joins on Account.Status='Joined' so it already drops firm-churned advisors."
 
   support_staff:
     definition: "Non-producing team members on a joined account — Assistants and Client Service Associates (CSAs). Tracked in SavvyGTMData.Contact with Team_Role__c IN ('Assistant','CSA'). Must be excluded from any producing-advisor or per-advisor revenue calculation."
     related_fields:
       - Team_Role__c
       - Contact_Status__c
-    gotcha: "Support staff share the same AccountId as the producing advisors they support. Counting all current contacts per account inflates the producing-advisor count — always filter on Team_Role__c = 'Advisor'."
+    gotcha: "Support staff share the same AccountId as the producing advisors they support. For support-staff counts specifically, Contact IS the right source — Team_Role__c reliably distinguishes Assistant/CSA from Advisor. The Contact contamination problem is specifically that Team_Role__c='Advisor' over-counts producers (manually-added team members), not that the Assistant/CSA classifications are unreliable."
 
   MQL:
     definition: "Marketing Qualified Lead — a lead that has met marketing qualification criteria."
@@ -940,25 +973,25 @@ rules:
     severity: warning
     message: "Do not use advisor_join_date__c IS NOT NULL alone for joined counts — Closed Lost advisors can have join dates. Use is_joined or is_joined_unique flags instead."
 
-  - id: arr_per_advisor_count_from_contact
+  - id: producing_advisor_count_from_funnel
     type: prefer_field
     found: "Number_of_Advisors__c"
-    prefer: "COUNT(*) FROM SavvyGTMData.Contact WHERE Team_Role__c = 'Advisor' AND Contact_Status__c = 'Joined' AND Churn_Date__c IS NULL"
-    context: "advisor counts per account, ARR per advisor, AUM per advisor"
+    prefer: "COUNT(*) FROM Tableau_Views.vw_funnel_master WHERE is_joined_unique = 1 AND recordtypeid = '012Dn000000mrO3IAI'"
+    context: "advisor counts per account, ARR per advisor, AUM per advisor, joined advisor totals"
     severity: error
-    message: "Account.Number_of_Advisors__c is a Salesforce roll-up of unknown formula and may include Onboarding/Churned/non-Advisor team roles. For per-advisor metrics, count producing advisors from Contact filtered to Team_Role__c = 'Advisor' AND Contact_Status__c = 'Joined' AND Churn_Date__c IS NULL AND IsDeleted = FALSE. See the producing_advisor term."
+    message: "Account.Number_of_Advisors__c is a Salesforce roll-up of unknown formula. For producing-advisor counts, anchor on vw_funnel_master (is_joined_unique=1 + recruiting recordtypeid='012Dn000000mrO3IAI') — that's the recruiting-funnel system of record, one row per advisor join event. Then filter to currently-here via Account.Status__c='Joined' (firm-level churn) and optionally Contact join for individual-advisor churn. See the producing_advisor and recruiting_verified_advisor terms."
 
-  - id: vw_joined_advisors_grain_warning
+  - id: contact_advisor_count_overcount_warning
     type: ban_pattern
-    pattern: "vw_joined_advisors"
+    pattern: "Team_Role__c = 'Advisor' AND Contact_Status__c = 'Joined'"
     severity: warning
-    message: "vw_joined_advisors is opportunity-grain (StageName='Joined' opps), NOT person-grain. Counting rows mis-counts producing advisors per account: one opp can carry multiple advisors, and one account can have multiple joined opps. For producing-advisor counts per account, use SavvyGTMData.Contact filtered to Team_Role__c = 'Advisor' AND Contact_Status__c = 'Joined' AND Churn_Date__c IS NULL. Use vw_joined_advisors only for opportunity-level analytics (e.g., joined deal sources/SGAs/dates)."
+    message: "Counting producing advisors from Contact via Team_Role__c='Advisor' AND Contact_Status__c='Joined' OVER-counts by ~10% because team members get added to firms post-join with this tag without coming through recruiting. Live evidence (2026-04-29): Contact returns 125 vs authoritative 113-114 from the funnel. Anchor on vw_funnel_master.is_joined_unique=1 + recordtypeid='012Dn000000mrO3IAI' instead. Use Contact only as a SECONDARY cross-check for individual-advisor churn (Contact_Status__c='Joined' AND Churn_Date__c IS NULL) within still-active firms, joined on AccountId + DATE(Advisor_Join_Date__c)."
 
   - id: support_staff_exclusion
     type: ban_pattern
     pattern: "COUNT(*) FROM `savvy-gtm-analytics.SavvyGTMData.Contact` GROUP BY AccountId"
     severity: warning
-    message: "Counting all Contacts per account includes support staff (Assistants, CSAs). For producing-advisor counts, filter Team_Role__c = 'Advisor'. See the support_staff and producing_advisor terms."
+    message: "Counting all Contacts per account includes support staff (Assistants, CSAs) AND non-recruited team members. For producing-advisor counts, anchor on vw_funnel_master (see producing_advisor_count_from_funnel rule). For support-staff counts only, filter Team_Role__c IN ('Assistant','CSA')."
 
   - id: activity_funnel_join_key
     type: prefer_field
@@ -1167,48 +1200,109 @@ metrics:
       ORDER BY (outbound_sms + linkedin + cold_calls + scheduled_calls + manual_email + email_engagement) DESC
 
   arr_per_advisor:
-    description: "Average ARR per current producing advisor across the joined-account population. Account-level ARR (Account_Total_ARR__c) divided by Contact-derived count of producing advisors per account, then aggregated. Default presentation should be the population-weighted version: SUM(ARR) / SUM(advisor_count) — this treats each advisor equally rather than equal-weighting firms."
+    description: "Average ARR per current producing advisor across the joined-account population. Anchored on the recruiting funnel (vw_funnel_master), NOT on Contact alone. Account-level ARR (Account_Total_ARR__c) divided by funnel-derived count of recruiting-verified advisors per account, then aggregated. Default presentation: population-weighted SUM(ARR)/SUM(advisor_count)."
     views:
+      - Tableau_Views.vw_funnel_master
       - SavvyGTMData.Account
       - SavvyGTMData.Contact
     required_filters:
-      account: "Status__c = 'Joined' AND Account_Total_ARR__c IS NOT NULL AND IsDeleted = FALSE"
-      contact: "Team_Role__c = 'Advisor' AND Contact_Status__c = 'Joined' AND Churn_Date__c IS NULL AND IsDeleted = FALSE"
+      funnel: "is_joined_unique = 1 AND recordtypeid = '012Dn000000mrO3IAI'"
+      account: "Status__c = 'Joined' AND Account_Total_ARR__c IS NOT NULL AND Account_Total_ARR__c > 0 AND IsDeleted = FALSE"
+      contact_individual_churn: "Contact_Status__c = 'Joined' AND Churn_Date__c IS NULL"
+    expected_count: "~113-114 currently-joined producing advisors as of Q1/Q2 2026 (117 ever joined, 3-4 churned). If your computed count diverges by more than 2-3, stop and reconcile before averaging."
     gotcha: |
-      Three things must be right:
+      Five things must be right — get any wrong and the answer drifts:
 
-      (1) Count advisors from Contact, NOT from Account.Number_of_Advisors__c (stale roll-up) and NOT from row counts in vw_joined_advisors (opp-grain).
+      (1) ANCHOR ON FUNNEL, NOT CONTACT: count advisors from vw_funnel_master (is_joined_unique=1 + recruiting recordtypeid). Contact-level Team_Role__c='Advisor' AND Contact_Status__c='Joined' OVER-counts by ~10% because team members get added to firms post-join. Live evidence (2026-04-29): Contact gives 125, funnel gives 113-114.
 
-      (2) Filter Contact to Team_Role__c = 'Advisor' to exclude Assistants and CSAs who share the same AccountId.
+      (2) BOTH CHURN CHECKS: filter firm-level churn via Account.Status__c='Joined' AND individual-advisor churn via Contact join (Contact_Status__c='Joined' AND Churn_Date__c IS NULL). The Contact join matches on AccountId + DATE(Contact.Advisor_Join_Date__c) = vw_funnel_master.advisor_join_date__c.
 
-      (3) Prefer SUM(ARR) / SUM(advisor_count) (population-weighted) over AVG(account_arr / advisor_count) (firm-weighted). Population-weighted gives the true "average advisor's ARR." Firm-weighted gives the average across firms regardless of size — only use that if specifically asked for "average per firm."
+      (3) EXCLUDE $0 ARR: Account_Total_ARR__c > 0 — accounts with $0 ARR are typically brand-new joiners whose ARR hasn't been populated. Report them separately as a footnote, don't include in the average.
+
+      (4) PREFER POPULATION-WEIGHTED: SUM(ARR)/SUM(advisor_count) treats each advisor equally. AVG(account_arr/advisor_count) treats each firm equally regardless of size — only use if asked for "average per firm."
+
+      (5) RECONCILE BEFORE AVERAGING: print the count at each filter stage. If the post-churn count isn't in the 113-114 range, stop and show the divergence — don't compute the average on a wrong population.
+    reconciliation_query: |
+      -- Run this FIRST and confirm the final count is ~113-114 before computing the average.
+      WITH ever_joined AS (
+        SELECT
+          v.AccountId,
+          v.advisor_join_date__c,
+          v.Full_prospect_id__c
+        FROM `savvy-gtm-analytics.Tableau_Views.vw_funnel_master` v
+        WHERE v.is_joined_unique = 1
+          AND v.recordtypeid = '012Dn000000mrO3IAI'
+      ),
+      firm_active AS (
+        SELECT ej.*
+        FROM ever_joined ej
+        JOIN `savvy-gtm-analytics.SavvyGTMData.Account` a
+          ON a.Id = ej.AccountId
+        WHERE a.Status__c = 'Joined' AND a.IsDeleted = FALSE
+      ),
+      individual_active AS (
+        SELECT fa.*
+        FROM firm_active fa
+        LEFT JOIN `savvy-gtm-analytics.SavvyGTMData.Contact` c
+          ON c.AccountId = fa.AccountId
+          AND DATE(c.Advisor_Join_Date__c) = fa.advisor_join_date__c
+        WHERE c.Id IS NULL  -- Contact match optional; absence is OK if firm-active
+           OR (c.Contact_Status__c = 'Joined' AND c.Churn_Date__c IS NULL)
+      )
+      SELECT
+        (SELECT COUNT(*) FROM ever_joined) AS step1_ever_joined_recruiting_opps,
+        (SELECT COUNT(*) FROM firm_active) AS step2_after_firm_churn_filter,
+        (SELECT COUNT(*) FROM individual_active) AS step3_after_individual_churn_filter,
+        (SELECT COUNT(DISTINCT AccountId) FROM individual_active) AS step3_distinct_accounts
     reference_query: |
-      WITH producing_advisors AS (
+      -- Population-weighted ARR per producing advisor.
+      -- Anchor: vw_funnel_master joined-recruiting (one row per advisor join event).
+      -- Churn: Account.Status='Joined' (firm) + Contact still-active match (individual).
+      WITH funnel_joined AS (
+        SELECT
+          v.AccountId,
+          v.advisor_join_date__c,
+          v.Full_prospect_id__c
+        FROM `savvy-gtm-analytics.Tableau_Views.vw_funnel_master` v
+        WHERE v.is_joined_unique = 1
+          AND v.recordtypeid = '012Dn000000mrO3IAI'
+      ),
+      currently_here AS (
+        SELECT fj.AccountId, fj.advisor_join_date__c
+        FROM funnel_joined fj
+        JOIN `savvy-gtm-analytics.SavvyGTMData.Account` a
+          ON a.Id = fj.AccountId
+        LEFT JOIN `savvy-gtm-analytics.SavvyGTMData.Contact` c
+          ON c.AccountId = fj.AccountId
+          AND DATE(c.Advisor_Join_Date__c) = fj.advisor_join_date__c
+        WHERE a.Status__c = 'Joined'
+          AND a.IsDeleted = FALSE
+          AND (c.Id IS NULL  -- no Contact match: keep (firm still active is the signal)
+               OR (c.Contact_Status__c = 'Joined' AND c.Churn_Date__c IS NULL))
+      ),
+      advisors_per_account AS (
         SELECT AccountId, COUNT(*) AS advisor_count
-        FROM `savvy-gtm-analytics.SavvyGTMData.Contact`
-        WHERE Team_Role__c = 'Advisor'
-          AND Contact_Status__c = 'Joined'
-          AND Churn_Date__c IS NULL
-          AND IsDeleted = FALSE
+        FROM currently_here
         GROUP BY AccountId
       ),
-      joined_accounts AS (
+      account_arr AS (
         SELECT
           a.Id AS Account_Id,
           a.Name AS Account_Name,
           a.Account_Total_ARR__c,
-          pa.advisor_count
+          apa.advisor_count
         FROM `savvy-gtm-analytics.SavvyGTMData.Account` a
-        JOIN producing_advisors pa ON pa.AccountId = a.Id
+        JOIN advisors_per_account apa ON apa.AccountId = a.Id
         WHERE a.Status__c = 'Joined'
           AND a.Account_Total_ARR__c IS NOT NULL
+          AND a.Account_Total_ARR__c > 0
           AND a.IsDeleted = FALSE
       )
       SELECT
         SUM(Account_Total_ARR__c) AS total_arr,
         SUM(advisor_count) AS total_producing_advisors,
-        COUNT(*) AS total_joined_accounts,
+        COUNT(*) AS total_joined_accounts_with_arr,
         SAFE_DIVIDE(SUM(Account_Total_ARR__c), SUM(advisor_count)) AS arr_per_advisor_population_weighted,
         AVG(SAFE_DIVIDE(Account_Total_ARR__c, advisor_count)) AS arr_per_advisor_firm_weighted,
         APPROX_QUANTILES(SAFE_DIVIDE(Account_Total_ARR__c, advisor_count), 4) AS quartiles_per_account
-      FROM joined_accounts
+      FROM account_arr
