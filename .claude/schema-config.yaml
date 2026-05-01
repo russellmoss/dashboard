@@ -203,7 +203,45 @@ views:
         meaning: "FLOAT64, nullable — Account.Account_Total_AUM__c, the actual current AUM the team manages (live SFDC field, refreshed regularly). Use this for 'real assets under management today' questions. NULL for most Churned advisors (after departure the field is cleared) — fall back to account_aum (Underwritten) when null. Same value across every advisor row for a given Account."
     consumers: []
     freshness_notes: "Depends on Contact/Account/Opportunity sync (6h), AccountHistory sync (weekly), and FinTrx monthly refresh."
-    notes: "Advisor identification (updated): Team_Role__c = 'Advisor' is the primary signal; FA_CRD__c IS NOT NULL is a fallback only when Team_Role is NULL. This catches advisors whose CRD hasn't been backfilled in SFDC yet (e.g., Brian Boswell). Contacts with Team_Role explicitly set to 'Assistant'/'CSA'/'Other' are excluded, even with a CRD — known edge case: a Team_Role='Other' contact with a real Savvy CRD will be excluded; fix by correcting Team_Role in SFDC. Opportunity dedup: ranked per AccountId — SQO'd opps preferred, then earliest advisor_join_date__c, then earliest Date_Became_SQO__c. Multi-advisor teams share one joined_date/sqo_date/account_aum from the team's opp — not per-advisor licensing dates. Prior firm fallback to FinTrx handles cases where Firm_Name__c was not captured on the opp. Data coverage gap: advisors without FA_CRD__c will have NULL prior_firm (FinTrx side) and NULL churned_to_firm — these enrichments require a CRD to join FinTrx."
+    query_patterns:
+      lead_attribution_enrichment: |
+        -- Enrich advisor rows with Lead attribution (Source, Channel, SGA, SGM, Lead Score Tier, Campaign).
+        -- vw_close_won is at Contact grain and has no lead-attribution columns. Bridge via
+        -- Lead.ConvertedContactId = Contact.Id, then join vw_funnel_master via Lead.Id.
+        -- Team members without their own converted Lead inherit from the team via per-field MAX
+        -- across all converted Leads on the Account — this avoids one Lead's NULL SGM masking
+        -- another's populated SGM. COALESCE(Contact-level, Account-level) gives priority to the
+        -- advisor's own Lead when it exists.
+        WITH contact_lead AS (
+          SELECT l.ConvertedContactId AS contact_id, v.Original_source, v.Channel_Grouping_Name,
+                 v.SGA_Owner_Name__c, v.SGM_Owner_Name__c, v.Lead_Score_Tier__c,
+            ROW_NUMBER() OVER (PARTITION BY l.ConvertedContactId ORDER BY l.CreatedDate ASC) AS rn
+          FROM `savvy-gtm-analytics.SavvyGTMData.Lead` l
+          JOIN `savvy-gtm-analytics.Tableau_Views.vw_funnel_master` v ON v.Full_prospect_id__c = l.Id
+          WHERE l.IsConverted = TRUE AND l.ConvertedContactId IS NOT NULL
+        ),
+        account_lead AS (
+          SELECT c.AccountId,
+                 MAX(v.Original_source) AS Original_source,
+                 MAX(v.Channel_Grouping_Name) AS Channel_Grouping_Name,
+                 MAX(v.SGA_Owner_Name__c) AS SGA_Owner_Name__c,
+                 MAX(v.SGM_Owner_Name__c) AS SGM_Owner_Name__c,
+                 MAX(v.Lead_Score_Tier__c) AS Lead_Score_Tier__c
+          FROM `savvy-gtm-analytics.SavvyGTMData.Lead` l
+          JOIN `savvy-gtm-analytics.SavvyGTMData.Contact` c ON c.Id = l.ConvertedContactId
+          JOIN `savvy-gtm-analytics.Tableau_Views.vw_funnel_master` v ON v.Full_prospect_id__c = l.Id
+          WHERE l.IsConverted = TRUE
+          GROUP BY c.AccountId
+        )
+        SELECT cw.*,
+          COALESCE(cl.Original_source, al.Original_source) AS source,
+          COALESCE(cl.Channel_Grouping_Name, al.Channel_Grouping_Name) AS channel,
+          COALESCE(cl.SGA_Owner_Name__c, al.SGA_Owner_Name__c) AS sga,
+          COALESCE(cl.SGM_Owner_Name__c, al.SGM_Owner_Name__c) AS sgm
+        FROM `savvy-gtm-analytics.Tableau_Views.vw_close_won` cw
+        LEFT JOIN contact_lead cl ON cl.contact_id = cw.contact_id AND cl.rn = 1
+        LEFT JOIN account_lead al ON al.AccountId = cw.account_id
+    notes: "Advisor identification (updated): Team_Role__c = 'Advisor' is the primary signal; FA_CRD__c IS NOT NULL is a fallback only when Team_Role is NULL. This catches advisors whose CRD hasn't been backfilled in SFDC yet (e.g., Brian Boswell). Contacts with Team_Role explicitly set to 'Assistant'/'CSA'/'Other' are excluded, even with a CRD — known edge case: a Team_Role='Other' contact with a real Savvy CRD will be excluded; fix by correcting Team_Role in SFDC. Opportunity dedup: ranked per AccountId — SQO'd opps preferred, then earliest advisor_join_date__c, then earliest Date_Became_SQO__c. Multi-advisor teams share one joined_date/sqo_date/account_aum from the team's opp — not per-advisor licensing dates. Prior firm fallback to FinTrx handles cases where Firm_Name__c was not captured on the opp. Data coverage gap: advisors without FA_CRD__c will have NULL prior_firm (FinTrx side) and NULL churned_to_firm — these enrichments require a CRD to join FinTrx. Edge case: 1 advisor (Michael McCarthy) is on a Joined Account but has no joining Opportunity, so joined_date is NULL — alltime queries should include `joined_date IS NULL`; specific-period filters should not (would over-count NULL-date advisors into every period)."
 
   vw_signed_advisors:
     purpose: "One row per individual advisor on a Savvy Account that has any Opportunity with Stage_Entered_Signed__c populated. Captures the full Signed funnel — advisors who signed and joined, signed and lost, or are still in-flight after signing. Use to count individual advisors that ever signed (vs Opportunity-level Signed counts)."
@@ -213,7 +251,7 @@ views:
       has_signing_opp: "The Account must have at least one Opportunity with Stage_Entered_Signed__c IS NOT NULL. Each Account is represented by its primary signing opp, ranked by StageName preference (Joined > Signed > Closed Lost) then Stage_Entered_Signed__c ASC."
     annotated_columns:
       - name: cohort
-        meaning: "STRING — 'joined' | 'lost' | 'in_flight'. 'joined' = signing opp reached Joined stage OR has an advisor_join_date__c. 'lost' = signing opp closed lost without joining. 'in_flight' = currently at Signed stage, neither joined nor lost yet."
+        meaning: "STRING — 'joined' | 'lost' | 'in_flight'. 'joined' = primary signing opp StageName = 'Joined' (actually crossed the line). 'lost' = StageName = 'Closed Lost'. 'in_flight' = anything else (typically StageName = 'Signed' with a future-dated advisor_join_date__c — scheduled but not yet joined). Note: advisor_join_date__c alone does NOT imply joined — that field can hold scheduled future dates."
       - name: signed_date
         meaning: "DATE — Stage_Entered_Signed__c from the primary signing opp on this Account. Date the deal first crossed into Signed stage."
       - name: joined_date
@@ -230,8 +268,16 @@ views:
         meaning: "STRING, nullable — Contact.FA_CRD__c. Nullable for Team_Role='Advisor' contacts whose CRD hasn't been backfilled."
     consumers:
       - "src/lib/queries/funnel-metrics.ts (Signed scorecard cohort metrics)"
+      - "src/lib/queries/detail-records.ts (Signed scorecard advisor-grain drill-down)"
     freshness_notes: "Depends on Contact/Account/Opportunity sync (6h)."
-    notes: "Multi-advisor teams: every Contact on the Account inherits the Account's primary signing opp's signed_date, joined_date, account_aum, and cohort. The cohort flag describes the team's deal outcome, not per-advisor outcomes. Lost cohort is small but financially material — signed-then-lost AUM represents real deals that fell through after the Signed milestone."
+    query_patterns:
+      lead_attribution_enrichment: |
+        -- Same Lead-attribution pattern as vw_close_won: Contact-level Lead lookup with
+        -- per-field MAX team-level fallback. Team members without their own converted Lead
+        -- inherit Source/Channel/SGA/SGM from any populated Lead on the Account. See
+        -- vw_close_won.query_patterns.lead_attribution_enrichment for the full SQL template;
+        -- substitute vw_signed_advisors and signed_date filters as appropriate.
+    notes: "Multi-advisor teams: every Contact on the Account inherits the Account's primary signing opp's signed_date, joined_date, account_aum, and cohort. The cohort flag describes the team's deal outcome, not per-advisor outcomes. Lost cohort is small but financially material — signed-then-lost AUM represents real deals that fell through after the Signed milestone. Lead attribution (Source, Channel, SGA, SGM) is NOT in the view and must be enriched via the Lead → vw_funnel_master bridge — see query_patterns.lead_attribution_enrichment."
 
   vw_sga_activity_performance:
     purpose: "Joins Salesforce Task records to vw_funnel_master to categorize SGA activities (calls, SMS, email, LinkedIn, meetings) with direction, quality signals, cold call classification, and ramp status."
