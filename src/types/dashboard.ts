@@ -57,6 +57,23 @@ export interface FunnelMetrics {
   sqoAum_open: number;
   sqoAum_lost: number;
   sqoAum_converted: number;
+  // Joined advisors (advisor-level, from vw_close_won, filtered by joined_date in range).
+  // Counts individual Contacts (Team_Role='Advisor' OR fallback CRD); AUM is one
+  // value per Account regardless of advisor count (account_aum).
+  joined_all: number;
+  joined_current: number;
+  joined_churned: number;
+  joinedAum_all: number;
+  joinedAum_current: number;
+  joinedAum_churned: number;
+  // Signed advisors (advisor-level, from vw_signed_advisors, filtered by signed_date in range).
+  // 'all' includes joined + lost + in_flight; 'joined' = signed-and-joined; 'lost' = signed-then-closed-lost.
+  signed_all: number;
+  signed_joined: number;
+  signed_lost: number;
+  signedAum_all: number;
+  signedAum_joined: number;
+  signedAum_lost: number;
   // Optional Phase 3 Attribution debug payload — present only when server-side
   // ATTRIBUTION_DEBUG=true + requestor is admin + SGA filter active. See Phase 5 guide.
   debug?: AttributionDebugPayload;

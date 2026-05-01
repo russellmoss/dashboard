@@ -423,8 +423,66 @@ const _getFunnelMetrics = async (
     WHERE ${openPipelineConditions.join(' AND ')}
   `;
 
+  // Advisor-level metrics for the Joined/Signed scorecards (individual advisors,
+  // not opportunities). Driven by vw_close_won and vw_signed_advisors, which use
+  // Team_Role='Advisor' with FA_CRD fallback. AUM is once-per-Account (Option A).
+  // Alltime preset includes advisors with NULL joined_date (e.g., advisors on a Joined
+  // Account who have no joining Opportunity in SFDC — Michael McCarthy is one). For any
+  // narrower range we still require a known joined_date so we don't double-count NULL-date
+  // advisors into a specific period they may not belong to.
+  const isAlltime = filters.datePreset === 'alltime';
+  const joinedDateClause = isAlltime
+    ? '(joined_date IS NULL OR (joined_date >= DATE(@startDate) AND joined_date <= DATE(@endDate)))'
+    : '(joined_date >= DATE(@startDate) AND joined_date <= DATE(@endDate))';
+  const advisorMetricsQuery = `
+    WITH joined_cohort AS (
+      SELECT contact_id, account_id, account_status, account_aum, account_total_aum
+      FROM \`savvy-gtm-analytics.Tableau_Views.vw_close_won\`
+      WHERE ${joinedDateClause}
+    ),
+    joined_account_aum AS (
+      SELECT
+        account_id,
+        account_status,
+        ANY_VALUE(account_aum) AS underwritten_aum,
+        ANY_VALUE(account_total_aum) AS actual_aum
+      FROM joined_cohort
+      GROUP BY account_id, account_status
+    ),
+    signed_cohort AS (
+      SELECT contact_id, account_id, cohort, account_aum
+      FROM \`savvy-gtm-analytics.Tableau_Views.vw_signed_advisors\`
+      WHERE signed_date >= DATE(@startDate) AND signed_date <= DATE(@endDate)
+    ),
+    signed_account_aum AS (
+      SELECT account_id, cohort, ANY_VALUE(account_aum) AS aum
+      FROM signed_cohort
+      GROUP BY account_id, cohort
+    )
+    SELECT
+      (SELECT COUNT(DISTINCT contact_id) FROM joined_cohort) AS joined_all,
+      (SELECT COUNT(DISTINCT contact_id) FROM joined_cohort WHERE account_status = 'Joined') AS joined_current,
+      (SELECT COUNT(DISTINCT contact_id) FROM joined_cohort WHERE account_status = 'Churned') AS joined_churned,
+      (SELECT COALESCE(SUM(underwritten_aum), 0) FROM joined_account_aum) AS joined_aum_all,
+      (SELECT COALESCE(SUM(COALESCE(actual_aum, underwritten_aum)), 0) FROM joined_account_aum WHERE account_status = 'Joined') AS joined_aum_current,
+      (SELECT COALESCE(SUM(underwritten_aum), 0) FROM joined_account_aum WHERE account_status = 'Churned') AS joined_aum_churned,
+      (SELECT COUNT(DISTINCT contact_id) FROM signed_cohort) AS signed_all,
+      (SELECT COUNT(DISTINCT contact_id) FROM signed_cohort WHERE cohort = 'joined') AS signed_joined,
+      (SELECT COUNT(DISTINCT contact_id) FROM signed_cohort WHERE cohort = 'lost') AS signed_lost,
+      (SELECT COALESCE(SUM(aum), 0) FROM signed_account_aum) AS signed_aum_all,
+      (SELECT COALESCE(SUM(aum), 0) FROM signed_account_aum WHERE cohort = 'joined') AS signed_aum_joined,
+      (SELECT COALESCE(SUM(aum), 0) FROM signed_account_aum WHERE cohort = 'lost') AS signed_aum_lost
+  `;
+  const advisorMetricsParams = { startDate, endDate };
+
   const [metrics] = await runQuery<RawFunnelMetricsResult>(metricsQuery, metricsParams);
   const [openPipeline] = await runQuery<RawOpenPipelineResult>(openPipelineQuery, openPipelineParams);
+  const [advisorMetrics] = await runQuery<{
+    joined_all: number; joined_current: number; joined_churned: number;
+    joined_aum_all: number; joined_aum_current: number; joined_aum_churned: number;
+    signed_all: number; signed_joined: number; signed_lost: number;
+    signed_aum_all: number; signed_aum_joined: number; signed_aum_lost: number;
+  }>(advisorMetricsQuery, advisorMetricsParams);
 
   // ATTRIBUTION_DEBUG side-by-side payload. Admin-only, opt-in via env var, only runs when
   // an SGA filter is active — cheap Contacted→MQL rate for v1 vs v2 comparison during rollout.
@@ -521,6 +579,18 @@ const _getFunnelMetrics = async (
     sqoAum_open: toNumber(metrics.sqo_aum_open),
     sqoAum_lost: toNumber(metrics.sqo_aum_lost),
     sqoAum_converted: toNumber(metrics.sqo_aum_converted),
+    joined_all: toNumber(advisorMetrics.joined_all),
+    joined_current: toNumber(advisorMetrics.joined_current),
+    joined_churned: toNumber(advisorMetrics.joined_churned),
+    joinedAum_all: toNumber(advisorMetrics.joined_aum_all),
+    joinedAum_current: toNumber(advisorMetrics.joined_aum_current),
+    joinedAum_churned: toNumber(advisorMetrics.joined_aum_churned),
+    signed_all: toNumber(advisorMetrics.signed_all),
+    signed_joined: toNumber(advisorMetrics.signed_joined),
+    signed_lost: toNumber(advisorMetrics.signed_lost),
+    signedAum_all: toNumber(advisorMetrics.signed_aum_all),
+    signedAum_joined: toNumber(advisorMetrics.signed_aum_joined),
+    signedAum_lost: toNumber(advisorMetrics.signed_aum_lost),
     ...(debug ? { debug } : {}),
   };
 };

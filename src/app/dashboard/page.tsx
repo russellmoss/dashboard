@@ -66,7 +66,7 @@ import { RecordDetailModal } from '@/components/dashboard/RecordDetailModal';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ChartErrorBoundary, TableErrorBoundary, CardErrorBoundary, FilterErrorBoundary } from '@/components/ui';
 import { dashboardApi, handleApiError } from '@/lib/api-client';
-import { DashboardFilters, FilterOptions, DEFAULT_ADVANCED_FILTERS, MetricDisposition } from '@/types/filters';
+import { DashboardFilters, FilterOptions, DEFAULT_ADVANCED_FILTERS, MetricDisposition, JoinedDisposition, SignedDisposition } from '@/types/filters';
 import { 
   FunnelMetrics, 
   FunnelMetricsWithGoals,  // Changed from FunnelMetrics
@@ -286,6 +286,8 @@ export default function DashboardPage() {
   const [mqlDisposition, setMqlDisposition] = useState<MetricDisposition>('all');
   const [sqlDisposition, setSqlDisposition] = useState<MetricDisposition>('all');
   const [sqoDisposition, setSqoDisposition] = useState<MetricDisposition>('all');
+  const [joinedDisposition, setJoinedDisposition] = useState<JoinedDisposition>('all');
+  const [signedDisposition, setSignedDisposition] = useState<SignedDisposition>('all');
 
   // Volume drill-down modal state
   const [volumeDrillDownOpen, setVolumeDrillDownOpen] = useState(false);
@@ -883,7 +885,19 @@ export default function DashboardPage() {
       lost: 'Lost ',
       converted: 'Converted ',
     };
-    const dispositionPrefix = dispositionLabels[activeDisposition];
+    const joinedLabels: Record<JoinedDisposition, string> = {
+      all: '',
+      current: 'Current ',
+      churned: 'Churned ',
+    };
+    const signedLabels: Record<SignedDisposition, string> = {
+      all: '',
+      joined: 'Joined ',
+      lost: 'Lost ',
+    };
+    let dispositionPrefix = dispositionLabels[activeDisposition];
+    if (metricFilter === 'joined') dispositionPrefix = joinedLabels[joinedDisposition];
+    else if (metricFilter === 'signed') dispositionPrefix = signedLabels[signedDisposition];
     setVolumeDrillDownTitle(`${dispositionPrefix}${metricLabels[metricFilter]} - ${dateRangeText}`);
 
     try {
@@ -892,6 +906,8 @@ export default function DashboardPage() {
         ...appliedFilters,
         metricFilter: metricFilter,
         metricDisposition: activeDisposition,
+        joinedDisposition: metricFilter === 'joined' ? joinedDisposition : 'all',
+        signedDisposition: metricFilter === 'signed' ? signedDisposition : 'all',
       };
       
       // Fetch records for the selected metric
@@ -1158,6 +1174,10 @@ export default function DashboardPage() {
                   onSqlDispositionChange={setSqlDisposition}
                   sqoDisposition={sqoDisposition}
                   onSqoDispositionChange={setSqoDisposition}
+                  joinedDisposition={joinedDisposition}
+                  onJoinedDispositionChange={setJoinedDisposition}
+                  signedDisposition={signedDisposition}
+                  onSignedDispositionChange={setSignedDisposition}
                 />
               </CardErrorBoundary>
             )

@@ -8,12 +8,188 @@ import { toString, toNumber } from '@/types/bigquery-raw';
 import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 
 /**
+ * Contact-level record detail. Used for the advisor-grain Joined/Signed scorecard
+ * drill-down rows where the row id is a Salesforce Contact id (003...). Joins
+ * Contact + Account and the primary joining/signing Opportunity to produce a
+ * RecordDetailFull-shaped result; lead-level fields (channel, source, sga, mql/sql
+ * dates, etc.) are NULL because they don't exist at Contact grain.
+ */
+const _getContactRecordDetail = async (
+  id: string
+): Promise<RecordDetailFull | null> => {
+  const query = `
+    WITH ranked_opps AS (
+      SELECT
+        o.AccountId,
+        o.Id AS opp_id,
+        o.StageName,
+        o.advisor_join_date__c,
+        o.Date_Became_SQO__c,
+        o.Stage_Entered_Signed__c,
+        o.Stage_Entered_Discovery__c,
+        o.Stage_Entered_Sales_Process__c,
+        o.Stage_Entered_Negotiating__c,
+        o.Stage_Entered_On_Hold__c,
+        o.Stage_Entered_Closed__c,
+        o.CreatedDate AS opp_created_date,
+        o.Underwritten_AUM__c,
+        o.Amount,
+        o.Closed_Lost_Reason__c,
+        o.Closed_Lost_Details__c,
+        o.NextStep,
+        ROW_NUMBER() OVER (
+          PARTITION BY o.AccountId
+          ORDER BY
+            CASE WHEN o.advisor_join_date__c IS NOT NULL THEN 0 ELSE 1 END,
+            CASE WHEN o.Stage_Entered_Signed__c IS NOT NULL THEN 0 ELSE 1 END,
+            o.advisor_join_date__c ASC NULLS LAST,
+            o.Stage_Entered_Signed__c ASC NULLS LAST,
+            o.Date_Became_SQO__c ASC NULLS LAST
+        ) AS rn
+      FROM \`savvy-gtm-analytics.SavvyGTMData.Opportunity\` o
+      WHERE o.AccountId IS NOT NULL
+    )
+    SELECT
+      c.Id AS contact_id,
+      c.Name AS advisor_name,
+      c.Title,
+      c.Email,
+      c.FA_CRD__c,
+      c.Team_Role__c,
+      c.AccountId,
+      a.Name AS account_name,
+      a.Status__c AS account_status,
+      a.Account_Total_AUM__c,
+      a.Total_Underwritten_AUM__c,
+      o.opp_id,
+      o.StageName,
+      o.advisor_join_date__c,
+      o.Date_Became_SQO__c,
+      o.Stage_Entered_Signed__c,
+      o.Stage_Entered_Discovery__c,
+      o.Stage_Entered_Sales_Process__c,
+      o.Stage_Entered_Negotiating__c,
+      o.Stage_Entered_On_Hold__c,
+      o.Stage_Entered_Closed__c,
+      o.opp_created_date,
+      o.Underwritten_AUM__c AS opp_underwritten,
+      o.Amount AS opp_amount,
+      o.Closed_Lost_Reason__c,
+      o.Closed_Lost_Details__c,
+      o.NextStep
+    FROM \`savvy-gtm-analytics.SavvyGTMData.Contact\` c
+    JOIN \`savvy-gtm-analytics.SavvyGTMData.Account\` a ON a.Id = c.AccountId
+    LEFT JOIN ranked_opps o ON o.AccountId = c.AccountId AND o.rn = 1
+    WHERE c.Id = @id
+    LIMIT 1
+  `;
+  const results = await runQuery<any>(query, { id });
+  if (!results || results.length === 0) return null;
+  const r = results[0];
+  const accountTotalAum = toNumber(r.Account_Total_AUM__c);
+  const totalUnderwritten = toNumber(r.Total_Underwritten_AUM__c);
+  const oppUnderwritten = toNumber(r.opp_underwritten);
+  const oppAmount = toNumber(r.opp_amount);
+  const aum = accountTotalAum || totalUnderwritten || oppUnderwritten || oppAmount;
+  const accountStatus = toString(r.account_status);
+  const tofStage = accountStatus === 'Joined' ? 'Joined'
+    : accountStatus === 'Churned' ? 'Closed'
+    : accountStatus === 'Signed' ? 'Signed'
+    : 'Open';
+  return {
+    id: toString(r.contact_id),
+    fullProspectId: null,
+    fullOpportunityId: r.opp_id ? toString(r.opp_id) : null,
+    advisorName: toString(r.advisor_name) || 'Unknown',
+    recordType: 'Converted',
+    recordTypeName: r.Title ? toString(r.Title) : null,
+    source: toString(r.account_name) || 'Unknown',
+    channel: toString(r.Team_Role__c) || 'Advisor',
+    sga: null,
+    sgm: null,
+    externalAgency: null,
+    nextSteps: null,
+    opportunityNextStep: r.NextStep ? toString(r.NextStep) : null,
+    leadScoreTier: null,
+    experimentationTag: null,
+    campaignId: null,
+    campaignName: null,
+    allCampaigns: null,
+    createdDate: null,
+    filterDate: null,
+    contactedDate: null,
+    mqlDate: null,
+    sqlDate: null,
+    sqoDate: extractDateValue(r.Date_Became_SQO__c),
+    joinedDate: extractDateValue(r.advisor_join_date__c),
+    initialCallScheduledDate: null,
+    qualificationCallDate: null,
+    stageEnteredDiscovery: extractDateValue(r.Stage_Entered_Discovery__c),
+    stageEnteredSalesProcess: extractDateValue(r.Stage_Entered_Sales_Process__c),
+    stageEnteredNegotiating: extractDateValue(r.Stage_Entered_Negotiating__c),
+    stageEnteredSigned: extractDateValue(r.Stage_Entered_Signed__c),
+    stageEnteredOnHold: extractDateValue(r.Stage_Entered_On_Hold__c),
+    stageEnteredClosed: extractDateValue(r.Stage_Entered_Closed__c),
+    leadClosedDate: null,
+    oppCreatedDate: extractDateValue(r.opp_created_date),
+    aum,
+    aumFormatted: formatCurrency(aum),
+    underwrittenAum: oppUnderwritten,
+    underwrittenAumFormatted: formatCurrency(oppUnderwritten),
+    amount: oppAmount,
+    amountFormatted: formatCurrency(oppAmount),
+    aumTier: null,
+    stageName: r.StageName ? toString(r.StageName) : (accountStatus || null),
+    tofStage,
+    conversionStatus: tofStage === 'Closed' ? 'Closed'
+      : tofStage === 'Joined' ? 'Joined'
+      : 'Open',
+    disposition: null,
+    closedLostReason: r.Closed_Lost_Reason__c ? toString(r.Closed_Lost_Reason__c) : null,
+    closedLostDetails: r.Closed_Lost_Details__c ? toString(r.Closed_Lost_Details__c) : null,
+    funnelFlags: {
+      isContacted: false,
+      isMql: false,
+      isSql: false,
+      isSqo: r.Date_Became_SQO__c != null,
+      isJoined: accountStatus === 'Joined' || accountStatus === 'Churned',
+    },
+    progressionFlags: {
+      contactedToMql: false,
+      mqlToSql: false,
+      sqlToSqo: false,
+      sqoToJoined: r.advisor_join_date__c != null,
+    },
+    eligibilityFlags: {
+      eligibleForContactedConversions: false,
+      eligibleForContactedConversions30d: false,
+      eligibleForMqlConversions: false,
+      eligibleForSqlConversions: false,
+      eligibleForSqoConversions: false,
+    },
+    leadUrl: null,
+    opportunityUrl: r.opp_id ? `https://savvywealth.lightning.force.com/lightning/r/Opportunity/${toString(r.opp_id)}/view` : null,
+    salesforceUrl: `https://savvywealth.lightning.force.com/lightning/r/Contact/${toString(r.contact_id)}/view`,
+    isPrimaryOppRecord: true,
+    isSqoUnique: false,
+    isJoinedUnique: accountStatus === 'Joined' || accountStatus === 'Churned',
+    prospectSourceType: null,
+    originRecruitingOppId: null,
+    originOpportunityUrl: null,
+  };
+};
+
+/**
  * Fetches a single record by primary_key with all fields for modal display
  */
 const _getRecordDetail = async (
   id: string,
   recruiterFilter?: string | null
 ): Promise<RecordDetailFull | null> => {
+  // Contact-level row from advisor-grain drill-downs
+  if (id.startsWith('003')) {
+    return _getContactRecordDetail(id);
+  }
   const recruiterCondition = recruiterFilter ? 'AND v.External_Agency__c = @recruiterFilter' : '';
   const query = `
     SELECT

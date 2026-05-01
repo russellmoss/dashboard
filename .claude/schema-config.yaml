@@ -197,9 +197,41 @@ views:
         meaning: "STRING, nullable — only populated when churned AND FinTrx shows a non-Savvy current firm. Sourced from FinTrx ria_contacts_current.PRIMARY_FIRM_NAME (regulatory current firm per SEC filings, monthly refresh). Requires fa_crd to be populated; advisors with no CRD will have NULL even if churned."
       - name: months_at_savvy
         meaning: "Living metric — DATE_DIFF(churn_date or CURRENT_DATE, joined_date, DAY) / 30.44. For still-at-Savvy advisors, continues growing each day."
+      - name: account_aum
+        meaning: "FLOAT64 — COALESCE(Underwritten_AUM__c, Amount, 0) from the joining Opportunity (same opp that supplies sqo_date and joined_date). Underwritten/projected AUM at signing — what the advisor was forecast to bring over. Same value across every advisor row for a given Account, so SUM at advisor grain multi-counts; for Account-unique AUM aggregation, use SUM over DISTINCT (account_id, account_aum) or GROUP BY account_id first."
+      - name: account_total_aum
+        meaning: "FLOAT64, nullable — Account.Account_Total_AUM__c, the actual current AUM the team manages (live SFDC field, refreshed regularly). Use this for 'real assets under management today' questions. NULL for most Churned advisors (after departure the field is cleared) — fall back to account_aum (Underwritten) when null. Same value across every advisor row for a given Account."
     consumers: []
     freshness_notes: "Depends on Contact/Account/Opportunity sync (6h), AccountHistory sync (weekly), and FinTrx monthly refresh."
-    notes: "Advisor identification (updated): Team_Role__c = 'Advisor' is the primary signal; FA_CRD__c IS NOT NULL is a fallback only when Team_Role is NULL. This catches advisors whose CRD hasn't been backfilled in SFDC yet (e.g., Brian Boswell). Contacts with Team_Role explicitly set to 'Assistant'/'CSA'/'Other' are excluded, even with a CRD — known edge case: a Team_Role='Other' contact with a real Savvy CRD will be excluded; fix by correcting Team_Role in SFDC. Opportunity dedup: ranked per AccountId — SQO'd opps preferred, then earliest advisor_join_date__c, then earliest Date_Became_SQO__c. Multi-advisor teams share one joined_date/sqo_date from the team's opp — not per-advisor licensing dates. Prior firm fallback to FinTrx handles cases where Firm_Name__c was not captured on the opp. Data coverage gap: advisors without FA_CRD__c will have NULL prior_firm (FinTrx side) and NULL churned_to_firm — these enrichments require a CRD to join FinTrx."
+    notes: "Advisor identification (updated): Team_Role__c = 'Advisor' is the primary signal; FA_CRD__c IS NOT NULL is a fallback only when Team_Role is NULL. This catches advisors whose CRD hasn't been backfilled in SFDC yet (e.g., Brian Boswell). Contacts with Team_Role explicitly set to 'Assistant'/'CSA'/'Other' are excluded, even with a CRD — known edge case: a Team_Role='Other' contact with a real Savvy CRD will be excluded; fix by correcting Team_Role in SFDC. Opportunity dedup: ranked per AccountId — SQO'd opps preferred, then earliest advisor_join_date__c, then earliest Date_Became_SQO__c. Multi-advisor teams share one joined_date/sqo_date/account_aum from the team's opp — not per-advisor licensing dates. Prior firm fallback to FinTrx handles cases where Firm_Name__c was not captured on the opp. Data coverage gap: advisors without FA_CRD__c will have NULL prior_firm (FinTrx side) and NULL churned_to_firm — these enrichments require a CRD to join FinTrx."
+
+  vw_signed_advisors:
+    purpose: "One row per individual advisor on a Savvy Account that has any Opportunity with Stage_Entered_Signed__c populated. Captures the full Signed funnel — advisors who signed and joined, signed and lost, or are still in-flight after signing. Use to count individual advisors that ever signed (vs Opportunity-level Signed counts)."
+    grain: "One row per advisor Contact on an Account with at least one signing Opportunity. Same advisor-identification logic as vw_close_won (Team_Role='Advisor' with FA_CRD fallback)."
+    key_filters:
+      individual_advisors_only: "Contact.Team_Role__c = 'Advisor' OR (Contact.Team_Role__c IS NULL AND Contact.FA_CRD__c IS NOT NULL). Same logic as vw_close_won. Excludes Assistant/CSA/Other roles."
+      has_signing_opp: "The Account must have at least one Opportunity with Stage_Entered_Signed__c IS NOT NULL. Each Account is represented by its primary signing opp, ranked by StageName preference (Joined > Signed > Closed Lost) then Stage_Entered_Signed__c ASC."
+    annotated_columns:
+      - name: cohort
+        meaning: "STRING — 'joined' | 'lost' | 'in_flight'. 'joined' = signing opp reached Joined stage OR has an advisor_join_date__c. 'lost' = signing opp closed lost without joining. 'in_flight' = currently at Signed stage, neither joined nor lost yet."
+      - name: signed_date
+        meaning: "DATE — Stage_Entered_Signed__c from the primary signing opp on this Account. Date the deal first crossed into Signed stage."
+      - name: joined_date
+        meaning: "DATE, nullable — advisor_join_date__c from the primary signing opp. Populated when cohort='joined', NULL otherwise."
+      - name: opp_stage
+        meaning: "STRING — the primary signing opp's current StageName ('Joined', 'Signed', 'Closed Lost'). Use to disambiguate cohort='joined' (StageName='Joined') from cohort='lost' (StageName='Closed Lost')."
+      - name: account_aum
+        meaning: "FLOAT64 — COALESCE(Underwritten_AUM__c, Amount, 0) from the primary signing opp. Same value across every advisor row for a given Account; multi-counts at advisor grain. For Account-unique AUM aggregation, GROUP BY account_id first."
+      - name: account_status
+        meaning: "STRING — current Account.Status__c at query time ('Joined', 'Churned', 'Signed', 'Opportunity', NULL). Reflects current state, NOT cohort at signing time."
+      - name: team_role
+        meaning: "STRING — Contact.Team_Role__c — 'Advisor' for advisor rows, NULL for CRD-fallback rows. Never 'Assistant'/'CSA'/'Other'."
+      - name: fa_crd
+        meaning: "STRING, nullable — Contact.FA_CRD__c. Nullable for Team_Role='Advisor' contacts whose CRD hasn't been backfilled."
+    consumers:
+      - "src/lib/queries/funnel-metrics.ts (Signed scorecard cohort metrics)"
+    freshness_notes: "Depends on Contact/Account/Opportunity sync (6h)."
+    notes: "Multi-advisor teams: every Contact on the Account inherits the Account's primary signing opp's signed_date, joined_date, account_aum, and cohort. The cohort flag describes the team's deal outcome, not per-advisor outcomes. Lost cohort is small but financially material — signed-then-lost AUM represents real deals that fell through after the Signed milestone."
 
   vw_sga_activity_performance:
     purpose: "Joins Salesforce Task records to vw_funnel_master to categorize SGA activities (calls, SMS, email, LinkedIn, meetings) with direction, quality signals, cold call classification, and ramp status."

@@ -97,6 +97,10 @@ export interface DashboardFilters {
   metricFilter: 'all' | 'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | 'signed' | 'joined' | 'openPipeline';
   advancedFilters?: AdvancedFilters;  // Optional for backward compatibility
   metricDisposition?: 'all' | 'open' | 'lost' | 'converted';
+  // Drill-down toggle state for the Joined / Signed scorecards. Honored only
+  // when metricFilter is 'joined' / 'signed' respectively. Default 'all' = no filter.
+  joinedDisposition?: 'all' | 'current' | 'churned';
+  signedDisposition?: 'all' | 'joined' | 'lost';
 }
 
 export interface FilterOptions {
@@ -113,6 +117,12 @@ export interface FilterOptions {
 
 // Disposition filter type for MQL/SQL/SQO drill-down
 export type MetricDisposition = 'all' | 'open' | 'lost' | 'converted';
+
+// Joined scorecard toggle: All advisors who joined / still at Savvy / churned
+export type JoinedDisposition = 'all' | 'current' | 'churned';
+
+// Signed scorecard toggle: All who signed / signed-and-joined / signed-and-lost
+export type SignedDisposition = 'all' | 'joined' | 'lost';
 
 // Add export for activity dashboard
 export type { SGAActivityFilters } from './sga-activity';

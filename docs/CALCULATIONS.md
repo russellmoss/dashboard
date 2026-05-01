@@ -660,6 +660,44 @@ SUM(
 - Signed AUM uses `is_primary_opp_record = 1` for deduplication (matches Signed volume)
 - Joined AUM uses `is_joined_unique = 1` for deduplication (matches Joined volume)
 
+### Joined / Signed Scorecard Toggles (Advisor-Level)
+
+The Joined and Signed scorecards count **individual advisors** (Contacts), not opportunities. Source views: `vw_close_won` (Joined card) and `vw_signed_advisors` (Signed card). Advisor identification uses `Team_Role__c = 'Advisor'` with `FA_CRD__c IS NOT NULL` as fallback when Team_Role is NULL.
+
+**Joined card toggle: All / Current / Churned**
+- All — every advisor whose `joined_date` is in the date range, regardless of current Account.Status__c
+- Current — joined in range AND `account_status = 'Joined'`
+- Churned — joined in range AND `account_status = 'Churned'`
+
+**Signed card toggle: All / Joined / Lost**
+- All — every advisor whose `signed_date` is in the date range, all cohorts (joined + lost + in_flight)
+- Joined — signed in range AND `cohort = 'joined'` (eventually joined Savvy)
+- Lost — signed in range AND `cohort = 'lost'` (deal closed lost after signing)
+
+**AUM logic (Option A — Account-unique)**: AUM is summed once per Account regardless of advisor count. A 6-advisor team with $50M underwritten shows as $50M (not $300M). Counts and AUM are decoupled but logically consistent.
+
+**AUM source by toggle** (the AUM number means a different thing depending on toggle):
+
+| Card | Toggle | Source field | What it represents |
+|---|---|---|---|
+| Signed | All / Joined / Lost | `Opportunity.Underwritten_AUM__c` (fallback `Amount`) | Deal value at signing — what was projected/contracted |
+| Joined | All | `Opportunity.Underwritten_AUM__c` (fallback `Amount`) | Underwritten AUM that joined in this period |
+| Joined | Current | `Account.Account_Total_AUM__c` (fallback Underwritten) | **Actual** AUM the team manages today |
+| Joined | Churned | `Opportunity.Underwritten_AUM__c` (fallback `Amount`) | Underwritten AUM lost when they left (Account_Total_AUM__c is NULL after churn) |
+
+The "Joined Current" toggle is the only one that shows live actual AUM; everything else shows the signing-time projection. This is intentional — live AUM is the right metric for "what does this active book actually manage", but for Signed deals and lost/churned populations, the underwritten projection is more meaningful.
+
+**Goal display**: Only shown on the "All" toggle for the Joined card. Hidden when toggled to Current/Churned (existing forecast goals are at opp/team level, not advisor level).
+
+**Drill-down filtering**: Clicking the Joined or Signed scorecard while a non-"All" toggle is active passes that disposition through to the drill-down query. The drill-down table then shows only opportunities matching the toggle (Current/Churned for Joined; Joined/Lost for Signed). Drill-down stays at opp grain — it doesn't expand to advisor-level rows — so the count in the drill-down may be lower than the scorecard count for multi-advisor teams.
+
+**Filter scope**: Advisor-level metrics honor the date filter only. Dimensional filters (channel, source, SGA, SGM, campaign, lead score tier, advanced filters) do NOT apply to these metrics — they always reflect the global advisor cohort. The opp-level `signed`/`joined` fields continue to honor all filters.
+
+**Cohort definitions in `vw_signed_advisors`**:
+- `joined` — primary signing opp has `StageName = 'Joined'` OR `advisor_join_date__c IS NOT NULL`
+- `lost` — primary signing opp has `StageName = 'Closed Lost'` AND `advisor_join_date__c IS NULL`
+- `in_flight` — currently `StageName = 'Signed'`, neither joined nor lost yet
+
 ---
 
 ## Disposition Counts

@@ -34,8 +34,8 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid record ID' }, { status: 400 });
     }
 
-    // Validate ID format (00Q for Lead, 006 for Opportunity)
-    if (!id.startsWith('00Q') && !id.startsWith('006')) {
+    // Validate ID format (00Q for Lead, 006 for Opportunity, 003 for Contact)
+    if (!id.startsWith('00Q') && !id.startsWith('006') && !id.startsWith('003')) {
       return NextResponse.json({ error: 'Invalid record ID format' }, { status: 400 });
     }
 
@@ -47,8 +47,13 @@ export async function GET(
       return NextResponse.json({ error: 'Record not found' }, { status: 404 });
     }
 
-    // Determine the IDs for the activity query
-    const leadId = record.fullProspectId;
+    // Determine the IDs for the activity query.
+    // Contact-level rows (advisor-grain Joined/Signed drill-downs) carry the Contact id
+    // in record.id. Tasks for that advisor live under WhoId = contactId; team-level
+    // Tasks live under WhatId = opportunityId.
+    const isContactRecord = id.startsWith('003');
+    const leadId = isContactRecord ? null : record.fullProspectId;
+    const contactId = isContactRecord ? record.id : null;
     const opportunityId = record.fullOpportunityId;
     const originRecruitingOppId = record.originRecruitingOppId || null;
     const isReEngagement = record.prospectSourceType === 'Re-Engagement';
@@ -57,7 +62,8 @@ export async function GET(
       leadId,
       opportunityId,
       originRecruitingOppId,
-      isReEngagement
+      isReEngagement,
+      contactId
     );
 
     return NextResponse.json(result);

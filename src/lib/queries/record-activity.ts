@@ -24,7 +24,8 @@ const _getRecordActivity = async (
   leadId: string | null,
   opportunityId: string | null,
   originRecruitingOppId: string | null,
-  isReEngagement: boolean
+  isReEngagement: boolean,
+  contactId: string | null = null
 ): Promise<{ activities: ActivityRecord[]; totalCount: number }> => {
   // For re-engagement records, the "leadId" is actually the re-engagement opp ID (006 prefix)
   const isReEngagementLead = isReEngagement && leadId?.startsWith('006');
@@ -37,6 +38,7 @@ const _getRecordActivity = async (
   if (opportunityId) params.opportunityId = opportunityId;
   if (reEngagementOppId) params.reEngagementOppId = reEngagementOppId;
   if (originRecruitingOppId) params.originRecruitingOppId = originRecruitingOppId;
+  if (contactId) params.contactId = contactId;
 
   // Build contact bridge CTEs — only include the ones we need
   const contactBridgeCTEs: string[] = [];
@@ -118,6 +120,10 @@ const _getRecordActivity = async (
   if (hasContactBridge) {
     whereConditions.push('c.contact_id IS NOT NULL');
   }
+  if (contactId) {
+    // Direct Contact match for advisor-grain rows (Joined/Signed drill-downs).
+    whereConditions.push('t.WhoId = @contactId');
+  }
   if (opportunityId) {
     whereConditions.push('t.WhatId = @opportunityId');
   }
@@ -137,6 +143,7 @@ const _getRecordActivity = async (
   const linkedTypeCases: string[] = [];
   if (actualLeadId) linkedTypeCases.push("WHEN t.WhoId = @leadId THEN 'Lead'");
   if (hasContactBridge) linkedTypeCases.push("WHEN c.contact_id IS NOT NULL THEN 'Contact'");
+  if (contactId) linkedTypeCases.push("WHEN t.WhoId = @contactId THEN 'Contact'");
   if (opportunityId) linkedTypeCases.push("WHEN t.WhatId = @opportunityId THEN 'Opportunity'");
   if (reEngagementOppId) linkedTypeCases.push("WHEN t.WhatId = @reEngagementOppId THEN 'Re-Engagement Opp'");
   if (originRecruitingOppId) linkedTypeCases.push("WHEN t.WhatId = @originRecruitingOppId THEN 'Original Opp'");

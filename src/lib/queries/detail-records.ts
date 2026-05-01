@@ -10,8 +10,19 @@ const _getDetailRecords = async (
   filters: DashboardFilters,
   limit: number = 10000  // Reduced to prevent Next.js cache errors (2MB limit)
 ): Promise<DetailRecord[]> => {
+  // Joined / Signed scorecards count individual advisors (Contacts), not opps.
+  // Their drill-downs need advisor-grain rows so the row count matches the scorecard
+  // and team Accounts (e.g. "Marcado", "Colorado Wealth Group") expand into one row
+  // per advisor instead of one row per Opportunity.
+  if (filters.metricFilter === 'joined') {
+    return getJoinedAdvisorRecords(filters, limit);
+  }
+  if (filters.metricFilter === 'signed') {
+    return getSignedAdvisorRecords(filters, limit);
+  }
+
   const { startDate, endDate } = buildDateRangeFromFilters(filters);
-  
+
   // Extract advancedFilters from filters object
   const advancedFilters = filters.advancedFilters || DEFAULT_ADVANCED_FILTERS;
   
@@ -144,24 +155,8 @@ const _getDetailRecords = async (
       conditions.push('TIMESTAMP(Date_Became_SQO__c) <= TIMESTAMP(@endDate)');
       params.recruitingRecordType = RECRUITING_RECORD_TYPE;
       break;
-    case 'signed':
-      // Signed: Filter by Stage_Entered_Signed__c within date range AND is_primary_opp_record = 1 (deduplicate)
-      dateField = 'Stage_Entered_Signed__c';
-      dateFieldAlias = 'relevant_date';
-      conditions.push('is_primary_opp_record = 1');
-      conditions.push('Stage_Entered_Signed__c IS NOT NULL');
-      conditions.push('TIMESTAMP(Stage_Entered_Signed__c) >= TIMESTAMP(@startDate)');
-      conditions.push('TIMESTAMP(Stage_Entered_Signed__c) <= TIMESTAMP(@endDate)');
-      break;
-    case 'joined':
-      // Joined: Filter by advisor_join_date__c within date range
-      dateField = 'advisor_join_date__c';
-      dateFieldAlias = 'relevant_date';
-      conditions.push('is_joined_unique = 1');
-      conditions.push('advisor_join_date__c IS NOT NULL');
-      conditions.push('DATE(advisor_join_date__c) >= DATE(@startDate)');
-      conditions.push('DATE(advisor_join_date__c) <= DATE(@endDate)');
-      break;
+    // 'joined' and 'signed' are handled by getJoinedAdvisorRecords / getSignedAdvisorRecords
+    // at the top of _getDetailRecords — they don't reach this switch.
     case 'openPipeline':
       // Open Pipeline: No date filter (current state), but filter by stages
       dateField = 'FilterDate'; // Fallback for display
@@ -463,3 +458,213 @@ const _getDetailRecords = async (
 // Note: Not cached because result sets typically exceed Next.js 2MB cache limit
 // The query returns 50,000+ rows (~10MB), which cannot be cached
 export const getDetailRecords = _getDetailRecords;
+
+// Advisor-level drill-down for the Joined scorecard. One row per individual advisor
+// (Contact) on a Joined or Churned Account, filtered by joined_date in range.
+// Honors filters.joinedDisposition (all/current/churned). Many DetailRecord fields
+// are null because Contact-level rows don't have lead-attribution data — the table
+// renderer should tolerate nulls.
+const getJoinedAdvisorRecords = async (
+  filters: DashboardFilters,
+  limit: number
+): Promise<DetailRecord[]> => {
+  const { startDate, endDate } = buildDateRangeFromFilters(filters);
+  const params: Record<string, any> = {
+    startDate,
+    endDate: endDate + ' 23:59:59',
+    limit,
+  };
+  // Alltime preset: include advisors with NULL joined_date (Joined-status advisors
+  // with no joining Opportunity in SFDC — e.g., Michael McCarthy). Specific periods
+  // still require a known date so a NULL-date advisor doesn't appear in every period.
+  const isAlltime = filters.datePreset === 'alltime';
+  const conditions: string[] = isAlltime
+    ? ['(joined_date IS NULL OR (joined_date >= DATE(@startDate) AND joined_date <= DATE(@endDate)))']
+    : ['joined_date IS NOT NULL', 'joined_date >= DATE(@startDate)', 'joined_date <= DATE(@endDate)'];
+  if (filters.joinedDisposition === 'current') conditions.push("account_status = 'Joined'");
+  else if (filters.joinedDisposition === 'churned') conditions.push("account_status = 'Churned'");
+
+  const query = `
+    SELECT
+      contact_id,
+      advisor_name,
+      advisor_title,
+      account_name,
+      account_status,
+      contact_url AS salesforce_url,
+      account_url,
+      opportunity_id,
+      opportunity_url,
+      joined_date,
+      sqo_date,
+      churn_date,
+      churned_to_firm,
+      prior_firm,
+      team_role,
+      fa_crd,
+      months_at_savvy,
+      account_aum,
+      account_total_aum
+    FROM \`savvy-gtm-analytics.Tableau_Views.vw_close_won\`
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY COALESCE(account_total_aum, account_aum) DESC NULLS LAST, advisor_name ASC
+    LIMIT @limit
+  `;
+  const results = await runQuery<any>(query, params);
+  return results.map(r => {
+    const extractDate = (f: any): string | null => {
+      if (!f) return null;
+      if (typeof f === 'string') return f;
+      if (typeof f === 'object' && f.value) return f.value;
+      return null;
+    };
+    const joinedDate = extractDate(r.joined_date);
+    const sqoDate = extractDate(r.sqo_date);
+    const churnDate = extractDate(r.churn_date);
+    const accountStatus = toString(r.account_status);
+    const stage = accountStatus === 'Joined' ? 'Joined' : 'Churned';
+    const aum = toNumber(r.account_total_aum) || toNumber(r.account_aum);
+    return {
+      id: toString(r.contact_id),
+      advisorName: toString(r.advisor_name) || 'Unknown',
+      source: toString(r.account_name) || 'Unknown',
+      channel: toString(r.team_role) || 'Advisor',
+      stage,
+      tofStage: 'Joined',
+      sga: null,
+      sgm: null,
+      campaignId: null,
+      campaignName: null,
+      leadScoreTier: null,
+      aum,
+      aumFormatted: formatCurrency(aum),
+      salesforceUrl: toString(r.salesforce_url) || '',
+      relevantDate: joinedDate || '',
+      contactedDate: null,
+      mqlDate: null,
+      sqlDate: null,
+      sqoDate,
+      joinedDate,
+      signedDate: null,
+      discoveryDate: null,
+      salesProcessDate: null,
+      negotiatingDate: null,
+      onHoldDate: null,
+      closedDate: churnDate,
+      oppCreatedDate: null,
+      daysInCurrentStage: null,
+      initialCallScheduledDate: null,
+      qualificationCallDate: null,
+      isContacted: false,
+      isMql: false,
+      isSql: false,
+      isSqo: false,
+      isJoined: true,
+      isOpenPipeline: false,
+      recordTypeId: null,
+      isPrimaryOppRecord: true,
+      opportunityId: r.opportunity_id ? toString(r.opportunity_id) : null,
+    } as DetailRecord;
+  });
+};
+
+// Advisor-level drill-down for the Signed scorecard. One row per individual advisor
+// on an Account whose primary signing opp had Stage_Entered_Signed__c populated.
+// Honors filters.signedDisposition (all/joined/lost).
+const getSignedAdvisorRecords = async (
+  filters: DashboardFilters,
+  limit: number
+): Promise<DetailRecord[]> => {
+  const { startDate, endDate } = buildDateRangeFromFilters(filters);
+  const params: Record<string, any> = {
+    startDate,
+    endDate: endDate + ' 23:59:59',
+    limit,
+  };
+  const conditions: string[] = [
+    'signed_date IS NOT NULL',
+    'signed_date >= DATE(@startDate)',
+    'signed_date <= DATE(@endDate)',
+  ];
+  if (filters.signedDisposition === 'joined') conditions.push("cohort = 'joined'");
+  else if (filters.signedDisposition === 'lost') conditions.push("cohort = 'lost'");
+
+  const query = `
+    SELECT
+      contact_id,
+      advisor_name,
+      advisor_title,
+      account_name,
+      account_status,
+      contact_url AS salesforce_url,
+      account_url,
+      opportunity_id,
+      opportunity_url,
+      signed_date,
+      joined_date,
+      cohort,
+      opp_stage,
+      team_role,
+      fa_crd,
+      account_aum
+    FROM \`savvy-gtm-analytics.Tableau_Views.vw_signed_advisors\`
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY account_aum DESC NULLS LAST, advisor_name ASC
+    LIMIT @limit
+  `;
+  const results = await runQuery<any>(query, params);
+  return results.map(r => {
+    const extractDate = (f: any): string | null => {
+      if (!f) return null;
+      if (typeof f === 'string') return f;
+      if (typeof f === 'object' && f.value) return f.value;
+      return null;
+    };
+    const signedDate = extractDate(r.signed_date);
+    const joinedDate = extractDate(r.joined_date);
+    const cohort = toString(r.cohort);
+    const stage = toString(r.opp_stage) || 'Signed';
+    const aum = toNumber(r.account_aum);
+    return {
+      id: toString(r.contact_id),
+      advisorName: toString(r.advisor_name) || 'Unknown',
+      source: toString(r.account_name) || 'Unknown',
+      channel: toString(r.team_role) || 'Advisor',
+      stage,
+      tofStage: cohort === 'lost' ? 'Closed Lost' : cohort === 'joined' ? 'Joined' : 'Signed',
+      sga: null,
+      sgm: null,
+      campaignId: null,
+      campaignName: null,
+      leadScoreTier: null,
+      aum,
+      aumFormatted: formatCurrency(aum),
+      salesforceUrl: toString(r.salesforce_url) || '',
+      relevantDate: signedDate || '',
+      contactedDate: null,
+      mqlDate: null,
+      sqlDate: null,
+      sqoDate: null,
+      joinedDate,
+      signedDate,
+      discoveryDate: null,
+      salesProcessDate: null,
+      negotiatingDate: null,
+      onHoldDate: null,
+      closedDate: null,
+      oppCreatedDate: null,
+      daysInCurrentStage: null,
+      initialCallScheduledDate: null,
+      qualificationCallDate: null,
+      isContacted: false,
+      isMql: false,
+      isSql: false,
+      isSqo: false,
+      isJoined: cohort === 'joined',
+      isOpenPipeline: false,
+      recordTypeId: null,
+      isPrimaryOppRecord: true,
+      opportunityId: r.opportunity_id ? toString(r.opportunity_id) : null,
+    } as DetailRecord;
+  });
+};

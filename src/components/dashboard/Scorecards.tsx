@@ -2,7 +2,7 @@
 
 import { Card, Metric, Text, Badge } from '@tremor/react';
 import { FunnelMetricsWithGoals, ForecastGoals } from '@/types/dashboard';
-import { MetricDisposition } from '@/types/filters';
+import { MetricDisposition, JoinedDisposition, SignedDisposition } from '@/types/filters';
 import { formatCurrency, formatNumber, formatAumCompact } from '@/lib/utils/date-helpers';
 import {
   calculateVariance,
@@ -14,6 +14,19 @@ import {
 import { TrendingUp, Users, DollarSign, Package, FileCheck } from 'lucide-react';
 import { OpenPipelineAumTooltip } from './OpenPipelineAumTooltip';
 import { DispositionToggle } from './DispositionToggle';
+import { ScorecardToggle } from './ScorecardToggle';
+
+const JOINED_TOGGLE_OPTIONS: { value: JoinedDisposition; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'current', label: 'Current' },
+  { value: 'churned', label: 'Churned' },
+];
+
+const SIGNED_TOGGLE_OPTIONS: { value: SignedDisposition; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'joined', label: 'Joined' },
+  { value: 'lost', label: 'Lost' },
+];
 
 interface ScorecardsProps {
   metrics: FunnelMetricsWithGoals;
@@ -33,6 +46,10 @@ interface ScorecardsProps {
   onSqlDispositionChange?: (value: MetricDisposition) => void;
   sqoDisposition?: MetricDisposition;
   onSqoDispositionChange?: (value: MetricDisposition) => void;
+  joinedDisposition?: JoinedDisposition;
+  onJoinedDispositionChange?: (value: JoinedDisposition) => void;
+  signedDisposition?: SignedDisposition;
+  onSignedDispositionChange?: (value: SignedDisposition) => void;
 }
 
 // Sub-component for displaying goal variance
@@ -71,8 +88,55 @@ export function Scorecards({
   onSqlDispositionChange,
   sqoDisposition,
   onSqoDispositionChange,
+  joinedDisposition,
+  onJoinedDispositionChange,
+  signedDisposition,
+  onSignedDispositionChange,
 }: ScorecardsProps) {
   const goals = metrics.goals;
+  const joinedView: JoinedDisposition = joinedDisposition || 'all';
+  const signedView: SignedDisposition = signedDisposition || 'all';
+
+  const getJoinedCount = (): number => {
+    switch (joinedView) {
+      case 'current': return metrics.joined_current ?? 0;
+      case 'churned': return metrics.joined_churned ?? 0;
+      default: return metrics.joined_all ?? 0;
+    }
+  };
+  const getJoinedAum = (): number => {
+    switch (joinedView) {
+      case 'current': return metrics.joinedAum_current ?? 0;
+      case 'churned': return metrics.joinedAum_churned ?? 0;
+      default: return metrics.joinedAum_all ?? 0;
+    }
+  };
+  const getSignedCount = (): number => {
+    switch (signedView) {
+      case 'joined': return metrics.signed_joined ?? 0;
+      case 'lost': return metrics.signed_lost ?? 0;
+      default: return metrics.signed_all ?? 0;
+    }
+  };
+  const getSignedAum = (): number => {
+    switch (signedView) {
+      case 'joined': return metrics.signedAum_joined ?? 0;
+      case 'lost': return metrics.signedAum_lost ?? 0;
+      default: return metrics.signedAum_all ?? 0;
+    }
+  };
+  const joinedSubtitle = joinedView === 'churned' ? 'Advisors Churned'
+    : joinedView === 'current' ? 'Advisors Currently at Savvy'
+    : 'Advisors Joined (incl. churned)';
+  const joinedAumSubtitle = joinedView === 'churned' ? 'Underwritten AUM at Join (AUM at churn unknown)'
+    : joinedView === 'current' ? 'Actual AUM Today (Account_Total_AUM__c)'
+    : 'Underwritten AUM at Join';
+  const signedSubtitle = signedView === 'lost' ? 'Signed then Lost'
+    : signedView === 'joined' ? 'Signed and Joined'
+    : 'Signed Advisors (incl. lost)';
+  const signedAumSubtitle = signedView === 'lost' ? 'AUM of Signed-then-Lost Advisors'
+    : signedView === 'joined' ? 'AUM of Signed-and-Joined Advisors'
+    : 'AUM of Signed Advisors';
 
   // Resolve SQL count based on disposition toggle
   const getSqlCount = (): number => {
@@ -202,18 +266,25 @@ export function Scorecards({
             <FileCheck className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
           </div>
           <Metric className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatNumber(metrics.signed)}
+            {formatNumber(getSignedCount())}
           </Metric>
           <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Signed Advisors
+            {signedSubtitle}
           </Text>
+          {onSignedDispositionChange && (
+            <ScorecardToggle
+              value={signedView}
+              onChange={onSignedDispositionChange}
+              options={SIGNED_TOGGLE_OPTIONS}
+            />
+          )}
         </Card>
         )}
         {visibleMetrics.signedAum && (
-        <Card 
+        <Card
           className={`p-4 dark:bg-gray-800 dark:border-gray-700 ${
-            onMetricClick 
-              ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md' 
+            onMetricClick
+              ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md'
               : ''
           }`}
           onClick={() => onMetricClick?.('signed')}
@@ -223,10 +294,10 @@ export function Scorecards({
             <DollarSign className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
           </div>
           <Metric className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatAumCompact(metrics.signedAum)}
+            {formatAumCompact(getSignedAum())}
           </Metric>
           <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            AUM of Signed Advisors (Underwritten / Amount)
+            {signedAumSubtitle}
           </Text>
         </Card>
         )}
@@ -250,21 +321,28 @@ export function Scorecards({
             <Package className="w-5 h-5 text-purple-500 dark:text-purple-400" />
           </div>
           <Metric className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatNumber(metrics.joined)}
+            {formatNumber(getJoinedCount())}
           </Metric>
           <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Advisors Joined
+            {joinedSubtitle}
           </Text>
-          {goals && goals.joined > 0 && (
-            <GoalDisplay actual={metrics.joined} goal={goals.joined} label="Joined" />
+          {onJoinedDispositionChange && (
+            <ScorecardToggle
+              value={joinedView}
+              onChange={onJoinedDispositionChange}
+              options={JOINED_TOGGLE_OPTIONS}
+            />
+          )}
+          {joinedView === 'all' && goals && goals.joined > 0 && (
+            <GoalDisplay actual={metrics.joined_all} goal={goals.joined} label="Joined" />
           )}
         </Card>
         )}
         {visibleMetrics.joinedAum && (
-        <Card 
+        <Card
           className={`p-4 dark:bg-gray-800 dark:border-gray-700 ${
-            onMetricClick 
-              ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md' 
+            onMetricClick
+              ? 'cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md'
               : ''
           }`}
           onClick={() => onMetricClick?.('joined')}
@@ -274,10 +352,10 @@ export function Scorecards({
             <DollarSign className="w-5 h-5 text-purple-500 dark:text-purple-400" />
           </div>
           <Metric className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatAumCompact(metrics.joinedAum)}
+            {formatAumCompact(getJoinedAum())}
           </Metric>
           <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            AUM of Advisors Joined (Underwritten / Amount)
+            {joinedAumSubtitle}
           </Text>
         </Card>
         )}

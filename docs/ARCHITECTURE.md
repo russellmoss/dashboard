@@ -606,10 +606,10 @@ interface FunnelMetrics {
   mqls: number;
   sqls: number;
   sqos: number;
-  signed: number;
-  signedAum: number;
-  joined: number;
-  joinedAum: number;
+  signed: number;            // opp-level (legacy)
+  signedAum: number;         // opp-level (legacy)
+  joined: number;            // opp-level (legacy)
+  joinedAum: number;         // opp-level (legacy)
   pipelineAum: number;
   openPipelineAum: number;
   // Disposition counts (all / open / lost / converted) for Contacted, MQL, SQL, SQO
@@ -625,10 +625,25 @@ interface FunnelMetrics {
   sqoAum_open: number;
   sqoAum_lost: number;
   sqoAum_converted: number;
+  // Advisor-level Joined metrics (vw_close_won). All/Current/Churned toggle.
+  joined_all: number; joined_current: number; joined_churned: number;
+  joinedAum_all: number;       // Underwritten AUM across all joined accounts in range
+  joinedAum_current: number;   // Account_Total_AUM__c (live actual) for currently-joined
+  joinedAum_churned: number;   // Underwritten AUM at join (Account_Total_AUM__c is NULL post-churn)
+  // Advisor-level Signed metrics (vw_signed_advisors). All/Joined/Lost toggle.
+  signed_all: number; signed_joined: number; signed_lost: number;
+  signedAum_all: number; signedAum_joined: number; signedAum_lost: number;
 }
 ```
 
 **SQO scorecard layout** (`src/components/dashboard/Scorecards.tsx`): SQO count, subtitle, DispositionToggle, then a divider and a second `Metric`-sized **SQO AUM** block that switches with the toggle (`getSqoAum()`), then optional GoalDisplay when toggle = "all".
+
+**Joined / Signed scorecard layout** (`src/components/dashboard/Scorecards.tsx` + `ScorecardToggle.tsx`):
+- **Joined card**: All / Current / Churned toggle. Counts individual advisors (Contacts) from `vw_close_won` filtered by `joined_date` in range. Joined AUM card paired below switches with the toggle: All/Churned use Underwritten (deal value at join); Current uses `Account.Account_Total_AUM__c` (live actual book). Goal pill shown only on "All".
+- **Signed card**: All / Joined / Lost toggle. Counts individual advisors from `vw_signed_advisors` filtered by `signed_date` in range. Cohort flag: `joined` = StageName='Joined', `lost` = StageName='Closed Lost', `in_flight` = otherwise (still Signed). All AUMs use Underwritten (deal value at signing).
+- **Drill-downs are advisor-grain**: clicking the card opens a table of one row per individual advisor, not per Opportunity. Team Accounts (Blue Barn, Marcado) expand into their advisor lists. Toggle state is honored — clicking with "Current" toggle filters to currently-joined advisors only.
+- **Alltime preset includes NULL-joined-date advisors** (legitimate Joined Contacts without a joining Opp in SFDC). Specific-period filters still require a known date.
+- **Toggle state types**: `JoinedDisposition = 'all' | 'current' | 'churned'`, `SignedDisposition = 'all' | 'joined' | 'lost'` (`src/types/filters.ts`). State lives in dashboard page, passed to Scorecards and through to drill-down filters via `cleanFilters` in `api-client.ts`.
 
 **Contacted scorecard** (`src/components/dashboard/FullFunnelScorecards.tsx`): Full-funnel view also exposes a DispositionToggle on the Contacted card. Cohort anchor is `is_contacted = 1` with `stage_entered_contacting__c` in the date range. Converted = advanced to MQL (`is_mql = 1`), Lost = never MQL'd and closed (`is_mql = 0 AND lead_closed_date IS NOT NULL`), Open = never MQL'd and still open (`is_mql = 0 AND lead_closed_date IS NULL`). Drill-down (`src/lib/queries/detail-records.ts`) honors the same `metricDisposition` filter.
 
@@ -801,6 +816,11 @@ type MetricFilter = 'all' | 'prospect' | 'contacted' | 'mql' | 'sql' | 'sqo' | '
 ```
 Table Row Click → API: GET /api/dashboard/record-detail/[id] → Modal Display
 ```
+
+**Accepted ID prefixes**:
+- `00Q` (Lead) — looked up by `primary_key` in `vw_funnel_master`
+- `006` (Opportunity) — looked up by `primary_key` in `vw_funnel_master`
+- `003` (Contact) — used by advisor-grain Joined/Signed drill-down rows. Routes to `_getContactRecordDetail()` in `src/lib/queries/record-detail.ts` which joins `Contact + Account + primary signing/joining Opportunity` and shapes the result as `RecordDetailFull`. Lead-level fields (channel, source, SGA, MQL/SQL dates) are NULL because they don't exist at Contact grain. The `/activity` sub-route also accepts `003` IDs and queries Tasks via `WhoId = contactId` plus `WhatId = opportunityId` (so multi-advisor team members see the team-level activity timeline).
 
 **Modal Sections**:
 1. **Header**: Advisor name, stage badge, Salesforce links

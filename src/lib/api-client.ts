@@ -254,6 +254,8 @@ function cleanFilters(filters: DashboardFilters): DashboardFilters {
     campaignId: filters.campaignId,
     metricFilter: filters.metricFilter,
     metricDisposition: filters.metricDisposition,
+    joinedDisposition: filters.joinedDisposition,
+    signedDisposition: filters.signedDisposition,
   };
   
   // Safely merge advancedFilters with defaults to ensure all nested properties exist

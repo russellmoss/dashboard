@@ -41,8 +41,9 @@ export async function GET(
       );
     }
 
-    // Validate ID format (should start with 00Q for Lead or 006 for Opportunity)
-    if (!id.startsWith('00Q') && !id.startsWith('006')) {
+    // Valid prefixes: 00Q (Lead), 006 (Opportunity), 003 (Contact — advisor-level rows
+    // from the Joined/Signed scorecard drill-downs).
+    if (!id.startsWith('00Q') && !id.startsWith('006') && !id.startsWith('003')) {
       return NextResponse.json(
         { error: 'Invalid record ID format' },
         { status: 400 }
