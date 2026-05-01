@@ -48,6 +48,48 @@ const _getContactRecordDetail = async (
         ) AS rn
       FROM \`savvy-gtm-analytics.SavvyGTMData.Opportunity\` o
       WHERE o.AccountId IS NOT NULL
+    ),
+    contact_lead AS (
+      SELECT
+        v.Full_prospect_id__c AS lead_id,
+        v.Original_source,
+        v.Channel_Grouping_Name,
+        v.SGA_Owner_Name__c,
+        v.SGM_Owner_Name__c,
+        v.Lead_Score_Tier__c,
+        v.Campaign_Id__c,
+        v.Campaign_Name__c,
+        l.ConvertedContactId,
+        ROW_NUMBER() OVER (
+          PARTITION BY l.ConvertedContactId
+          ORDER BY l.CreatedDate ASC
+        ) AS rn
+      FROM \`savvy-gtm-analytics.SavvyGTMData.Lead\` l
+      JOIN \`${FULL_TABLE}\` v ON v.Full_prospect_id__c = l.Id
+      WHERE l.ConvertedContactId = @id
+        AND l.IsConverted = TRUE
+    ),
+    -- Account-level Lead fallback for team members without their own converted Lead.
+    -- Aggregates per-field across ALL converted Leads on the Account so each attribute
+    -- gets the first non-null value (avoids one Lead's NULL SGM masking another's). MAX
+    -- on STRING ignores NULLs and is deterministic.
+    account_lead AS (
+      SELECT
+        c2.AccountId,
+        MAX(v.Full_prospect_id__c) AS lead_id,
+        MAX(v.Original_source) AS Original_source,
+        MAX(v.Channel_Grouping_Name) AS Channel_Grouping_Name,
+        MAX(v.SGA_Owner_Name__c) AS SGA_Owner_Name__c,
+        MAX(v.SGM_Owner_Name__c) AS SGM_Owner_Name__c,
+        MAX(v.Lead_Score_Tier__c) AS Lead_Score_Tier__c,
+        MAX(v.Campaign_Id__c) AS Campaign_Id__c,
+        MAX(v.Campaign_Name__c) AS Campaign_Name__c
+      FROM \`savvy-gtm-analytics.SavvyGTMData.Lead\` l
+      JOIN \`savvy-gtm-analytics.SavvyGTMData.Contact\` c2 ON c2.Id = l.ConvertedContactId
+      JOIN \`${FULL_TABLE}\` v ON v.Full_prospect_id__c = l.Id
+      WHERE l.IsConverted = TRUE
+        AND c2.AccountId IN (SELECT AccountId FROM \`savvy-gtm-analytics.SavvyGTMData.Contact\` WHERE Id = @id)
+      GROUP BY c2.AccountId
     )
     SELECT
       c.Id AS contact_id,
@@ -76,10 +118,21 @@ const _getContactRecordDetail = async (
       o.Amount AS opp_amount,
       o.Closed_Lost_Reason__c,
       o.Closed_Lost_Details__c,
-      o.NextStep
+      o.NextStep,
+      COALESCE(cl.lead_id, al.lead_id) AS lead_id,
+      COALESCE(cl.Original_source, al.Original_source) AS lead_source,
+      COALESCE(cl.Channel_Grouping_Name, al.Channel_Grouping_Name) AS lead_channel,
+      COALESCE(cl.SGA_Owner_Name__c, al.SGA_Owner_Name__c) AS lead_sga,
+      COALESCE(cl.SGM_Owner_Name__c, al.SGM_Owner_Name__c) AS lead_sgm,
+      COALESCE(cl.Lead_Score_Tier__c, al.Lead_Score_Tier__c) AS lead_score_tier,
+      COALESCE(cl.Campaign_Id__c, al.Campaign_Id__c) AS lead_campaign_id,
+      COALESCE(cl.Campaign_Name__c, al.Campaign_Name__c) AS lead_campaign_name,
+      cl.lead_id IS NULL AND al.lead_id IS NOT NULL AS is_team_inherited
     FROM \`savvy-gtm-analytics.SavvyGTMData.Contact\` c
     JOIN \`savvy-gtm-analytics.SavvyGTMData.Account\` a ON a.Id = c.AccountId
     LEFT JOIN ranked_opps o ON o.AccountId = c.AccountId AND o.rn = 1
+    LEFT JOIN contact_lead cl ON cl.ConvertedContactId = c.Id AND cl.rn = 1
+    LEFT JOIN account_lead al ON al.AccountId = c.AccountId
     WHERE c.Id = @id
     LIMIT 1
   `;
@@ -98,22 +151,22 @@ const _getContactRecordDetail = async (
     : 'Open';
   return {
     id: toString(r.contact_id),
-    fullProspectId: null,
+    fullProspectId: r.lead_id ? toString(r.lead_id) : null,
     fullOpportunityId: r.opp_id ? toString(r.opp_id) : null,
     advisorName: toString(r.advisor_name) || 'Unknown',
     recordType: 'Converted',
     recordTypeName: r.Title ? toString(r.Title) : null,
-    source: toString(r.account_name) || 'Unknown',
-    channel: toString(r.Team_Role__c) || 'Advisor',
-    sga: null,
-    sgm: null,
+    source: r.lead_source ? toString(r.lead_source) : (toString(r.account_name) || 'Unknown'),
+    channel: r.lead_channel ? toString(r.lead_channel) : 'Other',
+    sga: r.lead_sga ? toString(r.lead_sga) : null,
+    sgm: r.lead_sgm ? toString(r.lead_sgm) : null,
     externalAgency: null,
     nextSteps: null,
     opportunityNextStep: r.NextStep ? toString(r.NextStep) : null,
-    leadScoreTier: null,
+    leadScoreTier: r.lead_score_tier ? toString(r.lead_score_tier) : null,
     experimentationTag: null,
-    campaignId: null,
-    campaignName: null,
+    campaignId: r.lead_campaign_id ? toString(r.lead_campaign_id) : null,
+    campaignName: r.lead_campaign_name ? toString(r.lead_campaign_name) : null,
     allCampaigns: null,
     createdDate: null,
     filterDate: null,

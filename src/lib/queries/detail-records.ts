@@ -485,29 +485,52 @@ const getJoinedAdvisorRecords = async (
   else if (filters.joinedDisposition === 'churned') conditions.push("account_status = 'Churned'");
 
   const query = `
+    WITH contact_lead AS (
+      SELECT
+        l.ConvertedContactId AS contact_id,
+        v.Original_source, v.Channel_Grouping_Name, v.SGA_Owner_Name__c, v.SGM_Owner_Name__c,
+        v.Lead_Score_Tier__c, v.Campaign_Id__c, v.Campaign_Name__c,
+        ROW_NUMBER() OVER (PARTITION BY l.ConvertedContactId ORDER BY l.CreatedDate ASC) AS rn
+      FROM \`savvy-gtm-analytics.SavvyGTMData.Lead\` l
+      JOIN \`${FULL_TABLE}\` v ON v.Full_prospect_id__c = l.Id
+      WHERE l.IsConverted = TRUE AND l.ConvertedContactId IS NOT NULL
+    ),
+    -- Team-level Lead fallback: team members without their own Lead inherit attribution
+    -- from the team. Per-field MAX across all converted Leads on the Account so each
+    -- attribute gets the first non-null value (avoids one Lead's NULL SGM masking another's).
+    account_lead AS (
+      SELECT
+        c.AccountId,
+        MAX(v.Original_source) AS Original_source,
+        MAX(v.Channel_Grouping_Name) AS Channel_Grouping_Name,
+        MAX(v.SGA_Owner_Name__c) AS SGA_Owner_Name__c,
+        MAX(v.SGM_Owner_Name__c) AS SGM_Owner_Name__c,
+        MAX(v.Lead_Score_Tier__c) AS Lead_Score_Tier__c,
+        MAX(v.Campaign_Id__c) AS Campaign_Id__c,
+        MAX(v.Campaign_Name__c) AS Campaign_Name__c
+      FROM \`savvy-gtm-analytics.SavvyGTMData.Lead\` l
+      JOIN \`savvy-gtm-analytics.SavvyGTMData.Contact\` c ON c.Id = l.ConvertedContactId
+      JOIN \`${FULL_TABLE}\` v ON v.Full_prospect_id__c = l.Id
+      WHERE l.IsConverted = TRUE
+      GROUP BY c.AccountId
+    )
     SELECT
-      contact_id,
-      advisor_name,
-      advisor_title,
-      account_name,
-      account_status,
-      contact_url AS salesforce_url,
-      account_url,
-      opportunity_id,
-      opportunity_url,
-      joined_date,
-      sqo_date,
-      churn_date,
-      churned_to_firm,
-      prior_firm,
-      team_role,
-      fa_crd,
-      months_at_savvy,
-      account_aum,
-      account_total_aum
-    FROM \`savvy-gtm-analytics.Tableau_Views.vw_close_won\`
-    WHERE ${conditions.join(' AND ')}
-    ORDER BY COALESCE(account_total_aum, account_aum) DESC NULLS LAST, advisor_name ASC
+      cw.contact_id, cw.advisor_name, cw.advisor_title, cw.account_name, cw.account_status,
+      cw.contact_url AS salesforce_url, cw.account_url, cw.opportunity_id, cw.opportunity_url,
+      cw.joined_date, cw.sqo_date, cw.churn_date, cw.churned_to_firm, cw.prior_firm,
+      cw.team_role, cw.fa_crd, cw.months_at_savvy, cw.account_aum, cw.account_total_aum,
+      COALESCE(cl.Original_source, al.Original_source) AS lead_source,
+      COALESCE(cl.Channel_Grouping_Name, al.Channel_Grouping_Name) AS lead_channel,
+      COALESCE(cl.SGA_Owner_Name__c, al.SGA_Owner_Name__c) AS lead_sga,
+      COALESCE(cl.SGM_Owner_Name__c, al.SGM_Owner_Name__c) AS lead_sgm,
+      COALESCE(cl.Lead_Score_Tier__c, al.Lead_Score_Tier__c) AS lead_score_tier,
+      COALESCE(cl.Campaign_Id__c, al.Campaign_Id__c) AS lead_campaign_id,
+      COALESCE(cl.Campaign_Name__c, al.Campaign_Name__c) AS lead_campaign_name
+    FROM \`savvy-gtm-analytics.Tableau_Views.vw_close_won\` cw
+    LEFT JOIN contact_lead cl ON cl.contact_id = cw.contact_id AND cl.rn = 1
+    LEFT JOIN account_lead al ON al.AccountId = cw.account_id
+    WHERE ${conditions.map(c => c.replace(/(^|[^.\w])(joined_date|account_status|account_aum|account_total_aum)/g, '$1cw.$2')).join(' AND ')}
+    ORDER BY COALESCE(cw.account_total_aum, cw.account_aum) DESC NULLS LAST, cw.advisor_name ASC
     LIMIT @limit
   `;
   const results = await runQuery<any>(query, params);
@@ -527,15 +550,15 @@ const getJoinedAdvisorRecords = async (
     return {
       id: toString(r.contact_id),
       advisorName: toString(r.advisor_name) || 'Unknown',
-      source: toString(r.account_name) || 'Unknown',
-      channel: toString(r.team_role) || 'Advisor',
+      source: r.lead_source ? toString(r.lead_source) : (toString(r.account_name) || 'Unknown'),
+      channel: r.lead_channel ? toString(r.lead_channel) : 'Other',
       stage,
       tofStage: 'Joined',
-      sga: null,
-      sgm: null,
-      campaignId: null,
-      campaignName: null,
-      leadScoreTier: null,
+      sga: r.lead_sga ? toString(r.lead_sga) : null,
+      sgm: r.lead_sgm ? toString(r.lead_sgm) : null,
+      campaignId: r.lead_campaign_id ? toString(r.lead_campaign_id) : null,
+      campaignName: r.lead_campaign_name ? toString(r.lead_campaign_name) : null,
+      leadScoreTier: r.lead_score_tier ? toString(r.lead_score_tier) : null,
       aum,
       aumFormatted: formatCurrency(aum),
       salesforceUrl: toString(r.salesforce_url) || '',
@@ -590,26 +613,49 @@ const getSignedAdvisorRecords = async (
   else if (filters.signedDisposition === 'lost') conditions.push("cohort = 'lost'");
 
   const query = `
+    WITH contact_lead AS (
+      SELECT
+        l.ConvertedContactId AS contact_id,
+        v.Original_source, v.Channel_Grouping_Name, v.SGA_Owner_Name__c, v.SGM_Owner_Name__c,
+        v.Lead_Score_Tier__c, v.Campaign_Id__c, v.Campaign_Name__c,
+        ROW_NUMBER() OVER (PARTITION BY l.ConvertedContactId ORDER BY l.CreatedDate ASC) AS rn
+      FROM \`savvy-gtm-analytics.SavvyGTMData.Lead\` l
+      JOIN \`${FULL_TABLE}\` v ON v.Full_prospect_id__c = l.Id
+      WHERE l.IsConverted = TRUE AND l.ConvertedContactId IS NOT NULL
+    ),
+    -- Per-field MAX across all converted Leads on the Account.
+    account_lead AS (
+      SELECT
+        c.AccountId,
+        MAX(v.Original_source) AS Original_source,
+        MAX(v.Channel_Grouping_Name) AS Channel_Grouping_Name,
+        MAX(v.SGA_Owner_Name__c) AS SGA_Owner_Name__c,
+        MAX(v.SGM_Owner_Name__c) AS SGM_Owner_Name__c,
+        MAX(v.Lead_Score_Tier__c) AS Lead_Score_Tier__c,
+        MAX(v.Campaign_Id__c) AS Campaign_Id__c,
+        MAX(v.Campaign_Name__c) AS Campaign_Name__c
+      FROM \`savvy-gtm-analytics.SavvyGTMData.Lead\` l
+      JOIN \`savvy-gtm-analytics.SavvyGTMData.Contact\` c ON c.Id = l.ConvertedContactId
+      JOIN \`${FULL_TABLE}\` v ON v.Full_prospect_id__c = l.Id
+      WHERE l.IsConverted = TRUE
+      GROUP BY c.AccountId
+    )
     SELECT
-      contact_id,
-      advisor_name,
-      advisor_title,
-      account_name,
-      account_status,
-      contact_url AS salesforce_url,
-      account_url,
-      opportunity_id,
-      opportunity_url,
-      signed_date,
-      joined_date,
-      cohort,
-      opp_stage,
-      team_role,
-      fa_crd,
-      account_aum
-    FROM \`savvy-gtm-analytics.Tableau_Views.vw_signed_advisors\`
-    WHERE ${conditions.join(' AND ')}
-    ORDER BY account_aum DESC NULLS LAST, advisor_name ASC
+      sa.contact_id, sa.advisor_name, sa.advisor_title, sa.account_name, sa.account_status,
+      sa.contact_url AS salesforce_url, sa.account_url, sa.opportunity_id, sa.opportunity_url,
+      sa.signed_date, sa.joined_date, sa.cohort, sa.opp_stage, sa.team_role, sa.fa_crd, sa.account_aum,
+      COALESCE(cl.Original_source, al.Original_source) AS lead_source,
+      COALESCE(cl.Channel_Grouping_Name, al.Channel_Grouping_Name) AS lead_channel,
+      COALESCE(cl.SGA_Owner_Name__c, al.SGA_Owner_Name__c) AS lead_sga,
+      COALESCE(cl.SGM_Owner_Name__c, al.SGM_Owner_Name__c) AS lead_sgm,
+      COALESCE(cl.Lead_Score_Tier__c, al.Lead_Score_Tier__c) AS lead_score_tier,
+      COALESCE(cl.Campaign_Id__c, al.Campaign_Id__c) AS lead_campaign_id,
+      COALESCE(cl.Campaign_Name__c, al.Campaign_Name__c) AS lead_campaign_name
+    FROM \`savvy-gtm-analytics.Tableau_Views.vw_signed_advisors\` sa
+    LEFT JOIN contact_lead cl ON cl.contact_id = sa.contact_id AND cl.rn = 1
+    LEFT JOIN account_lead al ON al.AccountId = sa.account_id
+    WHERE ${conditions.map(c => c.replace(/(^|[^.\w])(signed_date|cohort|account_aum)/g, '$1sa.$2')).join(' AND ')}
+    ORDER BY sa.account_aum DESC NULLS LAST, sa.advisor_name ASC
     LIMIT @limit
   `;
   const results = await runQuery<any>(query, params);
@@ -628,15 +674,15 @@ const getSignedAdvisorRecords = async (
     return {
       id: toString(r.contact_id),
       advisorName: toString(r.advisor_name) || 'Unknown',
-      source: toString(r.account_name) || 'Unknown',
-      channel: toString(r.team_role) || 'Advisor',
+      source: r.lead_source ? toString(r.lead_source) : (toString(r.account_name) || 'Unknown'),
+      channel: r.lead_channel ? toString(r.lead_channel) : 'Other',
       stage,
       tofStage: cohort === 'lost' ? 'Closed Lost' : cohort === 'joined' ? 'Joined' : 'Signed',
-      sga: null,
-      sgm: null,
-      campaignId: null,
-      campaignName: null,
-      leadScoreTier: null,
+      sga: r.lead_sga ? toString(r.lead_sga) : null,
+      sgm: r.lead_sgm ? toString(r.lead_sgm) : null,
+      campaignId: r.lead_campaign_id ? toString(r.lead_campaign_id) : null,
+      campaignName: r.lead_campaign_name ? toString(r.lead_campaign_name) : null,
+      leadScoreTier: r.lead_score_tier ? toString(r.lead_score_tier) : null,
       aum,
       aumFormatted: formatCurrency(aum),
       salesforceUrl: toString(r.salesforce_url) || '',
