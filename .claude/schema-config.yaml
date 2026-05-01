@@ -171,31 +171,35 @@ views:
     freshness_notes: "Depends on Opportunity sync (6h) and FinTrx monthly refresh. Not consumed by direct dashboard pages — reporting agents only."
 
   vw_close_won:
-    purpose: "Mirror of vw_lost_to_competition for won deals. One row per licensed advisor (FA_CRD__c populated) on a Savvy Account with Status__c IN ('Joined','Churned'). Shows prior firm before Savvy, SQO/Joined dates, current Savvy status, and — if churned — churn date and destination firm from FinTrx."
-    grain: "One row per advisor Contact with FA_CRD__c, on a Joined or Churned Account"
+    purpose: "Mirror of vw_lost_to_competition for won deals. One row per individual advisor on a Savvy Account with Status__c IN ('Joined','Churned'). Shows prior firm before Savvy, SQO/Joined dates, current Savvy status, and — if churned — churn date and destination firm from FinTrx."
+    grain: "One row per advisor Contact on a Joined or Churned Account, identified by Team_Role__c = 'Advisor' (with FA_CRD__c as a fallback when Team_Role__c is NULL)."
     key_filters:
-      licensed_advisors_only: "Contact.FA_CRD__c IS NOT NULL — excludes ops/support/paraplanners on the same Account"
+      individual_advisors_only: "Contact.Team_Role__c = 'Advisor' OR (Contact.Team_Role__c IS NULL AND Contact.FA_CRD__c IS NOT NULL). Team_Role is the primary signal; CRD is a fallback only when Team_Role hasn't been set. Contacts with Team_Role IN ('Assistant','CSA','Other') are EXCLUDED even if they have a CRD — the role was deliberately set to non-advisor."
       account_status: "Account.Status__c IN ('Joined','Churned') — these are the two states that constitute a closed-won outcome"
     annotated_columns:
+      - name: team_role
+        meaning: "Contact.Team_Role__c — 'Advisor' for advisor rows, NULL for CRD-fallback rows. Never 'Assistant'/'CSA'/'Other' (those are filtered out)."
+      - name: fa_crd
+        meaning: "Contact.FA_CRD__c — the advisor's regulatory CRD. Nullable — Team_Role='Advisor' contacts may have no CRD on file (data hygiene gap). Used to join FinTrx for prior_firm and churned_to_firm enrichment."
       - name: is_still_at_savvy
         meaning: "Boolean — TRUE when account_status = 'Joined', FALSE when 'Churned'."
       - name: prior_firm
-        meaning: "COALESCE(Opportunity.Firm_Name__c on the joining opp, FinTrx latest employment history firm where PREVIOUS_REGISTRATION_COMPANY_NAME != 'Savvy'). NULL only when FinTrx has no record or no prior employment history for the advisor."
+        meaning: "COALESCE(Opportunity.Firm_Name__c on the joining opp, FinTrx latest employment history firm where PREVIOUS_REGISTRATION_COMPANY_NAME != 'Savvy'). NULL when neither source is available (e.g., advisor has no CRD so FinTrx join returns nothing AND opp_firm_name was not captured)."
       - name: prior_firm_source
         meaning: "'Opportunity.Firm_Name__c' | 'FinTrx employment history' | NULL — indicates which source populated prior_firm."
       - name: sqo_date
         meaning: "DATE — Date_Became_SQO__c from the opportunity the advisor joined through."
       - name: joined_date
-        meaning: "DATE — advisor_join_date__c from the opportunity the advisor joined through."
+        meaning: "DATE — advisor_join_date__c from the opportunity the advisor joined through. Shared across all advisors on the same Account (derived from the team's first-ranked Opp, not per individual)."
       - name: churn_date
         meaning: "DATE, nullable — only populated when account_status = 'Churned'. COALESCE(AccountHistory Status__c → 'Churned' timestamp, FinTrx new-firm start date where current_firm != 'Savvy')."
       - name: churned_to_firm
-        meaning: "STRING, nullable — only populated when churned AND FinTrx shows a non-Savvy current firm."
+        meaning: "STRING, nullable — only populated when churned AND FinTrx shows a non-Savvy current firm. Sourced from FinTrx ria_contacts_current.PRIMARY_FIRM_NAME (regulatory current firm per SEC filings, monthly refresh). Requires fa_crd to be populated; advisors with no CRD will have NULL even if churned."
       - name: months_at_savvy
         meaning: "Living metric — DATE_DIFF(churn_date or CURRENT_DATE, joined_date, DAY) / 30.44. For still-at-Savvy advisors, continues growing each day."
     consumers: []
     freshness_notes: "Depends on Contact/Account/Opportunity sync (6h), AccountHistory sync (weekly), and FinTrx monthly refresh."
-    notes: "Opportunity dedup: ranked per AccountId — SQO'd opps preferred, then earliest advisor_join_date__c, then earliest Date_Became_SQO__c. Prior firm fallback to FinTrx handles cases where Firm_Name__c was not captured on the opp. Data coverage gap: a small number of advisors may have NULL prior_firm when FinTrx has no employment history for their CRD (broker-only CRDs, new-to-industry advisors, or stale/incorrect CRDs in SFDC)."
+    notes: "Advisor identification (updated): Team_Role__c = 'Advisor' is the primary signal; FA_CRD__c IS NOT NULL is a fallback only when Team_Role is NULL. This catches advisors whose CRD hasn't been backfilled in SFDC yet (e.g., Brian Boswell). Contacts with Team_Role explicitly set to 'Assistant'/'CSA'/'Other' are excluded, even with a CRD — known edge case: a Team_Role='Other' contact with a real Savvy CRD will be excluded; fix by correcting Team_Role in SFDC. Opportunity dedup: ranked per AccountId — SQO'd opps preferred, then earliest advisor_join_date__c, then earliest Date_Became_SQO__c. Multi-advisor teams share one joined_date/sqo_date from the team's opp — not per-advisor licensing dates. Prior firm fallback to FinTrx handles cases where Firm_Name__c was not captured on the opp. Data coverage gap: advisors without FA_CRD__c will have NULL prior_firm (FinTrx side) and NULL churned_to_firm — these enrichments require a CRD to join FinTrx."
 
   vw_sga_activity_performance:
     purpose: "Joins Salesforce Task records to vw_funnel_master to categorize SGA activities (calls, SMS, email, LinkedIn, meetings) with direction, quality signals, cold call classification, and ramp status."
