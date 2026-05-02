@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>60.0</apiVersion>
+    <description>After-save on Referral__c Create. Updates the prospect Account's open Recruiting Opportunities where Final_Source__c IS NULL to set Final_Source__c = 'Advisor Referral'. The existing 'Marketing: Update Finance View on Opp's Final Source Update' flow will fire in the same transaction (IsChanged filter) and set Finance_View__c = 'Advisor Referral' via the FinalSourceToFinanceViewMapping identity mapping. No-op policy: does not overwrite an already-populated Final_Source__c.</description>
+    <environments>Default</environments>
+    <interviewLabel>Referral: Set Final Source on Open Opps {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>Referral: Set Final Source on Open Opps</label>
+    <processType>AutoLaunchedFlow</processType>
+    <recordUpdates>
+        <name>Update_Open_Recruiting_Opps</name>
+        <label>Update open Recruiting Opps</label>
+        <locationX>176</locationX>
+        <locationY>134</locationY>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>AccountId</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>$Record.Prospect_Account__c</elementReference>
+            </value>
+        </filters>
+        <filters>
+            <field>RecordType.DeveloperName</field>
+            <operator>EqualTo</operator>
+            <value>
+                <stringValue>Recruiting</stringValue>
+            </value>
+        </filters>
+        <filters>
+            <field>IsClosed</field>
+            <operator>EqualTo</operator>
+            <value>
+                <booleanValue>false</booleanValue>
+            </value>
+        </filters>
+        <filters>
+            <field>Final_Source__c</field>
+            <operator>IsNull</operator>
+            <value>
+                <booleanValue>true</booleanValue>
+            </value>
+        </filters>
+        <inputAssignments>
+            <field>Final_Source__c</field>
+            <value>
+                <stringValue>Advisor Referral</stringValue>
+            </value>
+        </inputAssignments>
+        <object>Opportunity</object>
+    </recordUpdates>
+    <start>
+        <locationX>50</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Update_Open_Recruiting_Opps</targetReference>
+        </connector>
+        <object>Referral__c</object>
+        <recordTriggerType>Create</recordTriggerType>
+        <triggerType>RecordAfterSave</triggerType>
+    </start>
+    <status>Active</status>
+</Flow>

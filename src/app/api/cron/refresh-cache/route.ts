@@ -26,16 +26,17 @@ export async function GET(request: NextRequest) {
     revalidateTag(CACHE_TAGS.DASHBOARD);
     revalidateTag(CACHE_TAGS.SGA_HUB);
     revalidateTag(CACHE_TAGS.SGM_HUB);
+    revalidateTag(CACHE_TAGS.BOT_USAGE);
 
     logger.info('[Cron] Scheduled cache refresh', {
-      tags: [CACHE_TAGS.DASHBOARD, CACHE_TAGS.SGA_HUB, CACHE_TAGS.SGM_HUB],
+      tags: [CACHE_TAGS.DASHBOARD, CACHE_TAGS.SGA_HUB, CACHE_TAGS.SGM_HUB, CACHE_TAGS.BOT_USAGE],
       timestamp: new Date().toISOString(),
     });
 
     return NextResponse.json({
       success: true,
       message: 'Cache invalidated successfully',
-      tags: [CACHE_TAGS.DASHBOARD, CACHE_TAGS.SGA_HUB, CACHE_TAGS.SGM_HUB],
+      tags: [CACHE_TAGS.DASHBOARD, CACHE_TAGS.SGA_HUB, CACHE_TAGS.SGM_HUB, CACHE_TAGS.BOT_USAGE],
     });
   } catch (error) {
     logger.error('Error in cron refresh:', error);

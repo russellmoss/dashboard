@@ -1,47 +1,264 @@
-# Triage Results — Phase 3 Attribution Routing Council Feedback
+# Triage Results — Kixie Call Transcription Pipeline
 
-Generated: 2026-04-21
+Generated: 2026-04-27. Council feedback: `council-feedback.md`. Plan: `docs/plans/2026-04-27-001-feat-kixie-call-transcription-pipeline-plan.md`.
 
----
+## Bucket 1 — Apply Autonomously (no human input needed)
 
-## Bucket 1 — Apply Autonomously (15 items)
+These are clear corrections to the plan based on council feedback + lead cross-checks. **Applied to the plan file.** See the plan's `## Refinement Log (Council Triage Output)` section for line-item changes.
 
-| # | Source | Issue | Action |
-|---|---|---|---|
-| C1 | Codex | Export ignores `advancedFilters.sgas` | Thread `advancedFilters` into `getExportDetailRecords`; apply helper. |
-| C2 | Codex | Legacy `filters.sga` branches must be explicitly removed | Rewrite Phase 3 sub-sections to spell out removal per file. |
-| C3 | Codex | Type widening for debug payload | Update Phase 5 to enumerate `FunnelMetrics` type + consumer updates. |
-| C4 | Codex | `NEXT_PUBLIC_ATTRIBUTION_DEBUG` violates fixed env-var contract | Replace with server-side payload + client `!!debug && isAdmin`. |
-| C5 | Codex | Uniqueness check for `vw_lead_primary_sga.lead_id` | Add pre-flight assertion SQL. |
-| C7 | Gemini | Backend `availableCount` anti-pattern | Drop from helper; UI owns collapse. |
-| C8 | Codex | `getConversionTrends` multi-builder threading | Itemize each builder in Phase 3. |
-| C11 | Gemini | Backend role check for debug double-query | Add session role check in Phase 5. |
-| C12 | Codex | `forceMode` introduced in Phase 2 not 5 | Phase ordering fix. |
-| S1 | Codex | Fully qualified backticked view name | Add caller-discipline note. |
-| S2 | Gemini | Optional chaining in UI length check | Update Phase 4 code snippet. |
-| S3 | Codex | Pre-flight schema assertion | Add to Pre-Flight section. |
-| Q4 | brief + council | Orphan silent exclusion | Council agrees with brief default; apply. |
-| Q7 | Codex | Fail-closed on duplicate lead_id | Council recommends fail-closed; apply via pre-flight assertion. |
-| I4 | orchestrator | Integration coverage matrix in Phase 8 | Expand Phase 8 with 4 scenarios. |
+### B1.1 — State machine on `CallTranscript` (replaces freeform `errorState`)
 
----
+**What:** Add `status` enum, `processingStartedAt`, `lastAttemptAt`, `retryCount`, `nextRetryAt`, `lastSuccessfulStage`. Replace "not in table" eligibility logic with retryable-state filter.
 
-## Bucket 2 — Needs Human Input (5 items)
+**Status enum values:** `PENDING | DOWNLOADING | TRANSCRIBING | GENERATING_NOTES | COMPLETED | FAILED_RETRYABLE | FAILED_TERMINAL | KIXIE_ARCHIVED | LOW_DURATION_SKIPPED | COST_CAP_SKIPPED | LOW_CONFIDENCE_REVIEW_REQUIRED | HUMAN_APPROVED`
 
-| # | Source | Question |
-|---|---|---|
-| Q1 | Codex + Gemini | In v2, display SGA should be legacy `SGA_Owner_Name__c` (status quo) or `COALESCE(primary_sga_name, legacy)` (matches filter math)? |
-| Q2 | Codex | "All selected" collapse — compare against full option set (23) or visible-after-Active-toggle set (17)? |
-| Q3 | brief + council | ATTRIBUTION_DEBUG panel gating: env-var-only (brief default), admin-role + env-var (council rec), or email allowlist? |
-| Q5 | Gemini | Opp-era fallback for NULL primary_sga_name — accept scope limitation, COALESCE fallback, or gate v2 to lead-era only? |
-| Q6 | Gemini | "22-SGA cliff" — UI warning when unchecking one SGA (under v1) reverts to 39% behavior, or acceptable silent UX? |
+**Why:** Convergence #1, #6 (both reviewers).
 
----
+**How to apply:** Schema additions in plan Unit 1.1 (renumbered after merge). Eligibility logic in plan Unit 2.2 (renumbered).
 
-## Bucket 3 — Note But Don't Apply (3 items)
+### B1.2 — Add `modelId` to schema
 
-| # | Source | Issue | Reason for defer |
-|---|---|---|---|
-| I2 | Gemini | Expose `primary_sga_reason` in UI table | Scope creep; defer to follow-up. |
-| I3 | Gemini | Single-query conditional aggregation for debug | Premature optimization; double-query is clearer initially. |
-| I6 | Gemini | Upstream COALESCE for `lead_is_self_sourced` | Out of scope — brief forbids modifying `vw_funnel_master`. |
+**What:** `modelId String?` (e.g., "claude-sonnet-4-6") on every row.
+
+**Why:** Gemini S12. Anthropic deprecates models; need to know which model produced which notes.
+
+### B1.3 — Speaker identification step in Claude prompt
+
+**What:** Prepend the notes-generation prompt with: *"First, identify which speaker is the SGA (asks recruiting/sales questions, represents Savvy Wealth) and which is the Advisor (answers with their book metrics). Map Speaker A/B to SGA/Advisor before generating notes."*
+
+**Why:** Gemini G3. Without this, an SGA can be credited with $25M AUM if AssemblyAI swaps the labels.
+
+### B1.4 — Numeric-verification post-processor
+
+**What:** New unit. After Claude generates notes, run a verifier that extracts all numbers (regex `\$?\d+(?:[,.]\d+)*\s*(?:[KMB]|million|billion|thousand)?`) from BOTH transcript and notes. Any number in notes absent from transcript flags `status = LOW_CONFIDENCE_REVIEW_REQUIRED` and writes the discrepancy to `errorDetail`.
+
+**Why:** Convergence #2 (both). Prompt-only enforcement of "verbatim numbers" is not safe for financial data.
+
+### B1.5 — `<quotes>` extraction step in prompt
+
+**What:** Force Claude to output an XML `<quotes>` block first containing verbatim sentences from the transcript that mention numbers, then generate the structured note. The structured note must reference numbers that appear in `<quotes>`.
+
+**Why:** Convergence #2 (both). Two-stage output gives the verifier (B1.4) a target to check against.
+
+### B1.6 — `Promise.allSettled` for parallel GCS + AssemblyAI
+
+**What:** Replace `Promise.all` (mentioned in plan Unit 2.7) with `Promise.allSettled`. Persist each leg's outcome separately on the row (`gcsStatus`, `transcriptionStatus`). If GCS fails but AssemblyAI succeeds, set `gcsStatus='FAILED'` and continue (don't reject the call).
+
+**Why:** Codex C10.
+
+### B1.7 — Cost-cap reservation model
+
+**What:** Replace pre-check-then-spend with reserve-spend-reconcile. Use a Postgres transaction: SELECT FOR UPDATE on a daily aggregate row, increment by estimated cost, COMMIT. After call completes, reconcile actual; release unused remainder.
+
+**Why:** Codex C2 (concurrency-unsafe pre-check).
+
+### B1.8 — Don't retry 400s in Claude/AssemblyAI clients
+
+**What:** Build the new transcriber's API clients to retry only 429, 529, and 5xx + transient network errors. Do NOT cargo-cult `analyst-bot/src/claude.ts:71-113` which retries 400.
+
+**Why:** Codex S2.
+
+### B1.9 — Drop the two-step Claude pattern (single call only)
+
+**What:** Replace plan Unit 2.5's two-step (classifier → notes) with a single Claude call. The single call:
+- Includes the speaker-identification step (B1.3)
+- Outputs `<quotes>` block first (B1.5)
+- Outputs JSON-structured fields (callType, sectionContent, etc.) — see B1.13
+- Markdown is rendered from JSON server-side, not generated by Claude as primary output
+
+**Why:** Codex C8. Savings (~$7.80/mo) don't justify added latency, retry surface, engineering cost. Confirm via DQ1.
+
+**Note:** B1.9 is conditional on DQ1 (Bucket 2). If user wants discovery-only deterministic gating, that replaces classification entirely. If user wants every call processed, single combined call.
+
+### B1.10 — Phase 1+2 ship together behind feature flag
+
+**What:** Remove the "Phase 1 ships standalone with empty UI" approach. Restructure: Phase 1+2 merge into a single phase that ships behind `FEATURE_AI_CALL_NOTES` flag. UI does not render Notes section to users until pipeline has produced its first transcript for the relevant lead.
+
+**Why:** Convergence #3 (both). Empty UI = trust debt.
+
+### B1.11 — NEW Phase 0: Compliance & Pre-Flight Gates
+
+**What:** Add a new Phase 0 with formal STOP-AND-CONFIRM gate before any code lands:
+- 0.1 Verify Anthropic Enterprise/ZDR agreement (no model training on prospect data)
+- 0.2 Verify AssemblyAI DPA + zero-retention configuration
+- 0.3 Confirm Kixie call-recording consent + state laws on existing recordings (two-party consent states)
+- 0.4 GCS bucket security policy decision (retention, IAM, UBLA, CMEK)
+- 0.5 Legal/compliance sign-off — formal documented approval before code ships
+
+**Why:** Gemini G1, Codex C6. Cannot ship financial PII to AI vendors without verified agreements.
+
+### B1.12 — GCS bucket security baseline (Unit 2.3 expansion)
+
+**What:** Spec the bucket explicitly: dedicated service account with `storage.objectAdmin` only on this bucket; UBLA enforced; public access prevention enforced; CMEK with Cloud KMS key; lifecycle rule (default delete after N days, configurable per DQ2); audit logging via Cloud Audit Logs.
+
+**Why:** Codex C6. Gating with B1.11 Phase 0 sign-off on the retention period.
+
+### B1.13 — JSON-structured output, markdown rendered from JSON
+
+**What:** Claude generates JSON with explicit fields per section. Server-side renders markdown FROM the JSON for display. Both `notesJson` and `notesMarkdown` persisted; SFDC writeback uses markdown (or plain text via convert per S14).
+
+**Why:** Codex Q8. JSON enables validation, analytics, and selective field updates. Markdown is presentation-only.
+
+### B1.14 — HITL edit affordance in dashboard
+
+**What:** Add `notesMarkdownEdited String? @db.Text`, `humanApprovedAt DateTime?`, `humanApprovedBy String?` columns. Dashboard renders the edited version if present, else the AI version. SFDC writeback uses edited version preferentially. Edit UI: simple textarea with markdown preview (no rich editor in v1).
+
+**Why:** Convergence #4. Default for Phase 3 is now: notes only push to SFDC after `humanApprovedAt IS NOT NULL`.
+
+### B1.15 — SFDC writeback gated behind human approval
+
+**What:** Phase 3 Unit 3.3 changes from "auto-trigger after note generation" to "trigger only when `humanApprovedAt IS NOT NULL`". The dashboard "Approve & Push" button (B1.14) is the trigger.
+
+**Why:** Codex C5, Gemini G5. Auto-pushing AI text to production CRM without human gate is a compliance/trust hole.
+
+### B1.16 — Provenance marker in SFDC field body
+
+**What:** Every note pushed to `AI_Call_Notes__c` must include a footer: `\n\n---\nGenerated by Claude {modelId}, prompt {promptVersion}, {generatedAt}.\nEdited by {humanApprovedBy} at {humanApprovedAt}.`
+
+**Why:** Codex C5.
+
+### B1.17 — Decouple mp3 download from transcription pipeline
+
+**What:** New unit (slot before main pipeline build): one-time mp3 download script that pulls all 2,902 backfill mp3s into GCS NOW, before the transcription pipeline is built. Transcription pipeline reads from GCS, not from Kixie URL.
+
+**Why:** Gemini G4. 18-month archive cliff means delay = data loss.
+
+### B1.18 — Markdown→SFDC field type verification
+
+**What:** Add to Unit 3.1: verify whether `AI_Call_Notes__c` should be Long Text Area (raw markdown looks bad) or Rich Text Area (converted from markdown to HTML). If Long Text Area, convert markdown → plain text with structure preserved before PATCH.
+
+**Why:** Gemini S14.
+
+### B1.19 — Drop `TranscriptionCostDaily` table
+
+**What:** Delete the separate aggregate table from plan Unit 1.1. Replace with indexed SUM query: `SELECT SUM(transcription_cost_cents + COALESCE(notes_cost_cents, 0)) FROM call_transcripts WHERE created_at::date = CURRENT_DATE`. Add index `@@index([createdAt])` on CallTranscript if needed.
+
+**Why:** Gemini I4. Premature optimization.
+
+**Note:** This conflicts with B1.7's reservation model (which needs an atomic counter row). Resolution: keep a small `CostReservation` table with one row per reserved call (row deleted after reconcile), OR use Postgres advisory locks on the SUM query for the reservation step. Pick advisory locks — simpler. Document in refined plan.
+
+### B1.20 — Timezone correction
+
+**What:** Plan says "07:00 UTC = 02:00 EST". Correct to "07:00 UTC = 03:00 EDT (April–November) / 02:00 EST (November–March)". Or set scheduler to `0 7 * * *` UTC and accept the EST/EDT shift.
+
+**Why:** Codex S4.
+
+### B1.21 — Resolve monthly-vs-daily ceiling inconsistency
+
+**What:** Plan requirements mention "monthly spend ceiling" but design only has daily aggregate. Fix: requirements text changes to "daily spend ceiling" (since that's what's implemented). Or add a monthly aggregate.
+
+**Decision:** Use daily only. Update requirements wording.
+
+**Why:** Codex S5.
+
+### B1.22 — Transcript quality fields
+
+**What:** Add to schema: `transcriptConfidence Float?`, `transcriptWordCount Int?`, `transcriptActualDurationSec Int?`. Set status = `LOW_CONFIDENCE_REVIEW_REQUIRED` if confidence < threshold (default 0.7) or word count < N.
+
+**Why:** Codex S8.
+
+### B1.23 — Silence/hold-music handling instruction
+
+**What:** Add to system prompt: *"Ignore extended silence, hold music, automated phone tree menus, or pre-call/post-call dead air. Focus on substantive conversation between the SGA and the Advisor."*
+
+**Why:** Gemini I3 (suggested improvement).
+
+### B1.24 — Don't retry on 400 documented in code-comment
+
+**What:** When implementing the retry helper for the new transcriber, add a code comment explicitly listing retryable-vs-non-retryable status codes. Don't trust future devs to check.
+
+**Why:** Codex S2 robustness.
+
+## Bucket 2 — Needs Human Input (surfaced via AskUserQuestion)
+
+### Q1: Discovery-only or all answered outbound?
+
+**Tradeoff:**
+- **All calls (~$60-100/mo):** Process every answered outbound call. Use Claude classifier (or single combined call per B1.9) to determine if discovery-schema or light-schema applies.
+- **Discovery-only (~$30-50/mo):** Use deterministic pre-filter (call duration > 5min + Subject doesn't match scheduling patterns + owner is on SGA team) to identify likely discovery calls. Skip everything else entirely. Need a sample-classified % of how many calls are actually discovery to validate this.
+
+### Q2: Is GCS retention copy of raw audio required?
+
+**Options:**
+- **Yes, indefinite** — keep all recordings forever. Storage cost ~$13/year per 1000 calls (6MB avg).
+- **Yes, 1 year** — auto-delete after 12 months. Common compliance choice.
+- **Yes, 90 days** — operational only, not retention. Cheapest.
+- **No** — drop the GCS copy entirely. Plan reads from Kixie URL only. Simpler, but lose backup if Kixie 18-month deletion is real.
+
+### Q3: Cloud Run Job vs Cloud Run Service+Tasks?
+
+**Tradeoff:**
+- **Job (current):** Simpler, batch-shaped, mirrors existing analyst-bot deploy pattern, free tier covers volume.
+- **Service+Tasks:** True per-item resumability, retries are queued infrastructure not in-process, observability per-item, but requires Pub/Sub or Cloud Tasks setup, more moving parts.
+
+Codex argues for Service+Tasks because of resumability. Once B1.1 (state machine) is in place, Job becomes more defensible — failed items get picked up next run.
+
+### Q4: SFDC writeback policy?
+
+- **Manual approval only** — every note must be approved by a human in dashboard before pushing to SFDC. Default after refinement (per B1.15).
+- **Auto-write with quality gate** — push automatically if confidence > threshold AND no LOW_CONFIDENCE flag AND no numeric mismatch. Faster but trust risk.
+- **Defer Phase 3 entirely** — ship without writeback, evaluate after 90 days of dashboard-only usage.
+
+### Q5: 9-section schema additions?
+
+- **Add Section 10: Next Steps / Action Items** (Gemini suggestion)
+- **Inline "Unprompted Questions" into Where-to-Dig** (Gemini suggestion)
+- **Keep as-is** — 9 sections, separate Unprompted Questions section
+
+### Q6: HITL edit affordance scope?
+
+- **Full markdown editor** — SGA can edit any section, free-form
+- **Field-by-field structured edit** — each section is its own textarea, harder to introduce drift
+- **Approve-as-is button only** — no editing, just thumbs-up to push
+
+### Q7: <60s skip threshold?
+
+- **Keep 60s** — skip 53% of calls (mostly voicemails)
+- **Skip <30s** — process more, accept some voicemails
+- **Skip <90s** — process fewer, definitely no voicemails
+- **Process all** — no skip, classifier decides
+
+### Q8: Six original /plan questions still need answers
+
+- Min duration (60s default — see Q7)
+- SFDC field name (`AI_Call_Notes__c` default)
+- Daily cost caps ($50 daily / $300 backfill default)
+- Backfill scope (full 18 months default)
+- Cloud Scheduler timing (07:00 UTC default — corrected per B1.20)
+- GCS retention (default per Q2)
+
+## Bucket 3 — Note But Defer
+
+### Deferred to Phase 4+ (not in scope for v1)
+
+- **Prompt regression eval framework** (Promptfoo/Braintrust) — Gemini I2. Real value, but Phase 4+ scope. Ship v1 with snapshot tests on 2-3 canonical transcripts; build eval framework once we have ground-truth data.
+- **"Unmapped Prospects" UI bucket** for the 27% no-funnel-match — Gemini I5. Useful but downstream of having data; defer.
+- **`CallType` and `CallDisposition` Claude inference as separate JSON fields** — Gemini I1. We're already classifying; could add disposition. Marginal value, defer.
+- **Auto-write to SFDC rollout** — defer until 90 days of HITL data shows quality is high enough.
+- **Conflict resolution mechanism (SGA vs SGM vs AI)** — Gemini Q5. Process question, not engineering.
+- **Backup if Anthropic API has multi-hour outage** — accept transient outages; retry + state machine handles it.
+
+### Domain decisions for SGA/SGM team review (not engineering)
+
+- **"Transferable AUM" definition tightness** (Gemini Q1) — prompt iteration
+- **Catalyst/Pain truncation behavior** (Gemini Q4) — prompt iteration
+- **Compensation-deck-pre-shown tracking** (Gemini #1) — schema decision, not architecture
+
+## Plan Refinements Applied
+
+The plan file `docs/plans/2026-04-27-001-feat-kixie-call-transcription-pipeline-plan.md` has a new section appended: `## Refinement Log (Council Triage Output)` listing every Bucket 1 change with reviewer attribution. Key in-place edits:
+
+1. New **Phase 0** added (compliance gates).
+2. **Phase 1 + Phase 2 merged** behind a feature flag.
+3. **Schema spec** in Unit 1.1 expanded (state machine + modelId + quality fields + HITL columns; `TranscriptionCostDaily` removed).
+4. **Two-step Claude** removed from Unit 2.5 (now single combined call with `<quotes>` + speaker mapping).
+5. **Numeric-verification** added as Unit 2.5b.
+6. **`Promise.allSettled`** specified in Unit 2.7.
+7. **Cost-cap reservation model** specified in Unit 2.7.
+8. **Decoupled mp3 download** added as Unit 2.0 (one-time, runs immediately).
+9. **GCS bucket security baseline** expanded in Unit 2.3.
+10. **HITL editing** added to Unit 1.5.
+11. **Phase 3 writeback gated** on `humanApprovedAt`.
+12. **Provenance marker** added to Unit 3.2.
+13. **JWT cert setup** broken out into its own Unit 3.0.
+14. **Risks table** updated with reviewer-flagged items.

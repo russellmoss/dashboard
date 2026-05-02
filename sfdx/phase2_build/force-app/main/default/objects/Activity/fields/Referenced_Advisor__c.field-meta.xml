@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Referenced_Advisor__c</fullName>
+    <description>The joined advisor referenced during this reference call. Lookup filtered to Accounts where Won_Opportunities__c greater than 0 AND RecordType = Standard_Recruiting. NOT required at field level — required only on the Reference Call RT page layout.</description>
+    <externalId>false</externalId>
+    <label>Referenced Advisor</label>
+    <lookupFilter>
+        <active>true</active>
+        <booleanFilter>1 AND 2</booleanFilter>
+        <errorMessage>Referenced Advisor must be a joined advisor (Account with at least one Joined Opportunity).</errorMessage>
+        <filterItems>
+            <field>Account.Won_Opportunities__c</field>
+            <operation>greaterThan</operation>
+            <value>0</value>
+        </filterItems>
+        <filterItems>
+            <field>Account.RecordType.DeveloperName</field>
+            <operation>equals</operation>
+            <value>Standard_Recruiting</value>
+        </filterItems>
+        <isOptional>false</isOptional>
+    </lookupFilter>
+    <referenceTo>Account</referenceTo>
+    <relationshipLabel>Reference Call Tasks</relationshipLabel>
+    <relationshipName>Reference_Call_Tasks</relationshipName>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Lookup</type>
+</CustomField>

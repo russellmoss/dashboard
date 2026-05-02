@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebLink xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Create_Advisor_Notes</fullName>
+    <availability>online</availability>
+    <description>Button to create advisor notes</description>
+    <displayType>button</displayType>
+    <encodingKey>UTF-8</encodingKey>
+    <height>600</height>
+    <linkType>url</linkType>
+    <masterLabel>Create Advisor Notes</masterLabel>
+    <openType>noSidebar</openType>
+    <protected>false</protected>
+    <url>https://hooks.zapier.com/hooks/catch/11734503/3vtosq3/?Object=Lead&amp;Name={!Lead.Name}&amp;Id={!Lead.Full_Prospect_ID__c}&amp;OwnerID={!Lead.OwnerId}</url>
+</WebLink>

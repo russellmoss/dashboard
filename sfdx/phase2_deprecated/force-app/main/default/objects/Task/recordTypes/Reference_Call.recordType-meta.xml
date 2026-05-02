@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RecordType xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Reference_Call</fullName>
+    <active>true</active>
+    <description>Reference Call Task record type. Used when a team member speaks with a joined advisor to get a reference or introduction for a prospect. Surfaces the Task_Reference__c related list for multi-select of referenced advisors. Gated via Reference_Call_Access permission set; not visible on any profile by default.</description>
+    <label>Reference Call</label>
+</RecordType>

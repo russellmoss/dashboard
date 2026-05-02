@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>60.0</apiVersion>
+    <assignments>
+        <name>Assign_Final_Source_And_Finance_View</name>
+        <label>Assign Final Source and Finance View</label>
+        <locationX>176</locationX>
+        <locationY>350</locationY>
+        <assignmentItems>
+            <assignToReference>$Record.Final_Source__c</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <stringValue>Advisor Referral</stringValue>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>$Record.Finance_View__c</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <stringValue>Advisor Referral</stringValue>
+            </value>
+        </assignmentItems>
+    </assignments>
+    <decisions>
+        <name>Does_Account_Have_A_Referral</name>
+        <label>Does Account Have A Referral</label>
+        <locationX>176</locationX>
+        <locationY>242</locationY>
+        <defaultConnectorLabel>No referral</defaultConnectorLabel>
+        <rules>
+            <name>Has_Referral</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>Get_Referral_For_Account.Id</leftValueReference>
+                <operator>IsNull</operator>
+                <rightValue>
+                    <booleanValue>false</booleanValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Assign_Final_Source_And_Finance_View</targetReference>
+            </connector>
+            <label>Has Referral</label>
+        </rules>
+    </decisions>
+    <description>Before-save on Opportunity Create. If Final_Source__c is NULL AND the Opportunity's Account has any Referral__c record, set Final_Source__c = 'Advisor Referral' and Finance_View__c = 'Advisor Referral' (identity mapping per FinalSourceToFinanceViewMapping — verified in production distribution). No-op policy: the entry condition filters to Final_Source__c IS NULL, so a populated Final_Source__c (e.g. from Lead conversion or re-engagement 'Re-Engagement' value) is not overwritten. Flow B explicitly writes Finance_View__c because the existing 'Update Finance View' flows are Update-triggered only and do not fire on Create.</description>
+    <environments>Default</environments>
+    <interviewLabel>Opportunity: Set Final Source on Create When Referral Exists {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>Opportunity: Set Final Source on Create When Referral Exists</label>
+    <processType>AutoLaunchedFlow</processType>
+    <recordLookups>
+        <name>Get_Referral_For_Account</name>
+        <label>Get Referral for Account</label>
+        <locationX>176</locationX>
+        <locationY>134</locationY>
+        <assignNullValuesIfNoRecordsFound>true</assignNullValuesIfNoRecordsFound>
+        <connector>
+            <targetReference>Does_Account_Have_A_Referral</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Prospect_Account__c</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>$Record.AccountId</elementReference>
+            </value>
+        </filters>
+        <getFirstRecordOnly>true</getFirstRecordOnly>
+        <object>Referral__c</object>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </recordLookups>
+    <start>
+        <locationX>50</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Get_Referral_For_Account</targetReference>
+        </connector>
+        <filterFormula>ISBLANK(TEXT({!$Record.Final_Source__c})) &amp;&amp; NOT(ISBLANK(TEXT({!$Record.AccountId})))</filterFormula>
+        <object>Opportunity</object>
+        <recordTriggerType>Create</recordTriggerType>
+        <triggerType>RecordBeforeSave</triggerType>
+    </start>
+    <status>Active</status>
+</Flow>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Prospect_Account__c</fullName>
+    <description>The prospect Account this referral is for. Master side of the master-detail (cascade delete is implicit).</description>
+    <externalId>false</externalId>
+    <label>Prospect Account</label>
+    <referenceTo>Account</referenceTo>
+    <relationshipLabel>Referrals</relationshipLabel>
+    <relationshipName>Referrals</relationshipName>
+    <relationshipOrder>0</relationshipOrder>
+    <reparentableMasterDetail>false</reparentableMasterDetail>
+    <trackTrending>false</trackTrending>
+    <type>MasterDetail</type>
+    <writeRequiresMasterRead>false</writeRequiresMasterRead>
+</CustomField>

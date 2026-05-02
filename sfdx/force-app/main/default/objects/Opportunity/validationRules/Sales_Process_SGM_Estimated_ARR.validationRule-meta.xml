@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Sales_Process_SGM_Estimated_ARR</fullName>
+    <active>true</active>
+    <description>Require the SGM Estimated ARR to be filled out to move Sales Process and beyond.</description>
+    <errorConditionFormula>AND (
+     OR(ISPICKVAL(StageName, &quot;Joined&quot;),
+        ISPICKVAL(StageName, &quot;Signed&quot;),
+        ISPICKVAL(StageName, &quot;Negotiating&quot;),
+        ISPICKVAL(StageName, &quot;Sales Process&quot;)
+     ),
+     ISBLANK( SGM_Estimated_ARR__c  ),
+     OR( ISNEW(), ISCHANGED(StageName) )
+)</errorConditionFormula>
+    <errorDisplayField>SGM_Estimated_ARR__c</errorDisplayField>
+    <errorMessage>The SGM Estimated ARR is required to move this Opportunity to Sales Process or beyond.</errorMessage>
+</ValidationRule>

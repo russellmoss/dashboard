@@ -1,0 +1,96 @@
+
+========== kenji.miyashiro@savvywealth.com ==========
+-- API version --
+   19427  v62.0
+    8564  (other)
+    6850  v50.0
+-- HTTP method --
+   25662  GET
+    8559  (none)
+     317  PATCH
+     303  POST
+-- Source IP --
+    6799  51.178.216.199
+    4060  44.214.195.69
+    3907  44.214.195.75
+    1597  44.214.195.64
+    1578  44.214.195.67
+    1573  44.214.195.73
+    1544  44.214.195.70
+    1318  44.214.195.72
+    1287  44.214.195.66
+    1285  44.214.195.65
+-- Connected app / client --
+   26282  (unknown)
+    8559  HubSpot
+-- Top resources --
+    9696  /v62.0/query
+    5583  /v50.0/query
+    2198  getUpdated
+    2002  query
+    1537  getDeleted
+     913  describeSObject
+     787  describeSObjects
+     641  queryAll
+     207  upsert
+     175  /v50.0/sobjects/EmailMessage
+     125  /v50.0/sobjects/Task
+      98  describeMetadata
+      77  /v50.0/sobjects/User/005VS000006CwUcYAK
+      70  /v50.0/sobjects/User/005Dn000007IYAAIA4
+      66  describeGlobal
+      52  listMetadata
+      51  readMetadata
+      44  /v50.0/composite/sobjects
+      27  /v62.0/sobjects/Lead/describe
+      25  /v50.0/sobjects/Contact/describe
+
+========== jed.entin+integration@savvywealth.com ==========
+-- API version --
+   30510  v62.0
+     906  (other)
+      74  v63.0
+      16  v58.0
+-- HTTP method --
+   29553  GET
+    1116  PATCH
+     487  POST
+     350  (none)
+-- Source IP --
+    6392  44.214.195.69
+    6139  44.214.195.75
+    2458  44.214.195.70
+    2391  44.214.195.64
+    2324  44.214.195.67
+    2301  44.214.195.73
+    2265  44.214.195.65
+    2184  44.214.195.71
+    2180  44.214.195.72
+    1876  44.214.195.66
+-- Connected app / client --
+   31394  (unknown)
+      74  FINTRX Salesforce Integration
+      24  PandaDoc OAuth2
+      12  000000000009998
+       2  simple-salesforce
+-- Top resources --
+    8585  /v62.0/query
+    3928  /v62.0/sobjects/Lead/describe
+    2944  /v62.0/sobjects/User/describe
+     384  /v62.0/sobjects/User/005VS000006CwUcYAK
+     321  /v62.0/sobjects/Lead
+     268  /v62.0/sobjects/User/005VS000000KWADYA4
+     199  describeSObject
+     170  /v62.0/sobjects/User/005VS000009oQq9YAE
+     157  /v62.0/sobjects/User/005VS000006poVaYAI
+     150  /v62.0/sobjects/User/005VS000008UVplYAG
+     149  describeSObjects
+     100  /v62.0/sobjects/User/005VS000001T4pFYAS
+     100  /v62.0/sobjects/User/005VS000009bvF3YAI
+      87  /v62.0/sobjects/User/005VS000008UWCLYA4
+      43  /v62.0/sobjects/User/005VS0000092JNxYAM
+      42  /64.0/job/
+      41  /v62.0/sobjects/Opportunity/describe
+      26  /v63.0/composite
+      24  /v63.0/query
+      21  /v63.0/limits

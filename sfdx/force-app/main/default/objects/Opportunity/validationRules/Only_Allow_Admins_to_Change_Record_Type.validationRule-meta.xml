@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Only_Allow_Admins_to_Change_Record_Type</fullName>
+    <active>true</active>
+    <description>Only allow system admins to change the record type of a record.</description>
+    <errorConditionFormula>AND(ISCHANGED(RecordTypeId), $Profile.Name &lt;&gt; &quot;System Administrator&quot;)</errorConditionFormula>
+    <errorMessage>You are trying to change the record type of an opportunity. Please contact an administrator.</errorMessage>
+</ValidationRule>

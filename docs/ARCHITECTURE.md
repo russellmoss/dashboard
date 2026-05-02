@@ -313,13 +313,16 @@ Uses Next.js `unstable_cache()` with tag-based invalidation. Chosen over Redis f
 |-----|-------|
 | `dashboard` | Main funnel queries, conversion rates, source performance |
 | `sga-hub` | SGA-specific queries (weekly actuals, quarterly progress) |
+| `sgm-hub` | SGM-specific queries (quota progress, conversions) |
+| `bot-usage` | Savvy Analyst Bot audit log queries (`/api/admin/bot-usage`) |
 
 ### TTL Policy
 
 | Query Type | TTL | Rationale |
 |------------|-----|-----------|
-| Standard queries | 12 hours | Aligns with 6-hour BigQuery sync cycle (2× interval) |
-| Detail records | 6 hours | Large payloads (up to 95k rows) |
+| Standard queries | 4 hours | Aligns with 6-hour BigQuery sync cycle (`DEFAULT_CACHE_TTL = 14400`) |
+| Detail records | 2 hours | Large payloads up to 95k rows (`DETAIL_RECORDS_TTL = 7200`) |
+| Bot usage | 1 hour | Slack bot audit log; admin can also force-refresh manually |
 
 ### Cache Key Generation
 
@@ -777,8 +780,9 @@ const response = await fetch('/api/dashboard/funnel-metrics?channel=Web');
 - `/api/forecast/sqo-targets` - Quarterly SQO AUM targets (get/save)
 
 **Admin Routes**:
-- `/api/admin/refresh-cache` - Manual cache invalidation
+- `/api/admin/refresh-cache` - Manual cache invalidation (revops_admin/admin/manager); invalidates `dashboard`, `sga-hub`, `sgm-hub`, `bot-usage` tags
 - `/api/admin/sga-overview` - Admin SGA overview
+- `/api/admin/bot-usage` - Savvy Analyst Bot audit log (revops_admin only); BigQuery-backed scorecards, time series, paginated Q&A, `?threadId=` for full chronology; cached 1h via `CACHE_TAGS.BOT_USAGE`
 
 **Other Routes**:
 - `/api/agent/query` - AI agent query (Explore feature)
@@ -1266,6 +1270,10 @@ AI-powered natural language query interface for funnel analytics. Users ask ques
 **Status**: ✅ **Live in Production**
 
 **Access**: admin, manager, sgm, sga (not viewer)
+
+**Tabs** (rendered when user has the right role):
+- **Ask** — natural-language query interface (the original Explore feature; visible to everyone with Explore access)
+- **Bot Usage** — Slack analyst-bot audit dashboard (revops_admin only); see `src/app/dashboard/explore/BotUsageClient.tsx`
 
 ### Architecture
 

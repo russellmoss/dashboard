@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Close_Date_Not_In_Past_if_Open</fullName>
+    <active>true</active>
+    <description>The Close Date of the Opportunity cannot be in the past if the opportunity is open</description>
+    <errorConditionFormula>AND(
+    NOT( 
+         OR( ISPICKVAL( StageName , &quot;Joined&quot;),
+             ISPICKVAL( StageName , &quot;Closed Lost&quot;)
+            )
+       ),
+      CloseDate &lt; TODAY() 
+)</errorConditionFormula>
+    <errorDisplayField>CloseDate</errorDisplayField>
+    <errorMessage>The Close Date of the Opportunity cannot be in the past if the Opportunity is open, please set Close Date as advisor&apos;s targeted start date.</errorMessage>
+</ValidationRule>

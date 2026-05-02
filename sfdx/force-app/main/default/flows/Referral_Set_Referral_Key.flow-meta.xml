@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>60.0</apiVersion>
+    <assignments>
+        <name>Set_Referral_Key</name>
+        <label>Set Referral Key</label>
+        <locationX>176</locationX>
+        <locationY>134</locationY>
+        <assignmentItems>
+            <assignToReference>$Record.Referral_Key__c</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Referral_Key_Formula</elementReference>
+            </value>
+        </assignmentItems>
+    </assignments>
+    <description>Before-save: populate Referral_Key__c as Prospect_Account__c + '|' + Referring_Advisor__c. Combined with Unique + External Id on the field, this enforces that the same advisor cannot be recorded as referring the same prospect twice, while still allowing multiple different advisors to refer the same prospect (joint referrals).</description>
+    <environments>Default</environments>
+    <formulas>
+        <name>Referral_Key_Formula</name>
+        <dataType>String</dataType>
+        <expression>{!$Record.Prospect_Account__c} &amp; &apos;|&apos; &amp; {!$Record.Referring_Advisor__c}</expression>
+    </formulas>
+    <interviewLabel>Referral: Set Referral Key {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>Referral: Set Referral Key</label>
+    <processType>AutoLaunchedFlow</processType>
+    <start>
+        <locationX>50</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Set_Referral_Key</targetReference>
+        </connector>
+        <object>Referral__c</object>
+        <recordTriggerType>Create</recordTriggerType>
+        <triggerType>RecordBeforeSave</triggerType>
+    </start>
+    <status>Active</status>
+</Flow>

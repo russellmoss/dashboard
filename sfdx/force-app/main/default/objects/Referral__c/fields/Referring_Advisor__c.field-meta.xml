@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Referring_Advisor__c</fullName>
+    <deleteConstraint>Restrict</deleteConstraint>
+    <description>The joined advisor who referred this prospect. Lookup filtered to Accounts with Won_Opportunities__c greater than zero. Delete protected: cannot delete a joined advisor account while referrals reference it.</description>
+    <externalId>false</externalId>
+    <label>Referring Advisor</label>
+    <lookupFilter>
+        <active>true</active>
+        <booleanFilter>1 AND 2</booleanFilter>
+        <errorMessage>Referring Advisor must be a joined advisor (Account with at least one Joined Opportunity).</errorMessage>
+        <filterItems>
+            <field>Account.Won_Opportunities__c</field>
+            <operation>greaterThan</operation>
+            <value>0</value>
+        </filterItems>
+        <filterItems>
+            <field>Account.RecordType.DeveloperName</field>
+            <operation>equals</operation>
+            <value>Standard_Recruiting</value>
+        </filterItems>
+        <isOptional>false</isOptional>
+    </lookupFilter>
+    <referenceTo>Account</referenceTo>
+    <relationshipLabel>Referrals Made</relationshipLabel>
+    <relationshipName>Referrals_Made</relationshipName>
+    <required>true</required>
+    <trackTrending>false</trackTrending>
+    <type>Lookup</type>
+</CustomField>

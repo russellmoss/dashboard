@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PermissionSetGroup xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>RevOps team PSG for Referral__c management. Contains RevOps PS. Assigned post-deploy to Russell/Kenji/Jed.</description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>Referral RevOps</label>
+    <permissionSets>RevOps</permissionSets>
+    <status>Updated</status>
+</PermissionSetGroup>

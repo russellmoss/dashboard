@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Sales_Process_Firm_Type</fullName>
+    <active>true</active>
+    <description>The Firm Type is required to move the Opportunity into the &quot;Sales Process&quot; stage.</description>
+    <errorConditionFormula>AND (
+     OR(
+        ISPICKVAL(StageName, &quot;Sales Process&quot;),
+        ISPICKVAL(StageName, &quot;Negotiating&quot;),
+        ISPICKVAL(StageName, &quot;Signed&quot;),
+        ISPICKVAL(StageName, &quot;Joined&quot;)
+        )
+        ,ISPICKVAL(Firm_Type__c, &quot;&quot;)
+)</errorConditionFormula>
+    <errorDisplayField>Firm_Type__c</errorDisplayField>
+    <errorMessage>Please enter the Firm Type before moving the Opportunity into Sales Process or Beyond.</errorMessage>
+</ValidationRule>

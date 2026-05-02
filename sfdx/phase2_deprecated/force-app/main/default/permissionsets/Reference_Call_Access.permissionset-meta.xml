@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Grants access to the Reference_Call Task record type and the Log Reference Call global quick action. Day-1 canary: assigned ONLY to russell.moss@savvywealth.com. After 24-hour smoke-test soak, can be assigned to broader team (anyone who logs reference calls). Does NOT grant edit on Referral__c — that is in the separate RevOps permission set.</description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>Reference Call Access</label>
+    <license>Salesforce</license>
+    <recordTypeVisibilities>
+        <recordType>Task.Reference_Call</recordType>
+        <visible>true</visible>
+    </recordTypeVisibilities>
+    <objectPermissions>
+        <allowCreate>true</allowCreate>
+        <allowDelete>false</allowDelete>
+        <allowEdit>true</allowEdit>
+        <allowRead>true</allowRead>
+        <modifyAllRecords>false</modifyAllRecords>
+        <object>Task_Reference__c</object>
+        <viewAllRecords>false</viewAllRecords>
+    </objectPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Task_Reference__c.Task__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Task_Reference__c.Referenced_Advisor__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+</PermissionSet>

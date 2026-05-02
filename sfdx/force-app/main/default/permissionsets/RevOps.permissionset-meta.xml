@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>RevOps authoring of Referral__c. Read/Create/Edit/Delete plus FLS on all fields. Assigned via RevOps PSG.</description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>RevOps</label>
+    <objectPermissions>
+        <allowCreate>false</allowCreate>
+        <allowDelete>false</allowDelete>
+        <allowEdit>false</allowEdit>
+        <allowRead>true</allowRead>
+        <modifyAllRecords>false</modifyAllRecords>
+        <object>Account</object>
+        <viewAllRecords>false</viewAllRecords>
+    </objectPermissions>
+    <objectPermissions>
+        <allowCreate>true</allowCreate>
+        <allowDelete>true</allowDelete>
+        <allowEdit>true</allowEdit>
+        <allowRead>true</allowRead>
+        <modifyAllRecords>false</modifyAllRecords>
+        <object>Referral__c</object>
+        <viewAllRecords>false</viewAllRecords>
+    </objectPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Referral__c.Referral_Date__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Referral__c.Notes__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>Referral__c.Referral_Key__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+</PermissionSet>

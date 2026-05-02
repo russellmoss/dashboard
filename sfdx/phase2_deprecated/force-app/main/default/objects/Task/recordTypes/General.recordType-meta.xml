@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RecordType xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>General</fullName>
+    <active>true</active>
+    <description>Default Task record type. Covers all existing task creation paths (Log a Call, New Task, SGA activity logging). No special behavior. All profiles get this as their default Task RT.</description>
+    <label>General</label>
+</RecordType>

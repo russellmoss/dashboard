@@ -1,12 +1,19 @@
 'use client';
 
-import { useReducer, useCallback } from 'react';
-import { Bot, Sparkles } from 'lucide-react';
+import { useReducer, useCallback, useState } from 'react';
+import { Bot, Sparkles, Activity } from 'lucide-react';
 import { ExploreInput } from '@/components/dashboard/ExploreInput';
 import { ExploreResults } from '@/components/dashboard/ExploreResults';
 import { SuggestedQuestions } from '@/components/dashboard/SuggestedQuestions';
 import { agentApi } from '@/lib/api-client';
 import type { AgentResponse, ConversationMessage } from '@/types/agent';
+import { BotUsageClient } from './BotUsageClient';
+
+interface ExploreClientProps {
+  isRevopsAdmin?: boolean;
+}
+
+type ExploreTab = 'ask' | 'bot-usage';
 
 // =============================================================================
 // STATE MACHINE FOR STREAMING
@@ -109,9 +116,10 @@ const initialState: ExploreState = {
   streamingMessage: null,
 };
 
-export default function ExploreClient() {
+export default function ExploreClient({ isRevopsAdmin = false }: ExploreClientProps) {
   const [state, dispatch] = useReducer(exploreReducer, initialState);
   const { status, question, response, error, conversationHistory, streamingMessage } = state;
+  const [activeTab, setActiveTab] = useState<ExploreTab>('ask');
 
   const isLoading = ['thinking', 'parsing', 'compiling', 'executing'].includes(status);
   const currentQuestion = question || '';
@@ -194,6 +202,44 @@ export default function ExploreClient() {
         </div>
       </div>
 
+      {/* Tabs (revops_admin only sees the Bot Usage tab) */}
+      {isRevopsAdmin && (
+        <div className="border-b border-gray-200 dark:border-gray-700">
+          <nav className="-mb-px flex gap-6" aria-label="Tabs">
+            <button
+              type="button"
+              onClick={() => setActiveTab('ask')}
+              className={`flex items-center gap-2 py-2 px-1 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'ask'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
+              }`}
+            >
+              <Sparkles className="w-4 h-4" />
+              Ask
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('bot-usage')}
+              className={`flex items-center gap-2 py-2 px-1 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'bot-usage'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
+              }`}
+            >
+              <Activity className="w-4 h-4" />
+              Bot Usage
+            </button>
+          </nav>
+        </div>
+      )}
+
+      {/* Bot Usage tab content */}
+      {isRevopsAdmin && activeTab === 'bot-usage' && <BotUsageClient />}
+
+      {/* Ask tab content (default; rendered when no tabs OR tabs show 'ask') */}
+      {(!isRevopsAdmin || activeTab === 'ask') && (
+        <>
       {/* Input Section */}
       <ExploreInput onSubmit={handleSubmit} isLoading={isLoading} />
 
@@ -262,6 +308,8 @@ export default function ExploreClient() {
             ))}
           </div>
         </details>
+      )}
+        </>
       )}
     </div>
   );

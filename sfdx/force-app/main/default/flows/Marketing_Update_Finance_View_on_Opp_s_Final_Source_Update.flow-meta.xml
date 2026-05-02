@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>65.0</apiVersion>
+    <areMetricsLoggedToDataCloud>false</areMetricsLoggedToDataCloud>
+    <assignments>
+        <name>Update_Finance_View</name>
+        <label>Update Finance View</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignmentItems>
+            <assignToReference>$Record.Finance_View__c</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>FinalSourceToFinanceViewMapping</elementReference>
+            </value>
+        </assignmentItems>
+    </assignments>
+    <environments>Default</environments>
+    <formulas>
+        <name>FinalSourceToFinanceViewMapping</name>
+        <dataType>String</dataType>
+        <expression>CASE(
+  TEXT({!$Record.Final_Source__c}),
+
+  /* -----------------------------------
+     MARKETING
+  ----------------------------------- */
+  &quot;Blog&quot;, &quot;Marketing&quot;,
+  &quot;Search&quot;, &quot;Marketing&quot;,
+  &quot;LinkedIn Savvy&quot;, &quot;Marketing&quot;,
+  &quot;LinkedIn Social&quot;, &quot;Marketing&quot;,
+  &quot;Direct Traffic&quot;, &quot;Marketing&quot;,
+  &quot;Google Ads&quot;, &quot;Marketing&quot;,
+  &quot;Meta&quot;, &quot;Marketing&quot;,
+  &quot;LinkedIn Ads&quot;, &quot;Marketing&quot;,
+
+  /* -----------------------------------
+     OUTBOUND + MARKETING
+  ----------------------------------- */
+  &quot;Events&quot;, &quot;Outbound + Marketing&quot;,
+  &quot;Direct Mail&quot;, &quot;Outbound + Marketing&quot;,
+  &quot;Webinar&quot;, &quot;Outbound + Marketing&quot;,
+  &quot;Provided List (Marketing)&quot;, &quot;Outbound + Marketing&quot;,
+
+  /* -----------------------------------
+     OUTBOUND
+  ----------------------------------- */
+  &quot;LinkedIn (Self Sourced)&quot;, &quot;Outbound&quot;,
+&quot;Candidate Referral&quot;, &quot;Outbound&quot;,
+  &quot;Provided List (Lead Scoring)&quot;, &quot;Outbound&quot;,
+  &quot;Fintrx (Self-Sourced)&quot;, &quot;Outbound&quot;,
+  &quot;Candidate Referral&quot;, &quot;Outbound&quot;,
+
+  /* -----------------------------------
+     SAME VALUES
+  ----------------------------------- */
+  &quot;Re-Engagement&quot;, &quot;Re-Engagement&quot;,
+  &quot;Recruitment Firm&quot;, &quot;Recruitment Firm&quot;,
+  &quot;Advisor Referral&quot;, &quot;Advisor Referral&quot;,
+  &quot;Employee Referral&quot;, &quot;Employee Referral&quot;,
+&quot;Job Applications&quot;, &quot;Job Applications&quot;,
+
+  /* -----------------------------------
+     DEPRECATED → MAPPED
+     (Leaving this logic intact)
+  ----------------------------------- */
+  &quot;Partner&quot;, &quot;Recruitment Firm&quot;,
+&quot;Partnerships&quot;, &quot;Recruitment Firm&quot;,
+&quot;Dover&quot;, &quot;Job Applications&quot;,
+&quot;Manatal&quot;, &quot;Job Applications&quot;,
+&quot;Ashby&quot;, &quot;Job Applications&quot;,
+  &quot;Apollo&quot;, &quot;Outbound&quot;,
+  &quot;LinkedIn Lead Gen Form&quot;, &quot;Marketing&quot;,
+  &quot;Advertisement&quot;, &quot;Marketing&quot;,
+  &quot;Reddit&quot;, &quot;Marketing&quot;,
+  &quot;Trade Show&quot;, &quot;Marketing&quot;,
+
+  /* -----------------------------------
+     DEFAULT
+  ----------------------------------- */
+  &quot;Other&quot;
+)</expression>
+    </formulas>
+    <interviewLabel>Marketing: Update Finance View on Opp&apos;s Final Source Update {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>Marketing: Update Finance View on Opp&apos;s Final Source Update</label>
+    <processMetadataValues>
+        <name>BuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>CanvasMode</name>
+        <value>
+            <stringValue>AUTO_LAYOUT_CANVAS</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>OriginBuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processType>AutoLaunchedFlow</processType>
+    <start>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Update_Finance_View</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Final_Source__c</field>
+            <operator>IsChanged</operator>
+            <value>
+                <booleanValue>true</booleanValue>
+            </value>
+        </filters>
+        <object>Opportunity</object>
+        <recordTriggerType>Update</recordTriggerType>
+        <triggerType>RecordBeforeSave</triggerType>
+    </start>
+    <status>Active</status>
+</Flow>

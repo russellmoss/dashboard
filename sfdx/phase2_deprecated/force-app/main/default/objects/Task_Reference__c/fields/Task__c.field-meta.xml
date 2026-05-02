@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Task__c</fullName>
+    <deleteConstraint>SetNull</deleteConstraint>
+    <description>The Task this reference belongs to. Lookup (master-detail to Task is not supported). If the Task is deleted, this reference becomes orphaned (SetNull behavior).</description>
+    <externalId>false</externalId>
+    <label>Task</label>
+    <referenceTo>Task</referenceTo>
+    <relationshipLabel>Referenced Advisors</relationshipLabel>
+    <relationshipName>Task_References</relationshipName>
+    <required>true</required>
+    <trackTrending>false</trackTrending>
+    <type>Lookup</type>
+</CustomField>

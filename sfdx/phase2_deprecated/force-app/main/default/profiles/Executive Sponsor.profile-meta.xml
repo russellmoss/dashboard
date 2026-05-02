@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Profile xmlns="http://soap.sforce.com/2006/04/metadata">
+    <layoutAssignments>
+        <layout>Task-Task Layout</layout>
+        <recordType>Task.General</recordType>
+    </layoutAssignments>
+    <layoutAssignments>
+        <layout>Task-Reference Call Layout</layout>
+        <recordType>Task.Reference_Call</recordType>
+    </layoutAssignments>
+    <recordTypeVisibilities>
+        <default>true</default>
+        <recordType>Task.General</recordType>
+        <visible>true</visible>
+    </recordTypeVisibilities>
+</Profile>

@@ -1,0 +1,148 @@
+Total rows in log: 89,253
+Rows counting against limit: 88,614
+Rows NOT counting (free): 639
+
+=== By USER (all calls) (top 10) ===
+    34841  kenji.miyashiro@savvywealth.com (005Dn000007IYAA)
+    31506  jed.entin+integration@savvywealth.com (005VS000005ahzd)
+     3654  marisa.saucedo@savvywealth.com (005VS000006poVa)
+     3059  ryan.crandall@savvywealth.com (005VS000006CwUc)
+     2763  holly.huffman@savvywealth.com (005VS000008UVpl)
+     1786  brian.ohara@savvywealth.com (005VS000007yUAT)
+     1726  katie.bassford@savvywealth.com (005VS0000092JNx)
+     1699  eleni@savvywealth.com (005VS000000KWAD)
+     1293  kai.jean.simon@savvywealth.com (005VS000009oQrl)
+     1271  jason.ainsworth@savvywealth.com (005VS000008UWCL)
+
+=== By USER (calls that count against limit) (top 10) ===
+    34841  kenji.miyashiro@savvywealth.com (005Dn000007IYAA)
+    31506  jed.entin+integration@savvywealth.com (005VS000005ahzd)
+     3654  marisa.saucedo@savvywealth.com (005VS000006poVa)
+     3059  ryan.crandall@savvywealth.com (005VS000006CwUc)
+     2763  holly.huffman@savvywealth.com (005VS000008UVpl)
+     1786  brian.ohara@savvywealth.com (005VS000007yUAT)
+     1726  katie.bassford@savvywealth.com (005VS0000092JNx)
+     1699  eleni@savvywealth.com (005VS000000KWAD)
+     1293  kai.jean.simon@savvywealth.com (005VS000009oQrl)
+     1271  jason.ainsworth@savvywealth.com (005VS000008UWCL)
+
+=== By CONNECTED APP (all calls) (top 10) ===
+    79940  (unknown)
+     8559  HubSpot
+      220  SfdcApplication/
+      208  SIQ/Activities/DataDelivery
+      145  SfdcInsights
+       74  FINTRX Salesforce Integration
+       37  Salesforce Inspector Reloaded
+       24  PandaDoc OAuth2
+       23  devconsole
+       16  000000000009998
+
+=== By CONNECTED APP (counted) (top 10) ===
+    79658  (unknown)
+     8559  HubSpot
+      220  SfdcApplication/
+       74  FINTRX Salesforce Integration
+       37  Salesforce Inspector Reloaded
+       24  PandaDoc OAuth2
+       23  devconsole
+       12  000000000009998
+        5  Coefficient
+        2  simple-salesforce
+
+=== By CLIENT NAME (top 10) ===
+    80043  (unknown)
+     8559  HubSpot/Connector/
+      220  SfdcApplication/
+      208  SIQ/Activities/DataDelivery
+      145  SfdcInsights
+       37  Salesforce Inspector Reloaded
+       23  devconsole
+       16  000000000009998
+        2  simple-salesforce
+
+=== By CLIENT IP (counted) (top 10) ===
+    11938  44.231.159.114
+    10460  44.214.195.69
+    10052  44.214.195.75
+     6799  51.178.216.199
+     5698  54.84.33.166
+     4005  44.214.195.70
+     3988  44.214.195.64
+     3903  44.214.195.67
+     3876  44.214.195.73
+     3551  44.214.195.65
+
+=== By USER × APP (top 10) ===
+    31394  jed.entin+integration@savvywealth.com (005VS000005ahzd)  ||  (unknown)
+    26282  kenji.miyashiro@savvywealth.com (005Dn000007IYAA)  ||  (unknown)
+     8559  kenji.miyashiro@savvywealth.com (005Dn000007IYAA)  ||  HubSpot
+     3654  marisa.saucedo@savvywealth.com (005VS000006poVa)  ||  (unknown)
+     3059  ryan.crandall@savvywealth.com (005VS000006CwUc)  ||  (unknown)
+     2763  holly.huffman@savvywealth.com (005VS000008UVpl)  ||  (unknown)
+     1786  brian.ohara@savvywealth.com (005VS000007yUAT)  ||  (unknown)
+     1726  katie.bassford@savvywealth.com (005VS0000092JNx)  ||  (unknown)
+     1699  eleni@savvywealth.com (005VS000000KWAD)  ||  (unknown)
+     1293  kai.jean.simon@savvywealth.com (005VS000009oQrl)  ||  (unknown)
+
+=== By API FAMILY (top 10) ===
+    79435  REST
+     9117  SOAP
+      677  BULK_API
+       24  ApexREST
+
+=== By API CLIENT CATEGORY (top 10) ===
+    88972  EXTERNAL_APPLICATION
+      280  UNKNOWN
+        1  SALESFORCE
+
+=== By HTTP METHOD (top 10) ===
+    75540  GET
+     9117  (unknown)
+     2846  POST
+     1739  PATCH
+        9  PUT
+        2  DELETE
+
+=== By API RESOURCE (top 15) ===
+    18285  /v62.0/query
+     7216  /v35.0/query
+     5583  /v50.0/query
+     3964  /v62.0/sobjects/Lead/describe
+     2944  /v62.0/sobjects/User/describe
+     2782  /v52.0/queryAll
+     2530  /v52.0/query
+     2198  getUpdated
+     2002  query
+     1871  /v52.0/search
+     1749  /v33.0/sobjects/task/describe
+     1672  /v35.0/sobjects/Task
+     1537  getDeleted
+     1112  describeSObject
+     1085  /v52.0/sobjects
+
+=== Hourly distribution ===
+  2026-04-21T00:  2964 (##############)
+  2026-04-21T01:  2603 (#############)
+  2026-04-21T02:  2556 (############)
+  2026-04-21T03:  2475 (############)
+  2026-04-21T04:  2357 (###########)
+  2026-04-21T05:  1924 (#########)
+  2026-04-21T06:  2126 (##########)
+  2026-04-21T07:  1735 (########)
+  2026-04-21T08:  1958 (#########)
+  2026-04-21T09:  2181 (##########)
+  2026-04-21T10:  2095 (##########)
+  2026-04-21T11:  2053 (##########)
+  2026-04-21T12:  2015 (##########)
+  2026-04-21T13:  3969 (###################)
+  2026-04-21T14:  5228 (##########################)
+  2026-04-21T15:  6264 (###############################)
+  2026-04-21T16:  4839 (########################)
+  2026-04-21T17:  4903 (########################)
+  2026-04-21T18:  5286 (##########################)
+  2026-04-21T19: 10230 (###################################################)
+  2026-04-21T20:  5498 (###########################)
+  2026-04-21T21:  4612 (#######################)
+  2026-04-21T22:  4003 (####################)
+  2026-04-21T23:  5379 (##########################)

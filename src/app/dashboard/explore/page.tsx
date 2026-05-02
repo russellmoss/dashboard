@@ -32,5 +32,5 @@ export default async function ExplorePage() {
     redirect('/dashboard');
   }
 
-  return <ExploreClient />;
+  return <ExploreClient isRevopsAdmin={permissions.role === 'revops_admin'} />;
 }

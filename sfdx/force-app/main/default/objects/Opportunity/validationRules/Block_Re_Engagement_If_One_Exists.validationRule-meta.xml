@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Block_Re_Engagement_If_One_Exists</fullName>
+    <active>true</active>
+    <description>Prevents creating a duplicate Re-Engagement Opportunity when one is already open for the same Account. Triggered when the Create Re-Engagement checkbox is checked and Open Re-Engagement Opps is greater than 0.</description>
+    <errorConditionFormula>AND(
+  RecordType.DeveloperName = &quot;Recruiting&quot;,
+  ISCHANGED(Create_Re_Engagement__c),
+  Create_Re_Engagement__c = TRUE,
+  Open_Re_Engagement_Opps__c &gt; 0
+)</errorConditionFormula>
+    <errorDisplayField>Create_Re_Engagement__c</errorDisplayField>
+    <errorMessage>A Re-Engagement Opportunity already exists for this advisor. Please check the existing opportunity before creating a new one.</errorMessage>
+</ValidationRule>
