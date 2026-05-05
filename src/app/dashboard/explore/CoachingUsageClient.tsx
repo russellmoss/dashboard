@@ -10,6 +10,20 @@ type AllowedRange = '7d' | '30d' | '90d' | 'all';
 type AllowedSortField = 'call_date' | 'sga_name' | 'sgm_name';
 type AllowedSortDir = 'asc' | 'desc';
 type TriState = 'any' | 'yes' | 'no';
+type RepRoleFilter = 'any' | 'SGA' | 'SGM';
+
+/** Multi-token case-insensitive substring match. "Bre McDan" matches
+ *  "Brennan McDaniel" because every space-separated token appears in the
+ *  target. Empty query → match-all. */
+function fuzzyMatches(target: string | null | undefined, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const t = (target ?? '').toLowerCase();
+  for (const token of q.split(/\s+/)) {
+    if (token && !t.includes(token)) return false;
+  }
+  return true;
+}
 
 // Hardcoded OPPORTUNITY stage list (StageName values from SFDC Recruiting opps).
 // Lead-stage labels (New / Contacted / MQL) are intentionally excluded — the
@@ -62,6 +76,8 @@ interface CoachingUsageDetailRow {
   currentStage: string | null;
   closedLost: boolean;
   sgaName: string | null;
+  /** reps.role for the call's rep — 'SGA' | 'SGM' | 'manager' | 'admin' | null. */
+  repRole: string | null;
   sgmName: string | null;
   source: 'granola' | 'kixie';
   pushedToSfdc: boolean;
@@ -81,6 +97,7 @@ interface CoachingUsageResponse {
     closedLost: TriState;
     stages: string[];
     pushed: TriState;
+    repRole: RepRoleFilter;
   };
   generated_at: string;
 }
@@ -148,6 +165,12 @@ export function CoachingUsageClient() {
   const [filterClosedLost, setFilterClosedLost] = useState<TriState>('any');
   const [filterStages, setFilterStages] = useState<string[]>([]);
   const [filterPushed, setFilterPushed] = useState<TriState>('any');
+  const [filterRepRole, setFilterRepRole] = useState<RepRoleFilter>('any');
+  // Fuzzy name searches — applied client-side so typing is instant. Filtered
+  // before render; never sent to the API (kept out of the URL params to keep
+  // the cache key stable).
+  const [repNameSearch, setRepNameSearch] = useState('');
+  const [advisorNameSearch, setAdvisorNameSearch] = useState('');
   const [data, setData] = useState<CoachingUsageResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -168,6 +191,7 @@ export function CoachingUsageClient() {
         if (filterClosedLost !== 'any') params.set('closedLost', filterClosedLost);
         if (filterStages.length > 0) params.set('stages', filterStages.join(','));
         if (filterPushed !== 'any') params.set('pushed', filterPushed);
+        if (filterRepRole !== 'any') params.set('repRole', filterRepRole);
         const res = await fetch(`/api/admin/coaching-usage?${params.toString()}`);
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -183,7 +207,7 @@ export function CoachingUsageClient() {
     }
     load();
     return () => { cancelled = true; };
-  }, [range, sortBy, sortDir, filterSql, filterSqo, filterClosedLost, filterStages, filterPushed, cacheBuster]);
+  }, [range, sortBy, sortDir, filterSql, filterSqo, filterClosedLost, filterStages, filterPushed, filterRepRole, cacheBuster]);
 
   function toggleStage(stage: string) {
     setFilterStages((prev) =>
@@ -196,13 +220,31 @@ export function CoachingUsageClient() {
     setFilterClosedLost('any');
     setFilterStages([]);
     setFilterPushed('any');
+    setFilterRepRole('any');
+    setRepNameSearch('');
+    setAdvisorNameSearch('');
   }
   const hasActiveFilters =
     filterSql !== 'any'
     || filterSqo !== 'any'
     || filterClosedLost !== 'any'
     || filterStages.length > 0
-    || filterPushed !== 'any';
+    || filterPushed !== 'any'
+    || filterRepRole !== 'any'
+    || repNameSearch.trim() !== ''
+    || advisorNameSearch.trim() !== '';
+
+  // Apply client-side fuzzy filters on top of the server-filtered drill-down.
+  // Server already handled role/funnel-status/stage filters; here we narrow
+  // by name as the user types — instant feedback, no fetch needed.
+  const visibleDrillDown = (data?.drillDown ?? []).filter((row) => {
+    if (!fuzzyMatches(row.sgaName, repNameSearch)) return false;
+    // For advisor: search across the resolved name + the email fallback so
+    // "acme.com" or "Carl" both work.
+    const advisorTarget = `${row.advisorName ?? ''} ${row.advisorEmail ?? ''}`;
+    if (!fuzzyMatches(advisorTarget, advisorNameSearch)) return false;
+    return true;
+  });
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -373,12 +415,58 @@ export function CoachingUsageClient() {
           </select>
         </div>
 
+        {/* Fuzzy name searches — applied client-side so typing is instant. */}
+        <div className="flex flex-wrap items-center gap-3 mb-2 text-xs">
+          <label className="flex items-center gap-1.5">
+            <span className="text-gray-600 dark:text-gray-300 whitespace-nowrap">Rep name:</span>
+            <input
+              type="search"
+              value={repNameSearch}
+              onChange={(e) => setRepNameSearch(e.target.value)}
+              placeholder="e.g. Bre McDaniel"
+              className="px-2 py-1 w-44 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            />
+          </label>
+          <label className="flex items-center gap-1.5">
+            <span className="text-gray-600 dark:text-gray-300 whitespace-nowrap">Advisor name:</span>
+            <input
+              type="search"
+              value={advisorNameSearch}
+              onChange={(e) => setAdvisorNameSearch(e.target.value)}
+              placeholder="e.g. Aaron Dym"
+              className="px-2 py-1 w-44 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            />
+          </label>
+        </div>
+
         {/* Status filters — apply to drill-down only. KPIs/trend stay unfiltered. */}
         <div className="flex flex-wrap items-center gap-3 mb-2 text-xs">
           <TriStateGroup label="SQL'd"        value={filterSql}        onChange={setFilterSql} />
           <TriStateGroup label="SQO'd"        value={filterSqo}        onChange={setFilterSqo} />
           <TriStateGroup label="Closed Lost"  value={filterClosedLost} onChange={setFilterClosedLost} />
           <TriStateGroup label="Pushed to SFDC" value={filterPushed}   onChange={setFilterPushed} />
+          {/* Rep-role segmented (Any / SGA / SGM) — same look as TriStateGroup
+              but with role-shaped labels rather than yes/no. */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-gray-600 dark:text-gray-300 whitespace-nowrap">Rep role:</span>
+            <div className="inline-flex border border-gray-300 dark:border-gray-600 rounded-md overflow-hidden">
+              {(['any','SGA','SGM'] as const).map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => setFilterRepRole(opt)}
+                  className={
+                    'px-2 py-0.5 text-xs transition-colors '
+                    + (filterRepRole === opt
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700')
+                  }
+                >
+                  {opt === 'any' ? 'Any' : opt}
+                </button>
+              ))}
+            </div>
+          </div>
           {hasActiveFilters && (
             <button
               type="button"
@@ -432,12 +520,18 @@ export function CoachingUsageClient() {
               </tr>
             </thead>
             <tbody>
-              {(data?.drillDown ?? []).map(row => {
+              {visibleDrillDown.map(row => {
                 // Advisor cell: name (resolved via SFDC) > first external email with
                 // tooltip listing the rest > "Unknown".
                 const extras = row.advisorEmailExtras ?? [];
                 const tooltip = extras.length > 0 ? `Other invitees:\n${extras.join('\n')}` : undefined;
                 const advisorDisplay = row.advisorName ?? row.advisorEmail ?? 'Unknown';
+                // Role badge styling: SGA = blue, SGM = purple, other = neutral.
+                const role = row.repRole;
+                const roleClass =
+                  role === 'SGA' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200'
+                  : role === 'SGM' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-200'
+                  : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300';
                 return (
                   <tr
                     key={row.callNoteId}
@@ -466,7 +560,14 @@ export function CoachingUsageClient() {
                     >
                       {advisorDisplay}
                     </td>
-                    <td className="py-2 px-2 dark:text-gray-200">{row.sgaName ?? '—'}</td>
+                    <td className="py-2 px-2 dark:text-gray-200">
+                      <span>{row.sgaName ?? '—'}</span>
+                      {role && (
+                        <span className={`ml-1.5 px-1.5 py-0.5 text-xs rounded-full ${roleClass}`}>
+                          {role}
+                        </span>
+                      )}
+                    </td>
                     <td className="py-2 px-2 dark:text-gray-200">{row.sgmName ?? '—'}</td>
                     <td className="py-2 px-2 dark:text-gray-200">{row.source}</td>
                     <td className="py-2 px-2 dark:text-gray-200">{row.didSql ? '✓' : '—'}</td>
@@ -481,9 +582,11 @@ export function CoachingUsageClient() {
               })}
             </tbody>
           </table>
-          {data && data.drillDown.length === 0 && (
+          {data && visibleDrillDown.length === 0 && (
             <Text className="text-center text-gray-500 dark:text-gray-400 py-6">
-              No advisor-facing calls in this range.
+              {data.drillDown.length === 0
+                ? 'No advisor-facing calls in this range.'
+                : 'No calls match the current filters.'}
             </Text>
           )}
         </div>

@@ -240,7 +240,7 @@ describe('GET /api/admin/coaching-usage', () => {
         return Promise.resolve({
           rows: [{
             call_note_id: 'abc', call_date: new Date('2026-04-01T12:00:00Z'),
-            sga_name: null, sgm_name: null, source: 'granola',
+            sga_name: null, rep_role: null, sgm_name: null, source: 'granola',
             sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
             pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
           }],
@@ -274,7 +274,7 @@ describe('GET /api/admin/coaching-usage', () => {
         return Promise.resolve({
           rows: [{
             call_note_id: 'k1', call_date: new Date('2026-04-01T12:00:00Z'),
-            sga_name: 'Eleni S.', sgm_name: null, source: 'kixie',
+            sga_name: 'Eleni S.', rep_role: 'SGA', sgm_name: null, source: 'kixie',
             sfdc_who_id: '00QVS00000NyAk12AF', sfdc_record_type: 'Lead', invitee_emails: null,
             pushed_to_sfdc: true, has_ai_feedback: false, has_manager_edit_eval: false,
           }],
@@ -310,7 +310,7 @@ describe('GET /api/admin/coaching-usage', () => {
         return Promise.resolve({
           rows: [{
             call_note_id: 'g1', call_date: new Date('2026-04-01T12:00:00Z'),
-            sga_name: 'Eleni S.', sgm_name: null, source: 'granola',
+            sga_name: 'Eleni S.', rep_role: 'SGA', sgm_name: null, source: 'granola',
             sfdc_who_id: null, sfdc_record_type: null,
             invitee_emails: ['advisor@acme.com', 'eleni@savvywealth.com'],
             pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
@@ -343,7 +343,7 @@ describe('GET /api/admin/coaching-usage', () => {
         return Promise.resolve({
           rows: [{
             call_note_id: 'g2', call_date: new Date('2026-04-01T12:00:00Z'),
-            sga_name: null, sgm_name: null, source: 'granola',
+            sga_name: null, rep_role: null, sgm_name: null, source: 'granola',
             sfdc_who_id: null, sfdc_record_type: null,
             invitee_emails: ['a@acme.com', 'b@acme.com', 'eleni@savvyadvisors.com'],
             pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
@@ -370,7 +370,7 @@ describe('GET /api/admin/coaching-usage', () => {
         return Promise.resolve({
           rows: [{
             call_note_id: 'k2', call_date: new Date('2026-04-01T12:00:00Z'),
-            sga_name: null, sgm_name: null, source: 'kixie',
+            sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
             sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
             pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
           }],
@@ -394,7 +394,7 @@ describe('GET /api/admin/coaching-usage', () => {
         return Promise.resolve({
           rows: [{
             call_note_id: 's1', call_date: new Date('2026-04-01T12:00:00Z'),
-            sga_name: null, sgm_name: null, source: 'kixie',
+            sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
             sfdc_who_id: 'WHO-MATCHED', sfdc_record_type: 'Lead', invitee_emails: null,
             pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
           }],
@@ -426,7 +426,7 @@ describe('GET /api/admin/coaching-usage', () => {
         return Promise.resolve({
           rows: [{
             call_note_id: 's2', call_date: new Date('2026-04-01T12:00:00Z'),
-            sga_name: null, sgm_name: null, source: 'kixie',
+            sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
             sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
             pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
           }],
@@ -450,10 +450,10 @@ describe('GET /api/admin/coaching-usage', () => {
       if (sql.includes('LIMIT 500')) {
         return Promise.resolve({
           rows: [
-            { call_note_id: 'a', call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, sgm_name: null, source: 'kixie',
+            { call_note_id: 'a', call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, rep_role: 'SGA', sgm_name: null, source: 'kixie',
               sfdc_who_id: 'WHO-A', sfdc_record_type: 'Lead', invitee_emails: null,
               pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
-            { call_note_id: 'b', call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, sgm_name: null, source: 'kixie',
+            { call_note_id: 'b', call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, rep_role: 'SGA', sgm_name: null, source: 'kixie',
               sfdc_who_id: 'WHO-B', sfdc_record_type: 'Lead', invitee_emails: null,
               pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
           ],
@@ -482,13 +482,13 @@ describe('GET /api/admin/coaching-usage', () => {
       if (sql.includes('LIMIT 500')) {
         return Promise.resolve({
           rows: [
-            { call_note_id: 'open',     call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, sgm_name: null, source: 'kixie',
+            { call_note_id: 'open',     call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
               sfdc_who_id: 'OPEN',     sfdc_record_type: 'Lead', invitee_emails: null,
               pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
-            { call_note_id: 'lost',     call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, sgm_name: null, source: 'kixie',
+            { call_note_id: 'lost',     call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
               sfdc_who_id: 'LOST',     sfdc_record_type: 'Lead', invitee_emails: null,
               pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
-            { call_note_id: 'no-sqo',   call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, sgm_name: null, source: 'kixie',
+            { call_note_id: 'no-sqo',   call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
               sfdc_who_id: 'NOSQO',    sfdc_record_type: 'Lead', invitee_emails: null,
               pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
           ],
@@ -517,13 +517,13 @@ describe('GET /api/admin/coaching-usage', () => {
       if (sql.includes('LIMIT 500')) {
         return Promise.resolve({
           rows: [
-            { call_note_id: 'neg',   call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, sgm_name: null, source: 'kixie',
+            { call_note_id: 'neg',   call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
               sfdc_who_id: 'NEG', sfdc_record_type: 'Lead', invitee_emails: null,
               pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
-            { call_note_id: 'disc',  call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, sgm_name: null, source: 'kixie',
+            { call_note_id: 'disc',  call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
               sfdc_who_id: 'DISC', sfdc_record_type: 'Lead', invitee_emails: null,
               pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
-            { call_note_id: 'mql',   call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, sgm_name: null, source: 'kixie',
+            { call_note_id: 'mql',   call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
               sfdc_who_id: 'MQL', sfdc_record_type: 'Lead', invitee_emails: null,
               pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
           ],
@@ -546,6 +546,104 @@ describe('GET /api/admin/coaching-usage', () => {
     expect(body.drillDown.map((r) => r.callNoteId).sort()).toEqual(['disc', 'neg']);
   });
 
+  it('repRole=SGA filter keeps only rows where rep_role=SGA', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
+    mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('LIMIT 500')) {
+        return Promise.resolve({
+          rows: [
+            { call_note_id: 'sga1', call_date: new Date('2026-04-01T12:00:00Z'),
+              sga_name: 'Bre M', rep_role: 'SGA', sgm_name: null, source: 'granola',
+              sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
+              pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
+            { call_note_id: 'sgm1', call_date: new Date('2026-04-01T12:00:00Z'),
+              sga_name: 'David H', rep_role: 'SGM', sgm_name: null, source: 'granola',
+              sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
+              pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
+            { call_note_id: 'admin1', call_date: new Date('2026-04-01T12:00:00Z'),
+              sga_name: 'Russell', rep_role: 'admin', sgm_name: null, source: 'granola',
+              sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
+              pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
+          ],
+          rowCount: 3,
+        });
+      }
+      return defaultMockImpl(sql);
+    });
+    const res = await GET(makeReq('repRole=SGA') as never);
+    const body = await res.json() as { drillDown: Array<{ callNoteId: string; repRole: string|null }>; filters: { repRole: string } };
+    expect(body.filters.repRole).toBe('SGA');
+    expect(body.drillDown.map((r) => r.callNoteId)).toEqual(['sga1']);
+    expect(body.drillDown[0]!.repRole).toBe('SGA');
+  });
+
+  it('repRole=SGM keeps only SGM rows; admin/manager/null are excluded', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
+    mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('LIMIT 500')) {
+        return Promise.resolve({
+          rows: [
+            { call_note_id: 'sga', call_date: new Date('2026-04-01T12:00:00Z'),
+              sga_name: 'A', rep_role: 'SGA', sgm_name: null, source: 'granola',
+              sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
+              pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
+            { call_note_id: 'sgm', call_date: new Date('2026-04-01T12:00:00Z'),
+              sga_name: 'B', rep_role: 'SGM', sgm_name: null, source: 'granola',
+              sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
+              pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
+            { call_note_id: 'unassigned', call_date: new Date('2026-04-01T12:00:00Z'),
+              sga_name: 'C', rep_role: null, sgm_name: null, source: 'granola',
+              sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
+              pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
+          ],
+          rowCount: 3,
+        });
+      }
+      return defaultMockImpl(sql);
+    });
+    const res = await GET(makeReq('repRole=SGM') as never);
+    const body = await res.json() as { drillDown: Array<{ callNoteId: string }> };
+    expect(body.drillDown.map((r) => r.callNoteId)).toEqual(['sgm']);
+  });
+
+  it('repRole=any (default) returns all rows regardless of rep_role', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
+    mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('LIMIT 500')) {
+        return Promise.resolve({
+          rows: [
+            { call_note_id: 'sga', call_date: new Date('2026-04-01T12:00:00Z'),
+              sga_name: 'A', rep_role: 'SGA', sgm_name: null, source: 'granola',
+              sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
+              pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
+            { call_note_id: 'sgm', call_date: new Date('2026-04-01T12:00:00Z'),
+              sga_name: 'B', rep_role: 'SGM', sgm_name: null, source: 'granola',
+              sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
+              pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
+          ],
+          rowCount: 2,
+        });
+      }
+      return defaultMockImpl(sql);
+    });
+    const res = await GET(makeReq() as never);
+    const body = await res.json() as { drillDown: Array<{ callNoteId: string; repRole: string|null }>; filters: { repRole: string } };
+    expect(body.filters.repRole).toBe('any');
+    expect(body.drillDown.map((r) => r.callNoteId).sort()).toEqual(['sga', 'sgm']);
+    expect(body.drillDown[0]!.repRole).toMatch(/^SG[AM]$/);
+  });
+
+  it('drill-down SQL pulls reps.role as rep_role for the role filter + UI badge', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
+    mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
+    await GET(makeReq() as never);
+    const detailSql = mockQuery.mock.calls.map(c => c[0] as string).find(s => s.includes('LIMIT 500')) ?? '';
+    expect(detailSql).toContain('sga.role AS rep_role');
+  });
+
   it('any active filter drops unlinked rows; with no filters all rows are returned', async () => {
     (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
     mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
@@ -555,12 +653,12 @@ describe('GET /api/admin/coaching-usage', () => {
           rows: [
             // Linked row (info returned by resolver below)
             { call_note_id: 'linked', call_date: new Date('2026-04-01T12:00:00Z'),
-              sga_name: null, sgm_name: null, source: 'kixie',
+              sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
               sfdc_who_id: 'LINKED', sfdc_record_type: 'Lead', invitee_emails: null,
               pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
             // Unlinked row — no who_id, no external email
             { call_note_id: 'unlinked', call_date: new Date('2026-04-01T12:00:00Z'),
-              sga_name: null, sgm_name: null, source: 'kixie',
+              sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
               sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
               pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
           ],
@@ -608,18 +706,18 @@ describe('GET /api/admin/coaching-usage', () => {
           rows: [
             // Pushed (linked) — should be dropped by pushed=no
             { call_note_id: 'pushed-linked', call_date: new Date('2026-04-01T12:00:00Z'),
-              sga_name: null, sgm_name: null, source: 'kixie',
+              sga_name: null, rep_role: 'SGA', sgm_name: null, source: 'kixie',
               sfdc_who_id: 'WHO-A', sfdc_record_type: 'Lead', invitee_emails: null,
               pushed_to_sfdc: true, has_ai_feedback: false, has_manager_edit_eval: false },
             // Not pushed (linked) — should be kept
             { call_note_id: 'unpushed-linked', call_date: new Date('2026-04-01T12:00:00Z'),
-              sga_name: null, sgm_name: null, source: 'kixie',
+              sga_name: null, rep_role: 'SGA', sgm_name: null, source: 'kixie',
               sfdc_who_id: 'WHO-B', sfdc_record_type: 'Lead', invitee_emails: null,
               pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
             // Not pushed (UNlinked) — should also be kept (pushed filter does
             // NOT trigger the linkage requirement — it's per-call, not per-advisor)
             { call_note_id: 'unpushed-unlinked', call_date: new Date('2026-04-01T12:00:00Z'),
-              sga_name: null, sgm_name: null, source: 'kixie',
+              sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
               sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
               pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
           ],
@@ -647,13 +745,13 @@ describe('GET /api/admin/coaching-usage', () => {
       if (sql.includes('LIMIT 500')) {
         return Promise.resolve({
           rows: [
-            { call_note_id: 'a', call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, sgm_name: null, source: 'kixie',
+            { call_note_id: 'a', call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
               sfdc_who_id: 'A', sfdc_record_type: 'Lead', invitee_emails: null,
               pushed_to_sfdc: true,  has_ai_feedback: false, has_manager_edit_eval: false },
-            { call_note_id: 'b', call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, sgm_name: null, source: 'kixie',
+            { call_note_id: 'b', call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
               sfdc_who_id: 'B', sfdc_record_type: 'Lead', invitee_emails: null,
               pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
-            { call_note_id: 'c', call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, sgm_name: null, source: 'kixie',
+            { call_note_id: 'c', call_date: new Date('2026-04-01T12:00:00Z'), sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
               sfdc_who_id: 'C', sfdc_record_type: 'Lead', invitee_emails: null,
               pushed_to_sfdc: true,  has_ai_feedback: false, has_manager_edit_eval: false },
           ],
@@ -683,7 +781,7 @@ describe('GET /api/admin/coaching-usage', () => {
         return Promise.resolve({
           rows: [{
             call_note_id: 'k3', call_date: new Date('2026-04-01T12:00:00Z'),
-            sga_name: null, sgm_name: null, source: 'kixie',
+            sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
             sfdc_who_id: '00QVS00000Sensitive', sfdc_record_type: 'Lead',
             invitee_emails: ['secret@example.com'],
             pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,

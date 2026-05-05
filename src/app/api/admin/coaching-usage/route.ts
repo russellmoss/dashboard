@@ -66,6 +66,8 @@ interface DetailRow {
   call_note_id: string;
   call_date: Date;
   sga_name: string | null;
+  /** reps.role for the call's rep — 'SGA' | 'SGM' | 'manager' | 'admin' | null. */
+  rep_role: string | null;
   sgm_name: string | null;
   source: 'granola' | 'kixie';
   pushed_to_sfdc: boolean;
@@ -76,6 +78,16 @@ interface DetailRow {
   sfdc_who_id: string | null;
   sfdc_record_type: string | null;
   invitee_emails: string[] | null;
+}
+
+// Subset of reps.role values we expose as a server-side filter. Other values
+// ('manager' / 'admin') exist but are out-of-scope for the SGA/SGM toggle —
+// they get filtered out automatically when the user selects either.
+type RepRoleFilter = 'any' | 'SGA' | 'SGM';
+const ALLOWED_REP_ROLES: readonly RepRoleFilter[] = ['any', 'SGA', 'SGM'];
+function parseRepRole(raw: string | null): RepRoleFilter {
+  if (raw && (ALLOWED_REP_ROLES as readonly string[]).includes(raw)) return raw as RepRoleFilter;
+  return 'any';
 }
 
 function getInsiderDomains(): string[] {
@@ -115,8 +127,9 @@ const _getCoachingUsageData = async (args: {
   filterClosedLost: TriState;
   filterStages: string[];
   filterPushed: TriState;
+  filterRepRole: RepRoleFilter;
 }) => {
-  const { range, sortBy, sortDir, filterSql, filterSqo, filterClosedLost, filterStages, filterPushed } = args;
+  const { range, sortBy, sortDir, filterSql, filterSqo, filterClosedLost, filterStages, filterPushed, filterRepRole } = args;
   const rangeWhere = RANGE_WHERE[range];
   const orderBy = `${SORT_COL[sortBy]} ${SORT_DIR[sortDir]}`;
   // COACHING_INSIDER_DOMAINS entries are stored as bare domains (e.g. 'acme.com');
@@ -270,6 +283,7 @@ const _getCoachingUsageData = async (args: {
       cn.id AS call_note_id,
       cn.call_started_at AS call_date,
       sga.full_name AS sga_name,
+      sga.role AS rep_role,
       sgm.full_name AS sgm_name,
       cn.source AS source,
       cn.sfdc_who_id AS sfdc_who_id,
@@ -361,7 +375,7 @@ const _getCoachingUsageData = async (args: {
     }),
     drillDown: applyDrillDownFilters(
       await annotateDrillDownWithAdvisor(detailResult.rows),
-      { filterSql, filterSqo, filterClosedLost, filterStages, filterPushed },
+      { filterSql, filterSqo, filterClosedLost, filterStages, filterPushed, filterRepRole },
     ),
     range,
     sortBy,
@@ -372,6 +386,7 @@ const _getCoachingUsageData = async (args: {
       closedLost: filterClosedLost,
       stages: filterStages,
       pushed: filterPushed,
+      repRole: filterRepRole,
     },
     generated_at: new Date().toISOString(),
   };
@@ -395,6 +410,7 @@ function applyDrillDownFilters<T extends {
   closedLost: boolean;
   currentStage: string | null;
   pushedToSfdc: boolean;
+  repRole: string | null;
 }>(
   rows: T[],
   args: {
@@ -403,6 +419,7 @@ function applyDrillDownFilters<T extends {
     filterClosedLost: TriState;
     filterStages: string[];
     filterPushed: TriState;
+    filterRepRole: RepRoleFilter;
   },
 ): T[] {
   const stageSet = new Set(args.filterStages.map((s) => s.toLowerCase()));
@@ -421,6 +438,7 @@ function applyDrillDownFilters<T extends {
       if (!stageSet.has(stage)) return false;
     }
     if (!triMatches(r.pushedToSfdc, args.filterPushed)) return false;
+    if (args.filterRepRole !== 'any' && r.repRole !== args.filterRepRole) return false;
     return true;
   });
 }
@@ -516,6 +534,7 @@ async function annotateDrillDownWithAdvisor(rows: DetailRow[]) {
       currentStage: info?.currentStage ?? null,
       closedLost: info?.closedLost ?? false,
       sgaName: r.sga_name,
+      repRole: r.rep_role,
       sgmName: r.sgm_name,
       source: r.source,
       pushedToSfdc: r.pushed_to_sfdc,
@@ -565,10 +584,11 @@ export async function GET(request: NextRequest) {
     const filterClosedLost = parseTriState(searchParams.get('closedLost'));
     const filterStages = parseStages(searchParams.get('stages'));
     const filterPushed = parseTriState(searchParams.get('pushed'));
+    const filterRepRole = parseRepRole(searchParams.get('repRole'));
 
     const data = await getCoachingUsageData({
       range, sortBy, sortDir,
-      filterSql, filterSqo, filterClosedLost, filterStages, filterPushed,
+      filterSql, filterSqo, filterClosedLost, filterStages, filterPushed, filterRepRole,
     });
     return NextResponse.json(data);
   } catch (error) {
