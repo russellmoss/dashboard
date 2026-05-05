@@ -71,3 +71,47 @@ If a query fails:
 3. Narrow the date range
 4. Remove complex filters
 5. Use the feedback button to report issues
+
+## Coaching Usage
+
+The Coaching Usage tab is visible to RevOps Admins only. It surfaces six rollup
+metrics from the sales-coaching pipeline (a separate Neon DB) over a selectable
+date range (7 days, 30 days, 90 days, or All time).
+
+### Metric definitions
+
+1. **Active coaching users** (census) — `reps` rows where `is_active = true AND is_system = false`.
+   Independent of the date-range selector. Answers "how many seats are provisioned today?"
+2. **Active users in range** (period usage) — distinct `reps` with at least one
+   advisor-facing call within the selected date range. Answers "how many reps actually
+   used the system in this period?" The two together let you see provisioned-vs-engaged
+   without conflating them.
+3. **Total advisor-facing calls** — `call_notes` in range, excluding tombstoned rows
+   and Granola calls with no external attendees. Kixie calls are advisor-facing
+   by upstream filter.
+4. **% pushed to SFDC** — share of in-range advisor-facing calls with at least one
+   `sfdc_write_log` row at `status = 'success'`.
+5. **% with AI Feedback** — share of in-range advisor-facing calls whose evaluation
+   has at least one `ai_feedback` row at `status = 'approved'` and
+   `is_synthetic_test_data = false`.
+6. **% with manager Edit Evaluation** — share of in-range advisor-facing calls whose
+   evaluation has at least one `evaluation_edit_audit_log` row with `edit_source` in
+   (`slack_dm_edit_eval_text`, `slack_dm_edit_eval`). The first is the single-claim
+   direct-text editor; the second is the multi-claim modal flow. Both count as a
+   manager edit. `slack_dm_single_claim` (the AI-Feedback flag flow) is excluded —
+   it's covered by metric #5 (% with AI Feedback) instead.
+7. **Raw note volume** — total `call_notes` in range broken out by source
+   ('granola' / 'kixie'), with no advisor-facing filter applied.
+
+### Date column
+
+The date for both range filtering and the call-date sort is `call_started_at`
+(actual call time), not `created_at` (row insertion time).
+
+### Insider-domain mirror
+
+The advisor-facing CTE excludes attendees on `@savvywealth.com`,
+`@savvyadvisors.com`, `@savvyadvisors.co`, and `*.calendar.google.com`. Per-firm
+joined-advisor domains are appended via the `COACHING_INSIDER_DOMAINS` env var
+(comma-separated) so the Dashboard and the sales-coaching repo can stay in
+lockstep without coupling their `.env` files.

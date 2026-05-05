@@ -315,6 +315,7 @@ Uses Next.js `unstable_cache()` with tag-based invalidation. Chosen over Redis f
 | `sga-hub` | SGA-specific queries (weekly actuals, quarterly progress) |
 | `sgm-hub` | SGM-specific queries (quota progress, conversions) |
 | `bot-usage` | Savvy Analyst Bot audit log queries (`/api/admin/bot-usage`) |
+| `coaching-usage` | Sales-coaching pipeline rollups + drill-down (`/api/admin/coaching-usage`, `/api/admin/coaching-usage/call/[id]`) |
 
 ### TTL Policy
 
@@ -1274,6 +1275,7 @@ AI-powered natural language query interface for funnel analytics. Users ask ques
 **Tabs** (rendered when user has the right role):
 - **Ask** — natural-language query interface (the original Explore feature; visible to everyone with Explore access)
 - **Bot Usage** — Slack analyst-bot audit dashboard (revops_admin only); see `src/app/dashboard/explore/BotUsageClient.tsx`
+- **Coaching Usage** — sales-coaching pipeline rollups + filterable drill-down (revops_admin only). Reads a SECOND Neon DB (the sales-coaching project) via raw `pg` (`src/lib/coachingDb.ts` — first non-Prisma DB helper in the repo); resolves advisor names + funnel status via BigQuery (`src/lib/queries/resolve-advisor-names.ts` joining `SavvyGTMData.Lead` + `Contact` → `Tableau_Views.vw_funnel_master`). Per-call modal with Summary/Notes/Coaching/Transcript tabs at `/api/admin/coaching-usage/call/[id]`. Coaching content dispatches by source: Kixie splits `summary_markdown` on `═══ COACHING ANALYSIS START/END ═══` markers; Granola pulls `evaluations.ai_original` (handles v2/v3/v4 schema versions). See `src/app/dashboard/explore/CoachingUsageClient.tsx` + `CallDetailModal.tsx`.
 
 ### Architecture
 
@@ -1526,6 +1528,9 @@ Query results support drill-down to underlying records:
 | `GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH` | Local | File path to Sheets service account |
 | `GOOGLE_SHEETS_CREDENTIALS_JSON` | Vercel | Single-line JSON of Sheets service account |
 | `ANTHROPIC_API_KEY` | Both | Claude API for Explore feature |
+| `SALES_COACHING_DATABASE_URL` | Both | Sales-coaching Neon DB pooled URL (Coaching Usage tab); falls back when `_UNPOOLED` is unset |
+| `SALES_COACHING_DATABASE_URL_UNPOOLED` | Both | Sales-coaching Neon DB direct URL — preferred for raw `pg` (PgBouncer breaks prepared statements) |
+| `COACHING_INSIDER_DOMAINS` | Both | Optional comma-separated bare domains (e.g. `acme.com,foo.com`) to suppress as internal in the advisor-facing CTE; mirrors sales-coaching's `JOINED_ADVISOR_DOMAINS` |
 
 ### Vercel Configuration
 

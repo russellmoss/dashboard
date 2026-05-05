@@ -13,6 +13,7 @@ export const CACHE_TAGS = {
   SGA_HUB: 'sga-hub',
   SGM_HUB: 'sgm-hub',
   BOT_USAGE: 'bot-usage',
+  COACHING_USAGE: 'coaching-usage',
 } as const;
 
 /**
