@@ -174,16 +174,18 @@ const _getCoachingUsageData = async (args: { range: AllowedRange }) => {
 // are stripped from the response shape — the resolved
 // `advisorName`/`advisorEmail`/`advisorEmailExtras` is the only public surface.
 async function annotateDrillDownWithAdvisor(rows: DetailRow[]) {
-  // Collect the lookup inputs.
+  // Collect every possible lookup input from EVERY row — not just rows where
+  // sfdc_who_id is null. Reason: the primary who_id arm can miss even when
+  // sfdc_who_id is set if the referenced Lead/Contact hasn't sync'd to BQ
+  // yet (Fivetran lag on brand-new SFDC records is the common case). We need
+  // the kixie self-heal and email arms primed so the cascade can fall through
+  // to them; otherwise a same-day call on a fresh Lead/Contact silently
+  // shows the email or 'Unknown' even though either fallback would resolve.
   const whoIds = new Set<string>();
   const externalEmails = new Set<string>();
   const kixieTaskIds = new Set<string>();
   for (const r of rows) {
-    if (r.sfdc_who_id) {
-      whoIds.add(r.sfdc_who_id);
-      continue;
-    }
-    // sfdc_who_id is null — try kixie self-healing first, then email fallback.
+    if (r.sfdc_who_id) whoIds.add(r.sfdc_who_id);
     if (r.source === 'kixie' && r.kixie_task_id) {
       kixieTaskIds.add(r.kixie_task_id);
     }

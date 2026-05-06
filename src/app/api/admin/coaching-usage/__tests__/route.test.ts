@@ -271,7 +271,7 @@ describe('GET /api/admin/coaching-usage', () => {
     });
   });
 
-  it('advisor cascade: kixie self-healing only fires when sfdc_who_id is NULL (whoId wins when present)', async () => {
+  it('advisor cascade: who_id wins when both arms can resolve; all fallback inputs still collected', async () => {
     (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
     mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
     mockQuery.mockImplementation((sql: string) => {
@@ -281,7 +281,7 @@ describe('GET /api/admin/coaching-usage', () => {
             call_note_id: 'k-direct', call_date: new Date('2026-05-06T15:10:52Z'),
             rep_id: 'rep-1', sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
             sfdc_who_id: 'WHO-DIRECT', sfdc_record_type: 'Lead', invitee_emails: null,
-            kixie_task_id: '00TVS00000shouldNotMatter',
+            kixie_task_id: '00TVS00000someTask',
             pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
           }],
           rowCount: 1,
@@ -300,10 +300,63 @@ describe('GET /api/admin/coaching-usage', () => {
     const res = await GET(makeReq() as never);
     const body = await res.json() as { drillDown: Array<{ advisorName: string|null }> };
     expect(body.drillDown[0]!.advisorName).toBe('Direct Match');
-    // The kixie_task_id should NOT have been collected — sfdc_who_id was set.
+    // Fallback inputs are collected unconditionally — the cascade decides
+    // which one wins per row at row-mapping time. This guarantees the kixie
+    // self-heal and email arms have data to fall through to when whoId
+    // misses BQ (e.g. brand-new Lead not yet sync'd from SFDC).
     expect(mockResolveAdvisorNames.mock.calls[0]![0]).toMatchObject({
       whoIds: ['WHO-DIRECT'],
-      kixieTaskIds: [],
+      kixieTaskIds: ['00TVS00000someTask'],
+    });
+  });
+
+  it('advisor cascade: sfdc_who_id set but BQ misses → falls through to email (Fivetran-lag case)', async () => {
+    // Repro of the same-day-Lead case for kixie/Granola alike: the call_note
+    // row was correctly populated with sfdc_who_id at write time, but the
+    // referenced Lead/Contact hasn't sync'd to BQ yet — and the row also
+    // carries an invitee email that does match an existing BQ Lead. The
+    // cascade must fall through to the email arm instead of giving up.
+    (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
+    mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('AS call_note_id')) {
+        return Promise.resolve({
+          rows: [{
+            call_note_id: 'k-rahul', call_date: new Date('2026-05-06T17:40:11Z'),
+            rep_id: 'rep-1', sga_name: 'Perry K.', rep_role: 'SGA', sgm_name: null, source: 'kixie',
+            // sfdc_who_id is set — points at a Contact not yet in BQ.
+            sfdc_who_id: '003VS00000dfJD7YAM', sfdc_record_type: 'Contact',
+            invitee_emails: ['rahul18sarin@gmail.com'],
+            kixie_task_id: '00TVS00000nB7dM2AS',
+            pushed_to_sfdc: true, has_ai_feedback: false, has_manager_edit_eval: false,
+          }],
+          rowCount: 1,
+        });
+      }
+      return defaultMockImpl(sql);
+    });
+    // BQ misses on both who_id (Contact not synced) AND kixie_task_id
+    // (Task.WhoId points at the same not-yet-synced Contact). Email arm hits.
+    mockResolveAdvisorNames.mockResolvedValue({
+      whoIdToInfo: {},
+      emailToUniqueInfo: {
+        'rahul18sarin@gmail.com': {
+          name: 'Rahul Sarin', leadId: '00QVS00000TDJsA2AX', opportunityId: null,
+          didSql: false, didSqo: false, currentStage: null, closedLost: false,
+        },
+      },
+      kixieTaskIdToInfo: {},
+    });
+    const res = await GET(makeReq() as never);
+    const body = await res.json() as { drillDown: Array<{ advisorName: string|null; advisorEmail: string|null; linkedToSfdc: boolean }> };
+    expect(body.drillDown[0]!.advisorName).toBe('Rahul Sarin');
+    expect(body.drillDown[0]!.advisorEmail).toBeNull();
+    expect(body.drillDown[0]!.linkedToSfdc).toBe(true);
+    // Both fallback inputs were collected and made available to the resolver.
+    expect(mockResolveAdvisorNames.mock.calls[0]![0]).toMatchObject({
+      whoIds: ['003VS00000dfJD7YAM'],
+      emails: ['rahul18sarin@gmail.com'],
+      kixieTaskIds: ['00TVS00000nB7dM2AS'],
     });
   });
 
