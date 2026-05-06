@@ -55,6 +55,13 @@ interface DetailRow {
   sfdc_who_id: string | null;
   sfdc_record_type: string | null;
   invitee_emails: string[] | null;
+  /** Kixie-only: the SFDC Task.Id that owns this call's recording. Used as a
+   *  self-healing fallback when sfdc_who_id is NULL — Salesforce often
+   *  associates Task.WhoId minutes-to-hours after the Task is created (and
+   *  BQ sync adds more lag), so the call-transcriber's bake-in of
+   *  sfdc_who_id can land NULL even though the WhoId exists in SFDC now.
+   *  We re-resolve via Task.WhoId at request time. Stripped from response. */
+  kixie_task_id: string | null;
 }
 
 // Day-truncated cutoffs avoid the "calls disappearing mid-shift" effect of a
@@ -99,6 +106,7 @@ const _getCoachingUsageData = async (args: { range: AllowedRange }) => {
       cn.sfdc_who_id AS sfdc_who_id,
       cn.sfdc_record_type AS sfdc_record_type,
       cn.invitee_emails AS invitee_emails,
+      cn.kixie_task_id AS kixie_task_id,
       EXISTS (SELECT 1 FROM sfdc_write_log swl WHERE swl.call_note_id = cn.id AND swl.status = 'success') AS pushed_to_sfdc,
       EXISTS (
         SELECT 1 FROM ai_feedback af
@@ -149,23 +157,37 @@ const _getCoachingUsageData = async (args: { range: AllowedRange }) => {
 //
 // Cascade per row:
 //   1. sfdc_who_id is set → BigQuery resolves Lead/Contact name → use it.
-//   2. sfdc_who_id is null AND row has at least one external invitee_email:
+//   2. (Kixie self-healing) sfdc_who_id is null AND source='kixie' AND
+//      kixie_task_id is set → look up Task.WhoId in BQ → resolve Lead/Contact
+//      name. This recovers calls where the WhoId was associated to the SFDC
+//      Task after the call-transcriber baked sfdc_who_id=NULL into Postgres
+//      (Salesforce association lag + BQ sync lag stack on top of each other,
+//      and Kixie calls have no calendar invitees to fall back on).
+//   3. sfdc_who_id is null AND row has at least one external invitee_email:
 //      a. If exactly ONE of those emails resolves to a unique person in
 //         Lead/Contact → use that name.
 //      b. Otherwise → display the FIRST external email; remaining externals
 //         go in advisorEmailExtras for the client tooltip.
-//   3. None of the above → 'Unknown'.
+//   4. None of the above → 'Unknown'.
 //
-// `sfdc_who_id`, `sfdc_record_type`, and `invitee_emails` are stripped from
-// the response shape — the resolved `advisorName`/`advisorEmail`/`advisorEmailExtras`
-// is the only public surface.
+// `sfdc_who_id`, `sfdc_record_type`, `invitee_emails`, and `kixie_task_id`
+// are stripped from the response shape — the resolved
+// `advisorName`/`advisorEmail`/`advisorEmailExtras` is the only public surface.
 async function annotateDrillDownWithAdvisor(rows: DetailRow[]) {
   // Collect the lookup inputs.
   const whoIds = new Set<string>();
   const externalEmails = new Set<string>();
+  const kixieTaskIds = new Set<string>();
   for (const r of rows) {
-    if (r.sfdc_who_id) whoIds.add(r.sfdc_who_id);
-    if (!r.sfdc_who_id && Array.isArray(r.invitee_emails)) {
+    if (r.sfdc_who_id) {
+      whoIds.add(r.sfdc_who_id);
+      continue;
+    }
+    // sfdc_who_id is null — try kixie self-healing first, then email fallback.
+    if (r.source === 'kixie' && r.kixie_task_id) {
+      kixieTaskIds.add(r.kixie_task_id);
+    }
+    if (Array.isArray(r.invitee_emails)) {
       for (const e of r.invitee_emails) {
         if (typeof e !== 'string') continue;
         const trimmed = e.trim();
@@ -176,10 +198,11 @@ async function annotateDrillDownWithAdvisor(rows: DetailRow[]) {
     }
   }
 
-  // One BigQuery round-trip (skipped entirely when both sets are empty).
-  const { whoIdToInfo, emailToUniqueInfo } = await resolveAdvisorNames({
+  // One BigQuery round-trip (skipped entirely when all sets are empty).
+  const { whoIdToInfo, emailToUniqueInfo, kixieTaskIdToInfo } = await resolveAdvisorNames({
     whoIds: [...whoIds],
     emails: [...externalEmails],
+    kixieTaskIds: [...kixieTaskIds],
   });
 
   return rows.map((r) => {
@@ -190,6 +213,11 @@ async function annotateDrillDownWithAdvisor(rows: DetailRow[]) {
 
     if (r.sfdc_who_id && whoIdToInfo[r.sfdc_who_id]) {
       info = whoIdToInfo[r.sfdc_who_id]!;
+      advisorName = info.name;
+    } else if (r.source === 'kixie' && r.kixie_task_id && kixieTaskIdToInfo[r.kixie_task_id]) {
+      // Self-healing kixie path — Postgres' baked-in sfdc_who_id is NULL but
+      // BQ now sees Task.WhoId.
+      info = kixieTaskIdToInfo[r.kixie_task_id]!;
       advisorName = info.name;
     } else {
       const externals = (Array.isArray(r.invitee_emails) ? r.invitee_emails : [])

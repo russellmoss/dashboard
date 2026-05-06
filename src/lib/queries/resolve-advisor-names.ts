@@ -1,15 +1,24 @@
 // Resolve SFDC name + funnel status for the Coaching Usage drill-down.
 //
-// Two inputs (either or both may be empty):
-//   - `whoIds`: array of 18-char SFDC Lead/Contact Ids from `call_notes.sfdc_who_id`
-//   - `emails`: array of lowercased non-Savvy invitee emails (Granola fallback path)
+// Three inputs (any or all may be empty):
+//   - `whoIds`:        SFDC Lead/Contact Ids from `call_notes.sfdc_who_id`
+//   - `emails`:        lowercased non-Savvy invitee emails (Granola fallback)
+//   - `kixieTaskIds`:  SFDC Task.Ids from `call_notes.kixie_task_id`. Used as
+//                      a self-healing fallback for Kixie rows where
+//                      `sfdc_who_id IS NULL`: SFDC↔BQ sync delay can leave
+//                      Postgres' baked-in `sfdc_who_id` NULL even after the
+//                      WhoId is set on the Task. We re-read Task.WhoId from
+//                      BQ at request time so the row resolves as soon as BQ
+//                      catches up — no Postgres backfill needed.
 //
 // Returns:
-//   - `whoIdToInfo[id] → AdvisorInfo`        (any matching Lead OR Contact row)
-//   - `emailToUniqueInfo[lc_email] → AdvisorInfo` (only when EXACTLY ONE distinct
-//     name across Lead + Contact matches that email; ambiguous matches are
-//     intentionally omitted so the caller can fall back to displaying the
-//     email itself)
+//   - `whoIdToInfo[id] → AdvisorInfo`              (Lead or Contact match)
+//   - `emailToUniqueInfo[lc_email] → AdvisorInfo`  (only when EXACTLY ONE
+//     distinct name across Lead + Contact matches that email; ambiguous
+//     matches are intentionally omitted so the caller can fall back to
+//     displaying the email itself)
+//   - `kixieTaskIdToInfo[task_id] → AdvisorInfo`   (Task.WhoId → Lead/Contact
+//     match for the kixie self-healing path)
 //
 // AdvisorInfo combines the SFDC name with funnel status pulled from
 // vw_funnel_master, joined on Lead.Id (Full_prospect_id__c). Contact-side
@@ -43,10 +52,11 @@ export interface AdvisorInfo {
 export interface ResolvedAdvisorInfo {
   whoIdToInfo: Record<string, AdvisorInfo>;
   emailToUniqueInfo: Record<string, AdvisorInfo>;
+  kixieTaskIdToInfo: Record<string, AdvisorInfo>;
 }
 
 interface Row {
-  kind: 'who' | 'email';
+  kind: 'who' | 'email' | 'kixie_task';
   key: string;
   name: string;
   lead_id: string | null;
@@ -60,20 +70,27 @@ interface Row {
 export async function resolveAdvisorNames(args: {
   whoIds: string[];
   emails: string[];
+  kixieTaskIds?: string[];
 }): Promise<ResolvedAdvisorInfo> {
   const whoIds = Array.from(new Set(args.whoIds.filter((s) => !!s && s.trim().length > 0)));
   const lcEmails = Array.from(
     new Set(args.emails.map((s) => s?.toLowerCase().trim()).filter((s): s is string => !!s)),
   );
+  const kixieTaskIds = Array.from(
+    new Set((args.kixieTaskIds ?? []).filter((s) => !!s && s.trim().length > 0)),
+  );
 
-  if (whoIds.length === 0 && lcEmails.length === 0) {
-    return { whoIdToInfo: {}, emailToUniqueInfo: {} };
+  if (whoIds.length === 0 && lcEmails.length === 0 && kixieTaskIds.length === 0) {
+    return { whoIdToInfo: {}, emailToUniqueInfo: {}, kixieTaskIdToInfo: {} };
   }
 
   // Single query — four logical layers:
-  //   (1) Lookup arm: who_id (direct Lead or Contact→Lead) and email (direct
-  //       Lead.Email or Contact.Email→ConvertedContactId→Lead). Email arm
-  //       uses a subquery + WHERE distinct_names = 1 (NOT a HAVING with mixed
+  //   (1) Lookup arms: (a) who_id (direct Lead or Contact→Lead), (b) email
+  //       (direct Lead.Email or Contact.Email→ConvertedContactId→Lead), and
+  //       (c) kixie_task_id → Task.WhoId → Lead/Contact (self-healing path
+  //       for Kixie rows whose sfdc_who_id was NULL at write-time but whose
+  //       SFDC Task has since had its WhoId associated). Email arm uses a
+  //       subquery + WHERE distinct_names = 1 (NOT a HAVING with mixed
   //       aggregates — BigQuery rejects ANY_VALUE + COUNT(DISTINCT) co-mingled
   //       in HAVING with "Aggregations of aggregations are not allowed").
   //   (2) funnel_flags: simple MAX/COUNT-style aggregates per Lead.
@@ -128,10 +145,43 @@ export async function resolveAdvisorNames(args: {
       FROM email_grouped
       WHERE distinct_names = 1
     ),
+    -- Kixie self-healing arm: resolve SFDC Task.Id → WhoId → Lead/Contact name.
+    -- Only includes rows whose Task has a non-null, non-deleted WhoId pointing
+    -- to a non-deleted Lead or Contact. A task whose WhoId hasn't been
+    -- associated yet (or is null in BQ due to sync lag) simply doesn't
+    -- appear here — the caller falls through to email or Unknown.
+    kixie_task_to_who AS (
+      SELECT Id AS kixie_task_id, WhoId
+      FROM \`savvy-gtm-analytics.SavvyGTMData.Task\`
+      WHERE Id IN UNNEST(@kixieTaskIds)
+        AND IsDeleted = FALSE
+        AND WhoId IS NOT NULL
+    ),
+    kixie_to_lead AS (
+      -- Direct: Task.WhoId is a Lead.
+      SELECT k.kixie_task_id, l.Id AS lead_id, l.Name AS person_name
+      FROM kixie_task_to_who k
+      JOIN \`savvy-gtm-analytics.SavvyGTMData.Lead\` l
+        ON l.Id = k.WhoId
+      WHERE l.IsDeleted = FALSE AND l.Name IS NOT NULL
+      UNION ALL
+      -- Indirect: Task.WhoId is a Contact, reverse-lookup to Lead via
+      -- ConvertedContactId. One Contact may map to multiple converted Leads;
+      -- the funnel CTEs handle that via per-lead aggregation.
+      SELECT k.kixie_task_id, l.Id AS lead_id, c.Name AS person_name
+      FROM kixie_task_to_who k
+      JOIN \`savvy-gtm-analytics.SavvyGTMData.Contact\` c
+        ON c.Id = k.WhoId
+      JOIN \`savvy-gtm-analytics.SavvyGTMData.Lead\` l
+        ON l.ConvertedContactId = c.Id
+      WHERE c.IsDeleted = FALSE AND l.IsDeleted = FALSE AND c.Name IS NOT NULL
+    ),
     all_lookups AS (
       SELECT 'who' AS kind, who_id AS key, person_name, lead_id FROM who_to_lead
       UNION ALL
       SELECT 'email' AS kind, lc_email AS key, person_name, lead_id FROM email_unique
+      UNION ALL
+      SELECT 'kixie_task' AS kind, kixie_task_id AS key, person_name, lead_id FROM kixie_to_lead
     ),
     -- Boolean flags per Lead via simple MAX aggregates. is_sql/is_sqo are
     -- MAX'd because the lead-only row in vw_funnel_master has is_sql=0 even
@@ -187,10 +237,11 @@ export async function resolveAdvisorNames(args: {
     LEFT JOIN primary_opp_stage pos ON pos.lead_id = al.lead_id
   `;
 
-  const rows = await runQuery<Row>(sql, { whoIds, lcEmails });
+  const rows = await runQuery<Row>(sql, { whoIds, lcEmails, kixieTaskIds });
 
   const whoIdToInfo: Record<string, AdvisorInfo> = {};
   const emailToUniqueInfo: Record<string, AdvisorInfo> = {};
+  const kixieTaskIdToInfo: Record<string, AdvisorInfo> = {};
   for (const r of rows) {
     if (!r?.key || !r?.name) continue;
     const info: AdvisorInfo = {
@@ -209,7 +260,11 @@ export async function resolveAdvisorNames(args: {
       if (!whoIdToInfo[r.key]) whoIdToInfo[r.key] = info;
     } else if (r.kind === 'email') {
       emailToUniqueInfo[r.key] = info;
+    } else if (r.kind === 'kixie_task') {
+      // Same first-seen-wins rule as who_to_lead — Lead arm of the UNION ALL
+      // hits before the Contact arm by table order.
+      if (!kixieTaskIdToInfo[r.key]) kixieTaskIdToInfo[r.key] = info;
     }
   }
-  return { whoIdToInfo, emailToUniqueInfo };
+  return { whoIdToInfo, emailToUniqueInfo, kixieTaskIdToInfo };
 }

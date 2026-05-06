@@ -45,7 +45,7 @@ describe('GET /api/admin/coaching-usage', () => {
     mockGetSessionPermissions.mockReset();
     mockResolveAdvisorNames.mockReset();
     // Default resolver: no SFDC matches. Tests that need SFDC names override.
-    mockResolveAdvisorNames.mockResolvedValue({ whoIdToInfo: {}, emailToUniqueInfo: {} });
+    mockResolveAdvisorNames.mockResolvedValue({ whoIdToInfo: {}, emailToUniqueInfo: {}, kixieTaskIdToInfo: {} });
   });
 
   it('returns 401 when no session', async () => {
@@ -171,6 +171,7 @@ describe('GET /api/admin/coaching-usage', () => {
             call_note_id: 'abc', call_date: new Date('2026-04-01T12:00:00Z'),
             rep_id: null, sga_name: null, rep_role: null, sgm_name: null, source: 'granola',
             sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
+            kixie_task_id: null,
             pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
           }],
           rowCount: 1,
@@ -195,6 +196,7 @@ describe('GET /api/admin/coaching-usage', () => {
             call_note_id: 'k1', call_date: new Date('2026-04-01T12:00:00Z'),
             rep_id: 'rep-1', sga_name: 'Eleni S.', rep_role: 'SGA', sgm_name: null, source: 'kixie',
             sfdc_who_id: '00QVS00000NyAk12AF', sfdc_record_type: 'Lead', invitee_emails: null,
+            kixie_task_id: '00TVS00000Task001',
             pushed_to_sfdc: true, has_ai_feedback: false, has_manager_edit_eval: false,
           }],
           rowCount: 1,
@@ -207,6 +209,7 @@ describe('GET /api/admin/coaching-usage', () => {
         '00QVS00000NyAk12AF': { name: 'Russell Moss', didSql: true, didSqo: true, currentStage: 'Negotiating', closedLost: false },
       },
       emailToUniqueInfo: {},
+      kixieTaskIdToInfo: {},
     });
     const res = await GET(makeReq() as never);
     expect(res.status).toBe(200);
@@ -221,6 +224,89 @@ describe('GET /api/admin/coaching-usage', () => {
     });
   });
 
+  it('advisor cascade: kixie row with NULL sfdc_who_id self-heals via kixie_task_id → Task.WhoId', async () => {
+    // Repro of the SFDC↔BQ sync-lag case: call_notes.sfdc_who_id was baked
+    // in as NULL (Task.WhoId not yet associated when call-transcriber ran),
+    // but BQ has since caught up. The kixie_task_id arm of the resolver
+    // should pick the row up and surface the advisor's name.
+    (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
+    mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('AS call_note_id')) {
+        return Promise.resolve({
+          rows: [{
+            call_note_id: 'k-heal', call_date: new Date('2026-05-06T15:10:52Z'),
+            rep_id: 'rep-1', sga_name: 'Jason A.', rep_role: 'SGA', sgm_name: null, source: 'kixie',
+            // The defining detail: who_id is NULL but the kixie task ref is set.
+            sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
+            kixie_task_id: '00TVS00000nAdLw2AK',
+            pushed_to_sfdc: true, has_ai_feedback: false, has_manager_edit_eval: false,
+          }],
+          rowCount: 1,
+        });
+      }
+      return defaultMockImpl(sql);
+    });
+    mockResolveAdvisorNames.mockResolvedValue({
+      whoIdToInfo: {},
+      emailToUniqueInfo: {},
+      kixieTaskIdToInfo: {
+        '00TVS00000nAdLw2AK': {
+          name: 'Joseph Pigot', leadId: '00QVS00000UXMGb2AP', opportunityId: null,
+          didSql: false, didSqo: false, currentStage: null, closedLost: false,
+        },
+      },
+    });
+    const res = await GET(makeReq() as never);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { drillDown: Array<{ advisorName: string|null; advisorEmail: string|null; linkedToSfdc: boolean; leadUrl: string|null }> };
+    expect(body.drillDown[0]!.advisorName).toBe('Joseph Pigot');
+    expect(body.drillDown[0]!.advisorEmail).toBeNull();
+    expect(body.drillDown[0]!.linkedToSfdc).toBe(true);
+    expect(body.drillDown[0]!.leadUrl).toBe('https://savvywealth.lightning.force.com/lightning/r/Lead/00QVS00000UXMGb2AP/view');
+    // Resolver was called with the kixie task id; whoIds was empty.
+    expect(mockResolveAdvisorNames.mock.calls[0]![0]).toMatchObject({
+      whoIds: [],
+      kixieTaskIds: ['00TVS00000nAdLw2AK'],
+    });
+  });
+
+  it('advisor cascade: kixie self-healing only fires when sfdc_who_id is NULL (whoId wins when present)', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
+    mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('AS call_note_id')) {
+        return Promise.resolve({
+          rows: [{
+            call_note_id: 'k-direct', call_date: new Date('2026-05-06T15:10:52Z'),
+            rep_id: 'rep-1', sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
+            sfdc_who_id: 'WHO-DIRECT', sfdc_record_type: 'Lead', invitee_emails: null,
+            kixie_task_id: '00TVS00000shouldNotMatter',
+            pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
+          }],
+          rowCount: 1,
+        });
+      }
+      return defaultMockImpl(sql);
+    });
+    mockResolveAdvisorNames.mockResolvedValue({
+      whoIdToInfo: {
+        'WHO-DIRECT': { name: 'Direct Match', leadId: '00Qdirect', opportunityId: null,
+          didSql: false, didSqo: false, currentStage: null, closedLost: false },
+      },
+      emailToUniqueInfo: {},
+      kixieTaskIdToInfo: {},
+    });
+    const res = await GET(makeReq() as never);
+    const body = await res.json() as { drillDown: Array<{ advisorName: string|null }> };
+    expect(body.drillDown[0]!.advisorName).toBe('Direct Match');
+    // The kixie_task_id should NOT have been collected — sfdc_who_id was set.
+    expect(mockResolveAdvisorNames.mock.calls[0]![0]).toMatchObject({
+      whoIds: ['WHO-DIRECT'],
+      kixieTaskIds: [],
+    });
+  });
+
   it('advisor cascade: no who_id, single external email resolves uniquely → name wins', async () => {
     (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
     mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
@@ -232,6 +318,7 @@ describe('GET /api/admin/coaching-usage', () => {
             rep_id: 'rep-1', sga_name: 'Eleni S.', rep_role: 'SGA', sgm_name: null, source: 'granola',
             sfdc_who_id: null, sfdc_record_type: null,
             invitee_emails: ['advisor@acme.com', 'eleni@savvywealth.com'],
+            kixie_task_id: null,
             pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
           }],
           rowCount: 1,
@@ -244,6 +331,7 @@ describe('GET /api/admin/coaching-usage', () => {
       emailToUniqueInfo: {
         'advisor@acme.com': { name: 'Carl Campbell', didSql: false, didSqo: false, currentStage: 'New', closedLost: false },
       },
+      kixieTaskIdToInfo: {},
     });
     const res = await GET(makeReq() as never);
     const body = await res.json() as { drillDown: Array<{ advisorName: string|null; advisorEmail: string|null; advisorEmailExtras: string[] }> };
@@ -265,6 +353,7 @@ describe('GET /api/admin/coaching-usage', () => {
             rep_id: null, sga_name: null, rep_role: null, sgm_name: null, source: 'granola',
             sfdc_who_id: null, sfdc_record_type: null,
             invitee_emails: ['a@acme.com', 'b@acme.com', 'eleni@savvyadvisors.com'],
+            kixie_task_id: null,
             pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
           }],
           rowCount: 1,
@@ -272,7 +361,7 @@ describe('GET /api/admin/coaching-usage', () => {
       }
       return defaultMockImpl(sql);
     });
-    mockResolveAdvisorNames.mockResolvedValue({ whoIdToInfo: {}, emailToUniqueInfo: {} });
+    mockResolveAdvisorNames.mockResolvedValue({ whoIdToInfo: {}, emailToUniqueInfo: {}, kixieTaskIdToInfo: {} });
     const res = await GET(makeReq() as never);
     const body = await res.json() as { drillDown: Array<{ advisorName: string|null; advisorEmail: string|null; advisorEmailExtras: string[] }> };
     expect(body.drillDown[0]!.advisorName).toBeNull();
@@ -290,6 +379,7 @@ describe('GET /api/admin/coaching-usage', () => {
             call_note_id: 'k2', call_date: new Date('2026-04-01T12:00:00Z'),
             rep_id: null, sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
             sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
+            kixie_task_id: null,
             pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
           }],
           rowCount: 1,
@@ -314,6 +404,7 @@ describe('GET /api/admin/coaching-usage', () => {
             call_note_id: 's1', call_date: new Date('2026-04-01T12:00:00Z'),
             rep_id: 'rep-1', sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
             sfdc_who_id: 'WHO-MATCHED', sfdc_record_type: 'Lead', invitee_emails: null,
+            kixie_task_id: null,
             pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
           }],
           rowCount: 1,
@@ -326,6 +417,7 @@ describe('GET /api/admin/coaching-usage', () => {
         'WHO-MATCHED': { name: 'Carla Ramirez', didSql: true, didSqo: true, currentStage: 'Sales Process', closedLost: false },
       },
       emailToUniqueInfo: {},
+      kixieTaskIdToInfo: {},
     });
     const res = await GET(makeReq() as never);
     const body = await res.json() as { drillDown: Array<{ advisorName: string; didSql: boolean; didSqo: boolean; currentStage: string|null; closedLost: boolean; linkedToSfdc: boolean }> };
@@ -347,6 +439,7 @@ describe('GET /api/admin/coaching-usage', () => {
             call_note_id: 's2', call_date: new Date('2026-04-01T12:00:00Z'),
             rep_id: null, sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
             sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
+            kixie_task_id: null,
             pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
           }],
           rowCount: 1,
@@ -374,6 +467,7 @@ describe('GET /api/admin/coaching-usage', () => {
             rep_id: null, sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
             sfdc_who_id: '00QVS00000Sensitive', sfdc_record_type: 'Lead',
             invitee_emails: ['secret@example.com'],
+            kixie_task_id: '00TVS00000Sensitive',
             pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
           }],
           rowCount: 1,
@@ -389,6 +483,8 @@ describe('GET /api/admin/coaching-usage', () => {
     expect(row).not.toHaveProperty('sfdc_record_type');
     expect(row).not.toHaveProperty('invitee_emails');
     expect(row).not.toHaveProperty('inviteeEmails');
+    expect(row).not.toHaveProperty('kixie_task_id');
+    expect(row).not.toHaveProperty('kixieTaskId');
   });
 
   it('SFDC deep-links: leadUrl/opportunityUrl built from resolver IDs; null when unlinked', async () => {
@@ -402,11 +498,13 @@ describe('GET /api/admin/coaching-usage', () => {
             { call_note_id: 'a', call_date: new Date('2026-04-01T12:00:00Z'),
               rep_id: 'rep-1', sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
               sfdc_who_id: 'LINKED', sfdc_record_type: 'Lead', invitee_emails: null,
+              kixie_task_id: null,
               pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
             // Unlinked → both null.
             { call_note_id: 'b', call_date: new Date('2026-04-01T12:00:00Z'),
               rep_id: null, sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
               sfdc_who_id: null, sfdc_record_type: null, invitee_emails: null,
+              kixie_task_id: null,
               pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false },
           ],
           rowCount: 2,
@@ -422,6 +520,7 @@ describe('GET /api/admin/coaching-usage', () => {
         },
       },
       emailToUniqueInfo: {},
+      kixieTaskIdToInfo: {},
     });
     const res = await GET(makeReq() as never);
     const body = await res.json() as { drillDown: Array<{ callNoteId: string; leadUrl: string|null; opportunityUrl: string|null }> };
