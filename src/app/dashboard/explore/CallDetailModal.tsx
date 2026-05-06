@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { X, Loader2 } from 'lucide-react';
+import { X, Loader2, ExternalLink } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -25,6 +25,11 @@ export interface CallDetailRowSummary {
   pushedToSfdc: boolean;
   hasAiFeedback: boolean;
   hasManagerEditEval: boolean;
+  /** Lightning deep-link to the resolved Lead — null when unlinked. */
+  leadUrl: string | null;
+  /** Lightning deep-link to the primary/most-recent Opportunity — null when
+   *  unlinked or lead-only. */
+  opportunityUrl: string | null;
 }
 
 interface TranscriptUtterance {
@@ -387,6 +392,37 @@ export function CallDetailModal({
           )}
           {tab === 'transcript' && <TranscriptTab transcript={detail?.transcript ?? null} loading={loading} error={error} />}
         </div>
+
+        {/* Footer — Salesforce deep-links. Only renders when the advisor was
+            resolved to SFDC (matches the pattern in RecordDetailModal). */}
+        {(row.leadUrl || row.opportunityUrl) && (
+          <div className="px-5 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+            <div className="flex flex-wrap items-center gap-3">
+              {row.leadUrl && (
+                <a
+                  href={row.leadUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-colors"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  View Lead in Salesforce
+                </a>
+              )}
+              {row.opportunityUrl && (
+                <a
+                  href={row.opportunityUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-900/50 rounded-lg transition-colors"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  View Opportunity in Salesforce
+                </a>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

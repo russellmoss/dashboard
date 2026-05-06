@@ -69,6 +69,10 @@ interface CoachingUsageDetailRow {
   // True iff the advisor was definitively linked to an SFDC Lead/Contact.
   // The server filter requires this when any filter is active.
   linkedToSfdc: boolean;
+  // Lightning deep-links — null when the advisor wasn't resolved to SFDC, or
+  // (for opportunityUrl) when they're lead-only with no opp yet.
+  leadUrl: string | null;
+  opportunityUrl: string | null;
   // Funnel status (vw_funnel_master). Defaults to false / null when unlinked.
   didSql: boolean;
   didSqo: boolean;
@@ -550,6 +554,8 @@ export function CoachingUsageClient() {
                       pushedToSfdc: row.pushedToSfdc,
                       hasAiFeedback: row.hasAiFeedback,
                       hasManagerEditEval: row.hasManagerEditEval,
+                      leadUrl: row.leadUrl,
+                      opportunityUrl: row.opportunityUrl,
                     })}
                     className="border-b border-gray-100 dark:border-gray-700/50 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
                   >

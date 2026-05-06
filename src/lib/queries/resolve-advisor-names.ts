@@ -22,6 +22,11 @@ import { runQuery } from '@/lib/bigquery';
 
 export interface AdvisorInfo {
   name: string;
+  /** SFDC Lead.Id this person was resolved to (always set when info exists). */
+  leadId: string | null;
+  /** SFDC Full_Opportunity_ID__c of the primary or most-recent opp on this Lead.
+   *  null when the person is lead-only (no opportunity row yet). */
+  opportunityId: string | null;
   /** Has this person ever converted to an opportunity (vw_funnel_master.is_sql)? */
   didSql: boolean;
   /** Has this person ever had an SQO-qualified opportunity (vw_funnel_master.is_sqo)? */
@@ -44,6 +49,8 @@ interface Row {
   kind: 'who' | 'email';
   key: string;
   name: string;
+  lead_id: string | null;
+  opportunity_id: string | null;
   did_sql: number | null;
   did_sqo: number | null;
   current_stage: string | null;
@@ -144,10 +151,11 @@ export async function resolveAdvisorNames(args: {
     -- opp rows only, sorted: primary first, then by Opp_CreatedDate DESC.
     -- Lead-only people drop out (no opp row at all → no stage).
     primary_opp_stage AS (
-      SELECT lead_id, StageName
+      SELECT lead_id, opp_id, StageName
       FROM (
         SELECT
           Full_prospect_id__c AS lead_id,
+          Full_Opportunity_ID__c AS opp_id,
           StageName,
           ROW_NUMBER() OVER (
             PARTITION BY Full_prospect_id__c
@@ -165,6 +173,8 @@ export async function resolveAdvisorNames(args: {
       al.kind,
       al.key,
       al.person_name AS name,
+      al.lead_id AS lead_id,
+      pos.opp_id AS opportunity_id,
       COALESCE(ff.did_sql, 0) AS did_sql,
       COALESCE(ff.did_sqo, 0) AS did_sqo,
       pos.StageName AS current_stage,
@@ -185,6 +195,8 @@ export async function resolveAdvisorNames(args: {
     if (!r?.key || !r?.name) continue;
     const info: AdvisorInfo = {
       name: r.name,
+      leadId: r.lead_id && r.lead_id.trim() ? r.lead_id : null,
+      opportunityId: r.opportunity_id && r.opportunity_id.trim() ? r.opportunity_id : null,
       didSql: Number(r.did_sql ?? 0) === 1,
       didSqo: Number(r.did_sqo ?? 0) === 1,
       currentStage: r.current_stage && r.current_stage.trim() ? r.current_stage : null,

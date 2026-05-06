@@ -516,6 +516,18 @@ async function annotateDrillDownWithAdvisor(rows: DetailRow[]) {
       }
     }
 
+    // SFDC deep-links for the modal footer. Only built when the resolver
+    // returned an Id — unlinked rows (no who_id + no unique-email match)
+    // get null URLs and the modal hides the buttons.
+    const leadId = info?.leadId ?? null;
+    const opportunityId = info?.opportunityId ?? null;
+    const leadUrl = leadId
+      ? `https://savvywealth.lightning.force.com/lightning/r/Lead/${leadId}/view`
+      : null;
+    const opportunityUrl = opportunityId
+      ? `https://savvywealth.lightning.force.com/lightning/r/Opportunity/${opportunityId}/view`
+      : null;
+
     return {
       callNoteId: r.call_note_id,
       callDate: r.call_date instanceof Date ? r.call_date.toISOString() : String(r.call_date),
@@ -526,6 +538,8 @@ async function annotateDrillDownWithAdvisor(rows: DetailRow[]) {
       // by the filter pass: when any status filter is active, only linked
       // rows survive (unlinked rows have no verified status to filter on).
       linkedToSfdc: info !== null,
+      leadUrl,
+      opportunityUrl,
       // Funnel status — derived from vw_funnel_master via the resolver. Defaults
       // to false / null when the advisor couldn't be linked to a Lead/Contact
       // (e.g. no who_id and no unique-email match).
