@@ -86,12 +86,6 @@ function buildMarkdownExport(advisorName: string, notes: NoteRecord[]): string {
       lines.push(n.notesMarkdown);
       lines.push('');
     }
-    if (n.coachingMarkdown) {
-      lines.push('### Coaching Analysis');
-      lines.push('');
-      lines.push(n.coachingMarkdown);
-      lines.push('');
-    }
   }
   return lines.join('\n');
 }
@@ -216,16 +210,6 @@ function NoteCard({ note, advisorName, defaultOpen }: NoteCardProps) {
           ) : (
             <div className="text-sm italic text-gray-500 dark:text-gray-400">No notes content.</div>
           )}
-          {note.coachingMarkdown && (
-            <details className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
-              <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
-                Coaching analysis
-              </summary>
-              <div className={`mt-2 ${MARKDOWN_PROSE_CLASSES}`}>
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{note.coachingMarkdown}</ReactMarkdown>
-              </div>
-            </details>
-          )}
         </div>
       )}
     </div>
@@ -295,7 +279,7 @@ export function NotesTab({ notes, advisorName, loading, error }: NotesTabProps) 
       ))}
       <div className="text-[11px] text-gray-400 dark:text-gray-500 pt-2 flex items-center gap-1">
         <ExternalLink className="w-3 h-3" />
-        Notes sourced from sales-coaching DB. Coaching analysis (when present) is collapsed by default.
+        Notes sourced from sales-coaching DB. Coaching analysis is intentionally excluded — open the Coaching Usage tab for that.
       </div>
     </div>
   );
