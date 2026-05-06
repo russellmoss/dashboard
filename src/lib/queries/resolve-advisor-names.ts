@@ -237,7 +237,14 @@ export async function resolveAdvisorNames(args: {
     LEFT JOIN primary_opp_stage pos ON pos.lead_id = al.lead_id
   `;
 
-  const rows = await runQuery<Row>(sql, { whoIds, lcEmails, kixieTaskIds });
+  // Declare types for the three array params so BQ accepts empty arrays.
+  // Now that any one of the three may be [] (e.g. a 7d range with no
+  // unresolved kixie rows), the empty-array typing requirement bites.
+  const rows = await runQuery<Row>(
+    sql,
+    { whoIds, lcEmails, kixieTaskIds },
+    { whoIds: ['STRING'], lcEmails: ['STRING'], kixieTaskIds: ['STRING'] },
+  );
 
   const whoIdToInfo: Record<string, AdvisorInfo> = {};
   const emailToUniqueInfo: Record<string, AdvisorInfo> = {};

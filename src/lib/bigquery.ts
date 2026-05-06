@@ -78,9 +78,18 @@ export function getBigQueryClient(): BigQuery {
   return bigqueryClient;
 }
 
-export async function runQuery<T>(query: string, params?: Record<string, any>): Promise<T[]> {
+export async function runQuery<T>(
+  query: string,
+  params?: Record<string, any>,
+  // BQ requires explicit `types` for empty array params: passing `{ ids: [] }`
+  // alone errors with "Parameter types must be provided for empty arrays."
+  // Use e.g. `{ ids: ['STRING'] }` to declare a STRING array; scalar params
+  // can be inferred and don't need entries here.
+  types?: Record<string, string | string[]>,
+): Promise<T[]> {
   const client = getBigQueryClient();
   const options: Query = { query, params: params || {} };
+  if (types) options.types = types;
   const [rows] = await client.query(options);
   return rows as T[];
 }

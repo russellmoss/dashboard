@@ -182,8 +182,14 @@ const query = `SELECT * FROM table WHERE channel = '${filterValue}'`;
 
 **Function Signature**:
 ```typescript
-export async function runQuery<T>(query: string, params?: Record<string, any>): Promise<T[]>
+export async function runQuery<T>(
+  query: string,
+  params?: Record<string, any>,
+  types?: Record<string, string | string[]>,
+): Promise<T[]>
 ```
+
+`types` is optional and only required when a named array param may be empty — BQ rejects empty array params without explicit type info ("Parameter types must be provided for empty arrays."). Use `{ paramName: ['STRING'] }` to declare a STRING array; scalar params are inferred and don't need entries here.
 
 **Helper Function**: `buildQueryParams()` constructs WHERE conditions and params object for common filters (startDate, endDate, channel, source, sga, sgm).
 
