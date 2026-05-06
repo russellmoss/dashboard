@@ -19,6 +19,7 @@ import {
 } from '@/types/dashboard';
 import { RecordDetailFull } from '@/types/record-detail';
 import { ActivityRecord } from '@/types/record-activity';
+import type { RecordNotesResponse } from '@/types/record-notes';
 // Forecast types (defined here to avoid importing server-side query modules)
 interface ForecastRatesClient {
   sqo_to_sp: number;
@@ -398,6 +399,14 @@ export const dashboardApi = {
   // Get all activity (Tasks) for a record
   getRecordActivity: (id: string) =>
     apiFetch<{ activities: ActivityRecord[]; totalCount: number }>(`/api/dashboard/record-detail/${encodeURIComponent(id)}/activity`, {
+      method: 'GET',
+    }),
+
+  // Get sales-coaching call notes confidently linked to this record.
+  // Server applies RBAC (revops_admin/admin/manager see all; SGA/SGM only
+  // when they own the record). UI hides the tab when notes.length === 0.
+  getRecordNotes: (id: string) =>
+    apiFetch<RecordNotesResponse>(`/api/dashboard/record-detail/${encodeURIComponent(id)}/notes`, {
       method: 'GET',
     }),
 

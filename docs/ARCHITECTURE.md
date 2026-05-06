@@ -753,6 +753,8 @@ const response = await fetch('/api/dashboard/funnel-metrics?channel=Web');
 - `/api/dashboard/source-performance` - Source/channel breakdown
 - `/api/dashboard/detail-records` - Individual records table
 - `/api/dashboard/record-detail/[id]` - Single record details
+- `/api/dashboard/record-detail/[id]/activity` - Activity timeline (Tasks) for a record
+- `/api/dashboard/record-detail/[id]/notes` - Sales-coaching call_notes for a record (RBAC-gated, see §7.2 Notes Tab)
 - `/api/dashboard/export-sheets` - Google Sheets export
 - `/api/dashboard/data-freshness` - BigQuery sync status
 - `/api/dashboard/filters` - Available filter options
@@ -862,6 +864,8 @@ const date = new Date(year, month - 1, day);
 ```typescript
 const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
 ```
+
+**Notes Tab** (added 2026-05): Third tab alongside Details and Activity. Surfaces all sales-coaching `call_notes` (Granola + Kixie, treated identically) confidently linked to the record's underlying Lead. Endpoint: `GET /api/dashboard/record-detail/[id]/notes`. Resolution: a single BQ query maps the record id to its lead_id + contact_id + matching kixie Task.Ids (Task.WhoId pointing at lead/contact) + uniquely-resolving emails (the lead's or contact's email that no other Lead/Contact shares); a single Pg query then fetches matching `call_notes` ordered by `call_started_at DESC`. Each note carries `linkConfidence` ∈ `{pushed, direct, email}` so the UI can badge attribution strength. Markdown rendering shared via `src/lib/coaching-notes-markdown.ts` — Granola pulls coaching from `evaluations.ai_original`; Kixie splits `summary_markdown` on `═══ COACHING ANALYSIS START/END ═══` markers. **RBAC**: revops_admin/admin/manager see all notes; SGA only when their Neon `reps.full_name` matches `SGA_Owner_Name__c` OR `Opp_SGA_Name__c` for the record; SGM only when matching `SGM_Owner_Name__c`. Other roles (viewer/recruiter/capital_partner) get `authorized:false` + empty notes. Cross-checked at build time against live data: all 23 active SGA+SGM reps in Neon match exactly to BQ owner names. Tab is hidden on the client when `notes.length === 0`. 5-min response cache on the DASHBOARD tag.
 
 ### 7.3 Google Sheets Export
 

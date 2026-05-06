@@ -12,6 +12,7 @@ import { authOptions } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
 import { getCoachingPool } from '@/lib/coachingDb';
 import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
+import { renderCallNoteMarkdown } from '@/lib/coaching-notes-markdown';
 
 export const dynamic = 'force-dynamic';
 const CALL_DETAIL_TTL = 300; // 5 minutes
@@ -25,107 +26,6 @@ interface DetailRow {
   summary_markdown: string | null;
   transcript: unknown; // jsonb — TranscriptUtterance[] when present
   ai_original: unknown; // jsonb — AIOriginalSnapshot (Granola coaching source)
-}
-
-interface AiCitedItem { text?: unknown }
-interface AiOriginalSnapshot {
-  overallScore?: unknown;
-  dimensionScores?: Record<string, { score?: unknown }>;
-  narrative?: { text?: unknown };
-  strengths?: AiCitedItem[];
-  weaknesses?: AiCitedItem[];
-  knowledgeGaps?: AiCitedItem[];
-  complianceFlags?: AiCitedItem[];
-  coachingNudge?: { text?: unknown };
-  additionalObservations?: AiCitedItem[];
-}
-
-/**
- * Render an evaluations.ai_original JSONB blob into a single markdown
- * string for the Coaching tab. Defensive against schema versions:
- *   v2 — no coachingNudge, no additionalObservations
- *   v3 — coachingNudge added
- *   v4 — additionalObservations added (current)
- * Each section is omitted entirely when its source field is missing/empty,
- * so the output is clean across all three schema generations.
- */
-function renderAiOriginalToMarkdown(raw: unknown): string {
-  if (!raw || typeof raw !== 'object') return '';
-  const ai = raw as AiOriginalSnapshot;
-  const lines: string[] = [];
-
-  const pushBullets = (heading: string, items: AiCitedItem[] | undefined) => {
-    if (!Array.isArray(items)) return;
-    const texts = items
-      .map((it) => (typeof it?.text === 'string' ? it.text.trim() : ''))
-      .filter((t) => t.length > 0);
-    if (texts.length === 0) return;
-    lines.push(`## ${heading}`, '');
-    for (const t of texts) lines.push(`- ${t}`);
-    lines.push('');
-  };
-
-  if (typeof ai.overallScore === 'number') {
-    lines.push('## Overall Score', '', String(ai.overallScore), '');
-  }
-  if (ai.narrative && typeof ai.narrative.text === 'string' && ai.narrative.text.trim().length > 0) {
-    lines.push('## Narrative', '', ai.narrative.text.trim(), '');
-  }
-  if (ai.dimensionScores && typeof ai.dimensionScores === 'object') {
-    const entries = Object.entries(ai.dimensionScores)
-      .map(([name, val]) => {
-        const score = val && typeof val === 'object' ? (val as { score?: unknown }).score : undefined;
-        return typeof score === 'number' ? `- **${name}**: ${score}` : null;
-      })
-      .filter((s): s is string => s !== null);
-    if (entries.length > 0) {
-      lines.push('## Dimension Scores', '', ...entries, '');
-    }
-  }
-  pushBullets('Strengths',              ai.strengths);
-  pushBullets('Weaknesses',             ai.weaknesses);
-  pushBullets('Knowledge Gaps',         ai.knowledgeGaps);
-  pushBullets('Compliance Flags',       ai.complianceFlags);
-  if (ai.coachingNudge && typeof ai.coachingNudge.text === 'string' && ai.coachingNudge.text.trim().length > 0) {
-    lines.push('## Coaching Nudge', '', ai.coachingNudge.text.trim(), '');
-  }
-  pushBullets('Additional Observations', ai.additionalObservations);
-
-  return lines.join('\n').trim();
-}
-
-// Markers the sales-coaching writer wraps the coaching-analysis section with.
-// Match must be exact (these are specific Unicode box-drawing characters, U+2550).
-const COACHING_START = '═══ COACHING ANALYSIS START ═══';
-const COACHING_END   = '═══ COACHING ANALYSIS END ═══';
-
-/**
- * Split a call-note's summary_markdown into the human-facing notes section
- * and the coaching-analysis section, on the literal markers above.
- *
- * Behavior:
- *  - No START marker            → all content goes to notesMarkdown.
- *  - START found, END missing   → everything after START (to end of doc) is
- *                                 treated as coaching; notes = before-START.
- *  - START + END found          → content between markers is coaching; notes
- *                                 is the concatenation of before-START and
- *                                 after-END (the rare trailing-content case).
- */
-function splitSummaryMarkdown(md: string): { notesMarkdown: string; coachingMarkdown: string } {
-  const startIdx = md.indexOf(COACHING_START);
-  if (startIdx === -1) {
-    return { notesMarkdown: md.trim(), coachingMarkdown: '' };
-  }
-  const beforeStart = md.slice(0, startIdx);
-  const afterStart  = md.slice(startIdx + COACHING_START.length);
-  const endIdx = afterStart.indexOf(COACHING_END);
-  if (endIdx === -1) {
-    return { notesMarkdown: beforeStart.trim(), coachingMarkdown: afterStart.trim() };
-  }
-  const coachingMarkdown = afterStart.slice(0, endIdx).trim();
-  const afterEnd = afterStart.slice(endIdx + COACHING_END.length);
-  const notesMarkdown = (beforeStart + afterEnd).trim();
-  return { notesMarkdown, coachingMarkdown };
 }
 
 const _getCallDetail = async (callNoteId: string) => {
@@ -154,21 +54,13 @@ const _getCallDetail = async (callNoteId: string) => {
   if (rows.length === 0) return null;
   const r = rows[0]!;
 
-  // Source-specific coaching dispatch:
-  //   - Kixie (legacy):  coaching is embedded in summary_markdown between
-  //     ═══ COACHING ANALYSIS START/END ═══ markers. Notes is the rest.
-  //   - Granola:         coaching is the rendered evaluations.ai_original
-  //     blob. Notes is the full summary_markdown verbatim (no marker split).
-  let notesMarkdown: string;
-  let coachingMarkdown: string;
-  if (r.source === 'granola') {
-    notesMarkdown = (r.summary_markdown ?? '').trim();
-    coachingMarkdown = renderAiOriginalToMarkdown(r.ai_original);
-  } else {
-    const split = splitSummaryMarkdown(r.summary_markdown ?? '');
-    notesMarkdown = split.notesMarkdown;
-    coachingMarkdown = split.coachingMarkdown;
-  }
+  // Source-specific coaching dispatch lives in the shared helper —
+  // Granola pulls coaching from ai_original, Kixie splits markers.
+  const { notesMarkdown, coachingMarkdown } = renderCallNoteMarkdown({
+    source: r.source,
+    summaryMarkdown: r.summary_markdown,
+    aiOriginal: r.ai_original,
+  });
 
   return {
     notesMarkdown,
