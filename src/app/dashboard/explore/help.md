@@ -78,9 +78,16 @@ The Coaching Usage tab is visible to RevOps Admins only. It surfaces six rollup
 metrics from the sales-coaching pipeline (a separate Neon DB) over a selectable
 date range (7 days, 30 days, 90 days, or All time).
 
+All filters at the top of the page (rep name, advisor name, SQL'd, SQO'd,
+Closed Lost, Pushed to SFDC, rep role, stage) are global — they narrow the KPI
+cards AND the call drill-down identically. So selecting a single rep for the
+last 7 days shows that rep's pushed-to-SFDC rate as the headline metric, not
+the team's. Filters are applied in the browser; only the date range triggers a
+network round-trip.
+
 ### Advisor-facing rule
 
-All KPIs, the trend, and the drill-down are restricted to advisor-facing calls:
+All KPIs and the drill-down are restricted to advisor-facing calls:
 
 - **Kixie**: every Kixie call counts (it's an outbound dialer, by definition
   prospect-facing; the AI classifier doesn't run on Kixie).

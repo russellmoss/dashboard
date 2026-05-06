@@ -47,7 +47,3 @@ export function getCoachingPool(): Pool {
 
 export type AllowedRange = '7d' | '30d' | '90d' | 'all';
 export const ALLOWED_RANGES: readonly AllowedRange[] = ['7d', '30d', '90d', 'all'];
-export type AllowedSortField = 'call_date' | 'sga_name' | 'sgm_name';
-export const ALLOWED_SORT_FIELDS: readonly AllowedSortField[] = ['call_date', 'sga_name', 'sgm_name'];
-export type AllowedSortDir = 'asc' | 'desc';
-export const ALLOWED_SORT_DIRS: readonly AllowedSortDir[] = ['asc', 'desc'];

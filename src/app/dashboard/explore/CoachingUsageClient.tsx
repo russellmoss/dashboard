@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, Title, Text, Metric } from '@tremor/react';
 import { RefreshCw } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -25,12 +25,15 @@ function fuzzyMatches(target: string | null | undefined, query: string): boolean
   return true;
 }
 
+function triMatches(value: boolean, filter: TriState): boolean {
+  if (filter === 'any') return true;
+  return filter === 'yes' ? value : !value;
+}
+
 // Hardcoded OPPORTUNITY stage list (StageName values from SFDC Recruiting opps).
 // Lead-stage labels (New / Contacted / MQL) are intentionally excluded — the
 // stage column shows opportunity stage only, and unlinked / lead-only rows
-// have a null currentStage that no stage filter can match (which is correct:
-// people we can't definitively link to a SFDC opportunity get filtered out
-// when any filter is active).
+// have a null currentStage that no stage filter can match.
 const STAGE_OPTIONS: readonly string[] = [
   'Discovery',
   'Sales Process',
@@ -41,21 +44,6 @@ const STAGE_OPTIONS: readonly string[] = [
   'Closed Lost',
 ];
 
-interface CoachingUsageKpis {
-  activeCoachingUsers: number;       // census, all-time, ignores date range
-  activeUsersInRange: number;        // distinct reps with >= 1 call in selected range
-  totalAdvisorFacingCalls: number;
-  pctPushedToSfdc: number;
-  pctWithAiFeedback: number;
-  pctWithManagerEditEval: number;
-}
-interface CoachingUsageTrendRow {
-  month: string;
-  advisorFacingCalls: number;
-  pctPushedToSfdc: number;
-  pctWithAiFeedback: number;
-  pctWithManagerEditEval: number;
-}
 interface CoachingUsageDetailRow {
   callNoteId: string;
   callDate: string;
@@ -65,10 +53,8 @@ interface CoachingUsageDetailRow {
   advisorEmail: string | null;
   advisorEmailExtras: string[];
   // True iff the advisor was definitively linked to an SFDC Lead/Contact.
-  // The server filter requires this when any filter is active.
+  // Funnel-status filters require this when active.
   linkedToSfdc: boolean;
-  // Lightning deep-links — null when the advisor wasn't resolved to SFDC, or
-  // (for opportunityUrl) when they're lead-only with no opp yet.
   leadUrl: string | null;
   opportunityUrl: string | null;
   // Funnel status (vw_funnel_master). Defaults to false / null when unlinked.
@@ -77,6 +63,8 @@ interface CoachingUsageDetailRow {
   /** Current OPPORTUNITY StageName. null when no opp exists or unlinked. */
   currentStage: string | null;
   closedLost: boolean;
+  /** call_notes.rep_id — used for distinct active-users-in-range count. */
+  repId: string | null;
   sgaName: string | null;
   /** reps.role for the call's rep — 'SGA' | 'SGM' | 'manager' | 'admin' | null. */
   repRole: string | null;
@@ -87,20 +75,9 @@ interface CoachingUsageDetailRow {
   hasManagerEditEval: boolean;
 }
 interface CoachingUsageResponse {
-  kpis: CoachingUsageKpis;
-  trend: CoachingUsageTrendRow[];
+  activeCoachingUsers: number;
   drillDown: CoachingUsageDetailRow[];
   range: AllowedRange;
-  sortBy: AllowedSortField;
-  sortDir: AllowedSortDir;
-  filters?: {
-    sql: TriState;
-    sqo: TriState;
-    closedLost: TriState;
-    stages: string[];
-    pushed: TriState;
-    repRole: RepRoleFilter;
-  };
   generated_at: string;
 }
 
@@ -114,16 +91,11 @@ function formatTimestamp(ts: string | null): string {
   if (Number.isNaN(d.getTime())) return ts;
   return d.toLocaleString();
 }
-function formatMonthLabel(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
-}
 const RANGE_LABELS: Record<AllowedRange, string> = {
   '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days', 'all': 'All time',
 };
 
-// Inline tri-state segmented control for the SQL'd / SQO'd / Closed Lost filters.
+// Inline tri-state segmented control for the SQL'd / SQO'd / Closed Lost / Pushed filters.
 function TriStateGroup(props: {
   label: string;
   value: TriState;
@@ -159,41 +131,36 @@ function TriStateGroup(props: {
 }
 
 export function CoachingUsageClient() {
+  // Range is the only server-side input. Everything else is client-side.
   const [range, setRange] = useState<AllowedRange>('7d');
+  // Drill-down sort — client-side. Filter changes don't refetch.
   const [sortBy, setSortBy] = useState<AllowedSortField>('call_date');
   const [sortDir, setSortDir] = useState<AllowedSortDir>('desc');
+  // Global filters — apply to KPIs AND drill-down identically.
   const [filterSql, setFilterSql] = useState<TriState>('any');
   const [filterSqo, setFilterSqo] = useState<TriState>('any');
   const [filterClosedLost, setFilterClosedLost] = useState<TriState>('any');
   const [filterStages, setFilterStages] = useState<string[]>([]);
   const [filterPushed, setFilterPushed] = useState<TriState>('any');
   const [filterRepRole, setFilterRepRole] = useState<RepRoleFilter>('any');
-  // Fuzzy name searches — applied client-side so typing is instant. Filtered
-  // before render; never sent to the API (kept out of the URL params to keep
-  // the cache key stable).
   const [repNameSearch, setRepNameSearch] = useState('');
   const [advisorNameSearch, setAdvisorNameSearch] = useState('');
+
   const [data, setData] = useState<CoachingUsageResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [cacheBuster, setCacheBuster] = useState(0);
-  // Row selected for the detail modal. null = modal closed.
   const [selectedRow, setSelectedRow] = useState<CallDetailRowSummary | null>(null);
 
+  // Fetch is range-only — no filter changes trigger a refetch.
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
       setFetchError(null);
       try {
-        const params = new URLSearchParams({ range, sortBy, sortDir });
-        if (filterSql !== 'any') params.set('sql', filterSql);
-        if (filterSqo !== 'any') params.set('sqo', filterSqo);
-        if (filterClosedLost !== 'any') params.set('closedLost', filterClosedLost);
-        if (filterStages.length > 0) params.set('stages', filterStages.join(','));
-        if (filterPushed !== 'any') params.set('pushed', filterPushed);
-        if (filterRepRole !== 'any') params.set('repRole', filterRepRole);
+        const params = new URLSearchParams({ range });
         const res = await fetch(`/api/admin/coaching-usage?${params.toString()}`);
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -209,7 +176,7 @@ export function CoachingUsageClient() {
     }
     load();
     return () => { cancelled = true; };
-  }, [range, sortBy, sortDir, filterSql, filterSqo, filterClosedLost, filterStages, filterPushed, filterRepRole, cacheBuster]);
+  }, [range, cacheBuster]);
 
   function toggleStage(stage: string) {
     setFilterStages((prev) =>
@@ -236,17 +203,85 @@ export function CoachingUsageClient() {
     || repNameSearch.trim() !== ''
     || advisorNameSearch.trim() !== '';
 
-  // Apply client-side fuzzy filters on top of the server-filtered drill-down.
-  // Server already handled role/funnel-status/stage filters; here we narrow
-  // by name as the user types — instant feedback, no fetch needed.
-  const visibleDrillDown = (data?.drillDown ?? []).filter((row) => {
-    if (!fuzzyMatches(row.sgaName, repNameSearch)) return false;
-    // For advisor: search across the resolved name + the email fallback so
-    // "acme.com" or "Carl" both work.
-    const advisorTarget = `${row.advisorName ?? ''} ${row.advisorEmail ?? ''}`;
-    if (!fuzzyMatches(advisorTarget, advisorNameSearch)) return false;
-    return true;
-  });
+  // ─── Filter pass ──────────────────────────────────────────────────────────
+  // Applied to BOTH the KPI roll-ups and the drill-down so headline numbers
+  // and the modal universe always match.
+  //
+  // Linkage rule: when any FUNNEL-STATUS filter is active (sql/sqo/closedLost/
+  // stages), unlinked rows are dropped — we can only definitively know an
+  // advisor's status when we resolved them to SFDC. The "pushed" filter is
+  // per-call (sfdc_write_log on the call_note itself), NOT per-advisor, so it
+  // does NOT require SFDC linkage.
+  const filteredRows = useMemo(() => {
+    const rows = data?.drillDown ?? [];
+    const stageSet = new Set(filterStages.map((s) => s.toLowerCase()));
+    const anyFunnelFilterActive =
+      filterSql !== 'any'
+      || filterSqo !== 'any'
+      || filterClosedLost !== 'any'
+      || stageSet.size > 0;
+    return rows.filter((r) => {
+      if (anyFunnelFilterActive && !r.linkedToSfdc) return false;
+      if (!triMatches(r.didSql, filterSql)) return false;
+      if (!triMatches(r.didSqo, filterSqo)) return false;
+      if (!triMatches(r.closedLost, filterClosedLost)) return false;
+      if (stageSet.size > 0) {
+        const stage = (r.currentStage ?? '').toLowerCase();
+        if (!stageSet.has(stage)) return false;
+      }
+      if (!triMatches(r.pushedToSfdc, filterPushed)) return false;
+      if (filterRepRole !== 'any' && r.repRole !== filterRepRole) return false;
+      if (!fuzzyMatches(r.sgaName, repNameSearch)) return false;
+      // For advisor: search across the resolved name + the email fallback so
+      // "acme.com" or "Carl" both work.
+      const advisorTarget = `${r.advisorName ?? ''} ${r.advisorEmail ?? ''}`;
+      if (!fuzzyMatches(advisorTarget, advisorNameSearch)) return false;
+      return true;
+    });
+  }, [data, filterSql, filterSqo, filterClosedLost, filterStages, filterPushed, filterRepRole, repNameSearch, advisorNameSearch]);
+
+  // KPIs derive entirely from the filtered set — so selecting "Perry Kalmetta
+  // last 7 days" recomputes his pushed-to-SFDC rate instantly.
+  const kpis = useMemo(() => {
+    const total = filteredRows.length;
+    const distinctReps = new Set<string>();
+    let pushed = 0, aiFb = 0, mgrEdit = 0;
+    for (const r of filteredRows) {
+      if (r.repId) distinctReps.add(r.repId);
+      if (r.pushedToSfdc) pushed++;
+      if (r.hasAiFeedback) aiFb++;
+      if (r.hasManagerEditEval) mgrEdit++;
+    }
+    const ratio = (n: number) => (total === 0 ? 0 : n / total);
+    return {
+      activeUsersInRange: distinctReps.size,
+      totalAdvisorFacingCalls: total,
+      pctPushedToSfdc: ratio(pushed),
+      pctWithAiFeedback: ratio(aiFb),
+      pctWithManagerEditEval: ratio(mgrEdit),
+    };
+  }, [filteredRows]);
+
+  // Sort the filtered set for the drill-down render.
+  const visibleDrillDown = useMemo(() => {
+    const arr = [...filteredRows];
+    const dir = sortDir === 'asc' ? 1 : -1;
+    arr.sort((a, b) => {
+      const av = sortBy === 'call_date' ? a.callDate
+        : sortBy === 'sga_name' ? (a.sgaName ?? '')
+        : (a.sgmName ?? '');
+      const bv = sortBy === 'call_date' ? b.callDate
+        : sortBy === 'sga_name' ? (b.sgaName ?? '')
+        : (b.sgmName ?? '');
+      // Empty-string sorts last regardless of direction (NULLS LAST behavior).
+      if (av === '' && bv !== '') return 1;
+      if (bv === '' && av !== '') return -1;
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+    return arr;
+  }, [filteredRows, sortBy, sortDir]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -308,106 +343,21 @@ export function CoachingUsageClient() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
-          <Text className="dark:text-gray-300">Active coaching users</Text>
-          <Metric className="text-2xl font-bold dark:text-white">
-            {loading ? '—' : data?.kpis.activeCoachingUsers ?? 0}
-          </Metric>
-          <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">Census · all-time</Text>
-        </Card>
-        <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
-          <Text className="dark:text-gray-300">Active users in range</Text>
-          <Metric className="text-2xl font-bold dark:text-white">
-            {loading ? '—' : data?.kpis.activeUsersInRange ?? 0}
-          </Metric>
-          <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">Reps with ≥1 call · {RANGE_LABELS[range]}</Text>
-        </Card>
-        <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
-          <Text className="dark:text-gray-300">Advisor-facing calls</Text>
-          <Metric className="text-2xl font-bold dark:text-white">
-            {loading ? '—' : data?.kpis.totalAdvisorFacingCalls ?? 0}
-          </Metric>
-          <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">{RANGE_LABELS[range]}</Text>
-        </Card>
-        <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
-          <Text className="dark:text-gray-300">% pushed to SFDC</Text>
-          <Metric className="text-2xl font-bold dark:text-white">
-            {loading ? '—' : formatPct(data?.kpis.pctPushedToSfdc ?? 0)}
-          </Metric>
-          <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">{RANGE_LABELS[range]}</Text>
-        </Card>
-        <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
-          <Text className="dark:text-gray-300">% with AI Feedback</Text>
-          <Metric className="text-2xl font-bold dark:text-white">
-            {loading ? '—' : formatPct(data?.kpis.pctWithAiFeedback ?? 0)}
-          </Metric>
-          <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">{RANGE_LABELS[range]}</Text>
-        </Card>
-        <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
-          <Text className="dark:text-gray-300">% with manager Edit Eval</Text>
-          <Metric className="text-2xl font-bold dark:text-white">
-            {loading ? '—' : formatPct(data?.kpis.pctWithManagerEditEval ?? 0)}
-          </Metric>
-          <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">{RANGE_LABELS[range]}</Text>
-        </Card>
-      </div>
-
+      {/* Global filters — apply to BOTH the KPIs and the drill-down. */}
       <Card className="dark:bg-gray-800 dark:border-gray-700">
-        <Title className="dark:text-white">Monthly trend (rolling 6 months)</Title>
-        <Text className="text-xs text-gray-500 dark:text-gray-400 -mt-1">
-          Always shows the last 6 calendar months — independent of the date-range selector above.
-        </Text>
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-gray-600 dark:text-gray-300">
-                <th className="py-2 px-2">Month</th>
-                <th className="py-2 px-2">Advisor calls</th>
-                <th className="py-2 px-2">% SFDC</th>
-                <th className="py-2 px-2">% AI FB</th>
-                <th className="py-2 px-2">% Edit Eval</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(data?.trend ?? []).map(row => (
-                <tr key={row.month} className="border-b border-gray-100 dark:border-gray-700/50">
-                  <td className="py-2 px-2 dark:text-gray-200">{formatMonthLabel(row.month)}</td>
-                  <td className="py-2 px-2 dark:text-gray-200">{row.advisorFacingCalls}</td>
-                  <td className="py-2 px-2 dark:text-gray-200">{formatPct(row.pctPushedToSfdc)}</td>
-                  <td className="py-2 px-2 dark:text-gray-200">{formatPct(row.pctWithAiFeedback)}</td>
-                  <td className="py-2 px-2 dark:text-gray-200">{formatPct(row.pctWithManagerEditEval)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <Title className="dark:text-white">Filters</Title>
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="px-2 py-0.5 text-xs underline text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200"
+            >
+              Clear all
+            </button>
+          )}
         </div>
-      </Card>
-
-      <Card className="dark:bg-gray-800 dark:border-gray-700">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-          <Title className="dark:text-white">Call drill-down</Title>
-          <select
-            value={`${sortBy}:${sortDir}`}
-            onChange={(e) => {
-              const [f, d] = e.target.value.split(':') as [AllowedSortField, AllowedSortDir];
-              setSortBy(f); setSortDir(d);
-            }}
-            className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
-                       bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100
-                       focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-          >
-            <option value="call_date:desc">Call date (newest first)</option>
-            <option value="call_date:asc">Call date (oldest first)</option>
-            <option value="sga_name:asc">Rep name (A–Z)</option>
-            <option value="sga_name:desc">Rep name (Z–A)</option>
-            <option value="sgm_name:asc">Manager name (A–Z)</option>
-            <option value="sgm_name:desc">Manager name (Z–A)</option>
-          </select>
-        </div>
-
-        {/* Fuzzy name searches — applied client-side so typing is instant. */}
-        <div className="flex flex-wrap items-center gap-3 mb-2 text-xs">
+        <div className="flex flex-wrap items-center gap-3 text-xs">
           <label className="flex items-center gap-1.5">
             <span className="text-gray-600 dark:text-gray-300 whitespace-nowrap">Rep name:</span>
             <input
@@ -428,16 +378,10 @@ export function CoachingUsageClient() {
               className="px-2 py-1 w-44 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
             />
           </label>
-        </div>
-
-        {/* Status filters — apply to drill-down only. KPIs/trend stay unfiltered. */}
-        <div className="flex flex-wrap items-center gap-3 mb-2 text-xs">
-          <TriStateGroup label="SQL'd"        value={filterSql}        onChange={setFilterSql} />
-          <TriStateGroup label="SQO'd"        value={filterSqo}        onChange={setFilterSqo} />
-          <TriStateGroup label="Closed Lost"  value={filterClosedLost} onChange={setFilterClosedLost} />
-          <TriStateGroup label="Pushed to SFDC" value={filterPushed}   onChange={setFilterPushed} />
-          {/* Rep-role segmented (Any / SGA / SGM) — same look as TriStateGroup
-              but with role-shaped labels rather than yes/no. */}
+          <TriStateGroup label="SQL'd"          value={filterSql}        onChange={setFilterSql} />
+          <TriStateGroup label="SQO'd"          value={filterSqo}        onChange={setFilterSqo} />
+          <TriStateGroup label="Closed Lost"    value={filterClosedLost} onChange={setFilterClosedLost} />
+          <TriStateGroup label="Pushed to SFDC" value={filterPushed}     onChange={setFilterPushed} />
           <div className="flex items-center gap-1.5">
             <span className="text-gray-600 dark:text-gray-300 whitespace-nowrap">Rep role:</span>
             <div className="inline-flex border border-gray-300 dark:border-gray-600 rounded-md overflow-hidden">
@@ -458,17 +402,8 @@ export function CoachingUsageClient() {
               ))}
             </div>
           </div>
-          {hasActiveFilters && (
-            <button
-              type="button"
-              onClick={clearAllFilters}
-              className="px-2 py-0.5 text-xs underline text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200"
-            >
-              Clear filters
-            </button>
-          )}
         </div>
-        <div className="flex flex-wrap items-center gap-1.5 mb-3 text-xs">
+        <div className="flex flex-wrap items-center gap-1.5 mt-2 text-xs">
           <span className="text-gray-600 dark:text-gray-300 whitespace-nowrap">Stage:</span>
           {STAGE_OPTIONS.map((stage) => {
             const active = filterStages.includes(stage);
@@ -492,6 +427,76 @@ export function CoachingUsageClient() {
             <span className="text-gray-400 dark:text-gray-500 italic ml-1">(any)</span>
           )}
         </div>
+      </Card>
+
+      {/* KPIs — derived live from the filtered set above. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
+          <Text className="dark:text-gray-300">Active coaching users</Text>
+          <Metric className="text-2xl font-bold dark:text-white">
+            {loading ? '—' : data?.activeCoachingUsers ?? 0}
+          </Metric>
+          <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">Census · all-time</Text>
+        </Card>
+        <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
+          <Text className="dark:text-gray-300">Active users in range</Text>
+          <Metric className="text-2xl font-bold dark:text-white">
+            {loading ? '—' : kpis.activeUsersInRange}
+          </Metric>
+          <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">Distinct reps · {RANGE_LABELS[range]}{hasActiveFilters ? ' · filtered' : ''}</Text>
+        </Card>
+        <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
+          <Text className="dark:text-gray-300">Advisor-facing calls</Text>
+          <Metric className="text-2xl font-bold dark:text-white">
+            {loading ? '—' : kpis.totalAdvisorFacingCalls}
+          </Metric>
+          <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">{RANGE_LABELS[range]}{hasActiveFilters ? ' · filtered' : ''}</Text>
+        </Card>
+        <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
+          <Text className="dark:text-gray-300">% pushed to SFDC</Text>
+          <Metric className="text-2xl font-bold dark:text-white">
+            {loading ? '—' : formatPct(kpis.pctPushedToSfdc)}
+          </Metric>
+          <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">{RANGE_LABELS[range]}{hasActiveFilters ? ' · filtered' : ''}</Text>
+        </Card>
+        <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
+          <Text className="dark:text-gray-300">% with AI Feedback</Text>
+          <Metric className="text-2xl font-bold dark:text-white">
+            {loading ? '—' : formatPct(kpis.pctWithAiFeedback)}
+          </Metric>
+          <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">{RANGE_LABELS[range]}{hasActiveFilters ? ' · filtered' : ''}</Text>
+        </Card>
+        <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
+          <Text className="dark:text-gray-300">% with manager Edit Eval</Text>
+          <Metric className="text-2xl font-bold dark:text-white">
+            {loading ? '—' : formatPct(kpis.pctWithManagerEditEval)}
+          </Metric>
+          <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">{RANGE_LABELS[range]}{hasActiveFilters ? ' · filtered' : ''}</Text>
+        </Card>
+      </div>
+
+      <Card className="dark:bg-gray-800 dark:border-gray-700">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <Title className="dark:text-white">Call drill-down</Title>
+          <select
+            value={`${sortBy}:${sortDir}`}
+            onChange={(e) => {
+              const [f, d] = e.target.value.split(':') as [AllowedSortField, AllowedSortDir];
+              setSortBy(f); setSortDir(d);
+            }}
+            className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                       bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100
+                       focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+          >
+            <option value="call_date:desc">Call date (newest first)</option>
+            <option value="call_date:asc">Call date (oldest first)</option>
+            <option value="sga_name:asc">Rep name (A–Z)</option>
+            <option value="sga_name:desc">Rep name (Z–A)</option>
+            <option value="sgm_name:asc">Manager name (A–Z)</option>
+            <option value="sgm_name:desc">Manager name (Z–A)</option>
+          </select>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -512,12 +517,9 @@ export function CoachingUsageClient() {
             </thead>
             <tbody>
               {visibleDrillDown.map(row => {
-                // Advisor cell: name (resolved via SFDC) > first external email with
-                // tooltip listing the rest > "Unknown".
                 const extras = row.advisorEmailExtras ?? [];
                 const tooltip = extras.length > 0 ? `Other invitees:\n${extras.join('\n')}` : undefined;
                 const advisorDisplay = row.advisorName ?? row.advisorEmail ?? 'Unknown';
-                // Role badge styling: SGA = blue, SGM = purple, other = neutral.
                 const role = row.repRole;
                 const roleClass =
                   role === 'SGA' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200'

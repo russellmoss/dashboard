@@ -1,3 +1,19 @@
+// GET /api/admin/coaching-usage
+//
+// Single-query payload for the Coaching Usage tab. Returns the full annotated
+// list of advisor-facing calls in the selected range, plus the active-coaching-
+// users census. The client computes every KPI and applies every filter (rep
+// name, advisor name, SQL'd, SQO'd, Closed Lost, Pushed to SFDC, rep role,
+// stage) locally — so KPIs are reactive to filter changes with no per-keystroke
+// round-trip, and the response cache stratifies only by `range`.
+//
+// Auth: revops_admin only.
+// Cache: 5-min TTL, COACHING_USAGE tag (busted by /api/admin/refresh-cache).
+//
+// Volume note: total advisor-facing calls all-time is in the low hundreds
+// (~213 today), so returning the unfiltered set per range is well within
+// budget for both the network payload and the BigQuery resolver round-trip.
+
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
@@ -5,11 +21,7 @@ import { getSessionPermissions } from '@/types/auth';
 import {
   getCoachingPool,
   ALLOWED_RANGES,
-  ALLOWED_SORT_FIELDS,
-  ALLOWED_SORT_DIRS,
   type AllowedRange,
-  type AllowedSortField,
-  type AllowedSortDir,
 } from '@/lib/coachingDb';
 import { cachedQuery, CACHE_TAGS } from '@/lib/cache';
 import { resolveAdvisorNames } from '@/lib/queries/resolve-advisor-names';
@@ -24,44 +36,12 @@ function isSavvyInternal(email: string): boolean {
   return SAVVY_INTERNAL_DOMAINS.some((d) => lc.endsWith(d));
 }
 
-// Tri-state filter: 'any' (no filter), 'yes' (must be true), 'no' (must be false).
-export type TriState = 'any' | 'yes' | 'no';
-const ALLOWED_TRISTATE: readonly TriState[] = ['any', 'yes', 'no'];
-function parseTriState(raw: string | null): TriState {
-  if (raw && (ALLOWED_TRISTATE as readonly string[]).includes(raw)) return raw as TriState;
-  return 'any';
-}
-function triMatches(value: boolean, filter: TriState): boolean {
-  if (filter === 'any') return true;
-  return filter === 'yes' ? value : !value;
-}
-// Comma-separated stage list. Empty/missing → no stage filter.
-function parseStages(raw: string | null): string[] {
-  if (!raw) return [];
-  return raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
-
-interface KpiRow {
-  active_coaching_users: string;     // census: is_active=true AND is_system=false (independent of range)
-  active_users_in_range: string;     // distinct reps with >= 1 advisor-facing call in range
-  total_advisor_facing_calls: string;
-  pushed_to_sfdc: string;
-  with_ai_feedback: string;
-  with_manager_edit_eval: string;
-}
-interface TrendRow {
-  month: Date;
-  advisor_facing_calls: string;
-  pushed_to_sfdc: string;
-  with_ai_feedback: string;
-  with_manager_edit_eval: string;
-}
 interface DetailRow {
   call_note_id: string;
   call_date: Date;
+  /** call_notes.rep_id — opaque key the client uses to count distinct
+   *  active-users-in-range from the filtered set. Not surfaced as PII. */
+  rep_id: string | null;
   sga_name: string | null;
   /** reps.role for the call's rep — 'SGA' | 'SGM' | 'manager' | 'admin' | null. */
   rep_role: string | null;
@@ -77,16 +57,6 @@ interface DetailRow {
   invitee_emails: string[] | null;
 }
 
-// Subset of reps.role values we expose as a server-side filter. Other values
-// ('manager' / 'admin') exist but are out-of-scope for the SGA/SGM toggle —
-// they get filtered out automatically when the user selects either.
-type RepRoleFilter = 'any' | 'SGA' | 'SGM';
-const ALLOWED_REP_ROLES: readonly RepRoleFilter[] = ['any', 'SGA', 'SGM'];
-function parseRepRole(raw: string | null): RepRoleFilter {
-  if (raw && (ALLOWED_REP_ROLES as readonly string[]).includes(raw)) return raw as RepRoleFilter;
-  return 'any';
-}
-
 // Day-truncated cutoffs avoid the "calls disappearing mid-shift" effect of a
 // millisecond-rolling now(). 'all' emits no lower-bound predicate at all
 // (cleaner than '-infinity'::timestamptz).
@@ -96,132 +66,32 @@ const RANGE_WHERE: Record<AllowedRange, string> = {
   '90d': "AND cn.call_started_at >= date_trunc('day', now()) - interval '90 days'",
   'all': '',
 };
-const SORT_COL: Record<AllowedSortField, string> = {
-  call_date: 'cn.call_started_at',
-  sga_name:  'sga.full_name',
-  sgm_name:  'sgm.full_name',
-};
-const SORT_DIR: Record<AllowedSortDir, string> = {
-  asc:  'ASC NULLS LAST',
-  desc: 'DESC NULLS LAST',
-};
 
-const _getCoachingUsageData = async (args: {
-  range: AllowedRange;
-  sortBy: AllowedSortField;
-  sortDir: AllowedSortDir;
-  // Status filters — applied to the drill-down only. KPIs + trend stay
-  // unfiltered so the headline numbers reflect the full advisor-facing universe.
-  filterSql: TriState;
-  filterSqo: TriState;
-  filterClosedLost: TriState;
-  filterStages: string[];
-  filterPushed: TriState;
-  filterRepRole: RepRoleFilter;
-}) => {
-  const { range, sortBy, sortDir, filterSql, filterSqo, filterClosedLost, filterStages, filterPushed, filterRepRole } = args;
+const _getCoachingUsageData = async (args: { range: AllowedRange }) => {
+  const { range } = args;
   const rangeWhere = RANGE_WHERE[range];
-  const orderBy = `${SORT_COL[sortBy]} ${SORT_DIR[sortDir]}`;
   const pool = getCoachingPool();
 
-  // Advisor-facing rule:
+  // Advisor-facing rule (must match KPIs, drill-down, and modal):
   //   - Kixie: always counts (outbound dialer is by definition prospect-facing;
   //     likely_call_type isn't run on Kixie yet so it's NULL there).
   //   - Granola: count only when the AI classifier says `likely_call_type =
   //     'advisor_call'` (excludes 'internal_collaboration', 'vendor_call',
   //     'unknown', and unclassified rows).
-  // This replaces the prior email-attendee heuristic (and the
-  // COACHING_INSIDER_DOMAINS env var that fed it).
-  const ADVISOR_FACING_CTE = `
-    advisor_calls AS (
-      SELECT cn.id, cn.source, cn.call_started_at, cn.rep_id
+  // Sort is `call_started_at DESC` server-side as a stable default; the client
+  // re-sorts based on the user's UI selection.
+  const DETAIL_SQL = `
+    WITH advisor_calls AS (
+      SELECT cn.id
       FROM call_notes cn
       WHERE cn.source_deleted_at IS NULL
         ${rangeWhere}
         AND (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')
     )
-  `;
-
-  const KPI_SQL = `
-    WITH
-    ${ADVISOR_FACING_CTE},
-    sfdc_pushed AS (
-      SELECT DISTINCT swl.call_note_id
-      FROM sfdc_write_log swl
-      JOIN advisor_calls ac ON ac.id = swl.call_note_id
-      WHERE swl.status = 'success'
-    ),
-    ai_flagged AS (
-      SELECT DISTINCT e.call_note_id
-      FROM ai_feedback af
-      JOIN evaluations e ON e.id = af.evaluation_id
-      JOIN advisor_calls ac ON ac.id = e.call_note_id
-      WHERE af.status = 'approved'
-        AND af.is_synthetic_test_data = false
-    ),
-    mgr_edited AS (
-      -- Counts BOTH the direct-text-editor flow (slack_dm_edit_eval_text) AND the
-      -- multi-claim modal flow (slack_dm_edit_eval). Excludes slack_dm_single_claim
-      -- (which is the AI-Feedback flag flow — covered by metric #4 instead).
-      SELECT DISTINCT e.call_note_id
-      FROM evaluation_edit_audit_log eal
-      JOIN evaluations e ON e.id = eal.evaluation_id
-      JOIN advisor_calls ac ON ac.id = e.call_note_id
-      WHERE eal.edit_source IN ('slack_dm_edit_eval_text', 'slack_dm_edit_eval')
-    )
-    SELECT
-      (SELECT count(*) FROM reps WHERE is_active = true AND is_system = false)::text AS active_coaching_users,
-      (SELECT count(DISTINCT rep_id) FROM advisor_calls)::text                       AS active_users_in_range,
-      (SELECT count(*) FROM advisor_calls)::text                                     AS total_advisor_facing_calls,
-      (SELECT count(*) FROM sfdc_pushed)::text                                       AS pushed_to_sfdc,
-      (SELECT count(*) FROM ai_flagged)::text                                        AS with_ai_feedback,
-      (SELECT count(*) FROM mgr_edited)::text                                        AS with_manager_edit_eval
-  `;
-
-  const TREND_SQL = `
-    WITH
-    months AS (
-      SELECT generate_series(
-        date_trunc('month', now()) - interval '5 months',
-        date_trunc('month', now()),
-        interval '1 month'
-      ) AS month
-    ),
-    advisor_calls_all AS (
-      -- Same advisor-facing rule as the KPI/DETAIL CTE:
-      --   Kixie always counts; Granola requires likely_call_type = 'advisor_call'.
-      SELECT cn.id, cn.source, cn.call_started_at
-      FROM call_notes cn
-      WHERE cn.source_deleted_at IS NULL
-        AND cn.call_started_at >= date_trunc('month', now()) - interval '5 months'
-        AND (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')
-    )
-    SELECT
-      m.month,
-      (SELECT count(*) FROM advisor_calls_all ac
-        WHERE date_trunc('month', ac.call_started_at) = m.month)::text AS advisor_facing_calls,
-      (SELECT count(DISTINCT swl.call_note_id) FROM sfdc_write_log swl
-        JOIN advisor_calls_all ac ON ac.id = swl.call_note_id
-        WHERE swl.status = 'success' AND date_trunc('month', ac.call_started_at) = m.month)::text AS pushed_to_sfdc,
-      (SELECT count(DISTINCT e.call_note_id) FROM ai_feedback af
-        JOIN evaluations e ON e.id = af.evaluation_id
-        JOIN advisor_calls_all ac ON ac.id = e.call_note_id
-        WHERE af.status = 'approved' AND af.is_synthetic_test_data = false
-          AND date_trunc('month', ac.call_started_at) = m.month)::text AS with_ai_feedback,
-      (SELECT count(DISTINCT e.call_note_id) FROM evaluation_edit_audit_log eal
-        JOIN evaluations e ON e.id = eal.evaluation_id
-        JOIN advisor_calls_all ac ON ac.id = e.call_note_id
-        WHERE eal.edit_source IN ('slack_dm_edit_eval_text', 'slack_dm_edit_eval')
-          AND date_trunc('month', ac.call_started_at) = m.month)::text AS with_manager_edit_eval
-    FROM months m
-    ORDER BY m.month ASC
-  `;
-
-  const DETAIL_SQL = `
-    WITH ${ADVISOR_FACING_CTE}
     SELECT
       cn.id AS call_note_id,
       cn.call_started_at AS call_date,
+      cn.rep_id AS rep_id,
       sga.full_name AS sga_name,
       sga.role AS rep_role,
       sgm.full_name AS sgm_name,
@@ -246,124 +116,34 @@ const _getCoachingUsageData = async (args: {
     -- LEFT JOIN deliberately omits is_active filter: per Russell's Q2 answer,
     -- we always show SGA/SGM names in the drill-down even if the rep has left
     -- the company. Only the System Admin placeholder is suppressed.
-    -- SGM may be NULL when the SGA's manager isn't an SGM (e.g., role='manager'
-    -- or 'admin') or when the SGA has no manager_id set — render as "—".
     LEFT JOIN reps sga ON sga.id = cn.rep_id AND sga.is_system = false
     LEFT JOIN reps sgm ON sgm.id = sga.manager_id AND sgm.is_system = false
-    -- Drill-down-only filter — must match the KPI/TREND advisor-facing rule
-    -- so the modal universe lines up with the headline counts:
-    --   - Kixie calls always show (likely_call_type isn't run on Kixie yet,
-    --     and Kixie is definitionally outbound-to-prospect anyway).
-    --   - Granola calls require likely_call_type = 'advisor_call' from the
-    --     AI classifier (excludes internal_collaboration / vendor_call /
-    --     unknown / unclassified).
-    WHERE (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')
-    ORDER BY ${orderBy}
-    LIMIT 500
+    ORDER BY cn.call_started_at DESC NULLS LAST
   `;
 
-  // No bound params — the advisor-facing rule no longer needs the insider-
-  // domain text[] (replaced by the AI-classified `likely_call_type` field).
-  const [kpiResult, trendResult, detailResult] = await Promise.all([
-    pool.query<KpiRow>(KPI_SQL),
-    pool.query<TrendRow>(TREND_SQL),
+  // Census of provisioned coaching users — independent of the date range.
+  // Tiny and cheap to fire alongside DETAIL_SQL.
+  const CENSUS_SQL = `
+    SELECT count(*)::text AS active_coaching_users
+    FROM reps
+    WHERE is_active = true AND is_system = false
+  `;
+
+  const [detailResult, censusResult] = await Promise.all([
     pool.query<DetailRow>(DETAIL_SQL),
+    pool.query<{ active_coaching_users: string }>(CENSUS_SQL),
   ]);
 
-  const k = kpiResult.rows[0] ?? {} as KpiRow;
-  const totalAdvisorFacingCalls = Number(k.total_advisor_facing_calls) || 0;
-  const safeRatio = (n: number) =>
-    totalAdvisorFacingCalls === 0 ? 0 : n / totalAdvisorFacingCalls;
+  const drillDown = await annotateDrillDownWithAdvisor(detailResult.rows);
+  const activeCoachingUsers = Number(censusResult.rows[0]?.active_coaching_users) || 0;
 
   return {
-    kpis: {
-      activeCoachingUsers:    Number(k.active_coaching_users) || 0,
-      activeUsersInRange:     Number(k.active_users_in_range) || 0,
-      totalAdvisorFacingCalls,
-      pctPushedToSfdc:        safeRatio(Number(k.pushed_to_sfdc) || 0),
-      pctWithAiFeedback:      safeRatio(Number(k.with_ai_feedback) || 0),
-      pctWithManagerEditEval: safeRatio(Number(k.with_manager_edit_eval) || 0),
-    },
-    trend: trendResult.rows.map(r => {
-      const calls = Number(r.advisor_facing_calls) || 0;
-      const ratio = (n: number) => calls === 0 ? 0 : n / calls;
-      return {
-        month: r.month.toISOString().slice(0, 10),
-        advisorFacingCalls:     calls,
-        pctPushedToSfdc:        ratio(Number(r.pushed_to_sfdc) || 0),
-        pctWithAiFeedback:      ratio(Number(r.with_ai_feedback) || 0),
-        pctWithManagerEditEval: ratio(Number(r.with_manager_edit_eval) || 0),
-      };
-    }),
-    drillDown: applyDrillDownFilters(
-      await annotateDrillDownWithAdvisor(detailResult.rows),
-      { filterSql, filterSqo, filterClosedLost, filterStages, filterPushed, filterRepRole },
-    ),
+    activeCoachingUsers,
+    drillDown,
     range,
-    sortBy,
-    sortDir,
-    filters: {
-      sql: filterSql,
-      sqo: filterSqo,
-      closedLost: filterClosedLost,
-      stages: filterStages,
-      pushed: filterPushed,
-      repRole: filterRepRole,
-    },
     generated_at: new Date().toISOString(),
   };
 };
-
-// Server-side filter pass over the annotated drill-down rows. Filters are
-// independent — empty filterStages means "any stage", tri-states default to
-// 'any'. A row must satisfy every active filter to survive.
-//
-// Linkage rule (per-spec): when any FUNNEL-STATUS filter is active (sql/sqo/
-// closedLost/stages), unlinked rows are dropped. We can only definitively
-// know an advisor's status when we resolved them to SFDC; saying "didn't SQL"
-// for an unverified person would be a false claim.
-//
-// `filterPushed` is per-call (sfdc_write_log on the call_note itself), NOT
-// per-advisor, so it does NOT require SFDC linkage to be meaningful.
-function applyDrillDownFilters<T extends {
-  linkedToSfdc: boolean;
-  didSql: boolean;
-  didSqo: boolean;
-  closedLost: boolean;
-  currentStage: string | null;
-  pushedToSfdc: boolean;
-  repRole: string | null;
-}>(
-  rows: T[],
-  args: {
-    filterSql: TriState;
-    filterSqo: TriState;
-    filterClosedLost: TriState;
-    filterStages: string[];
-    filterPushed: TriState;
-    filterRepRole: RepRoleFilter;
-  },
-): T[] {
-  const stageSet = new Set(args.filterStages.map((s) => s.toLowerCase()));
-  const anyFunnelFilterActive =
-    args.filterSql !== 'any'
-    || args.filterSqo !== 'any'
-    || args.filterClosedLost !== 'any'
-    || stageSet.size > 0;
-  return rows.filter((r) => {
-    if (anyFunnelFilterActive && !r.linkedToSfdc) return false;
-    if (!triMatches(r.didSql, args.filterSql)) return false;
-    if (!triMatches(r.didSqo, args.filterSqo)) return false;
-    if (!triMatches(r.closedLost, args.filterClosedLost)) return false;
-    if (stageSet.size > 0) {
-      const stage = (r.currentStage ?? '').toLowerCase();
-      if (!stageSet.has(stage)) return false;
-    }
-    if (!triMatches(r.pushedToSfdc, args.filterPushed)) return false;
-    if (args.filterRepRole !== 'any' && r.repRole !== args.filterRepRole) return false;
-    return true;
-  });
-}
 
 // ─── Advisor-name annotation (post-pg, pre-cache wrap) ────────────────────────
 //
@@ -456,19 +236,19 @@ async function annotateDrillDownWithAdvisor(rows: DetailRow[]) {
       advisorName,
       advisorEmail,
       advisorEmailExtras,
-      // True iff we definitively linked this row to a SFDC Lead/Contact. Used
-      // by the filter pass: when any status filter is active, only linked
-      // rows survive (unlinked rows have no verified status to filter on).
+      // True iff we definitively linked this row to a SFDC Lead/Contact. The
+      // client uses this to decide whether to drop the row when a funnel-status
+      // filter is active (unverified rows have no verified status to filter on).
       linkedToSfdc: info !== null,
       leadUrl,
       opportunityUrl,
       // Funnel status — derived from vw_funnel_master via the resolver. Defaults
-      // to false / null when the advisor couldn't be linked to a Lead/Contact
-      // (e.g. no who_id and no unique-email match).
+      // to false / null when the advisor couldn't be linked to a Lead/Contact.
       didSql: info?.didSql ?? false,
       didSqo: info?.didSqo ?? false,
       currentStage: info?.currentStage ?? null,
       closedLost: info?.closedLost ?? false,
+      repId: r.rep_id,
       sgaName: r.sga_name,
       repRole: r.rep_role,
       sgmName: r.sgm_name,
@@ -489,7 +269,6 @@ const getCoachingUsageData = cachedQuery(
 
 export async function GET(request: NextRequest) {
   try {
-    // Auth gate (verbatim copy from /api/admin/bot-usage/route.ts lines 265-279)
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -507,25 +286,7 @@ export async function GET(request: NextRequest) {
     const range: AllowedRange = (ALLOWED_RANGES as readonly string[]).includes(rawRange)
       ? (rawRange as AllowedRange) : '30d';
 
-    const rawSort = searchParams.get('sortBy') ?? 'call_date';
-    const sortBy: AllowedSortField = (ALLOWED_SORT_FIELDS as readonly string[]).includes(rawSort)
-      ? (rawSort as AllowedSortField) : 'call_date';
-
-    const rawDir = searchParams.get('sortDir') ?? 'desc';
-    const sortDir: AllowedSortDir = (ALLOWED_SORT_DIRS as readonly string[]).includes(rawDir)
-      ? (rawDir as AllowedSortDir) : 'desc';
-
-    const filterSql = parseTriState(searchParams.get('sql'));
-    const filterSqo = parseTriState(searchParams.get('sqo'));
-    const filterClosedLost = parseTriState(searchParams.get('closedLost'));
-    const filterStages = parseStages(searchParams.get('stages'));
-    const filterPushed = parseTriState(searchParams.get('pushed'));
-    const filterRepRole = parseRepRole(searchParams.get('repRole'));
-
-    const data = await getCoachingUsageData({
-      range, sortBy, sortDir,
-      filterSql, filterSqo, filterClosedLost, filterStages, filterPushed, filterRepRole,
-    });
+    const data = await getCoachingUsageData({ range });
     return NextResponse.json(data);
   } catch (error) {
     console.error('[API] Error fetching coaching usage:', error);
