@@ -16,14 +16,17 @@ import {
   ListChecks,
   Activity,
   ClipboardList,
+  StickyNote,
 } from 'lucide-react';
 // Removed Badge import - using custom styled badges instead
 import { RecordDetailFull } from '@/types/record-detail';
 import { ActivityRecord } from '@/types/record-activity';
+import type { NoteRecord } from '@/types/record-notes';
 import { dashboardApi } from '@/lib/api-client';
 import { FunnelProgressStepper } from './FunnelProgressStepper';
 import { RecordDetailSkeleton } from './RecordDetailSkeleton';
 import { ActivityTimeline } from './ActivityTimeline';
+import { NotesTab } from './NotesTab';
 import { formatDate } from '@/lib/utils/format-helpers';
 
 interface RecordDetailModalProps {
@@ -101,11 +104,19 @@ export function RecordDetailModal({
   const [record, setRecord] = useState<RecordDetailFull | null>(initialRecord || null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'details' | 'activity'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'activity' | 'notes'>('details');
   const [activities, setActivities] = useState<ActivityRecord[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState<string | null>(null);
   const [activityFetched, setActivityFetched] = useState(false);
+  // Notes are eagerly fetched once the record is known so the tab button
+  // can decide whether to render itself (we hide the tab entirely when
+  // there are zero notes — that's a deliberate UX choice).
+  const [notes, setNotes] = useState<NoteRecord[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [notesError, setNotesError] = useState<string | null>(null);
+  const [notesFetched, setNotesFetched] = useState(false);
+  const [notesAuthorized, setNotesAuthorized] = useState(false);
 
   // Fetch activity data when tab is switched to activity (lazy load)
   const fetchActivity = useCallback((id: string) => {
@@ -126,6 +137,30 @@ export function RecordDetailModal({
         setActivityLoading(false);
       });
   }, [activityFetched]);
+
+  // Fetch notes eagerly (not gated on tab switch) — we need notes.length
+  // to decide whether to render the tab button at all. Cheap query;
+  // server caches for 5 min. RBAC happens server-side, so an unauthorized
+  // user just gets `authorized:false` + notes:[] and the tab stays hidden.
+  const fetchNotes = useCallback((id: string) => {
+    if (notesFetched) return;
+    setNotesLoading(true);
+    setNotesError(null);
+    dashboardApi.getRecordNotes(id)
+      .then((data) => {
+        setNotes(data.notes);
+        setNotesAuthorized(data.authorized);
+        setNotesFetched(true);
+      })
+      .catch((err) => {
+        console.error('Error fetching notes:', err);
+        setNotesError('Failed to load notes');
+        setNotesFetched(true);
+      })
+      .finally(() => {
+        setNotesLoading(false);
+      });
+  }, [notesFetched]);
 
   // Fetch record data when modal opens
   useEffect(() => {
@@ -160,6 +195,14 @@ export function RecordDetailModal({
     }
   }, [activeTab, recordId, activityFetched, fetchActivity]);
 
+  // Fetch notes as soon as the modal has a recordId — the tab visibility
+  // depends on notes.length so we can't wait for the user to click it.
+  useEffect(() => {
+    if (isOpen && recordId && !notesFetched) {
+      fetchNotes(recordId);
+    }
+  }, [isOpen, recordId, notesFetched, fetchNotes]);
+
   // Handle ESC key (add keyboard event listener)
   useEffect(() => {
     if (!isOpen) return;
@@ -188,6 +231,10 @@ export function RecordDetailModal({
       setActivities([]);
       setActivityFetched(false);
       setActivityError(null);
+      setNotes([]);
+      setNotesFetched(false);
+      setNotesError(null);
+      setNotesAuthorized(false);
     }
   }, [isOpen, initialRecord]);
 
@@ -332,6 +379,29 @@ export function RecordDetailModal({
                 </span>
               )}
             </button>
+            {/* Notes tab — hidden entirely when the user is not authorized
+                or when there are zero notes for this record. The fetch
+                is fired eagerly on modal open so we can decide here. */}
+            {notesAuthorized && notes.length > 0 && (
+              <button
+                onClick={() => setActiveTab('notes')}
+                className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'notes'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                <StickyNote className="w-4 h-4" />
+                Notes
+                <span className={`ml-1 px-1.5 py-0.5 text-xs rounded-full ${
+                  activeTab === 'notes'
+                    ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                }`}>
+                  {notes.length}
+                </span>
+              </button>
+            )}
           </div>
         )}
 
@@ -492,6 +562,16 @@ export function RecordDetailModal({
                 loading={activityLoading}
               />
             </div>
+          )}
+
+          {/* Notes Tab */}
+          {!loading && record && activeTab === 'notes' && (
+            <NotesTab
+              notes={notes}
+              advisorName={record.advisorName ?? 'Unknown advisor'}
+              loading={notesLoading}
+              error={notesError}
+            />
           )}
         </div>
 
