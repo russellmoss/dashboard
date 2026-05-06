@@ -51,8 +51,6 @@ interface KpiRow {
   pushed_to_sfdc: string;
   with_ai_feedback: string;
   with_manager_edit_eval: string;
-  raw_granola: string;
-  raw_kixie: string;
 }
 interface TrendRow {
   month: Date;
@@ -60,7 +58,6 @@ interface TrendRow {
   pushed_to_sfdc: string;
   with_ai_feedback: string;
   with_manager_edit_eval: string;
-  raw_note_volume: string;
 }
 interface DetailRow {
   call_note_id: string;
@@ -88,13 +85,6 @@ const ALLOWED_REP_ROLES: readonly RepRoleFilter[] = ['any', 'SGA', 'SGM'];
 function parseRepRole(raw: string | null): RepRoleFilter {
   if (raw && (ALLOWED_REP_ROLES as readonly string[]).includes(raw)) return raw as RepRoleFilter;
   return 'any';
-}
-
-function getInsiderDomains(): string[] {
-  return (process.env.COACHING_INSIDER_DOMAINS || '')
-    .split(',')
-    .map(s => s.trim().toLowerCase())
-    .filter(Boolean);
 }
 
 // Day-truncated cutoffs avoid the "calls disappearing mid-shift" effect of a
@@ -132,38 +122,23 @@ const _getCoachingUsageData = async (args: {
   const { range, sortBy, sortDir, filterSql, filterSqo, filterClosedLost, filterStages, filterPushed, filterRepRole } = args;
   const rangeWhere = RANGE_WHERE[range];
   const orderBy = `${SORT_COL[sortBy]} ${SORT_DIR[sortDir]}`;
-  // COACHING_INSIDER_DOMAINS entries are stored as bare domains (e.g. 'acme.com');
-  // matched against `LIKE '%@' || d` to anchor on the @ boundary and prevent
-  // false positives like 'foo@notacme.com' against an entry of 'acme.com'.
-  const insiderDomains = getInsiderDomains();
   const pool = getCoachingPool();
 
+  // Advisor-facing rule:
+  //   - Kixie: always counts (outbound dialer is by definition prospect-facing;
+  //     likely_call_type isn't run on Kixie yet so it's NULL there).
+  //   - Granola: count only when the AI classifier says `likely_call_type =
+  //     'advisor_call'` (excludes 'internal_collaboration', 'vendor_call',
+  //     'unknown', and unclassified rows).
+  // This replaces the prior email-attendee heuristic (and the
+  // COACHING_INSIDER_DOMAINS env var that fed it).
   const ADVISOR_FACING_CTE = `
     advisor_calls AS (
       SELECT cn.id, cn.source, cn.call_started_at, cn.rep_id
       FROM call_notes cn
       WHERE cn.source_deleted_at IS NULL
         ${rangeWhere}
-        AND (
-          cn.source = 'kixie'
-          OR (
-            cn.source = 'granola'
-            AND EXISTS (
-              SELECT 1
-              FROM jsonb_array_elements(COALESCE(cn.attendees, '[]'::jsonb)) AS att
-              WHERE att->>'email' IS NOT NULL
-                AND att->>'email' <> ''
-                AND LOWER(att->>'email') NOT LIKE '%@savvywealth.com'
-                AND LOWER(att->>'email') NOT LIKE '%@savvyadvisors.com'
-                AND LOWER(att->>'email') NOT LIKE '%@savvyadvisors.co'
-                AND LOWER(att->>'email') NOT LIKE '%.calendar.google.com'
-                AND NOT EXISTS (
-                  SELECT 1 FROM unnest($1::text[]) AS d
-                  WHERE LOWER(att->>'email') LIKE '%@' || d
-                )
-            )
-          )
-        )
+        AND (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')
     )
   `;
 
@@ -193,14 +168,6 @@ const _getCoachingUsageData = async (args: {
       JOIN evaluations e ON e.id = eal.evaluation_id
       JOIN advisor_calls ac ON ac.id = e.call_note_id
       WHERE eal.edit_source IN ('slack_dm_edit_eval_text', 'slack_dm_edit_eval')
-    ),
-    raw_volume AS (
-      SELECT
-        COALESCE(SUM(CASE WHEN cn.source = 'granola' THEN 1 ELSE 0 END), 0) AS raw_granola,
-        COALESCE(SUM(CASE WHEN cn.source = 'kixie'   THEN 1 ELSE 0 END), 0) AS raw_kixie
-      FROM call_notes cn
-      WHERE cn.source_deleted_at IS NULL
-        ${rangeWhere}
     )
     SELECT
       (SELECT count(*) FROM reps WHERE is_active = true AND is_system = false)::text AS active_coaching_users,
@@ -208,9 +175,7 @@ const _getCoachingUsageData = async (args: {
       (SELECT count(*) FROM advisor_calls)::text                                     AS total_advisor_facing_calls,
       (SELECT count(*) FROM sfdc_pushed)::text                                       AS pushed_to_sfdc,
       (SELECT count(*) FROM ai_flagged)::text                                        AS with_ai_feedback,
-      (SELECT count(*) FROM mgr_edited)::text                                        AS with_manager_edit_eval,
-      (SELECT raw_granola FROM raw_volume)::text                                     AS raw_granola,
-      (SELECT raw_kixie FROM raw_volume)::text                                       AS raw_kixie
+      (SELECT count(*) FROM mgr_edited)::text                                        AS with_manager_edit_eval
   `;
 
   const TREND_SQL = `
@@ -223,37 +188,13 @@ const _getCoachingUsageData = async (args: {
       ) AS month
     ),
     advisor_calls_all AS (
+      -- Same advisor-facing rule as the KPI/DETAIL CTE:
+      --   Kixie always counts; Granola requires likely_call_type = 'advisor_call'.
       SELECT cn.id, cn.source, cn.call_started_at
       FROM call_notes cn
       WHERE cn.source_deleted_at IS NULL
         AND cn.call_started_at >= date_trunc('month', now()) - interval '5 months'
-        AND (
-          cn.source = 'kixie'
-          OR (
-            cn.source = 'granola'
-            AND EXISTS (
-              SELECT 1
-              FROM jsonb_array_elements(COALESCE(cn.attendees, '[]'::jsonb)) AS att
-              WHERE att->>'email' IS NOT NULL
-                AND att->>'email' <> ''
-                AND LOWER(att->>'email') NOT LIKE '%@savvywealth.com'
-                AND LOWER(att->>'email') NOT LIKE '%@savvyadvisors.com'
-                AND LOWER(att->>'email') NOT LIKE '%@savvyadvisors.co'
-                AND LOWER(att->>'email') NOT LIKE '%.calendar.google.com'
-                AND NOT EXISTS (
-                  SELECT 1 FROM unnest($1::text[]) AS d
-                  WHERE LOWER(att->>'email') LIKE '%@' || d
-                )
-            )
-          )
-        )
-    ),
-    raw_volume_monthly AS (
-      SELECT date_trunc('month', cn.call_started_at) AS m, count(*) AS n
-      FROM call_notes cn
-      WHERE cn.source_deleted_at IS NULL
-        AND cn.call_started_at >= date_trunc('month', now()) - interval '5 months'
-      GROUP BY 1
+        AND (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')
     )
     SELECT
       m.month,
@@ -271,8 +212,7 @@ const _getCoachingUsageData = async (args: {
         JOIN evaluations e ON e.id = eal.evaluation_id
         JOIN advisor_calls_all ac ON ac.id = e.call_note_id
         WHERE eal.edit_source IN ('slack_dm_edit_eval_text', 'slack_dm_edit_eval')
-          AND date_trunc('month', ac.call_started_at) = m.month)::text AS with_manager_edit_eval,
-      COALESCE((SELECT n FROM raw_volume_monthly rv WHERE rv.m = m.month), 0)::text AS raw_note_volume
+          AND date_trunc('month', ac.call_started_at) = m.month)::text AS with_manager_edit_eval
     FROM months m
     ORDER BY m.month ASC
   `;
@@ -310,36 +250,24 @@ const _getCoachingUsageData = async (args: {
     -- or 'admin') or when the SGA has no manager_id set — render as "—".
     LEFT JOIN reps sga ON sga.id = cn.rep_id AND sga.is_system = false
     LEFT JOIN reps sgm ON sgm.id = sga.manager_id AND sgm.is_system = false
-    -- Drill-down-only filter:
-    --   - Kixie calls always show (they're outbound phone calls to prospects;
-    --     there's no calendar invitee_emails to check, but the call is
-    --     definitionally external).
-    --   - Granola calls require at least one external invitee_emails entry
-    --     (an email NOT ending in @savvywealth.com or @savvyadvisors.com).
-    --     Granola calls where every invitee is internal are excluded as
-    --     internal-only meetings.
-    WHERE (
-      cn.source = 'kixie'
-      OR (
-        cn.source = 'granola'
-        AND EXISTS (
-          SELECT 1 FROM unnest(cn.invitee_emails) AS ie
-          WHERE ie IS NOT NULL
-            AND ie <> ''
-            AND LOWER(ie) NOT LIKE '%@savvywealth.com'
-            AND LOWER(ie) NOT LIKE '%@savvyadvisors.com'
-        )
-      )
-    )
+    -- Drill-down-only filter — must match the KPI/TREND advisor-facing rule
+    -- so the modal universe lines up with the headline counts:
+    --   - Kixie calls always show (likely_call_type isn't run on Kixie yet,
+    --     and Kixie is definitionally outbound-to-prospect anyway).
+    --   - Granola calls require likely_call_type = 'advisor_call' from the
+    --     AI classifier (excludes internal_collaboration / vendor_call /
+    --     unknown / unclassified).
+    WHERE (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')
     ORDER BY ${orderBy}
     LIMIT 500
   `;
 
-  const params = [insiderDomains];
+  // No bound params — the advisor-facing rule no longer needs the insider-
+  // domain text[] (replaced by the AI-classified `likely_call_type` field).
   const [kpiResult, trendResult, detailResult] = await Promise.all([
-    pool.query<KpiRow>(KPI_SQL, params),
-    pool.query<TrendRow>(TREND_SQL, params),
-    pool.query<DetailRow>(DETAIL_SQL, params),
+    pool.query<KpiRow>(KPI_SQL),
+    pool.query<TrendRow>(TREND_SQL),
+    pool.query<DetailRow>(DETAIL_SQL),
   ]);
 
   const k = kpiResult.rows[0] ?? {} as KpiRow;
@@ -355,11 +283,6 @@ const _getCoachingUsageData = async (args: {
       pctPushedToSfdc:        safeRatio(Number(k.pushed_to_sfdc) || 0),
       pctWithAiFeedback:      safeRatio(Number(k.with_ai_feedback) || 0),
       pctWithManagerEditEval: safeRatio(Number(k.with_manager_edit_eval) || 0),
-      rawNoteVolume: {
-        granola: Number(k.raw_granola) || 0,
-        kixie:   Number(k.raw_kixie)   || 0,
-        total:  (Number(k.raw_granola) || 0) + (Number(k.raw_kixie) || 0),
-      },
     },
     trend: trendResult.rows.map(r => {
       const calls = Number(r.advisor_facing_calls) || 0;
@@ -370,7 +293,6 @@ const _getCoachingUsageData = async (args: {
         pctPushedToSfdc:        ratio(Number(r.pushed_to_sfdc) || 0),
         pctWithAiFeedback:      ratio(Number(r.with_ai_feedback) || 0),
         pctWithManagerEditEval: ratio(Number(r.with_manager_edit_eval) || 0),
-        rawNoteVolume:          Number(r.raw_note_volume) || 0,
       };
     }),
     drillDown: applyDrillDownFilters(

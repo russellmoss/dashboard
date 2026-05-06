@@ -113,22 +113,23 @@ describe('GET /api/admin/coaching-usage', () => {
     expect(detailSql).not.toContain('DROP TABLE');
   });
 
-  it('passes insider domains as text[] param, not concatenated', async () => {
-    process.env.COACHING_INSIDER_DOMAINS = 'foo.com,bar.com';
+  it('advisor-facing rule: likely_call_type = advisor_call OR Kixie (no bound params)', async () => {
     (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
     mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
     await GET(makeReq() as never);
-    for (const call of mockQuery.mock.calls) {
-      const params = call[1] as unknown[];
-      expect(Array.isArray(params)).toBe(true);
-      expect(Array.isArray(params[0])).toBe(true);
-      expect(params[0]).toEqual(['foo.com', 'bar.com']);
-    }
     const allCalls = mockQuery.mock.calls.map(c => c[0] as string).join('\n');
-    expect(allCalls).toMatch(/unnest\(\$1::text\[\]\)/);
-    expect(allCalls).not.toContain('foo.com');
-    expect(allCalls).not.toContain('bar.com');
-    delete process.env.COACHING_INSIDER_DOMAINS;
+    // KPI + TREND + DETAIL all use the new rule.
+    const advisorRulePattern = /cn\.source = 'kixie' OR cn\.likely_call_type = 'advisor_call'/g;
+    const matches = allCalls.match(advisorRulePattern) ?? [];
+    expect(matches.length).toBeGreaterThanOrEqual(3);
+    // Old email-heuristic plumbing is gone.
+    expect(allCalls).not.toContain('attendees');
+    expect(allCalls).not.toContain('unnest($1::text[])');
+    expect(allCalls).not.toMatch(/NOT LIKE '%@savvywealth\.com'/);
+    // Queries fire without bound params now.
+    for (const call of mockQuery.mock.calls) {
+      expect(call[1]).toBeUndefined();
+    }
   });
 
   it('counts both slack_dm_edit_eval_text AND slack_dm_edit_eval; never _single_claim', async () => {
@@ -185,49 +186,14 @@ describe('GET /api/admin/coaching-usage', () => {
     expect(allCalls).toContain("date_trunc('day', now())");
   });
 
-  it("anchors insider-domain match on '@' boundary", async () => {
-    (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
-    mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
-    await GET(makeReq() as never);
-    const allCalls = mockQuery.mock.calls.map(c => c[0] as string).join('\n');
-    expect(allCalls).toMatch(/LIKE '%@' \|\| d/);
-  });
-
-  it("excludes empty-string emails from advisor-facing filter", async () => {
-    (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
-    mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
-    await GET(makeReq() as never);
-    const allCalls = mockQuery.mock.calls.map(c => c[0] as string).join('\n');
-    expect(allCalls).toContain("att->>'email' <> ''");
-  });
-
-  it('handles empty insider-domain env (no false matches, no SQL errors)', async () => {
-    delete process.env.COACHING_INSIDER_DOMAINS;
-    (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
-    mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
-    await GET(makeReq() as never);
-    // domain-list param is still passed as text[] (empty array), never concatenated
-    for (const call of mockQuery.mock.calls) {
-      const params = call[1] as unknown[];
-      expect(Array.isArray(params)).toBe(true);
-      expect(Array.isArray(params[0])).toBe(true);
-      expect(params[0]).toEqual([]);
-    }
-  });
-
-  it('drill-down filters Granola by external invitee_emails but lets Kixie pass through', async () => {
+  it('drill-down WHERE matches the KPI advisor-facing rule (so headline counts line up)', async () => {
     (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
     mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
     await GET(makeReq() as never);
     const detailSql = mockQuery.mock.calls.map(c => c[0] as string).find(s => s.includes('LIMIT 500')) ?? '';
-    // Granola arm checks invitee_emails for at least one external entry.
-    expect(detailSql).toMatch(/unnest\(cn\.invitee_emails\)/);
-    expect(detailSql).toContain("NOT LIKE '%@savvywealth.com'");
-    expect(detailSql).toContain("NOT LIKE '%@savvyadvisors.com'");
-    expect(detailSql).toContain("ie <> ''");
-    // Kixie arm bypasses the invitee_emails check (always external by definition).
-    expect(detailSql).toMatch(/cn\.source = 'kixie'/);
-    expect(detailSql).toMatch(/cn\.source = 'granola'/);
+    // The drill-down uses the same rule as the KPI/TREND CTE — Kixie always,
+    // Granola only when likely_call_type = 'advisor_call'.
+    expect(detailSql).toContain("cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call'");
   });
 
   it('does not crash when SGA/SGM rows are NULL (LEFT JOIN system rep)', async () => {

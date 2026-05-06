@@ -48,7 +48,6 @@ interface CoachingUsageKpis {
   pctPushedToSfdc: number;
   pctWithAiFeedback: number;
   pctWithManagerEditEval: number;
-  rawNoteVolume: { granola: number; kixie: number; total: number };
 }
 interface CoachingUsageTrendRow {
   month: string;
@@ -56,7 +55,6 @@ interface CoachingUsageTrendRow {
   pctPushedToSfdc: number;
   pctWithAiFeedback: number;
   pctWithManagerEditEval: number;
-  rawNoteVolume: number;
 }
 interface CoachingUsageDetailRow {
   callNoteId: string;
@@ -353,15 +351,6 @@ export function CoachingUsageClient() {
           </Metric>
           <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">{RANGE_LABELS[range]}</Text>
         </Card>
-        <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
-          <Text className="dark:text-gray-300">Raw note volume</Text>
-          <Metric className="text-2xl font-bold dark:text-white">
-            {loading ? '—' : data?.kpis.rawNoteVolume.total ?? 0}
-          </Metric>
-          <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {loading ? '—' : `${data?.kpis.rawNoteVolume.granola ?? 0} Granola · ${data?.kpis.rawNoteVolume.kixie ?? 0} Kixie`}
-          </Text>
-        </Card>
       </div>
 
       <Card className="dark:bg-gray-800 dark:border-gray-700">
@@ -378,7 +367,6 @@ export function CoachingUsageClient() {
                 <th className="py-2 px-2">% SFDC</th>
                 <th className="py-2 px-2">% AI FB</th>
                 <th className="py-2 px-2">% Edit Eval</th>
-                <th className="py-2 px-2">Raw notes</th>
               </tr>
             </thead>
             <tbody>
@@ -389,7 +377,6 @@ export function CoachingUsageClient() {
                   <td className="py-2 px-2 dark:text-gray-200">{formatPct(row.pctPushedToSfdc)}</td>
                   <td className="py-2 px-2 dark:text-gray-200">{formatPct(row.pctWithAiFeedback)}</td>
                   <td className="py-2 px-2 dark:text-gray-200">{formatPct(row.pctWithManagerEditEval)}</td>
-                  <td className="py-2 px-2 dark:text-gray-200">{row.rawNoteVolume}</td>
                 </tr>
               ))}
             </tbody>
