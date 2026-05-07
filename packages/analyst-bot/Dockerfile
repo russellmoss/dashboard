@@ -18,7 +18,7 @@ COPY tsconfig.json ./
 RUN npm ci
 
 # Force cache invalidation for source layer — bump this date on each deploy
-RUN echo "source-bust-20260507-sga-attribution-fix"
+RUN echo "source-bust-20260507-open-stage-definitions"
 
 # Copy source and build
 COPY src/ ./src/
