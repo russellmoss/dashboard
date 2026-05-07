@@ -10,6 +10,28 @@ connection:
     - SavvyGTMData
     - savvy_analytics
 
+# Hard-deny list of names that are NEVER real SGAs/SGMs and must be excluded from
+# any per-SGA or per-SGM analysis (volume, conversion rates, leaderboards,
+# attribution). These are system accounts or non-SGA users mis-flagged as
+# IsSGA__c = TRUE in SavvyGTMData.User.
+#
+# This is distinct from dashboard-specific exclusion lists (e.g., the SGA Hub
+# leaderboard additionally hides Anett Diaz, Jacqueline Tully, and certain
+# SGMs). Anett Diaz and Jacqueline Tully ARE real and SHOULD appear in
+# back-analysis / ad-hoc reporting — only hide them when the goal is dashboard
+# parity. The names below are the NEVER list, applicable in all contexts.
+#
+# Required SQL pattern when joining to SavvyGTMData.User:
+#   AND u.Name NOT IN ('Savvy Operations','Savvy Marketing','Russell Moss','Jed Entin')
+attribution:
+  system_user_denylist:
+    - Savvy Operations
+    - Savvy Marketing
+    - Russell Moss
+    - Jed Entin
+  denylist_rationale: "Savvy Operations and Savvy Marketing are system accounts. Russell Moss is the data/analytics owner. Jed Entin is non-SGA. None of these own real recruiting work, but all four can appear flagged as IsSGA__c=TRUE in the User table. Always exclude them from per-SGA analysis."
+  denylist_sql_clause: "AND u.Name NOT IN ('Savvy Operations','Savvy Marketing','Russell Moss','Jed Entin')"
+
 views:
   vw_funnel_master:
     purpose: "Single source of truth combining Lead + Opportunity data for the entire recruiting funnel. All funnel metrics, conversion rates, and drill-downs derive from this view."
@@ -1108,12 +1130,103 @@ rules:
     type: require_filter
     when_contains:
       - "SGA_Owner_Name__c"
-    required: "Opp_SGA_Name__c"
+      - "Opp_SGA_Name__c"
+      - "is_sqo_unique"
+      - "is_joined_unique"
+      - "Stage_Entered_Signed__c"
+    required: "primary_sga_name (default) OR COALESCE 3-tier (SGA Hub leaderboard parity)"
+    severity: error
+    message: |
+      Per-SGA opp-era metrics (SQO volume, Signed volume, Joined volume, AUM, avg Amount per SQO) have TWO competing attribution patterns in the codebase. Pick based on which dashboard the user wants to match.
+
+      ============================================================
+      DEFAULT — production dashboard parity (Funnel Performance & Efficiency, Conversion Rates, Detail Records, Export Records, Source Performance)
+      ============================================================
+
+      Production runs ATTRIBUTION_MODEL=v2 (see src/lib/utils/attribution-mode.ts and .env). All v2-routed dashboards filter per-SGA via lead-era attribution: JOIN Tableau_Views.vw_lead_primary_sga and filter on `primary_sga_name`. This is also the recommended pattern by `savvy_ops_sweep_awareness` because it avoids the Savvy Operations sweep bias.
+
+      Use this for the bot's DEFAULT per-SGA aggregations:
+
+        SELECT
+          p.primary_sga_name AS sga_name,
+          COUNT(DISTINCT v.primary_key) AS sqo_count,
+          AVG(v.Amount) AS avg_amount
+        FROM `savvy-gtm-analytics.Tableau_Views.vw_funnel_master` v
+        LEFT JOIN `savvy-gtm-analytics.Tableau_Views.vw_lead_primary_sga` p
+          ON p.lead_id = v.Full_prospect_id__c
+        INNER JOIN `savvy-gtm-analytics.SavvyGTMData.User` u
+          ON u.Name = p.primary_sga_name
+        WHERE v.is_sqo_unique = 1
+          AND v.recordtypeid = '012Dn000000mrO3IAI'
+          AND TIMESTAMP(v.Date_Became_SQO__c) BETWEEN TIMESTAMP(@startDate) AND TIMESTAMP(@endDate)
+          AND u.IsSGA__c = TRUE AND u.IsActive = TRUE
+          AND u.Name NOT IN ('Savvy Operations','Savvy Marketing','Russell Moss','Jed Entin')
+        GROUP BY p.primary_sga_name
+
+      ============================================================
+      ALTERNATIVE — SGA Hub leaderboard parity only
+      ============================================================
+
+      Use this ONLY when the user explicitly references the SGA Hub / SGA Activity leaderboard (different attribution from the rest of the dashboard). It's a 3-tier COALESCE fallback that ignores ATTRIBUTION_MODEL — see src/lib/queries/sga-leaderboard.ts:106-128:
+
+        SELECT
+          COALESCE(sga_user.Name, v.Opp_SGA_Name__c, v.SGA_Owner_Name__c) AS sga_name,
+          v.primary_key
+        FROM `savvy-gtm-analytics.Tableau_Views.vw_funnel_master` v
+        LEFT JOIN `savvy-gtm-analytics.SavvyGTMData.User` sga_user
+          ON v.Opp_SGA_Name__c = sga_user.Id
+
+      Three-tier rationale: (1) sga_user.Name when Opp_SGA_Name__c is a User ID; (2) v.Opp_SGA_Name__c when it's already a name; (3) v.SGA_Owner_Name__c when Opp_SGA_Name__c is NULL.
+
+      ============================================================
+      What NOT to do
+      ============================================================
+
+      Do NOT use INNER JOIN on `Opp_SGA_Name__c = User.Id` alone — that silently drops opps where Opp_SGA_Name__c is NULL but SGA_Owner_Name__c has the SGA, undercounting per-SGA totals.
+
+      Live evidence (Q4 2025 SQOs, Date_Became_SQO__c anchor):
+        Pattern                                      Amy Waller  Craig Suchodolski
+        INNER JOIN on Opp_SGA_Name__c only           (varies)    (varies)        ← UNDERCOUNTS
+        v1: SGA_Owner_Name__c only                       8              9
+        v2: primary_sga_name (DEFAULT — matches dash)    7              9        ← USE THIS
+        3-tier COALESCE (SGA Hub leaderboard)            8              8
+
+      Production dashboard reads Amy=7, Craig=9 → matches v2. Use `primary_sga_name` as the bot's default. Pair with the canonical date anchor (`Date_Became_SQO__c` — see `canonical_stage_volume_date_anchor` rule).
+
+  - id: canonical_stage_volume_date_anchor
+    type: disclosure_required
     severity: warning
     message: |
-      Scope: this rule applies to OPP-ERA metrics only (SQO count, Signed, Joined, AUM). For those, filter on BOTH SGA_Owner_Name__c AND Opp_SGA_Name__c (OR condition) because opp-era attribution can come from either path.
+      Each stage-volume metric has a CANONICAL date anchor — the field the dashboards use to bucket records into a time period. When a user's request specifies a date anchor that differs from the canonical anchor (e.g., "SQOs by created date" or "Joined by Opp CreatedDate"), answer LITERALLY using the user's requested anchor BUT add a disclosure footer noting the canonical anchor and offering to re-run.
 
-      For LEAD-ERA per-SGA metrics (Contacted, MQL, SQL rates filtered by a specific SGA), do NOT rely on dual attribution — instead JOIN Tableau_Views.vw_lead_primary_sga on lead_id and filter `primary_sga_name = @sga`. This avoids the Savvy Operations sweep bias. See rule `savvy_ops_sweep_awareness` and the Phase 3 Attribution Routing section in docs/ARCHITECTURE.md.
+      Canonical anchors (source of truth — match dashboard queries in src/lib/queries/):
+        SQO volume       → Date_Became_SQO__c          (the moment SQL__c flipped to 'Yes')
+        Signed volume    → Stage_Entered_Signed__c     (when opp entered Signed stage)
+        Joined volume    → advisor_join_date__c        (DATE — official join date)
+        Closed Lost vol. → Stage_Entered_Closed__c     (only reliable from 2024 onward)
+        Contacted        → stage_entered_contacting__c
+        MQL              → mql_stage_entered_ts
+        SQL (lead→opp)   → converted_date_raw          (DATE)
+        Funnel entry     → FilterDate                  (lead's first meaningful entry)
+
+      NON-canonical anchors that users sometimes request:
+        Opp_CreatedDate           — when the Opportunity record was created in Salesforce (often differs from Date_Became_SQO__c by hours-to-quarters)
+        CreatedDate (lead-side)   — when the Lead record was created
+        Earliest_Anticipated_Start_Date__c — projected start, not actual
+
+      Why the difference matters: Opp_CreatedDate buckets opps by when the SF record came into existence. Date_Became_SQO__c buckets by when the opp was promoted to SQO. An opp created in Q4 may not become SQO until Q1; the dashboard puts it in Q1's SQO count, a literal "by created date" query puts it in Q4's. For per-SGA per-quarter SQO comparisons, this typically inflates one quarter by 10-30% relative to the canonical view.
+
+      Required disclosure pattern (append to bottom of response, after Assumptions):
+
+        *Date anchor note:* You asked for `<requested_anchor>` — answered literally. The dashboard's canonical anchor for `<metric>` is `<canonical_anchor>` (the moment the stage was achieved, not the moment the record was created). These differ when an opp is created in one period and reaches `<metric>` in a later period. Want me to re-run anchored on `<canonical_anchor>` to compare?
+
+      Examples:
+      - User: "SQOs by created date for Q4 2025"
+        Disclosure: You asked for `Opp_CreatedDate` — answered literally. The dashboard's canonical anchor for SQO volume is `Date_Became_SQO__c`. Want me to re-run anchored on `Date_Became_SQO__c`?
+      - User: "Joined advisors by opp creation date YTD"
+        Disclosure: You asked for `Opp_CreatedDate` — answered literally. The dashboard's canonical anchor for Joined volume is `advisor_join_date__c`. Want me to re-run anchored on `advisor_join_date__c`?
+
+      No disclosure needed when the user's anchor IS the canonical anchor. Skip if the metric isn't stage volume (e.g., activity counts, open pipeline snapshots).
 
   - id: savvy_ops_sweep_awareness
     type: prefer_field
@@ -1139,21 +1252,34 @@ rules:
     when_contains:
       - "SGA"
       - "sga"
-    required: "IsSGA__c = TRUE AND IsActive = TRUE"
+    required: "IsSGA__c = TRUE AND IsActive = TRUE AND u.Name NOT IN system_user_denylist"
     severity: error
     message: |
-      When querying SavvyGTMData.User for SGAs, filter IsSGA__c = TRUE AND IsActive = TRUE. This is the canonical active-SGA definition used by the SGA Hub leaderboard (src/lib/queries/sga-leaderboard.ts). Without this filter, results include SGMs, inactive reps, terminated reps, and system accounts like 'Savvy Operations'.
+      When querying SavvyGTMData.User for SGAs, three filters are mandatory together:
+        u.IsSGA__c = TRUE
+        AND u.IsActive = TRUE
+        AND u.Name NOT IN ('Savvy Operations','Savvy Marketing','Russell Moss','Jed Entin')
 
-      Authoritative denylist: for excluding non-SGA system accounts (Savvy Operations, Savvy Marketing) from attribution, prefer JOINing against Tableau_Views.ref_non_sga_users over inline name lists. vw_lead_primary_sga already applies this denylist by construction. The inline `Name NOT IN ('Savvy Operations', …)` list in metrics.sga_total_activity is a legacy pattern kept for dashboard parity — new code should reference ref_non_sga_users.
+      The first two are the canonical active-SGA definition used by the SGA Hub leaderboard (src/lib/queries/sga-leaderboard.ts). The third is the system_user_denylist (see top-level `attribution:` block) — these four names appear flagged as IsSGA__c=TRUE in the User table but are system accounts or non-SGA users. Without the denylist, query results include 'Savvy Operations' as if it were an SGA.
+
+      Do NOT extend the denylist with names like 'Anett Diaz' or 'Jacqueline Tully' for ad-hoc analysis. They are real people who appear in dashboard exclusion lists for cosmetic reasons (the SGA Hub leaderboard hides them) but should appear in back-analysis. Only apply the additional dashboard-exclusion list when the user is explicitly asking for dashboard parity (e.g., "match the SGA Hub leaderboard exactly").
+
+      Tableau_Views.ref_non_sga_users is a separate denylist used by vw_lead_primary_sga for lead-side attribution — prefer JOINing against it for lead-era queries. For opp-era queries, the inline NOT IN list above is the source of truth.
 
   - id: active_sgm_filter
     type: require_filter
     when_contains:
       - "SGM"
       - "sgm"
-    required: "Is_SGM__c = TRUE AND IsActive = TRUE"
+    required: "Is_SGM__c = TRUE AND IsActive = TRUE AND u.Name NOT IN system_user_denylist"
     severity: error
-    message: "When querying for SGMs, always JOIN to SavvyGTMData.User and filter Is_SGM__c = TRUE AND IsActive = TRUE. This is the canonical active-SGM definition used by the SGM Hub leaderboard (src/lib/queries/sgm-leaderboard.ts). Without this filter, results include SGAs, inactive reps, and terminated reps."
+    message: |
+      When querying for SGMs, always JOIN to SavvyGTMData.User and filter:
+        u.Is_SGM__c = TRUE
+        AND u.IsActive = TRUE
+        AND u.Name NOT IN ('Savvy Operations','Savvy Marketing','Russell Moss','Jed Entin')
+
+      The denylist (system_user_denylist) excludes system accounts and non-SGM users that may appear flagged as Is_SGM__c=TRUE in the User table. Source of truth: src/lib/queries/sgm-leaderboard.ts.
 
   - id: no_sga_sgm_team_assignment
     type: ban_pattern

@@ -37,25 +37,87 @@ Available MCP tools (use ONLY these — no others exist):
 
 ## SGA / SGM Filter Rule (Non-Negotiable)
 
-When any query groups by, filters on, or breaks down results by SGA, you MUST JOIN to \`savvy-gtm-analytics.SavvyGTMData.User\` and filter \`IsSGA__c = TRUE AND IsActive = TRUE\`. This applies to ALL of these SGA name columns:
-- \`SGA_Owner_Name__c\` — lead-level SGA ownership
-- \`Opp_SGA_Name__c\` — opportunity-level SGA (contains Salesforce User ID in some records, not always a name)
-- \`Opp_SGA_User_Name\` — resolved opportunity SGA display name (low population rate — use only as fallback)
+When any query groups by, filters on, or breaks down results by SGA, you MUST JOIN to \`savvy-gtm-analytics.SavvyGTMData.User\` and filter:
+\`\`\`
+u.IsSGA__c = TRUE
+AND u.IsActive = TRUE
+AND u.Name NOT IN ('Savvy Operations','Savvy Marketing','Russell Moss','Jed Entin')
+\`\`\`
+
+The third filter is the **system_user_denylist** — names that appear flagged as IsSGA__c=TRUE in the User table but are system accounts or non-SGA users. Always exclude them from per-SGA analysis. (Do NOT extend this list with names like Anett Diaz or Jacqueline Tully — they are real people who appear hidden in some dashboards for cosmetic reasons but should appear in back-analysis. Only apply additional dashboard-exclusion lists when the user explicitly asks for dashboard parity.)
+
+This rule applies to ALL of these SGA name columns:
+- \`SGA_Owner_Name__c\` — lead-level SGA ownership (current owner — subject to Savvy Ops sweep bias for lead-era rates)
+- \`Opp_SGA_Name__c\` — opportunity-level SGA (contains Salesforce User ID — must resolve via User.Id join)
+- \`Opp_SGA_User_Name\` — pre-resolved opportunity SGA display name (lower population — use as fallback only)
 - \`task_executor_name\` — the person who performed the activity (for effort/activity analysis)
 
-The join key is: \`User.Name = [SGA name column]\`. Example:
+### Per-SGA OPP-ERA attribution (SQO/Signed/Joined volume, AUM, avg Amount per SQO)
+
+Production dashboards run in ATTRIBUTION_MODEL=v2 mode. The Funnel Performance & Efficiency dashboard, Conversion Rates, Detail Records, Export, and Source Performance ALL filter per-SGA via lead-era attribution: \`primary_sga_name\` from \`Tableau_Views.vw_lead_primary_sga\`. **This is your DEFAULT for any per-SGA opp-era aggregation.** It also avoids the Savvy Operations sweep bias.
+
+NEVER use \`INNER JOIN \\\`SavvyGTMData.User\\\` u ON u.Id = v.Opp_SGA_Name__c\` as your only attribution — that silently drops opps where Opp_SGA_Name__c is NULL but SGA_Owner_Name__c has the SGA. It undercounts per-SGA totals.
+
+Default pattern (matches Funnel Performance & Efficiency dashboard):
 \`\`\`
+SELECT
+  p.primary_sga_name AS sga_name,
+  COUNT(DISTINCT v.primary_key) AS sqo_count,
+  AVG(v.Amount) AS avg_amount,
+  AVG(v.Opportunity_AUM) AS avg_opportunity_aum
+FROM \`savvy-gtm-analytics.Tableau_Views.vw_funnel_master\` v
+LEFT JOIN \`savvy-gtm-analytics.Tableau_Views.vw_lead_primary_sga\` p
+  ON p.lead_id = v.Full_prospect_id__c
 INNER JOIN \`savvy-gtm-analytics.SavvyGTMData.User\` u
-  ON u.Name = f.SGA_Owner_Name__c
-WHERE u.IsSGA__c = TRUE AND u.IsActive = TRUE
+  ON u.Name = p.primary_sga_name
+WHERE v.is_sqo_unique = 1
+  AND v.recordtypeid = '012Dn000000mrO3IAI'
+  AND TIMESTAMP(v.Date_Became_SQO__c) BETWEEN TIMESTAMP(@startDate) AND TIMESTAMP(@endDate)
+  AND u.IsSGA__c = TRUE AND u.IsActive = TRUE
+  AND u.Name NOT IN ('Savvy Operations','Savvy Marketing','Russell Moss','Jed Entin')
+GROUP BY p.primary_sga_name
 \`\`\`
 
-Without this join, results WILL include SGMs (Bryan Belville, Bre McDaniel, Corey Marcello, etc.), inactive/terminated SGAs, and system accounts (Savvy Operations, Savvy Marketing). This was confirmed to cause a 13-point overstatement of team conversion averages in production.
+ALTERNATIVE (only when user explicitly asks for "SGA Hub" or "SGA leaderboard" parity): use the 3-tier COALESCE pattern from src/lib/queries/sga-leaderboard.ts: \`COALESCE(sga_user.Name, v.Opp_SGA_Name__c, v.SGA_Owner_Name__c)\` with LEFT JOIN on User.Id. The SGA Hub leaderboard does NOT respect ATTRIBUTION_MODEL — it uses opp-era attribution for legacy reasons.
+
+Live evidence — Q4 2025 SQOs anchored on \`Date_Became_SQO__c\`:
+- Production dashboard (v2): Amy Waller=7, Craig Suchodolski=9
+- v1 (SGA_Owner_Name__c only): Amy=8, Craig=9
+- 3-tier COALESCE (SGA Hub): Amy=8, Craig=8
+- INNER JOIN on Opp_SGA_Name__c only: undercounts
+
+Default to v2 / primary_sga_name unless user explicitly asks for SGA Hub.
 
 Similarly, when querying for SGMs:
-- JOIN to \`SavvyGTMData.User\` and filter \`Is_SGM__c = TRUE AND IsActive = TRUE\`.
+\`\`\`
+u.Is_SGM__c = TRUE
+AND u.IsActive = TRUE
+AND u.Name NOT IN ('Savvy Operations','Savvy Marketing','Russell Moss','Jed Entin')
+\`\`\`
 
 Never group by a name column from vw_funnel_master alone to produce an SGA or SGM breakdown — always validate against the User table.
+
+## Canonical Stage-Volume Date Anchors (Non-Negotiable)
+
+Each stage-volume metric has a CANONICAL date anchor — the field the dashboards use to bucket records into a time period:
+- **SQO volume** → \`Date_Became_SQO__c\` (TIMESTAMP — the moment SQL__c flipped to 'Yes')
+- **Signed volume** → \`Stage_Entered_Signed__c\`
+- **Joined volume** → \`advisor_join_date__c\` (DATE — official join date)
+- **Closed Lost volume** → \`Stage_Entered_Closed__c\` (only reliable from 2024 onward)
+- **Contacted** → \`stage_entered_contacting__c\`
+- **MQL** → \`mql_stage_entered_ts\`
+- **SQL (lead→opp)** → \`converted_date_raw\` (DATE)
+- **Funnel entry** → \`FilterDate\`
+
+When a user explicitly specifies a NON-canonical anchor (e.g., "SQOs by created date" → \`Opp_CreatedDate\`, "Joined by opp creation" → \`Opp_CreatedDate\`), answer LITERALLY using the user's requested anchor — that's what they asked for, respect it. BUT you MUST add a disclosure footer noting the canonical anchor and offering to re-run.
+
+Why the difference matters: \`Opp_CreatedDate\` buckets by when the SF record was created. \`Date_Became_SQO__c\` buckets by when the opp was promoted to SQO. An opp created in Q4 may not become SQO until Q1 — the dashboard puts it in Q1's SQO bucket; a literal "by created date" query puts it in Q4's.
+
+Required disclosure pattern (append in the Assumptions block or as a separate note before the footer):
+
+> *Date anchor note:* You asked to bucket on \`<requested_anchor>\` — I answered literally. The dashboard's canonical anchor for <metric> volume is \`<canonical_anchor>\` (the moment the stage was achieved, not the moment the record was created). These differ when an opp is created in one period and reaches <stage> in a later period. Want me to re-run anchored on \`<canonical_anchor>\` to compare?
+
+Skip the disclosure when the user's requested anchor IS the canonical anchor, or when the metric isn't stage volume (e.g., activity counts, open pipeline snapshots, AUM-of-current-pipeline).
 
 ## Channel / Source Hierarchy (Non-Negotiable)
 
