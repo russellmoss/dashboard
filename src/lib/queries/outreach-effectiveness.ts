@@ -90,6 +90,15 @@ function buildSgaFilter(filters: OutreachEffectivenessFilters): string {
 }
 
 /**
+ * Lead-side self-list filter, scoped to the SGA filter. List names are not
+ * globally unique (the same label can appear under multiple SGAs), so this
+ * is only honored when both `filters.sga` and `filters.sgaList` are set.
+ */
+function buildSgaListFilter(filters: OutreachEffectivenessFilters): string {
+  return filters.sga && filters.sgaList ? 'AND f.SGA_Self_List_name__c = @sgaList' : '';
+}
+
+/**
  * Compile the multi-select campaign filter. Treats the two sentinel IDs
  * ('no_campaign', '__self_sourced__') as synthetic chips that expand to
  * different predicates, then UNIONs with the real-campaign IN-clause.
@@ -127,6 +136,7 @@ function buildParams(filters: OutreachEffectivenessFilters): Record<string, any>
     endDateTs: range.end + ' 23:59:59', // Include full end date for TIMESTAMP comparisons
   };
   if (filters.sga) params.sga = filters.sga;
+  if (filters.sga && filters.sgaList) params.sgaList = filters.sgaList;
 
   const ids = filters.campaignIds ?? [];
   const realIds = ids.filter(id => id !== 'no_campaign' && id !== '__self_sourced__');
@@ -146,7 +156,7 @@ const SGA_EXCLUSION_LIST = `
 // SHARED CTE (metrics 1-4)
 // ============================================
 
-function buildSharedCTE(sgaFilter: string, campaignFilter: string): string {
+function buildSharedCTE(sgaFilter: string, campaignFilter: string, sgaListFilter: string = ''): string {
   return `
     WITH lead_population AS (
       SELECT
@@ -192,6 +202,7 @@ function buildSharedCTE(sgaFilter: string, campaignFilter: string): string {
             AND u.Name NOT IN (${SGA_EXCLUSION_LIST})
         )
         ${sgaFilter}
+        ${sgaListFilter}
         ${campaignFilter}
     ),
     outbound_touches AS (
@@ -317,8 +328,9 @@ async function _getOutreachDashboard(
 ): Promise<OutreachEffectivenessDashboardData> {
   const params = buildParams(filters);
   const sgaFilter = buildSgaFilter(filters);
+  const sgaListFilter = buildSgaListFilter(filters);
   const campaignFilter = buildCampaignFilter(filters);
-  const sharedCTE = buildSharedCTE(sgaFilter, campaignFilter);
+  const sharedCTE = buildSharedCTE(sgaFilter, campaignFilter, sgaListFilter);
   const ztStale = filters.zeroTouchMode === 'stale' ? buildZeroTouchStaleFilter() : '';
   const ztStaleCl = filters.zeroTouchMode === 'stale' ? buildZeroTouchStaleFilter('cl') : '';
 
@@ -348,6 +360,7 @@ async function _getOutreachDashboard(
             AND u.Name NOT IN (${SGA_EXCLUSION_LIST})
         )
         ${sgaFilter}
+        ${sgaListFilter}
         ${campaignFilter}
       GROUP BY 1
     )
@@ -464,6 +477,7 @@ async function _getOutreachDashboard(
       WHERE TRIM(f.SGA_Owner_Name__c) IN (SELECT sga_name FROM active_sgas)
         AND f.Initial_Call_Scheduled_Date__c BETWEEN @startDate AND @endDate
         AND f.Initial_Call_Scheduled_Date__c IS NOT NULL
+        ${sgaListFilter}
       GROUP BY 1, 2
     ),
     qual_call_events AS (
@@ -475,6 +489,7 @@ async function _getOutreachDashboard(
       WHERE TRIM(f.SGA_Owner_Name__c) IN (SELECT sga_name FROM active_sgas)
         AND f.Qualification_Call_Date__c BETWEEN @startDate AND @endDate
         AND f.Qualification_Call_Date__c IS NOT NULL
+        ${sgaListFilter}
       GROUP BY 1, 2
     )
     SELECT
@@ -756,6 +771,7 @@ async function _getOutreachLeadDrillDown(
   params.offset = (page - 1) * pageSize;
 
   const sgaFilter = buildSgaFilter(filters);
+  const sgaListFilter = buildSgaListFilter(filters);
   const campaignFilter = buildCampaignFilter(filters);
 
   // MQL/SQL/SQO use event-date queries (matches funnel performance page)
@@ -779,6 +795,7 @@ async function _getOutreachLeadDrillDown(
       WHERE TRIM(f.SGA_Owner_Name__c) = @sgaName
         AND f.Full_prospect_id__c IS NOT NULL
         ${dateClause}
+        ${sgaListFilter}
         ${campaignFilter}
       ORDER BY f.advisor_name
       LIMIT @pageSize OFFSET @offset
@@ -790,6 +807,7 @@ async function _getOutreachLeadDrillDown(
       WHERE TRIM(f.SGA_Owner_Name__c) = @sgaName
         AND f.Full_prospect_id__c IS NOT NULL
         ${dateClause}
+        ${sgaListFilter}
         ${campaignFilter}
     `;
 
@@ -819,7 +837,7 @@ async function _getOutreachLeadDrillDown(
   }
 
   // All other drill-downs use classified_leads CTE (FilterDate-based)
-  const sharedCTE = buildSharedCTE(sgaFilter, campaignFilter);
+  const sharedCTE = buildSharedCTE(sgaFilter, campaignFilter, sgaListFilter);
   const filterClause = buildColumnFilterClause(columnFilter, filters.zeroTouchMode) || (statusFilter ? `AND cl.lead_status = '${statusFilter}'` : '');
 
   const query = `
@@ -899,8 +917,9 @@ async function _getZeroTouchDrillDown(
   params.offset = (page - 1) * pageSize;
 
   const sgaFilter = buildSgaFilter(filters);
+  const sgaListFilter = buildSgaListFilter(filters);
   const campaignFilter = buildCampaignFilter(filters);
-  const sharedCTE = buildSharedCTE(sgaFilter, campaignFilter);
+  const sharedCTE = buildSharedCTE(sgaFilter, campaignFilter, sgaListFilter);
   const ztStaleCl = filters.zeroTouchMode === 'stale' ? buildZeroTouchStaleFilter('cl') : '';
 
   const query = `
@@ -975,6 +994,7 @@ async function _getWeeklyCallsDrillDown(
 ): Promise<WeeklyCallBreakdownRow[]> {
   const params = buildParams(filters);
   params.sgaName = sgaName;
+  const sgaListFilter = buildSgaListFilter(filters);
 
   const query = `
     WITH sga_info AS (
@@ -1007,6 +1027,7 @@ async function _getWeeklyCallsDrillDown(
       WHERE TRIM(f.SGA_Owner_Name__c) = @sgaName
         AND f.Initial_Call_Scheduled_Date__c BETWEEN @startDate AND @endDate
         AND f.Initial_Call_Scheduled_Date__c IS NOT NULL
+        ${sgaListFilter}
       GROUP BY 1, 2
     ),
     qual_call_events AS (
@@ -1018,6 +1039,7 @@ async function _getWeeklyCallsDrillDown(
       WHERE TRIM(f.SGA_Owner_Name__c) = @sgaName
         AND f.Qualification_Call_Date__c BETWEEN @startDate AND @endDate
         AND f.Qualification_Call_Date__c IS NOT NULL
+        ${sgaListFilter}
       GROUP BY 1, 2
     )
     SELECT
@@ -1066,9 +1088,23 @@ async function _getOutreachFilterOptions(): Promise<OutreachFilterOptions> {
     ORDER BY label ASC
   `;
 
-  const [sgaRows, campaignRows] = await Promise.all([
+  // Self-list labels grouped per SGA. Same list name can appear under
+  // multiple SGAs, so the UI keeps lists scoped to the selected SGA.
+  const sgaListsQuery = `
+    SELECT DISTINCT
+      TRIM(f.SGA_Owner_Name__c) AS sga_name,
+      TRIM(f.SGA_Self_List_name__c) AS list_name
+    FROM \`${FUNNEL_VIEW}\` f
+    WHERE f.SGA_Self_List_name__c IS NOT NULL
+      AND TRIM(f.SGA_Self_List_name__c) != ''
+      AND f.SGA_Owner_Name__c IS NOT NULL
+    ORDER BY sga_name, list_name
+  `;
+
+  const [sgaRows, campaignRows, sgaListRows] = await Promise.all([
     runQuery<any>(sgasQuery),
     runQuery<any>(campaignsQuery),
+    runQuery<any>(sgaListsQuery),
   ]);
 
   // Prepend synthetic campaign chips to the real-campaign list. These are not
@@ -1080,6 +1116,15 @@ async function _getOutreachFilterOptions(): Promise<OutreachFilterOptions> {
   const SYNTHETIC_CAMPAIGNS = [
     { value: '__self_sourced__', label: 'Self Sourced (LinkedIn + FinTrx)' },
   ];
+
+  const sgaLists: Record<string, string[]> = {};
+  for (const r of sgaListRows) {
+    const sga = String(r.sga_name || '');
+    const list = String(r.list_name || '');
+    if (!sga || !list) continue;
+    if (!sgaLists[sga]) sgaLists[sga] = [];
+    sgaLists[sga].push(list);
+  }
 
   return {
     sgas: sgaRows.map((r: any) => ({
@@ -1094,6 +1139,7 @@ async function _getOutreachFilterOptions(): Promise<OutreachFilterOptions> {
         label: String(r.label || ''),
       })),
     ],
+    sgaLists,
   };
 }
 

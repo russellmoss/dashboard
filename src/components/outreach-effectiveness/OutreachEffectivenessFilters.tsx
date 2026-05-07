@@ -11,11 +11,13 @@ interface OutreachEffectivenessFiltersProps {
   onReset: () => void;
   sgaOptions: { value: string; label: string; isActive: boolean }[];
   campaignOptions: { value: string; label: string }[];
+  sgaLists: Record<string, string[]>;
   showSGAFilter: boolean;
 }
 
 const DEFAULT_FILTERS: FilterType = {
   sga: null,
+  sgaList: null,
   dateRangeType: 'qtd',
   startDate: null,
   endDate: null,
@@ -77,6 +79,7 @@ function arraysEqualUnordered(a: string[], b: string[]): boolean {
 
 function filtersEqual(a: FilterType, b: FilterType): boolean {
   return a.sga === b.sga
+    && a.sgaList === b.sgaList
     && a.dateRangeType === b.dateRangeType
     && a.startDate === b.startDate
     && a.endDate === b.endDate
@@ -90,6 +93,7 @@ export default function OutreachEffectivenessFilters({
   onReset,
   sgaOptions,
   campaignOptions,
+  sgaLists,
   showSGAFilter,
 }: OutreachEffectivenessFiltersProps) {
   // Local draft state — edits don't fire until Apply
@@ -110,8 +114,23 @@ export default function OutreachEffectivenessFilters({
       : sgaOptions;
   }, [sgaOptions, sgaActiveOnly]);
 
+  // Lists available for the currently-drafted SGA. Empty when no SGA is
+  // selected — the picklist is intentionally inert in that case because list
+  // names overlap across SGAs and an unscoped pick would be ambiguous.
+  const availableSgaLists = useMemo(() => {
+    if (!draft.sga) return [];
+    return sgaLists?.[draft.sga] ?? [];
+  }, [sgaLists, draft.sga]);
+
   const handleChange = (key: keyof FilterType, value: any) => {
-    setDraft(prev => ({ ...prev, [key]: value }));
+    setDraft(prev => {
+      const next = { ...prev, [key]: value };
+      // Switching SGA invalidates the previously chosen list — different
+      // SGAs may not share that label, so reset to avoid filtering down to
+      // zero rows on Apply.
+      if (key === 'sga') next.sgaList = null;
+      return next;
+    });
   };
 
   const handleApply = () => {
@@ -149,6 +168,31 @@ export default function OutreachEffectivenessFilters({
                 <option key={sga.value} value={sga.value}>
                   {sga.label}{!sgaActiveOnly && !sga.isActive ? ' (Inactive)' : ''}
                 </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* SGA Lead List — dependent on SGA. Disabled until an SGA is picked
+            because list names (e.g. "LPL List V2") are shared across SGAs. */}
+        {showSGAFilter && (
+          <div className="min-w-[200px]">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+              SGA Lead List
+            </label>
+            <select
+              value={draft.sgaList || ''}
+              onChange={(e) => handleChange('sgaList', e.target.value === '' ? null : e.target.value)}
+              disabled={!draft.sga}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed dark:disabled:bg-gray-700 dark:disabled:text-gray-500"
+            >
+              <option value="">
+                {draft.sga
+                  ? (availableSgaLists.length === 0 ? 'No lists for this SGA' : 'All lists')
+                  : 'Select an SGA first'}
+              </option>
+              {availableSgaLists.map((list) => (
+                <option key={list} value={list}>{list}</option>
               ))}
             </select>
           </div>

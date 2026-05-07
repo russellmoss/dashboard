@@ -23,6 +23,7 @@ interface OutreachEffectivenessContentProps {
 
 const DEFAULT_FILTERS: FilterType = {
   sga: null,
+  sgaList: null,
   dateRangeType: 'qtd',
   startDate: null,
   endDate: null,
@@ -45,6 +46,7 @@ export default function OutreachEffectivenessContent({
   const [filters, setFilters] = useState<FilterType>(DEFAULT_FILTERS);
   const [sgaOptions, setSgaOptions] = useState<OutreachFilterOptions['sgas']>([]);
   const [campaignOptions, setCampaignOptions] = useState<OutreachFilterOptions['campaigns']>([]);
+  const [sgaLists, setSgaLists] = useState<OutreachFilterOptions['sgaLists']>({});
   const [activeMetric, setActiveMetric] = useState<string>('persistence');
 
   // Drill-down state
@@ -72,6 +74,7 @@ export default function OutreachEffectivenessContent({
         const opts: OutreachFilterOptions = await res.json();
         setSgaOptions(opts.sgas);
         setCampaignOptions(opts.campaigns);
+        setSgaLists(opts.sgaLists ?? {});
       } catch {
         // Filter options are non-critical
       }
@@ -242,6 +245,7 @@ export default function OutreachEffectivenessContent({
         onReset={() => setFilters(DEFAULT_FILTERS)}
         sgaOptions={sgaOptions}
         campaignOptions={campaignOptions}
+        sgaLists={sgaLists}
         showSGAFilter={showSGAFilter}
       />
 

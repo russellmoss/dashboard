@@ -28,6 +28,7 @@ WITH Lead_Base AS (
     Next_Steps__c AS Lead_Next_Steps__c,
     Initial_Call_Scheduled_Date__c,
     Stage_Entered_Closed__c AS lead_closed_date,
+    SGA_Self_List_name__c,
     CAST(NULL AS STRING) AS Previous_Recruiting_Opportunity_ID__c,
     CAST(NULL AS STRING) AS ContactId,
     'Lead' AS lead_record_source,
@@ -108,6 +109,7 @@ ReEngagement_As_Lead AS (
     CAST(NULL AS STRING) AS Lead_Next_Steps__c,
     CAST(NULL AS DATE) AS Initial_Call_Scheduled_Date__c,
     Stage_Entered_Closed__c AS lead_closed_date,
+    CAST(NULL AS STRING) AS SGA_Self_List_name__c,
     Previous_Recruiting_Opportunity_ID__c,
     ContactId,
     'Re-Engagement' AS lead_record_source,
@@ -200,6 +202,7 @@ Combined AS (
     COALESCE(o.Opp_Finance_View__c, l.Lead_Finance_View__c, 'Other') AS Finance_View__c,
     COALESCE(o.Opp_External_Agency__c, l.Lead_External_Agency__c) AS External_Agency__c,
     l.Lead_SGA_Owner_Name__c AS SGA_Owner_Name__c,
+    l.SGA_Self_List_name__c,
     o.Opp_SGA_Name AS Opp_SGA_Name__c,
     o.Opp_SGM_Name AS SGM_Owner_Name__c,
     l.Lead_Next_Steps__c AS Next_Steps__c,
@@ -223,6 +226,7 @@ Combined AS (
     o.Stage_Entered_Joined__c,
     o.Earliest_Anticipated_Start_Date__c,
     l.lead_closed_date,
+    l.stage_entered_new__c,
     -- Recycle-aware: if stage_entered_new__c is AFTER the milestone timestamp,
     -- the lead was recycled and the old milestone is stale (prior lifecycle).
     CASE WHEN l.stage_entered_contacting__c IS NOT NULL

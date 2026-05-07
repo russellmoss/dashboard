@@ -1188,7 +1188,9 @@ Lead-centric view of SGA outreach quality. Self-contained component (`OutreachEf
 
 **Data Sources**: `Tableau_Views.vw_funnel_master` (lead population) + `Tableau_Views.vw_sga_activity_performance` (activity counts) + `SavvyGTMData.User` (SGA list, start dates)
 
-**Filters**: SGA dropdown (Active/All toggle, IsSGA__c allowlist), date range (QTD default), campaign multi-select combobox (substring search, `OutreachEffectivenessFilters.campaignIds: string[]`).
+**Filters**: SGA dropdown (Active/All toggle, IsSGA__c allowlist), SGA Lead List dropdown (dependent on SGA, sourced from `vw_funnel_master.SGA_Self_List_name__c`), date range (QTD default), campaign multi-select combobox (substring search, `OutreachEffectivenessFilters.campaignIds: string[]`).
+
+The SGA Lead List dropdown is disabled until an SGA is selected and resets when the SGA changes — list names like "LPL List V2" are reused across SGAs, so an unscoped pick is ambiguous. The `/filters` endpoint returns `sgaLists: Record<sgaName, string[]>` keyed by SGA. Backend honors `filters.sgaList` only when both `filters.sga` and `filters.sgaList` are set, via `buildSgaListFilter` (see `src/lib/queries/outreach-effectiveness.ts`).
 
 Campaign multi-select reserves two sentinel ids that live alongside real Salesforce campaign ids in the same dropdown:
 - `no_campaign` → expands to `f.Campaign_Id__c IS NULL`

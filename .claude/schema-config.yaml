@@ -767,6 +767,11 @@ fields:
 
       (2) Savvy Operations sweep bias: ~90 days after contacting without MQL, leads sweep to the 'Savvy Operations' system user, removing them from the original SGA's current-owner view. Filtering `v.SGA_Owner_Name__c = @sga` for per-SGA conversion rates systematically inflates those rates because swept leads (the failures) leave the denominator while retained leads (often the successes) stay. For lead-era per-SGA metrics (Contacted, MQL, SQL rates filtered by a specific SGA), JOIN Tableau_Views.vw_lead_primary_sga on lead_id and filter `primary_sga_name = @sga`. See the savvy_ops_sweep_awareness rule, the savvy_ops_sweep term, and the Phase 3 Attribution Routing section in docs/ARCHITECTURE.md.
 
+  SGA_Self_List_name__c:
+    meaning: "Lead-side label SGAs apply when self-sourcing or batch-uploading prospects (e.g., 'LPL List V2', 'Atlanta 1', 'Savvy Leads April 26'). Surfaced from SavvyGTMData.Lead via Lead_Base. ~8.5% populated (~10.7K of 124K leads). NULL on Re-Engagement rows by design."
+    type: STRING
+    gotcha: "Same list name can be used by multiple SGAs (e.g., 'LPL List V2' appears under both Amy Waller and Anett Diaz). Always scope by SGA when filtering — do NOT treat the list name as globally unique."
+
   primary_sga_name:
     meaning: "Lead-era primary SGA display name from vw_lead_primary_sga — the SGA who owned the lead during the lead/contacting phase, reconstructed from LeadHistory. Immune to the Savvy Operations sweep."
     type: STRING

@@ -6,6 +6,13 @@
 
 export interface OutreachEffectivenessFilters {
   sga: string | null;
+  /**
+   * Optional Lead-side self-list label scoped to the selected SGA.
+   * NULL = no list filter. Only meaningful when `sga` is also set, since
+   * list names overlap across SGAs (e.g., "LPL List V2" exists for
+   * multiple owners).
+   */
+  sgaList: string | null;
   dateRangeType: 'this_week' | 'last_30' | 'last_60' | 'last_90' | 'qtd' | 'all_time' | 'custom';
   startDate: string | null;
   endDate: string | null;
@@ -222,4 +229,10 @@ export interface CampaignSummaryData {
 export interface OutreachFilterOptions {
   sgas: Array<{ value: string; label: string; isActive: boolean }>;
   campaigns: Array<{ value: string; label: string }>;
+  /**
+   * Self-list labels grouped by SGA name. The same list name may appear
+   * under multiple SGAs (list names are not globally unique), so the
+   * filter UI must scope by SGA before exposing list options.
+   */
+  sgaLists: Record<string, string[]>;
 }
