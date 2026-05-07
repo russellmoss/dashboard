@@ -39,8 +39,23 @@ views:
     key_filters:
       active_sqos: "is_sqo_unique = 1 AND recordtypeid = '012Dn000000mrO3IAI'"
       open_pipeline: "StageName NOT IN ('Closed Lost', 'Joined', 'On Hold', 'Signed')"
+      open_pipeline_active: "StageName IN ('Qualifying', 'Discovery', 'Sales Process', 'Negotiating') AND recordtypeid = '012Dn000000mrO3IAI'"
+      open_sql: "is_sql = 1 AND LOWER(COALESCE(SQO_raw,'')) != 'yes' AND (StageName IS NULL OR StageName != 'Closed Lost') AND recordtypeid = '012Dn000000mrO3IAI'"
+      open_sqo: "is_sqo_unique = 1 AND is_primary_opp_record = 1 AND StageName NOT IN ('Closed Lost', 'Joined', 'Signed') AND advisor_join_date__c IS NULL AND recordtypeid = '012Dn000000mrO3IAI'"
       joined_unique: "is_joined_unique = 1"
       primary_opp: "is_primary_opp_record = 1"
+    stage_filter_glossary:
+      open_sql: |
+        "Currently AT the SQL stage" — opp converted from a lead but has NOT yet been promoted to SQO. The dashboard's "Open SQL" toggle and the SGA Hub Quarterly Progress 'Open SQL' column both use this. KEY filter: LOWER(COALESCE(SQO_raw,'')) != 'yes'. Without it, the count includes opps in Discovery/Sales Process/Negotiating that ARE SQOs and ARE open — those belong under open_sqo, not open_sql.
+        Source: src/lib/queries/admin-quarterly-progress.ts:98-112, drill-down.ts:436-447.
+      open_sqo: |
+        "Currently an SQO that hasn't joined or closed" — opp passed SGM qualification (SQO_raw='yes') but advisor hasn't joined and stage isn't Closed Lost or Signed. Used by the Funnel Performance scorecard's "open SQO AUM" tile.
+        Source: src/lib/queries/funnel-metrics.ts:380-390.
+      open_pipeline_active: |
+        "Active progression" — any opp in Qualifying, Discovery, Sales Process, or Negotiating, recruiting record type. Excludes On Hold (deliberate hold, not progressing). Use this when the user asks for "open pipeline" without further qualification. Pair with is_sqo_unique = 1 if you want only SQO'd open pipeline (matches funnel-metrics.ts:408-411 "open_pipeline_aum").
+        Source: src/config/constants.ts:6-11 (OPEN_PIPELINE_STAGES).
+      common_mistake: |
+        DO NOT use `is_sql = 1 AND StageName NOT IN ('Closed Lost','Joined','On Hold','Signed')` as a definition for "open SQL". `is_sql = 1` is true for EVERY opp (it just means a lead converted to an opportunity, not that the opp is currently at the SQL stage). Without `LOWER(COALESCE(SQO_raw,'')) != 'yes'`, the count includes every open SQO past Qualifying. Live evidence (Russell Armitage alltime): the wrong filter returns 14 records; the correct open_sql filter returns 3 (current owner) or 2 (primary_sga_name).
     dangerous_columns:
       - column: is_sqo
         reason: "Includes duplicates. Use is_sqo_unique for volume counts."
@@ -1192,6 +1207,35 @@ rules:
         3-tier COALESCE (SGA Hub leaderboard)            8              8
 
       Production dashboard reads Amy=7, Craig=9 → matches v2. Use `primary_sga_name` as the bot's default. Pair with the canonical date anchor (`Date_Became_SQO__c` — see `canonical_stage_volume_date_anchor` rule).
+
+  - id: open_stage_definitions
+    type: ban_pattern
+    pattern: "is_sql = 1 AND StageName NOT IN"
+    severity: error
+    message: |
+      `is_sql = 1` is true for every opportunity (it means a lead converted to an opp), not "currently at the SQL stage". Combining `is_sql = 1` with `StageName NOT IN ('Closed Lost', 'Joined', 'On Hold', 'Signed')` does NOT count "open SQLs" — it counts every open opp regardless of stage, including SQOs in Discovery / Sales Process / Negotiating.
+
+      Use the canonical stage filters from vw_funnel_master.key_filters and vw_funnel_master.stage_filter_glossary:
+
+        OPEN SQL  (currently at Qualifying, not yet SQO'd):
+          is_sql = 1
+          AND LOWER(COALESCE(SQO_raw,'')) != 'yes'
+          AND (StageName IS NULL OR StageName != 'Closed Lost')
+          AND recordtypeid = '012Dn000000mrO3IAI'
+
+        OPEN SQO  (SQO that hasn't joined/closed):
+          is_sqo_unique = 1
+          AND is_primary_opp_record = 1
+          AND StageName NOT IN ('Closed Lost', 'Joined', 'Signed')
+          AND advisor_join_date__c IS NULL
+          AND recordtypeid = '012Dn000000mrO3IAI'
+
+        OPEN PIPELINE  (any active stage — Qualifying through Negotiating):
+          StageName IN ('Qualifying', 'Discovery', 'Sales Process', 'Negotiating')
+          AND recordtypeid = '012Dn000000mrO3IAI'
+          (pair with is_sqo_unique = 1 if you want only SQO'd open pipeline)
+
+      Live evidence: Russell Armitage alltime returned 14 from the wrong pattern but the dashboard shows 3 (SGA Hub) or 2 (Funnel Performance) using the correct open_sql filter.
 
   - id: canonical_stage_volume_date_anchor
     type: disclosure_required

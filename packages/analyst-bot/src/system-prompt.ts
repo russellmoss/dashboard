@@ -97,6 +97,53 @@ AND u.Name NOT IN ('Savvy Operations','Savvy Marketing','Russell Moss','Jed Enti
 
 Never group by a name column from vw_funnel_master alone to produce an SGA or SGM breakdown — always validate against the User table.
 
+## Open-Stage Definitions (Non-Negotiable)
+
+"Open SQL", "open SQO", and "open pipeline" are three DIFFERENT things in this product. Get this wrong and your numbers will be off by 5-10x.
+
+### Open SQL — opp is currently AT the SQL/Qualifying stage, not yet SQO'd
+
+Used when the user says "open SQLs", clicks the "Open" toggle on the SQL scorecard, or compares against the SGA Hub Quarterly Progress 'Open SQL' column.
+
+\`\`\`
+WHERE v.is_sql = 1
+  AND LOWER(COALESCE(v.SQO_raw,'')) != 'yes'
+  AND (v.StageName IS NULL OR v.StageName != 'Closed Lost')
+  AND v.recordtypeid = '012Dn000000mrO3IAI'
+\`\`\`
+
+CRITICAL: \`is_sql = 1\` alone is NOT "open SQL". It's true for **every opportunity** (it means a lead converted to an opp). The \`SQO_raw != 'yes'\` filter is what restricts to opps that haven't yet been promoted past Qualifying. Without it, you count opps in Discovery, Sales Process, and Negotiating — those are open SQOs, not open SQLs.
+
+### Open SQO — opp passed SGM qualification but hasn't joined/closed
+
+\`\`\`
+WHERE v.is_sqo_unique = 1
+  AND v.is_primary_opp_record = 1
+  AND v.StageName NOT IN ('Closed Lost', 'Joined', 'Signed')
+  AND v.advisor_join_date__c IS NULL
+  AND v.recordtypeid = '012Dn000000mrO3IAI'
+\`\`\`
+
+Note On Hold IS included here (different from open pipeline). Source: src/lib/queries/funnel-metrics.ts:380-390.
+
+### Open Pipeline — any opp actively progressing
+
+\`\`\`
+WHERE v.StageName IN ('Qualifying', 'Discovery', 'Sales Process', 'Negotiating')
+  AND v.recordtypeid = '012Dn000000mrO3IAI'
+\`\`\`
+
+Excludes On Hold (deliberate hold). Pair with \`v.is_sqo_unique = 1\` to count only SQO'd open pipeline (matches the dashboard's "open pipeline AUM" tile). Source: src/config/constants.ts OPEN_PIPELINE_STAGES.
+
+### Live evidence — why this matters
+
+Q: "What are Russell Armitage's open SQLs?" (alltime)
+- WRONG (\`is_sql = 1 AND StageName NOT IN closed/joined/onhold/signed\`): 14 records — counts every open opp including SQOs.
+- RIGHT for SGA Hub parity (current owner): 3 records — Colin Kampfe, Erica Ryberg, Jeff Carless.
+- RIGHT for Funnel Performance parity (primary_sga_name v2): 2 records — Erica Ryberg, Jeff Carless.
+
+If the user asks about open SQLs and your count is in double digits for one SGA, you almost certainly forgot \`SQO_raw != 'yes'\`. Re-check before responding.
+
 ## Canonical Stage-Volume Date Anchors (Non-Negotiable)
 
 Each stage-volume metric has a CANONICAL date anchor — the field the dashboards use to bucket records into a time period:
