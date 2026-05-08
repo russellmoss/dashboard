@@ -12,7 +12,11 @@ interface OutreachEffectivenessFiltersProps {
   sgaOptions: { value: string; label: string; isActive: boolean }[];
   campaignOptions: { value: string; label: string }[];
   sgaLists: Record<string, string[]>;
-  showSGAFilter: boolean;
+  showSGADropdown: boolean;
+  showSGAListDropdown: boolean;
+  // SGA-role users have their identity enforced server-side; surface it here
+  // so the Lead List dropdown can resolve their own lists without a picker.
+  currentSgaName: string | null;
 }
 
 const DEFAULT_FILTERS: FilterType = {
@@ -94,7 +98,9 @@ export default function OutreachEffectivenessFilters({
   sgaOptions,
   campaignOptions,
   sgaLists,
-  showSGAFilter,
+  showSGADropdown,
+  showSGAListDropdown,
+  currentSgaName,
 }: OutreachEffectivenessFiltersProps) {
   // Local draft state — edits don't fire until Apply
   const [draft, setDraft] = useState<FilterType>(filters);
@@ -117,10 +123,13 @@ export default function OutreachEffectivenessFilters({
   // Lists available for the currently-drafted SGA. Empty when no SGA is
   // selected — the picklist is intentionally inert in that case because list
   // names overlap across SGAs and an unscoped pick would be ambiguous.
+  // For SGA-role users the picker is hidden but their identity is known via
+  // currentSgaName, so resolve lists from that fallback.
+  const effectiveSgaForLists = draft.sga ?? currentSgaName;
   const availableSgaLists = useMemo(() => {
-    if (!draft.sga) return [];
-    return sgaLists?.[draft.sga] ?? [];
-  }, [sgaLists, draft.sga]);
+    if (!effectiveSgaForLists) return [];
+    return sgaLists?.[effectiveSgaForLists] ?? [];
+  }, [sgaLists, effectiveSgaForLists]);
 
   const handleChange = (key: keyof FilterType, value: any) => {
     setDraft(prev => {
@@ -146,7 +155,7 @@ export default function OutreachEffectivenessFilters({
     <Card className="mb-6 p-4 border border-gray-200 dark:border-gray-700 dark:bg-gray-800">
       <div className="flex flex-wrap gap-4 items-end">
         {/* SGA Filter */}
-        {showSGAFilter && (
+        {showSGADropdown && (
           <div className="min-w-[200px]">
             <div className="flex items-center justify-between mb-1">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
@@ -174,8 +183,10 @@ export default function OutreachEffectivenessFilters({
         )}
 
         {/* SGA Lead List — dependent on SGA. Disabled until an SGA is picked
-            because list names (e.g. "LPL List V2") are shared across SGAs. */}
-        {showSGAFilter && (
+            (or, for SGA-role users, the picker is hidden and their own name
+            scopes the lists automatically) because list names (e.g. "LPL
+            List V2") are shared across SGAs. */}
+        {showSGAListDropdown && (
           <div className="min-w-[200px]">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
               SGA Lead List
@@ -183,11 +194,11 @@ export default function OutreachEffectivenessFilters({
             <select
               value={draft.sgaList || ''}
               onChange={(e) => handleChange('sgaList', e.target.value === '' ? null : e.target.value)}
-              disabled={!draft.sga}
+              disabled={!effectiveSgaForLists}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed dark:disabled:bg-gray-700 dark:disabled:text-gray-500"
             >
               <option value="">
-                {draft.sga
+                {effectiveSgaForLists
                   ? (availableSgaLists.length === 0 ? 'No lists for this SGA' : 'All lists')
                   : 'Select an SGA first'}
               </option>

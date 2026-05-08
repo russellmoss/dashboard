@@ -37,7 +37,12 @@ export default function OutreachEffectivenessContent({
   const { data: session } = useSession();
   const permissions = getSessionPermissions(session);
   const isAdmin = permissions?.role === 'admin' || permissions?.role === 'manager' || permissions?.role === 'revops_admin';
-  const showSGAFilter = isAdmin || permissions?.role === 'sgm';
+  const showSGADropdown = isAdmin || permissions?.role === 'sgm';
+  // SGAs see only their own data, but they should still be able to narrow to a
+  // specific self-list. Their own name comes from permissions.sgaFilter (the
+  // server-enforced scope), not from the draft.sga picker.
+  const showSGAListDropdown = showSGADropdown || permissions?.role === 'sga';
+  const currentSgaName = permissions?.role === 'sga' ? (permissions.sgaFilter ?? null) : null;
 
   // Data state
   const [loading, setLoading] = useState(true);
@@ -246,7 +251,9 @@ export default function OutreachEffectivenessContent({
         sgaOptions={sgaOptions}
         campaignOptions={campaignOptions}
         sgaLists={sgaLists}
-        showSGAFilter={showSGAFilter}
+        showSGADropdown={showSGADropdown}
+        showSGAListDropdown={showSGAListDropdown}
+        currentSgaName={currentSgaName}
       />
 
       {loading && !data && (

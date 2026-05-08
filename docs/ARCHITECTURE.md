@@ -1190,7 +1190,11 @@ Lead-centric view of SGA outreach quality. Self-contained component (`OutreachEf
 
 **Filters**: SGA dropdown (Active/All toggle, IsSGA__c allowlist), SGA Lead List dropdown (dependent on SGA, sourced from `vw_funnel_master.SGA_Self_List_name__c`), date range (QTD default), campaign multi-select combobox (substring search, `OutreachEffectivenessFilters.campaignIds: string[]`).
 
-The SGA Lead List dropdown is disabled until an SGA is selected and resets when the SGA changes — list names like "LPL List V2" are reused across SGAs, so an unscoped pick is ambiguous. The `/filters` endpoint returns `sgaLists: Record<sgaName, string[]>` keyed by SGA. Backend honors `filters.sgaList` only when both `filters.sga` and `filters.sgaList` are set, via `buildSgaListFilter` (see `src/lib/queries/outreach-effectiveness.ts`).
+**Filter visibility by role** is split across two flags in `OutreachEffectivenessContent.tsx`:
+- `showSGADropdown` — admin / manager / revops_admin / sgm only.
+- `showSGAListDropdown` — same set **plus** `sga`. SGA-role users have the SGA picker hidden (server-side `permissions.sgaFilter` enforces self-only data) but still see the Lead List dropdown so they can narrow to one of their own self-lists. Their identity is passed in as `currentSgaName` and the dropdown resolves available lists via `sgaLists[draft.sga ?? currentSgaName]`.
+
+The SGA Lead List dropdown is disabled until an effective SGA is known (either picked via the dropdown or, for SGA-role users, supplied via `currentSgaName`) and resets when the SGA changes — list names like "LPL List V2" are reused across SGAs, so an unscoped pick is ambiguous. The `/filters` endpoint returns `sgaLists: Record<sgaName, string[]>` keyed by SGA. Backend honors `filters.sgaList` only when both `filters.sga` and `filters.sgaList` are set, via `buildSgaListFilter` (see `src/lib/queries/outreach-effectiveness.ts`).
 
 Campaign multi-select reserves two sentinel ids that live alongside real Salesforce campaign ids in the same dropdown:
 - `no_campaign` → expands to `f.Campaign_Id__c IS NULL`
