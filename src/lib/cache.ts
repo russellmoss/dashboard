@@ -14,6 +14,7 @@ export const CACHE_TAGS = {
   SGM_HUB: 'sgm-hub',
   BOT_USAGE: 'bot-usage',
   COACHING_USAGE: 'coaching-usage',
+  CALL_INTELLIGENCE_QUEUE: 'call-intelligence-queue',
 } as const;
 
 /**

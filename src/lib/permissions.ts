@@ -17,7 +17,7 @@ export interface TokenUserData {
 export const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' | 'sgmFilter' | 'recruiterFilter' | 'capitalPartnerFilter' | 'userId'>> = {
   revops_admin: {
     role: 'revops_admin',
-    allowedPages: [1, 3, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+    allowedPages: [1, 3, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
     canExport: true,
     canManageUsers: true,
     canManageRequests: true,
@@ -25,7 +25,7 @@ export const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' 
   },
   admin: {
     role: 'admin',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18],
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 20],
     canExport: true,
     canManageUsers: true,
     canManageRequests: false,
@@ -33,7 +33,7 @@ export const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' 
   },
   manager: {
     role: 'manager',
-    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 18],
+    allowedPages: [1, 3, 7, 8, 9, 10, 11, 12, 13, 15, 18, 20],
     canExport: true,
     canManageUsers: false,
     canManageRequests: false,
@@ -41,7 +41,7 @@ export const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' 
   },
   sgm: {
     role: 'sgm',
-    allowedPages: [1, 3, 7, 10, 13, 15, 18],
+    allowedPages: [1, 3, 7, 10, 13, 15, 18, 20],
     canExport: true,
     canManageUsers: false,
     canManageRequests: false,
@@ -49,7 +49,7 @@ export const ROLE_PERMISSIONS: Record<string, Omit<UserPermissions, 'sgaFilter' 
   },
   sga: {
     role: 'sga',
-    allowedPages: [1, 3, 7, 8, 10, 11, 13, 15],
+    allowedPages: [1, 3, 7, 8, 10, 11, 13, 15, 20],
     canExport: true,
     canManageUsers: false,
     canManageRequests: false,

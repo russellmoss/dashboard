@@ -149,10 +149,15 @@ export function GlobalFilters({
   // Main-bar multi-select state reads from filters.advancedFilters so it shares
   // one source of truth with the Advanced Filters panel and the query layer.
   // Empty selection == "All X" (selectAll: true).
-  const adv: AdvancedFilters = filters.advancedFilters ?? DEFAULT_ADVANCED_FILTERS;
+  // Merge with DEFAULT_ADVANCED_FILTERS so a partial advancedFilters (e.g. a saved
+  // report from before a key was added) doesn't crash with `slot is undefined`.
+  const adv: AdvancedFilters = {
+    ...DEFAULT_ADVANCED_FILTERS,
+    ...(filters.advancedFilters ?? {}),
+  };
 
   const getSelected = (key: MainBarMultiKey): string[] => {
-    const slot = adv[key];
+    const slot = adv[key] ?? DEFAULT_ADVANCED_FILTERS[key];
     return slot.selectAll ? [] : slot.selected;
   };
 

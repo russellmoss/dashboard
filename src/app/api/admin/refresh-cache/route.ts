@@ -31,16 +31,17 @@ export async function POST(request: NextRequest) {
     revalidateTag(CACHE_TAGS.SGM_HUB);
     revalidateTag(CACHE_TAGS.BOT_USAGE);
     revalidateTag(CACHE_TAGS.COACHING_USAGE);
+    revalidateTag(CACHE_TAGS.CALL_INTELLIGENCE_QUEUE);
 
     logger.info('[Cache Refresh] Admin cache invalidation', {
       user: session.user?.email,
-      tags: [CACHE_TAGS.DASHBOARD, CACHE_TAGS.SGA_HUB, CACHE_TAGS.SGM_HUB, CACHE_TAGS.BOT_USAGE, CACHE_TAGS.COACHING_USAGE],
+      tags: [CACHE_TAGS.DASHBOARD, CACHE_TAGS.SGA_HUB, CACHE_TAGS.SGM_HUB, CACHE_TAGS.BOT_USAGE, CACHE_TAGS.COACHING_USAGE, CACHE_TAGS.CALL_INTELLIGENCE_QUEUE],
     });
 
     return NextResponse.json({
       success: true,
       message: 'Cache invalidated successfully',
-      tags: [CACHE_TAGS.DASHBOARD, CACHE_TAGS.SGA_HUB, CACHE_TAGS.SGM_HUB, CACHE_TAGS.BOT_USAGE, CACHE_TAGS.COACHING_USAGE],
+      tags: [CACHE_TAGS.DASHBOARD, CACHE_TAGS.SGA_HUB, CACHE_TAGS.SGM_HUB, CACHE_TAGS.BOT_USAGE, CACHE_TAGS.COACHING_USAGE, CACHE_TAGS.CALL_INTELLIGENCE_QUEUE],
     });
   } catch (error) {
     logger.error('Error refreshing cache:', error);

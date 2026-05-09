@@ -1,0 +1,42 @@
+name: Schema Mirror Check
+
+on:
+  push:
+    paths:
+      - 'src/lib/sales-coaching-client/schemas.ts'
+      - '.github/workflows/schema-mirror-check.yml'
+  pull_request:
+    paths:
+      - 'src/lib/sales-coaching-client/schemas.ts'
+      - '.github/workflows/schema-mirror-check.yml'
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Dashboard
+        uses: actions/checkout@v4
+        with:
+          path: dashboard
+
+      - name: Checkout sales-coaching
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.SALES_COACHING_REPO || 'russellmoss/sales-coaching' }}
+          ref: master
+          path: sales-coaching
+          token: ${{ secrets.CROSS_REPO_TOKEN }}
+
+      - name: Strip mirror header from Dashboard copy
+        run: |
+          # Drop leading // comment block (lines starting with // through first blank line).
+          awk 'BEGIN{seen=0} /^\/\// && !seen { next } { seen=1; print }' \
+            dashboard/src/lib/sales-coaching-client/schemas.ts \
+            > /tmp/dashboard-schemas-stripped.ts
+
+      - name: Byte-equality diff
+        run: |
+          diff /tmp/dashboard-schemas-stripped.ts \
+               sales-coaching/src/lib/dashboard-api/schemas.ts \
+            && echo "✓ Schemas are byte-identical (after header strip)" \
+            || (echo "✗ Schema drift detected. Re-mirror sales-coaching/src/lib/dashboard-api/schemas.ts into Dashboard." && exit 1)

@@ -29,6 +29,7 @@
 19. [SGM Hub](#19-sgm-hub)
 20. [Pipeline Forecast](#20-pipeline-forecast)
 21. [Savvy Analyst Bot](#21-savvy-analyst-bot)
+22. [Call Intelligence](#22-call-intelligence)
 
 ---
 
@@ -2192,6 +2193,101 @@ The export creates a professionally styled 7-tab workbook. Every value traces to
 **Infrastructure**: Per-user Google Drive subfolders, export delete (DB + Drive), Sheet1 auto-deletion, dependency-ordered tab writes then API reorder for display.
 
 **Data sources**: 8 parallel BQ queries including historical joined deals (Q1-Q4 2025) and Component A PIT reconstruction via `OpportunityFieldHistory`.
+
+---
+
+## 22. Call Intelligence
+
+### Overview
+
+The Call Intelligence page (`/dashboard/call-intelligence`, page ID 20) hosts AI evaluations of advisor calls produced by the sales-coaching service. It is a single Next.js route with a 4-tab strip plus a record-level sub-route for evaluation drill-down. All future call-coaching UI surfaces ship as additional tabs inside this page rather than new top-level routes.
+
+**Pages**:
+- `src/app/dashboard/call-intelligence/page.tsx` — server gate + tab strip
+- `src/app/dashboard/call-intelligence/evaluations/[id]/page.tsx` — eval drill-down sub-route
+
+**Permission**: Page ID 20 — `revops_admin`, `admin`, `manager`, `sgm`, `sga`. Recruiter and capital_partner roles have explicit redirects.
+
+### Tabs
+
+| Tab id | Label | Visible to | Default? |
+|---|---|---|---|
+| `queue` | Queue / My Evaluations | revops_admin, admin, manager, sgm, sga | yes |
+| `settings` | My settings | revops_admin, admin, manager, sgm, sga | — |
+| `admin-users` | Admin: Users | revops_admin, admin only | — |
+| `admin-refinements` | Admin: Content Refinements | revops_admin, admin only | — |
+
+The Queue heading is "My Evaluations" for SGM/SGA (coachee view, scoped by own `rep_id`) and "Review Queue" for manager (scoped by `assigned_manager_id_snapshot`) and admin (unscoped). A History toggle (Pending / Revealed / All) controls the row filter.
+
+### Data Flow
+
+```
+Reads (direct, via raw pg coachingDb):
+  Dashboard -> SALES_COACHING_DATABASE_URL_UNPOOLED
+            -> evaluations / call_notes / reps / call_transcripts / content_refinement_requests
+
+Writes (via signed HMAC bridge to sales-coaching Cloud Run):
+  Dashboard route -> src/lib/sales-coaching-client (HMAC v1 token, X-Request-ID header)
+                 -> SALES_COACHING_API_URL/api/dashboard/*
+                 -> sales-coaching Postgres
+```
+
+The bridge token format: `v1.<base64url(payload)>.<base64url(signature)>`, payload `{email, iat, exp}`, signed HMAC-SHA256 with `DASHBOARD_BRIDGE_SECRET`. TTL ≤ 60 s; default 30 s. `request_id` flows via `X-Request-ID` HTTP header (not in the token), so Sentry events from both repos can be stitched on the same trace ID.
+
+### API Routes
+
+| Route | Method | Path source | Purpose |
+|---|---|---|---|
+| `/api/call-intelligence/queue` | GET | direct (cached) | Evaluations list, scoped by role + history filter |
+| `/api/call-intelligence/evaluations/[id]` | GET | direct | Eval detail (rep + manager scope check) |
+| `/api/call-intelligence/evaluations/[id]/reveal-scheduling` | PATCH | bridge | Hold / custom-delay / use-default override |
+| `/api/call-intelligence/evaluations/[id]/reveal` | POST | bridge | Manual reveal-now |
+| `/api/call-intelligence/users` | GET / POST | direct GET, bridge POST | Users list / create (admin only) |
+| `/api/call-intelligence/users/[id]` | PATCH | bridge | Update user (admin only) |
+| `/api/call-intelligence/users/[id]/deactivate` | POST | bridge | Deactivate user; surfaces 409 typed errors |
+| `/api/call-intelligence/users/[id]/bulk-reassign-pending-evals` | POST | bridge | Reassign pending evals from blocked deactivate |
+| `/api/call-intelligence/refinements` | GET | direct | List open content_refinement_requests (admin only) |
+| `/api/call-intelligence/refinements/[id]/resolve` | POST | bridge | Mark addressed/declined |
+| `/api/call-intelligence/settings` | GET / PATCH | direct GET, bridge PATCH | Current user reveal policy |
+
+Cache tag: `CACHE_TAGS.CALL_INTELLIGENCE_QUEUE`. Mutating routes call `revalidateTag()` after a successful bridge response. Listed in `src/app/api/admin/refresh-cache/route.ts` for the bulk admin invalidation.
+
+### Bridge Client
+
+`src/lib/sales-coaching-client/`:
+- `index.ts` — server-only fetch wrapper, signs token + sets `X-Request-ID`, parses response against mirrored Zod schema, dispatches typed errors per response code
+- `token.ts` — `signDashboardToken(email, opts)` HMAC-SHA256
+- `errors.ts` — `BridgeAuthError`, `BridgeTransportError`, `BridgeValidationError`, `EvaluationConflictError`, `DeactivateBlockedError`, `ContentRefinementAlreadyResolvedError`
+- `schemas.ts` — **byte-identical mirror** of `sales-coaching/src/lib/dashboard-api/schemas.ts`. CI workflow `.github/workflows/schema-mirror-check.yml` fails the build on drift (cross-repo checkout requires `secrets.CROSS_REPO_TOKEN`).
+
+### Key Files
+
+| File | Purpose |
+|---|---|
+| `src/app/dashboard/call-intelligence/CallIntelligenceClient.tsx` | Tab strip with role-gated rendering |
+| `src/app/dashboard/call-intelligence/tabs/QueueTab.tsx` | Pending / Revealed / All toggle + table |
+| `src/app/dashboard/call-intelligence/tabs/SettingsTab.tsx` | Reveal policy form (manual / auto_delay / auto_immediate) |
+| `src/app/dashboard/call-intelligence/tabs/AdminUsersTab.tsx` | Users CRUD + deactivate-blocked bulk-reassign UX |
+| `src/app/dashboard/call-intelligence/tabs/AdminRefinementsTab.tsx` | Open refinement list with addressed/decline actions |
+| `src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx` | Eval detail with reveal actions + score-bars |
+| `src/lib/queries/call-intelligence-evaluations.ts` | `getRepIdByEmail`, `getEvaluationsForManager`, `getEvaluationDetail` |
+| `src/lib/queries/call-intelligence-users.ts` | `getCoachingUsers`, `getRevealSettingsByEmail` |
+| `src/lib/queries/call-intelligence-refinements.ts` | `getContentRefinements` |
+| `src/types/call-intelligence.ts` | `EvaluationQueueRow`, `EvaluationDetail`, `CoachingRep`, `ContentRefinementRow`, `RevealSettings`, `CallIntelligenceTab` |
+
+### Environment Variables
+
+| Variable | Purpose |
+|---|---|
+| `DASHBOARD_BRIDGE_SECRET` | HMAC-SHA256 secret shared with sales-coaching Cloud Run (min 32 chars). Generate with `openssl rand -base64 32`. |
+| `SALES_COACHING_API_URL` | Base URL of sales-coaching Cloud Run service (no trailing slash). |
+| `SALES_COACHING_DATABASE_URL_UNPOOLED` | Direct (unpooled) Neon URL for raw `pg` reads. Required because PgBouncer transaction-pooled URL disables prepared statements. |
+
+The same `DASHBOARD_BRIDGE_SECRET` value must be configured on Vercel (Production + Preview + Development), in GCP Secret Manager (`sales-coaching-dashboard-bridge-secret`), and on the Cloud Run service. Rotate by issuing a new random value, updating all three locations, and bumping the Cloud Run revision.
+
+### Identity Resolution
+
+The bridge does not pass IDs — sales-coaching resolves the caller via email. Dashboard's `revops_admin` role has no counterpart in sales-coaching, so revops_admin users must be seeded into the `reps` table with `role='admin'` to write through the bridge. Email comparison is case-insensitive lowercase.
 
 ---
 
