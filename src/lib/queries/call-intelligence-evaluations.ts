@@ -1,6 +1,10 @@
 import { getCoachingPool } from '@/lib/coachingDb';
 import { resolveAdvisorNames } from '@/lib/queries/resolve-advisor-names';
-import type { EvaluationQueueRow, EvaluationDetail } from '@/types/call-intelligence';
+import type {
+  EvaluationQueueRow,
+  EvaluationDetail,
+  TranscriptCommentRow,
+} from '@/types/call-intelligence';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -258,6 +262,18 @@ export async function getEvaluationDetail(evaluationId: string): Promise<Evaluat
       e.overall_score,
       e.ai_original,
       e.ai_original_schema_version,
+      e.dimension_scores,
+      e.narrative,
+      e.strengths,
+      e.weaknesses,
+      e.knowledge_gaps,
+      e.compliance_flags,
+      e.additional_observations,
+      e.coaching_nudge,
+      e.manager_edited_at,
+      e.manager_edited_by,
+      editor.full_name                  AS manager_edited_by_name,
+      editor.is_active                  AS manager_edited_by_active,
       cn.summary_markdown               AS call_summary_markdown,
       ct.transcript,
       e.created_at,
@@ -266,13 +282,19 @@ export async function getEvaluationDetail(evaluationId: string): Promise<Evaluat
     JOIN call_notes cn               ON cn.id = e.call_note_id
     LEFT JOIN reps sga               ON sga.id = e.rep_id                     AND sga.is_system = false
     LEFT JOIN reps mgr               ON mgr.id = e.assigned_manager_id_snapshot AND mgr.is_system = false
+    LEFT JOIN reps editor            ON editor.id = e.manager_edited_by         AND editor.is_system = false
     LEFT JOIN call_transcripts ct    ON ct.call_note_id = e.call_note_id
     WHERE e.id = $1
     LIMIT 1
   `;
   // pg-node returns `numeric` columns as strings; coerce overall_score per the
   // sales-coaching DAL convention (context-ledger d_1777156126_5823).
-  interface RawDetailRow extends Omit<EvaluationDetail, 'overall_score'> {
+  // Omit list grows because none of these are returned by SELECT (post-spread merges):
+  //   transcript_comments, chunk_lookup, coaching_nudge_effective.
+  interface RawDetailRow extends Omit<
+    EvaluationDetail,
+    'overall_score' | 'transcript_comments' | 'chunk_lookup' | 'coaching_nudge_effective'
+  > {
     overall_score: number | string | null;
   }
   const { rows } = await pool.query<RawDetailRow>(sql, [evaluationId]);
@@ -283,5 +305,66 @@ export async function getEvaluationDetail(evaluationId: string): Promise<Evaluat
     overall_score: row.overall_score === null || row.overall_score === undefined
       ? null
       : Number(row.overall_score),
+    transcript_comments: [],            // populated by API route
+    chunk_lookup: {},                    // populated by API route
+    coaching_nudge_effective: row.coaching_nudge,  // overwritten by API route via COALESCE
   };
+}
+
+/**
+ * Pinned utterance-level comments for an evaluation. Ordered by utterance index
+ * then creation time. Used by the eval-detail GET route to merge into EvaluationDetail.
+ */
+export async function getTranscriptComments(
+  evaluationId: string,
+): Promise<TranscriptCommentRow[]> {
+  if (!UUID_RE.test(evaluationId)) return [];
+  const pool = getCoachingPool();
+  const sql = `
+    SELECT
+      tc.id,
+      tc.evaluation_id,
+      tc.utterance_index,
+      tc.author_id,
+      r.full_name        AS author_full_name,
+      tc.author_role,
+      tc.text,
+      tc.created_at
+    FROM transcript_comments tc
+    LEFT JOIN reps r ON r.id = tc.author_id AND r.is_system = false
+    WHERE tc.evaluation_id = $1
+    ORDER BY tc.utterance_index ASC, tc.created_at ASC
+  `;
+  const { rows } = await pool.query<TranscriptCommentRow>(sql, [evaluationId]);
+  return rows;
+}
+
+/**
+ * Hydrate a list of KB chunk_ids (the citation contract calls them chunk_id; the
+ * underlying table column is `knowledge_base_chunks.id`) with owner + chunk text.
+ * Returns a lookup keyed by chunk_id. Used by the eval-detail GET route to augment
+ * the chunk_lookup map for inline citation pills.
+ */
+export async function getKbChunksByIds(
+  chunkIds: string[],
+): Promise<Record<string, { owner: string; chunk_text: string }>> {
+  if (chunkIds.length === 0) return {};
+  const validIds = chunkIds.filter((id) => UUID_RE.test(id));
+  if (validIds.length === 0) return {};
+
+  const pool = getCoachingPool();
+  const sql = `
+    SELECT id AS chunk_id, owner, body_text AS chunk_text
+    FROM knowledge_base_chunks
+    WHERE id = ANY($1::uuid[])
+  `;
+  const { rows } = await pool.query<{ chunk_id: string; owner: string; chunk_text: string }>(
+    sql,
+    [validIds],
+  );
+
+  return rows.reduce<Record<string, { owner: string; chunk_text: string }>>((acc, r) => {
+    acc[r.chunk_id] = { owner: r.owner, chunk_text: r.chunk_text };
+    return acc;
+  }, {});
 }

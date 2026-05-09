@@ -71,3 +71,29 @@ export class ContentRefinementAlreadyResolvedError extends BridgeError {
     this.name = 'ContentRefinementAlreadyResolvedError';
   }
 }
+
+/**
+ * 404 surfaced when an evaluation row is missing OR its parent call_note has
+ * been tombstoned (`source_deleted_at IS NOT NULL`). UI should route the user
+ * back to the queue rather than show a stale-data conflict banner.
+ * Server returns: `{ ok: false, error: 'evaluation_not_found' }`.
+ */
+export class EvaluationNotFoundError extends BridgeError {
+  constructor(message: string, status = 404, requestId?: string) {
+    super(message, status, requestId);
+    this.name = 'EvaluationNotFoundError';
+  }
+}
+
+/**
+ * 409 surfaced when a manager files the same suggestion on the same chunk while
+ * an earlier suggestion is still `open`. Backed by partial-UNIQUE index on
+ * (requested_by, evaluation_id, doc_id, MD5(excerpt)) WHERE status='open'.
+ * Server returns: `{ ok: false, error: 'content_refinement_duplicate' }`.
+ */
+export class ContentRefinementDuplicateError extends BridgeError {
+  constructor(message: string, status = 409, requestId?: string) {
+    super(message, status, requestId);
+    this.name = 'ContentRefinementDuplicateError';
+  }
+}

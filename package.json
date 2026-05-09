@@ -23,7 +23,8 @@
     "gen:api-routes": "node scripts/generate-api-inventory.cjs",
     "gen:env": "node scripts/generate-env-inventory.cjs",
     "gen:all": "npm run gen:api-routes && npm run gen:models && npm run gen:env",
-    "gen:models": "node scripts/generate-model-inventory.cjs"
+    "gen:models": "node scripts/generate-model-inventory.cjs",
+    "check:schema-mirror": "node scripts/check-schema-mirror.cjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.58",

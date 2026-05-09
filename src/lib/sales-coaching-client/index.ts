@@ -9,12 +9,17 @@ import {
   BulkReassignRequest, RevealSchedulingRequest,
   ManualRevealRequest, UpdateRevealPolicyRequest,
   ContentRefinementResolveRequest,
+  EditEvaluationRequest, TranscriptCommentCreateRequest,
+  ContentRefinementCreateRequest,
   // Response schema VALUES:
   CreateUserResponse, UpdateUserResponse,
   DeactivateUserResponseOk,
   BulkReassignResponse, RevealSchedulingResponse,
   ManualRevealResponse, UpdateRevealPolicyResponse,
   ContentRefinementResolveResponse,
+  EditEvaluationResponse, TranscriptCommentResponse,
+  ContentRefinementResponse, MyContentRefinementsResponse,
+  DeleteTranscriptCommentResponse,
   // Catch-all error envelope (used to parse ALL non-2xx bodies):
   ErrorResponseSchema,
   // Inferred types (always with `T` suffix):
@@ -22,17 +27,23 @@ import {
   type BulkReassignRequestT, type RevealSchedulingRequestT,
   type ManualRevealRequestT, type UpdateRevealPolicyRequestT,
   type ContentRefinementResolveRequestT,
+  type EditEvaluationRequestT, type TranscriptCommentCreateRequestT,
+  type ContentRefinementCreateRequestT,
   type CreateUserResponseT, type UpdateUserResponseT,
   type DeactivateUserResponseOkT,
   type BulkReassignResponseT, type RevealSchedulingResponseT,
   type ManualRevealResponseT, type UpdateRevealPolicyResponseT,
   type ContentRefinementResolveResponseT,
+  type EditEvaluationResponseT, type TranscriptCommentResponseT,
+  type ContentRefinementResponseT, type MyContentRefinementsResponseT,
+  type DeleteTranscriptCommentResponseT,
 } from './schemas';
 import { signDashboardToken } from './token';
 import {
   BridgeAuthError, BridgeTransportError, BridgeValidationError,
   EvaluationConflictError, DeactivateBlockedError,
   ContentRefinementAlreadyResolvedError,
+  EvaluationNotFoundError, ContentRefinementDuplicateError,
 } from './errors';
 
 /**
@@ -47,7 +58,7 @@ interface BridgeContext {
 }
 
 interface PostOptions<TReq> {
-  method?: 'POST' | 'PATCH';
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   path: string;
   email: string;
   requestSchema?: ZodTypeAny;
@@ -72,17 +83,20 @@ async function bridgeRequest<TReq, TRes>(opts: PostOptions<TReq>): Promise<TRes>
   const requestId = randomUUID();
   const url = `${baseUrl.replace(/\/$/, '')}${opts.path}`;
   const method = opts.method ?? 'POST';
+  const isBodyMethod = method === 'POST' || method === 'PATCH';
+
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${token}`,
+    'X-Request-ID': requestId,
+  };
+  if (isBodyMethod) headers['Content-Type'] = 'application/json';
 
   let response: Response;
   try {
     response = await fetch(url, {
       method,
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'X-Request-ID': requestId,
-        'Content-Type': 'application/json',
-      },
-      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      headers,
+      body: isBodyMethod && opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
       cache: 'no-store',
     });
   } catch (err) {
@@ -117,6 +131,15 @@ async function bridgeRequest<TReq, TRes>(opts: PostOptions<TReq>): Promise<TRes>
     }
     if (status === 403) {
       throw new BridgeAuthError(`Bridge forbidden: ${errCode ?? 'forbidden'}`, 403, requestId);
+    }
+    if (status === 404) {
+      // Path-scoped: only treat 404s on /evaluations/:id paths as evaluation-not-found, so a
+      // DELETE /transcript-comments/:id 404 falls through to BridgeTransportError correctly.
+      // Plus a code-based fallback for /content-refinements where the parent eval may be
+      // tombstoned (sales-coaching surfaces `error: 'evaluation_not_found'` from a non-eval URL).
+      if (/\/evaluations\/[^/]+/.test(opts.path) || errCode === 'evaluation_not_found') {
+        throw new EvaluationNotFoundError(errMsg ?? 'Evaluation not found', 404, requestId);
+      }
     }
     if (status === 409) {
       // Dispatch on `error` code (the actual envelope shape).
@@ -155,6 +178,13 @@ async function bridgeRequest<TReq, TRes>(opts: PostOptions<TReq>): Promise<TRes>
         throw new ContentRefinementAlreadyResolvedError(
           'Content refinement was already resolved',
           currentStatus, requestId,
+        );
+      }
+      if (errCode === 'content_refinement_duplicate') {
+        throw new ContentRefinementDuplicateError(
+          errMsg ?? 'You already have an open suggestion on this chunk.',
+          409,
+          requestId,
         );
       }
       throw new BridgeTransportError(`Conflict: ${errCode ?? '409'}`, 409, requestId);
@@ -238,10 +268,66 @@ export const salesCoachingClient = {
       method: 'POST', path: `/api/dashboard/content-refinements/${encodeURIComponent(refinementId)}/resolve`, email,
       requestSchema: ContentRefinementResolveRequest, responseSchema: ContentRefinementResolveResponse, body,
     }),
+
+  editEvaluation: (email: string, evaluationId: string, body: EditEvaluationRequestT) =>
+    bridgeRequest<EditEvaluationRequestT, EditEvaluationResponseT>({
+      method: 'PATCH',
+      path: `/api/dashboard/evaluations/${encodeURIComponent(evaluationId)}/edit`,
+      email,
+      requestSchema: EditEvaluationRequest,
+      responseSchema: EditEvaluationResponse,
+      body,
+      context: {
+        evaluationId,
+        expectedEditVersion: (body as { expected_edit_version: number }).expected_edit_version,
+      },
+    }),
+
+  createTranscriptComment: (
+    email: string,
+    evaluationId: string,
+    body: TranscriptCommentCreateRequestT,
+  ) =>
+    bridgeRequest<TranscriptCommentCreateRequestT, TranscriptCommentResponseT>({
+      method: 'POST',
+      path: `/api/dashboard/evaluations/${encodeURIComponent(evaluationId)}/transcript-comments`,
+      email,
+      requestSchema: TranscriptCommentCreateRequest,
+      responseSchema: TranscriptCommentResponse,
+      body,
+      context: { evaluationId },
+    }),
+
+  deleteTranscriptComment: (email: string, commentId: string) =>
+    bridgeRequest<undefined, DeleteTranscriptCommentResponseT>({
+      method: 'DELETE',
+      path: `/api/dashboard/transcript-comments/${encodeURIComponent(commentId)}`,
+      email,
+      responseSchema: DeleteTranscriptCommentResponse,
+    }),
+
+  submitContentRefinement: (email: string, body: ContentRefinementCreateRequestT) =>
+    bridgeRequest<ContentRefinementCreateRequestT, ContentRefinementResponseT>({
+      method: 'POST',
+      path: `/api/dashboard/content-refinements`,
+      email,
+      requestSchema: ContentRefinementCreateRequest,
+      responseSchema: ContentRefinementResponse,
+      body,
+    }),
+
+  listMyContentRefinements: (email: string) =>
+    bridgeRequest<undefined, MyContentRefinementsResponseT>({
+      method: 'GET',
+      path: `/api/dashboard/my-content-refinements`,
+      email,
+      responseSchema: MyContentRefinementsResponse,
+    }),
 };
 
 export {
   BridgeAuthError, BridgeTransportError, BridgeValidationError,
   EvaluationConflictError, DeactivateBlockedError,
   ContentRefinementAlreadyResolvedError,
+  EvaluationNotFoundError, ContentRefinementDuplicateError,
 } from './errors';

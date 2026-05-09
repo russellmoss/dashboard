@@ -1,234 +1,363 @@
-# Pattern Finder Findings — Kixie Call Transcription Pipeline
+# Pattern Finder Findings -- Step 5b-1-UI
 
-Generated: 2026-04-27. Synthesis from prior /plan research, plus integration-researcher external-docs findings (merged here since /auto-feature has 3 agent slots, not 4).
+> Pre-flight: `.claude/bq-patterns.md` read (required by agent instructions).
+> BQ patterns (DATE/TIMESTAMP wrappers, dedup flags, ARR COALESCE, cohort vs period,
+> channel grouping) are not relevant to the coaching-DB surface of Step 5b-1-UI.
+> No new BQ patterns found or re-documented here.
 
-Source plan: `docs/plans/2026-04-27-001-feat-kixie-call-transcription-pipeline-plan.md`.
+---
 
-## Established Patterns to Follow
+## Pattern A -- Bridge Client Method
 
-### Cloud Run service package shape
+**Canonical citation:** `src/lib/sales-coaching-client/index.ts:196-241`
 
-Reference: `packages/analyst-bot/`
+Every public method follows this exact shape. Example: resolveContentRefinement
 
-- Self-contained `package.json`; no workspace linking
-- Single-stage `Dockerfile` based on `node:20-slim`
-- **Manual cache-bust line** in Dockerfile (line 21): `RUN echo "source-bust-YYYYMMDD-description"` — bump on each deploy
-- `cloudbuild.yaml`: two steps — `docker build --no-cache` → `docker push`
-- `deploy.sh`: `set -euo pipefail`, `gcloud builds submit`, then `gcloud run deploy --image=...` (image-only deploy preserves secrets)
-- Runtime deps in `dependencies`; only typescript + types in `devDependencies`
-- CMD: `node dist/index.js`
+    resolveContentRefinement: (email, refinementId, body) =>
+      bridgeRequest({
+        method: 'POST',
+        path: `/api/dashboard/content-refinements/${encodeURIComponent(refinementId)}/resolve`,
+        email, requestSchema: ContentRefinementResolveRequest,
+        responseSchema: ContentRefinementResolveResponse, body,
+      }),
 
-### Prisma + migrations
+**How to apply to 5b-1-UI:** Add three new methods to `salesCoachingClient`:
+1. editEvaluation(email, evaluationId, body) -- PATCH /api/dashboard/evaluations/:id/edit
+   context: { evaluationId, expectedEditVersion: body.expected_edit_version }
+   so EvaluationConflictError carries OCC metadata on 409.
+2. createTranscriptComment(email, evaluationId, body) -- POST .../transcript-comments
+3. createContentRefinement(email, body) -- POST /api/dashboard/content-refinements
 
-- Schema at `prisma/schema.prisma`
-- Manual migrations: `prisma/migrations/manual_<description>.sql` — no timestamp folders
-- Run manually against Neon (avoid `prisma migrate dev` shadow-DB)
-- Json columns: `as unknown as ConcreteType` cast at read
-- `@@map("snake_case")` for table aliasing
-- Idempotency: `@@unique` + `prisma.x.upsert({ where: { col1_col2: {...} } })` (see weekly-goals.ts:75-80)
+PostOptions.method is typed as 'POST' | 'PATCH' -- no new HTTP verbs needed for 5b-1.
+CRITICAL: salesCoachingClient has import 'server-only' at line 2 of index.ts.
+Client components must NEVER import it directly. Call only from API route handlers.
 
-### External API client wrapper
+---
 
-Reference: `src/lib/wrike-client.ts:10-130`
+## Pattern B -- Zod Schema + Type Naming Convention
 
-```typescript
-class WrikeAPIError extends Error {
-  statusCode: number;
-  isRateLimited: boolean;
-  retryAfter?: number;
-}
+**Canonical citation:** `src/lib/sales-coaching-client/schemas.ts:358-463` and `index.ts:7-30`
 
-async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try { return await fn(); }
-    catch (e) {
-      if (attempt === maxRetries - 1) throw e;
-      await sleep(Math.pow(2, attempt) * 1000);
-    }
+Rules:
+- Schema values: PascalCase, no suffix (EditEvaluationRequest, EditEvaluationResponse)
+- Inferred types: T suffix (EditEvaluationRequestT, EditEvaluationResponseT)
+- Only ErrorResponseSchema uses the Schema suffix -- the catch-all error envelope
+- All objects use .strict() to reject unknown fields
+
+All five 5b-1 schemas already exist in schemas.ts (lines 299-463):
+  EditEvaluationRequest/Response, TranscriptCommentCreateRequest/Response,
+  ContentRefinementCreateRequest/Response, MyContentRefinementsResponse
+No new schemas needed. Import T-suffixed types when adding methods to index.ts.
+
+---
+
+## Pattern C -- Error / Conflict Feedback (inline div, no toast library)
+
+**Canonical citation:** `EvalDetailClient.tsx:216-227` and `:244`
+
+409 conflict pattern (EvalDetailClient.tsx:216-222):
+  if (res.status === 409) {
+    setConflict({
+      expectedVersion: json.edit_version_expected ?? detail.edit_version,
+      message: json.error ?? 'Conflict -- another manager edited this.',
+    });
+    return;  // do NOT auto-reload -- let user decide
   }
-}
-```
 
-Lazy singleton init like `packages/analyst-bot/src/claude.ts:19-32`.
+General error: setActionError(json.error ?? `HTTP ${res.status}`)
 
-### Anthropic SDK call
+Render (EvalDetailClient.tsx:244):
+  <div className=px-4 py-3 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded>
+    {error}
+  </div>
 
-Reference: `packages/analyst-bot/src/claude.ts`
+No toast library. package.json: no sonner, react-hot-toast, @radix-ui/react-toast.
+All error feedback uses useState<string | null> + conditional inline div.
+Conflict state is its own typed object (ConflictState | null), separate from action error.
 
-- Lazy singleton `getClient()` with env var guard
-- `anthropic.messages.create(...)` for plain calls
-- `anthropic.beta.messages.create(...)` with MCP betas for agent mode
-- Retry loop with exponential backoff (lines 71-113)
-- **No prompt caching anywhere in repo currently** — we add it. Sonnet 4.6 needs >2048 system tokens to activate.
+How to apply: One useState<string|null> for general errors;
+separate useState<ConflictState|null> for OCC conflicts. Never mix them.
 
-### BigQuery query style
+---
 
-Reference: `src/lib/queries/record-activity.ts`, `src/lib/semantic-layer/query-templates.ts`
+## Pattern D -- Dark Mode Cards (hand-rolled Tailwind, not Tremor props)
 
-- ALWAYS `@paramName` parameterization
-- `cachedQuery()` wrapper for read paths
-- snake_case in SQL → camelCase via transform function
-- COALESCE for nullable fields with sensible defaults
-- `extractDate()` for display, `extractDateValue()` for comparisons
+**Canonical citation:** EvalDetailClient.tsx:275, QueueTab.tsx:94, AdminRefinementsTab.tsx
 
-### Polling pattern
+  <Card className=dark:bg-gray-800 dark:border-gray-700>
 
-Reference: `src/app/dashboard/reports/components/ReportProgress.tsx:27-40`
+Tremor does not auto-apply dark mode. Every Card must carry this className pair.
+Never pass dark as a Tremor prop -- it does not exist on Card.
 
-- `setInterval(pollFn, 3000)` with `resolvedRef = useRef(false)` dual-guard
-- For Cloud Run Job context, AssemblyAI SDK polls internally — we configure `pollingInterval` not write the loop
+---
 
-### Empty-state UI
+## Pattern E -- Two-Pane Sticky Layout
 
-Reference: `src/components/dashboard/ExploreResults.tsx:194-204`
+NO PRECEDENT in call-intelligence. No grid-cols-2 + sticky sidebar exists.
 
-```tsx
-<div className="flex flex-col items-center justify-center py-12 text-center">
-  <Icon className="w-12 h-12 text-gray-400 mb-4" />
-  <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Title</h3>
-  <p className="text-gray-500 dark:text-gray-400 max-w-md">Body</p>
-</div>
-```
+Fresh pattern for 5b-1-UI:
+  <div className=grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-4 items-start>
+    <div className=space-y-2> {/* left: transcript */} </div>
+    <div className=sticky top-4 space-y-4> {/* right: eval detail */} </div>
+  </div>
 
-### Collapsible expand pattern
+Use items-start so the sticky column does not stretch to match transcript height.
+top-4 matches the py-6 outer padding on EvalDetailClient.
+Nest inside existing <div className=space-y-4 px-4 py-6> wrapper EvalDetailClient uses.
 
-Reference: `src/components/dashboard/ActivityTimeline.tsx:242-255`
+---
 
-```tsx
-const [expanded, setExpanded] = useState(false);
+## Pattern F -- Modal Pattern
 
-<button onClick={() => setExpanded(!expanded)}>
-  {expanded ? <ChevronUp /> : <ChevronDown />}
-  Label
-</button>
-{expanded && (
-  <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap">{content}</div>
-)}
-```
+**Canonical citations:**
+- Variant 1 (inline state, null=closed): AdminRefinementsTab.tsx:176-216
+- Variant 2 (extracted component, isOpen prop): src/components/dashboard/TransferConfirmModal.tsx
 
-Use SECOND `useState` for Notes expand — independent of SMS preview.
+Variant 1 (inline):
+  const [declineModal, setDeclineModal] = useState<DeclineModalState | null>(null);
+  {declineModal && (
+    <div className=fixed inset-0 bg-black/40 flex items-center justify-center z-50>
+      <div className=bg-white dark:bg-gray-800 rounded-lg shadow-lg max-w-md w-full p-6>
+        {declineModal.error && <div className=text-xs text-red-600>...</div>}
+        <div className=flex justify-end gap-2>
+          <button onClick={() => setDeclineModal(null)}>Cancel</button>
+          <button disabled={declineModal.submitting}>Submit</button>
+        </div>
+      </div>
+    </div>
+  )}
 
-### Prompt templates
+Variant 2 (extracted component):
+  export function SomeModal({ isOpen }) {
+    if (!isOpen) return null;
+    return <div className=fixed inset-0 bg-black/40 flex items-center justify-center z-50>...</div>;
+  }
 
-Reference: `src/lib/reporting/prompts/*.ts`
+Use Variant 1 for simple single-action modals.
+Use Variant 2 when modal has internal state that should reset cleanly on close.
+---
 
-- TypeScript template literals, not markdown files
-- Named export: `export const PROMPT_NAME = \`...\``
-- Versioning: bump `PROMPT_VERSION` constant
+## Pattern G -- Toast / Notification Feedback
 
-## Date / NULL / Type Coercion
+NO TOAST LIBRARY EXISTS. package.json: no sonner, react-hot-toast, @radix-ui/react-toast.
+All feedback uses Pattern C (inline div with state). Do not introduce a toast library.
 
-- `extractDate()` (`src/lib/utils/date-helpers.ts`) for display
-- `extractDateValue()` for comparisons
-- `toString(raw.field)` / `toNumber(raw.field)` from `src/lib/utils/bigquery-raw.ts`
-- COALESCE with empty string for required strings, NULL for optional
+---
 
-## CSV Export Patterns
+## Pattern H -- Inline Editing (display/input toggle)
 
-- **ExportButton** auto-includes via `Object.keys()`
-- **ExportMenu / MetricDrillDownModal** explicit column mappings, manual update needed
+**Canonical citation:** `src/components/sga-hub/TeamGoalEditor.tsx:24-50`
 
-For this feature: new fields are modal-only, no CSV export touched. Flag if council disagrees.
+  const [isEditing, setIsEditing] = useState(false);
+  const [inputValue, setInputValue] = useState<string>(currentVal?.toString() ?? '');
 
-## External SDK Versions (verified during /plan)
+  {isEditing ? (
+    <> <input autoFocus value={inputValue} onChange={(e) => setInputValue(e.target.value)} />
+       <Button onClick={handleSave}>Save</Button> <Button onClick={handleCancel}>Cancel</Button>
+    </>
+  ) : (
+    <span>{currentVal ?? '--'} <Button icon={Edit2} onClick={() => setIsEditing(true)} /></span>
+  )}
 
-| Package | Version | Use |
-|---|---|---|
-| `assemblyai` | 4.32.1 | Transcription |
-| `@anthropic-ai/sdk` | 0.71.2 (in repo) | Notes generation |
-| `@google-cloud/storage` | 7.19.0 | GCS upload |
-| `@google-cloud/bigquery` | (in repo) | BQ poll |
-| `@prisma/client` | (in repo) | Postgres |
+Note: TeamGoalEditor uses alert() for validation. For 5b-1-UI, use Pattern C instead.
+How to apply: Toggle isEditing on comment icon click; render <textarea autoFocus>.
+For eval score fields, same toggle with <select> or <input type=number>. No library.
 
-## External API Notes
+---
 
-### AssemblyAI
+## Pattern I -- Optimistic Concurrency Control (OCC)
 
-- `client.transcripts.transcribe({ audio: <url>, speaker_labels: true })` — submit-by-URL works against public Kixie URLs
-- Diarization returns `utterances[]` with `speaker: 'A'|'B'|...`, `text`, `start` (ms), `end` (ms), `confidence`
-- Cost: $0.17/hr Universal-2 + diarization
-- File limits: 5GB, 10hr URL-based; 2.2GB upload-based
-- Concurrent: 5 free, 200+ paid
-- **LeMUR deprecated March 31, 2026** — DO NOT USE
-- SDK README warns against scale (>5K calls/run); below threshold today
+**Canonical citation:** `EvalDetailClient.tsx:190-233`
 
-### Claude prompt caching (Sonnet 4.6)
+  body: JSON.stringify({ expected_edit_version: detail.edit_version })
+  if (res.status === 409) {
+    setConflict({ expectedVersion: ..., message: json.error ?? 'Conflict.' });
+    return;  // do NOT auto-reload
+  }
+  await load();  // on success
 
-```typescript
-system: [{
-  type: "text",
-  text: LONG_SYSTEM_PROMPT,
-  cache_control: { type: "ephemeral" }  // 5-min, free refresh; or { ttl: "1h" } at 2x write cost
-}]
-```
+editEvaluation bridge carries context: { evaluationId, expectedEditVersion }
+so EvaluationConflictError.expectedVersion is populated from request context.
+Server 409 only returns { ok: false, error: evaluation_conflict, message } -- no version.
+Conflict banner must offer a Reload CTA calling load(). Do NOT auto-reload.
+---
 
-- Min 2048 tokens for caching to activate (silently no-op below)
-- Cache reads: 0.1× base price (90% reduction)
+## Pattern J -- Sub-Route Navigation
 
-### GCS streaming upload
+**Canonical citations:**
+- useRouter().push() for row clicks: QueueTab.tsx:164-174
+- next/link for back nav: EvalDetailClient.tsx:268-273
 
-```typescript
-import { pipeline } from "stream/promises";
-const file = storage.bucket(BUCKET).file(`recordings/${callId}.mp3`);
-const response = await fetch(kixieUrl);
-await pipeline(response.body, file.createWriteStream({ contentType: "audio/mpeg" }));
-```
+Table row click with a11y keyboard support:
+  <tr role=link tabIndex={0} onClick={() => router.push(href)}
+    onKeyDown={(e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(href); }
+    }}
+    className=cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50>
 
-ADC auth on Cloud Run; no key file. Pattern from `@google-cloud/storage` samples.
+Back navigation via Link:
+  <Link href=`/dashboard/call-intelligence?tab=${returnTab}`
+    className=inline-flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:underline>
+    <ArrowLeft className=w-4 h-4 /> Back to queue
+  </Link>
 
-### Salesforce REST PATCH (Phase 3)
+5b-1 renders within EvalDetailClient -- no new route needed.
+returnTab is already threaded from the RSC page.tsx.
 
-```bash
-curl -X PATCH "${INSTANCE}/services/data/v66.0/sobjects/Task/${ID}" \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"AI_Call_Notes__c": "..."}'
-```
+---
 
-Returns 204. The `sf data query` CLI bug doesn't affect REST PATCH.
+## Pattern K -- Date Formatting
 
-For unattended writes: **JWT bearer flow** (signed JWT with cert key) recommended over stored access tokens. Phase 3 design decision.
+**Canonical citations:**
+- src/lib/utils/freshness-helpers.ts:8-23 -- formatRelativeTime(minutesAgo: number): string
+- src/lib/utils/freshness-helpers.ts:32-47 -- formatAbsoluteTime(isoTimestamp: string): string
+- QueueTab.tsx:30-49 -- local formatDate/formatDateOnly/formatTimeOnly (one-off helpers)
 
-## Cloud Run Job vs Service vs Vercel Cron — Decision
+formatRelativeTime takes pre-computed minutes (not an ISO string):
+  formatRelativeTime((Date.now() - new Date(isoTs).getTime()) / 60000)
 
-| Option | Max Timeout | Verdict |
-|---|---|---|
-| **Cloud Run Job** | 7 days/task | **CHOSEN** — batch, scheduled, no inbound HTTP needed |
-| Cloud Run Service | 1 hour/request | Rejected — overkill (Pub/Sub, push complexity) |
-| Vercel Cron Hobby | 5 min | Rejected — too short |
-| Vercel Cron Pro | ~13 min (800s) | Rejected — too short for batch |
+date-fns v3.6.0 is installed but formatDistanceToNow is NOT used in call-intelligence.
 
-Cloud Run Job free tier (240K vCPU-sec/mo) covers 1,300 calls/mo at ~10 min wall time = 130K vCPU-sec/mo.
+INCONSISTENCY FLAGGED: QueueTab, EvalDetailClient, freshness-helpers all define
+separate date helpers with no shared import across call-intelligence components.
+Codebase drift. Prefer formatAbsoluteTime() from freshness-helpers for 5b-1-UI.
+formatRelativeTimestamp(isoTs: string) does not exist -- plant in freshness-helpers if needed.
 
-## Idempotency Pattern
+---
 
-```typescript
-await prisma.callTranscript.upsert({
-  where: { taskId },
-  create: { taskId, ... },
-  update: { ... }
-});
-```
+## Pattern L -- Selectable Text (transcript selection for citation)
 
-Mirrors `weekly-goals.ts:75-80`. Phase 3 SFDC writeback adds `pushedToSfdcAt IS NULL` pre-check.
+NO PRECEDENT. window.getSelection() does not appear anywhere in the codebase.
 
-## Cost Cap Pattern (NEW — no precedent)
+Fresh pattern for 5b-1-UI:
+  <div onMouseUp={() => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) return;
+    const text = sel.toString().trim();
+    if (!text) return;
+    onTextSelected({ utteranceIndex, text });
+  }}>
+    {utterance.text}
+  </div>
 
-`cost-guard.ts`:
-- `getDailyCostCents()`: read aggregate
-- `canAffordCall(estimatedCents)`: pre-check
-- `recordCall(actualCents)`: atomic increment via Prisma
-- Throws `CostCapExceededError` to abort cleanly
+Fire callback to set citation state in parent. Do not manipulate the Selection.
+Clear citation state on cancel or modal close.
+---
 
-Mirrors BQ `maximumBytesBilled: 1_073_741_824` pattern but for external API spend.
+## Pattern M -- Pills / Citation Badges
 
-## Inconsistencies / Gaps
+**Closest precedents:**
+- Speaker attribution pills: src/app/dashboard/explore/CallDetailModal.tsx:247-256
+- Status badges: QueueTab.tsx:51-58
 
-- No prompt caching today — opportunity for new code, not a regression
-- No spend cap pattern today — building first one
-- No GCS code today — designing from scratch
-- No SFDC writeback today — designing from scratch
-- No markdown rendering today — adding `react-markdown` for Phase 1
-- BQ-touching code has light test coverage — accept, don't retrofit mocks
+Speaker pill classes (CallDetailModal.tsx:247-256):
+  base:    inline-block px-2 py-0.5 text-xs rounded-full
+  Rep:     bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200
+  Advisor: bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200
 
-None block the plan. Flagged for council to weigh in on whether they imply additional risk.
+Status badge base (QueueTab.tsx:57):
+  inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
+
+For citation pills (utterance index links):
+  bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200
+Render as button if clicking should scroll to utterance; span otherwise.
+
+MINOR DRIFT: QueueTab uses inline-flex items-center; CallDetailModal uses inline-block.
+Prefer inline-flex for vertical alignment consistency.
+
+---
+
+## Pattern N -- Side Panel / Drawer
+
+NO PRECEDENT. No @radix-ui packages in package.json. No slide-in drawer exists.
+
+Fresh pattern for 5b-1-UI (append-in-place in sticky right pane, no animation for MVP):
+  {pendingComment && (
+    <div className=border-t border-gray-200 dark:border-gray-700 pt-4 mt-4>
+      <h4 className=text-sm font-semibold dark:text-white mb-2>
+        Add comment (utterance {pendingComment.utteranceIndex})
+      </h4>
+      <textarea rows={3} className=block w-full rounded border-gray-300 dark:bg-gray-900 text-sm />
+      {commentError && <div className=text-xs text-red-600 dark:text-red-400>{commentError}</div>}
+      <div className=mt-2 flex justify-end gap-2>
+        <button onClick={() => setPendingComment(null)}>Cancel</button>
+        <button onClick={handleSubmitComment}>Post comment</button>
+      </div>
+    </div>
+  )}
+
+With Pattern E two-pane layout, the composer lives in the right sticky pane.
+Side-panel effect comes from layout, not a drawer component.
+---
+
+## Pattern O -- Coaching DB Reads (pg Pool, not Prisma)
+
+**Canonical citations:**
+- Pool singleton: src/lib/coachingDb.ts:36-46
+- Query pattern: src/lib/queries/call-intelligence-evaluations.ts:237-284
+
+Pool singleton via globalThis (coachingDb.ts:36-46):
+  function getCoachingPool(): Pool {
+    if (!globalThis.__coachingPool) {
+      globalThis.__coachingPool = new Pool({
+        connectionString: process.env.SALES_COACHING_DATABASE_URL_UNPOOLED,
+        ssl: { rejectUnauthorized: false }, max: 5,
+        idleTimeoutMillis: 30_000, connectionTimeoutMillis: 10_000,
+      });
+    }
+    return globalThis.__coachingPool;
+  }
+
+Query pattern (call-intelligence-evaluations.ts:238-283):
+  if (!UUID_RE.test(evaluationId)) return null;  // validate UUID before DB hit
+  const { rows } = await pool.query<RawRow>(sql, [evaluationId]);  // positional params
+  // pg-node returns NUMERIC as string -- always coerce:
+  overall_score: row.overall_score === null ? null : Number(row.overall_score)
+
+Direct pool queries only for data not in the sales-coaching HTTP API.
+Transcript comments + my-content-refinements go through salesCoachingClient (HTTP bridge).
+call_transcripts LEFT JOIN already in getEvaluationDetail (line 269).
+Add new DB functions to call-intelligence-evaluations.ts.
+
+---
+
+## Pattern P -- Data Refresh (useCallback load + await load())
+
+**Canonical citation:** EvalDetailClient.tsx:163-184 and :227
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null); setConflict(null);
+    try {
+      const res = await fetch(`/api/call-intelligence/evaluations/${id}`,
+                              { cache: 'no-store' });
+      const json = await res.json();
+      if (!res.ok) { setError(json.error ?? `HTTP ${res.status}`); return; }
+      setDetail(json as EvaluationDetail);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load');
+    } finally { setLoading(false); }
+  }, [id]);
+  useEffect(() => { void load(); }, [load]);
+  // After successful mutation: await load()
+
+No SWR, no React Query. Refresh is always await load() after a successful mutation.
+
+For independent comment refresh: define loadComments = useCallback(...) scoped to
+evaluationId, and call await loadComments() after comment POST.
+Keep separate from main load() to avoid full-page re-render on comment add.
+
+---
+
+## Consistency Report
+
+| Pattern | Consistent? | Notes |
+|---------|-------------|-------|
+| RSC auth guard | Yes | getServerSession -> getSessionPermissions -> redirect -> Client |
+| Dark mode Cards | Yes | dark:bg-gray-800 dark:border-gray-700 on every Card |
+| Modal backdrop | Yes | fixed inset-0 bg-black/40 flex items-center justify-center z-50 |
+| Error inline div | Yes | text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded |
+| Date helpers | Drift | QueueTab, EvalDetailClient, freshness-helpers all define separate helpers |
+| load() refresh | Yes | useCallback + useEffect + await load() after mutation |
+| OCC version | Yes | Always reads detail.edit_version from React state |
+| Pill base classes | Minor drift | QueueTab inline-flex; CallDetailModal inline-block |
+| No external libs | Yes | No SWR, React Query, toast, Radix UI in call-intelligence |

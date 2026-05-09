@@ -2239,9 +2239,14 @@ The bridge token format: `v1.<base64url(payload)>.<base64url(signature)>`, paylo
 | Route | Method | Path source | Purpose |
 |---|---|---|---|
 | `/api/call-intelligence/queue` | GET | direct (cached) | Evaluations list, scoped by role + history filter |
-| `/api/call-intelligence/evaluations/[id]` | GET | direct | Eval detail (rep + manager scope check) |
+| `/api/call-intelligence/evaluations/[id]` | GET | direct | Eval detail + transcript_comments + chunk_lookup + coaching_nudge_effective merge |
+| `/api/call-intelligence/evaluations/[id]/edit` | PATCH | bridge | Manager inline edit; OCC via `expected_edit_version`; 409 disambiguates stale-version vs authority-lost |
+| `/api/call-intelligence/evaluations/[id]/transcript-comments` | GET / POST | direct GET, bridge POST | List (manager+admin only) / create utterance-level comment |
 | `/api/call-intelligence/evaluations/[id]/reveal-scheduling` | PATCH | bridge | Hold / custom-delay / use-default override |
 | `/api/call-intelligence/evaluations/[id]/reveal` | POST | bridge | Manual reveal-now |
+| `/api/call-intelligence/transcript-comments/[id]` | DELETE | bridge | Author or admin can delete; 403 `role_forbidden` otherwise |
+| `/api/call-intelligence/content-refinements` | POST | bridge | Submit refinement suggestion; 409 `content_refinement_duplicate` on partial-UNIQUE clash |
+| `/api/call-intelligence/my-content-refinements` | GET | bridge | Per-user refinement list (open/addressed/declined) |
 | `/api/call-intelligence/users` | GET / POST | direct GET, bridge POST | Users list / create (admin only) |
 | `/api/call-intelligence/users/[id]` | PATCH | bridge | Update user (admin only) |
 | `/api/call-intelligence/users/[id]/deactivate` | POST | bridge | Deactivate user; surfaces 409 typed errors |
@@ -2257,8 +2262,8 @@ Cache tag: `CACHE_TAGS.CALL_INTELLIGENCE_QUEUE`. Mutating routes call `revalidat
 `src/lib/sales-coaching-client/`:
 - `index.ts` — server-only fetch wrapper, signs token + sets `X-Request-ID`, parses response against mirrored Zod schema, dispatches typed errors per response code
 - `token.ts` — `signDashboardToken(email, opts)` HMAC-SHA256
-- `errors.ts` — `BridgeAuthError`, `BridgeTransportError`, `BridgeValidationError`, `EvaluationConflictError`, `DeactivateBlockedError`, `ContentRefinementAlreadyResolvedError`
-- `schemas.ts` — **byte-identical mirror** of `sales-coaching/src/lib/dashboard-api/schemas.ts`. CI workflow `.github/workflows/schema-mirror-check.yml` fails the build on drift (cross-repo checkout requires `secrets.CROSS_REPO_TOKEN`).
+- `errors.ts` — `BridgeAuthError`, `BridgeTransportError`, `BridgeValidationError`, `EvaluationConflictError`, `DeactivateBlockedError`, `ContentRefinementAlreadyResolvedError`, `EvaluationNotFoundError`, `ContentRefinementDuplicateError`
+- `schemas.ts` — **byte-identical mirror** of `sales-coaching/src/lib/dashboard-api/schemas.ts`. CI workflow `.github/workflows/schema-mirror-check.yml` fails the build on drift (cross-repo checkout requires `secrets.CROSS_REPO_TOKEN`). Local check: `npm run check:schema-mirror` (uses GH raw with `GH_TOKEN`, or `SALES_COACHING_SCHEMAS_PATH` for sibling-repo dev). Recovery: `/sync-bridge-schema` skill in Claude Code.
 
 ### Key Files
 
@@ -2269,11 +2274,13 @@ Cache tag: `CACHE_TAGS.CALL_INTELLIGENCE_QUEUE`. Mutating routes call `revalidat
 | `src/app/dashboard/call-intelligence/tabs/SettingsTab.tsx` | Reveal policy form (manual / auto_delay / auto_immediate) |
 | `src/app/dashboard/call-intelligence/tabs/AdminUsersTab.tsx` | Users CRUD + deactivate-blocked bulk-reassign UX |
 | `src/app/dashboard/call-intelligence/tabs/AdminRefinementsTab.tsx` | Open refinement list with addressed/decline actions |
-| `src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx` | Eval detail with reveal actions + score-bars |
-| `src/lib/queries/call-intelligence-evaluations.ts` | `getRepIdByEmail`, `getEvaluationsForManager`, `getEvaluationDetail` |
+| `src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx` | Eval detail (full-width): inline edits + audit toggle + citation pills + transcript comments. Transcript and KB chunks render as **modals**, not a side pane — a "View transcript" button opens the transcript modal; clicking a citation pill opens the relevant modal (transcript scrolled to the cited utterance, or KB chunk inspector). |
+| `src/app/dashboard/call-intelligence/my-refinements/page.tsx` | Per-user refinement requests list (linked from Settings tab) |
+| `src/components/call-intelligence/` | 12 components: `CitationPill`, `TranscriptModal` (wraps `TranscriptViewer` in a centered modal with auto-scroll-to-utterance), `TranscriptViewer`, `KBSidePanel` (renders as a centered modal despite the legacy name), `RefinementModal`, `InlineEditDimensionScore`, `InlineEditTextField`, `InlineEditListField`, `AuditToggle`, `UtteranceCommentCard`, `UtteranceCommentComposer`, `MyRefinementsTable`. Plus `citation-helpers.ts` (defensive readers + version-support helpers). |
+| `src/lib/queries/call-intelligence-evaluations.ts` | `getRepIdByEmail`, `getEvaluationsForManager`, `getEvaluationDetail`, `getTranscriptComments`, `getKbChunksByIds` |
 | `src/lib/queries/call-intelligence-users.ts` | `getCoachingUsers`, `getRevealSettingsByEmail` |
 | `src/lib/queries/call-intelligence-refinements.ts` | `getContentRefinements` |
-| `src/types/call-intelligence.ts` | `EvaluationQueueRow`, `EvaluationDetail`, `CoachingRep`, `ContentRefinementRow`, `RevealSettings`, `CallIntelligenceTab` |
+| `src/types/call-intelligence.ts` | `EvaluationQueueRow`, `EvaluationDetail`, `Citation`, `TranscriptCommentRow`, `KbChunkAugmentation`, `TranscriptUtterance`, `CoachingRep`, `ContentRefinementRow`, `RevealSettings`, `CallIntelligenceTab` |
 
 ### Environment Variables
 

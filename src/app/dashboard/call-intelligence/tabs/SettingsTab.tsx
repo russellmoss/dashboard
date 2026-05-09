@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Card } from '@tremor/react';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
@@ -237,6 +238,18 @@ export default function SettingsTab() {
           </button>
         </div>
       </form>
+
+      <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+          Refinement requests
+        </h3>
+        <Link
+          href="/dashboard/call-intelligence/my-refinements"
+          className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+        >
+          My refinement requests →
+        </Link>
+      </div>
     </Card>
   );
 }

@@ -94,3 +94,6 @@ mcp-server/dist
 
 # Editor backup files
 *.bak
+.tmp-bridge-secret.txt
+.tmp-survey-reps.cjs
+.tmp-seed-reps.cjs

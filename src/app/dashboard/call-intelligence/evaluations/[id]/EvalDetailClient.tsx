@@ -1,16 +1,34 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Card } from '@tremor/react';
 import { ArrowLeft } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import type { EvaluationDetail } from '@/types/call-intelligence';
+import type { Citation, EvaluationDetail } from '@/types/call-intelligence';
+import { formatRelativeTimestamp } from '@/lib/utils/freshness-helpers';
+import { CitationPill } from '@/components/call-intelligence/CitationPill';
+import { KBSidePanel } from '@/components/call-intelligence/KBSidePanel';
+import { RefinementModal } from '@/components/call-intelligence/RefinementModal';
+import { InlineEditDimensionScore } from '@/components/call-intelligence/InlineEditDimensionScore';
+import { InlineEditTextField } from '@/components/call-intelligence/InlineEditTextField';
+import { InlineEditListField, type ListItem } from '@/components/call-intelligence/InlineEditListField';
+import { AuditToggle } from '@/components/call-intelligence/AuditToggle';
+import {
+  TranscriptModal,
+  type TranscriptModalHandle,
+} from '@/components/call-intelligence/TranscriptModal';
+import {
+  isFieldSupportedByAiOriginalVersion,
+  readCitedItems,
+} from '@/components/call-intelligence/citation-helpers';
 
 interface Props {
   id: string;
   role: string;
   returnTab: string;
+  currentRepId: string | null;
 }
 
 interface CustomDelayState {
@@ -23,55 +41,41 @@ interface ConflictState {
   message: string;
 }
 
-// ─── ai_original shape (defensive readers) ─────────────────────────────────
-//
-// Canonical v5 shape from sales-coaching/src/evaluation/schema.ts:
-//   dimensionScores: { [dimName]: { score: 1-4, citations: [] } }
-//   narrative:       { text: string, citations: [] }
-//   strengths:       Array<{ text, citations }>
-//   weaknesses:      Array<{ text, citations }>
-//   knowledgeGaps:   Array<{ text, citations, expected_source? }>
-//   complianceFlags: Array<{ text, citations }>
-//   coachingNudge:   { text, citations }                          (v3+)
-//   additionalObservations: Array<{ text, citations }>             (v4+)
-//   repDeferrals:    Array<{ topic, deferral_text, citations }>    (v5)
-//
-// Older rows omit later-version fields. Renderer skips any section whose data
-// is missing or empty. Citation pills + transcript pane are deferred to Step 5b-1.
+interface ActiveKb {
+  chunk_id: string;
+  doc_id: string;
+  drive_url: string;
+  doc_title: string;
+  owner: string;
+  chunk_text: string;
+}
 
-interface DimensionScore { name: string; score: number /* 1..4 */ }
+type Banner =
+  | null
+  | {
+      kind: 'success' | 'info' | 'error';
+      text: string;
+      cta?: { label: string; onClick: () => void };
+      successLink?: { label: string; href: string };
+    };
+
+/**
+ * Shared mutation lock — ensures all InlineEdit* + reveal-action buttons share a single
+ * pending/conflict state. Replaces the per-component `actionPending` boolean with a
+ * discriminated union that also represents conflict-pending-reload and authority-lost
+ * terminal states (council fix B1.13 — closes the C4 freeze gap and C5 stale-version
+ * race in one shared state).
+ */
+type MutationLock =
+  | { kind: 'idle' }
+  | { kind: 'pending'; tag?: string }
+  | { kind: 'conflict-pending-reload' }
+  | { kind: 'authority-lost' };
+
+// ─── ai_original shape (defensive readers — preserved from Step 5a-UI) ─────
 
 function isObj(x: unknown): x is Record<string, unknown> {
   return !!x && typeof x === 'object' && !Array.isArray(x);
-}
-
-function readText(x: unknown): string | null {
-  if (typeof x === 'string') return x.trim() || null;
-  if (isObj(x) && typeof x.text === 'string') return x.text.trim() || null;
-  return null;
-}
-
-function readCitedItemTexts(x: unknown): string[] {
-  if (!Array.isArray(x)) return [];
-  const out: string[] = [];
-  for (const it of x) {
-    const t = readText(it);
-    if (t) out.push(t);
-  }
-  return out;
-}
-
-function readKnowledgeGaps(x: unknown): Array<{ text: string; expected_source?: string }> {
-  if (!Array.isArray(x)) return [];
-  const out: Array<{ text: string; expected_source?: string }> = [];
-  for (const it of x) {
-    if (!isObj(it)) continue;
-    const t = typeof it.text === 'string' ? it.text.trim() : '';
-    if (!t) continue;
-    const exp = typeof it.expected_source === 'string' ? it.expected_source.trim() : '';
-    out.push(exp ? { text: t, expected_source: exp } : { text: t });
-  }
-  return out;
 }
 
 function readDeferrals(x: unknown): Array<{ topic: string; deferral_text: string }> {
@@ -87,21 +91,31 @@ function readDeferrals(x: unknown): Array<{ topic: string; deferral_text: string
   return out;
 }
 
-function readDimensionScores(x: unknown): DimensionScore[] {
+interface DimensionScoreEntry {
+  name: string;
+  score: number;
+  citations?: Citation[];
+}
+
+function readDimensionScores(x: unknown): DimensionScoreEntry[] {
   if (!isObj(x)) return [];
-  const out: DimensionScore[] = [];
+  const out: DimensionScoreEntry[] = [];
   for (const [name, val] of Object.entries(x)) {
-    const score = isObj(val) && typeof val.score === 'number'
-      ? val.score
-      : (typeof val === 'number' ? val : null);
+    const score =
+      isObj(val) && typeof val.score === 'number'
+        ? val.score
+        : typeof val === 'number'
+          ? val
+          : null;
     if (score === null) continue;
-    out.push({ name, score });
+    const citations =
+      isObj(val) && Array.isArray(val.citations) ? (val.citations as Citation[]) : undefined;
+    out.push({ name, score, citations });
   }
   return out;
 }
 
 function humanizeKey(k: string): string {
-  // 'kicker_introduction_timing' → 'Kicker Introduction Timing'
   return k.replace(/[_\-]/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
@@ -112,17 +126,16 @@ function formatDate(ts: string | null): string {
   return d.toLocaleString();
 }
 
-function DimensionBar({ name, score }: DimensionScore) {
-  // Score is 1-4; convert to 0-100% with 1→0%, 4→100%.
+function DimensionBar({ name, score }: { name: string; score: number }) {
   const pct = Math.max(0, Math.min(100, ((score - 1) / 3) * 100));
-  // Color cue mirrors Step 5c-1 heat map (runbook line 700):
-  //   3.0+ green, 2.0-2.9 gold, 1.0-1.9 tan.
   const fillClass = score >= 3 ? 'bg-[#175242]' : score >= 2 ? 'bg-[#8e7e57]' : 'bg-[#c7bca1]';
   return (
     <div className="space-y-1">
       <div className="flex justify-between text-sm">
         <span className="text-gray-700 dark:text-gray-300">{humanizeKey(name)}</span>
-        <span className="text-gray-900 dark:text-gray-100 font-medium tabular-nums">{score.toFixed(1)} / 4</span>
+        <span className="text-gray-900 dark:text-gray-100 font-medium tabular-nums">
+          {score.toFixed(1)} / 4
+        </span>
       </div>
       <div className="bg-gray-200 dark:bg-gray-700 rounded-full h-3">
         <div className={`${fillClass} h-3 rounded-full transition-all`} style={{ width: `${pct}%` }} />
@@ -135,7 +148,9 @@ function OverallScoreBadge({ score }: { score: number }) {
   const fillClass = score >= 3 ? 'bg-[#175242]' : score >= 2 ? 'bg-[#8e7e57]' : 'bg-[#c7bca1]';
   return (
     <div className="flex items-center gap-3">
-      <div className={`${fillClass} text-white rounded-lg px-4 py-2 font-bold text-2xl tabular-nums`}>
+      <div
+        className={`${fillClass} text-white rounded-lg px-4 py-2 font-bold text-2xl tabular-nums`}
+      >
         {score.toFixed(1)}
       </div>
       <span className="text-sm text-gray-500 dark:text-gray-400">/ 4 overall</span>
@@ -143,28 +158,64 @@ function OverallScoreBadge({ score }: { score: number }) {
   );
 }
 
-function BulletList({ items }: { items: string[] }) {
+/** Render text + inline citation pills for a `{text, citations}` shape. */
+function CitedTextLine({
+  text,
+  citations,
+  chunkLookup,
+  onScrollToUtterance,
+  onOpenKB,
+  disabled,
+}: {
+  text: string;
+  citations: Citation[] | undefined;
+  chunkLookup: Record<string, { owner: string; chunk_text: string }>;
+  onScrollToUtterance: (idx: number) => void;
+  onOpenKB: (kb: ActiveKb) => void;
+  disabled: boolean;
+}) {
   return (
-    <ul className="list-disc list-inside space-y-1.5 text-sm text-gray-800 dark:text-gray-200">
-      {items.map((t, i) => <li key={i}>{t}</li>)}
-    </ul>
+    <span>
+      <span>{text}</span>
+      {citations && citations.length > 0 && (
+        <span className="ml-1 inline-flex flex-wrap items-center gap-0.5 align-middle">
+          {citations.map((c, i) => (
+            <CitationPill
+              key={i}
+              citation={c}
+              chunkLookup={chunkLookup}
+              onScrollToUtterance={onScrollToUtterance}
+              onOpenKB={onOpenKB}
+              disabled={disabled}
+            />
+          ))}
+        </span>
+      )}
+    </span>
   );
 }
 
-export default function EvalDetailClient({ id, role, returnTab }: Props) {
+export default function EvalDetailClient({ id, role, returnTab, currentRepId }: Props) {
+  const router = useRouter();
   const [detail, setDetail] = useState<EvaluationDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [actionPending, setActionPending] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ConflictState | null>(null);
   const [customDelay, setCustomDelay] = useState<CustomDelayState>({ show: false, minutes: 60 });
+  const [auditEnabled, setAuditEnabled] = useState(false);
+  const [activeKb, setActiveKb] = useState<ActiveKb | null>(null);
+  const [refinementOpen, setRefinementOpen] = useState(false);
+  const [banner, setBanner] = useState<Banner>(null);
+  const [mutationLock, setMutationLock] = useState<MutationLock>({ kind: 'idle' });
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [pendingUtteranceIdx, setPendingUtteranceIdx] = useState<number | null>(null);
+  const transcriptRef = useRef<TranscriptModalHandle>(null);
+
+  const isLocked = mutationLock.kind !== 'idle';
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setActionError(null);
-    setConflict(null);
     try {
       const res = await fetch(`/api/call-intelligence/evaluations/${id}`, { cache: 'no-store' });
       const json = await res.json();
@@ -181,17 +232,126 @@ export default function EvalDetailClient({ id, role, returnTab }: Props) {
     }
   }, [id]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const handleScrollToUtterance = useCallback((idx: number) => {
+    // If the modal is already open, scroll directly. Otherwise stash the target
+    // index and open the modal — the modal's mount-effect handles the scroll.
+    setPendingUtteranceIdx(idx);
+    setTranscriptOpen((open) => {
+      if (open) transcriptRef.current?.scrollToUtterance(idx);
+      return true;
+    });
+  }, []);
+  const handleOpenKB = useCallback((kb: ActiveKb) => setActiveKb(kb), []);
 
   const isAdmin = role === 'admin' || role === 'revops_admin';
-  const isManagerView = !!detail && (isAdmin || role === 'manager');
-  const showActions = isManagerView && detail && detail.status === 'pending_review';
+  const isManager = isAdmin || role === 'manager';
+  const showActions = !!detail && isManager && detail.status === 'pending_review';
 
-  async function performAction(kind: 'hold' | 'custom_delay' | 'use_default' | 'reveal_now', overrideDelayMinutes?: number) {
-    if (!detail) return;
-    setActionPending(kind);
-    setActionError(null);
+  /**
+   * Central edit handler. Wraps PATCH /api/call-intelligence/evaluations/:id/edit
+   * with shared OCC + 404 disambiguation. Every InlineEdit* component routes
+   * here via its onSave callback; the lifecycle of `mutationLock` is owned here.
+   */
+  async function handleEdit(
+    patch: Record<string, unknown>,
+  ): Promise<{ ok: boolean; error?: string }> {
+    if (!detail) return { ok: false, error: 'no detail' };
+    if (isLocked) return { ok: false, error: 'A save is already in progress.' };
+    setMutationLock({ kind: 'pending', tag: 'edit' });
+    setBanner(null);
+    try {
+      const res = await fetch(`/api/call-intelligence/evaluations/${detail.evaluation_id}/edit`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expected_edit_version: detail.edit_version, ...patch }),
+      });
+      if (res.ok) {
+        await load();
+        setMutationLock({ kind: 'idle' });
+        return { ok: true };
+      }
+      const json: Record<string, unknown> = await res.json().catch(() => ({}));
+      const errCode = json.error;
+
+      if (res.status === 404 && errCode === 'evaluation_not_found') {
+        setBanner({
+          kind: 'error',
+          text: 'This evaluation is no longer available.',
+          cta: {
+            label: 'Return to queue',
+            onClick: () => router.push(`/dashboard/call-intelligence?tab=${returnTab}`),
+          },
+        });
+        setMutationLock({ kind: 'authority-lost' });
+        return { ok: false, error: 'evaluation_not_found' };
+      }
+
+      if (res.status === 409 && errCode === 'evaluation_conflict') {
+        const msg = typeof json.message === 'string' ? json.message : '';
+        if (msg.includes('Authority lost')) {
+          setBanner({
+            kind: 'error',
+            text: 'This evaluation was reassigned to another manager.',
+            cta: {
+              label: 'Return to queue',
+              onClick: () => router.push(`/dashboard/call-intelligence?tab=${returnTab}`),
+            },
+          });
+          setMutationLock({ kind: 'authority-lost' });
+          return { ok: false, error: 'authority_lost' };
+        }
+        if (msg && !/edit[_ ]version|stale|conflict/i.test(msg)) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            '[EvalDetailClient] Unexpected 409 message text — may indicate sales-coaching copy drift:',
+            msg,
+          );
+        }
+        setConflict({
+          expectedVersion:
+            typeof json.edit_version_expected === 'number'
+              ? (json.edit_version_expected as number)
+              : detail.edit_version,
+          message: 'Another manager just edited this evaluation — click Reload to pull their changes.',
+        });
+        setMutationLock({ kind: 'conflict-pending-reload' });
+        return { ok: false, error: 'stale_version' };
+      }
+
+      if (res.status === 400 && errCode === 'invalid_request') {
+        setMutationLock({ kind: 'idle' });
+        const msg = typeof json.message === 'string' ? json.message : 'Invalid request';
+        return { ok: false, error: msg };
+      }
+
+      setBanner({ kind: 'error', text: 'Something went wrong. Please try again.' });
+      setMutationLock({ kind: 'idle' });
+      return { ok: false, error: typeof errCode === 'string' ? errCode : 'unknown' };
+    } catch {
+      setBanner({ kind: 'error', text: 'Something went wrong. Please try again.' });
+      setMutationLock({ kind: 'idle' });
+      return { ok: false, error: 'network' };
+    }
+  }
+
+  async function handleReload() {
     setConflict(null);
+    setBanner(null);
+    setMutationLock({ kind: 'idle' });
+    await load();
+  }
+
+  async function performAction(
+    kind: 'hold' | 'custom_delay' | 'use_default' | 'reveal_now',
+    overrideDelayMinutes?: number,
+  ) {
+    if (!detail || isLocked) return;
+    setMutationLock({ kind: 'pending', tag: kind });
+    setBanner(null);
     try {
       let res: Response;
       if (kind === 'reveal_now') {
@@ -206,62 +366,146 @@ export default function EvalDetailClient({ id, role, returnTab }: Props) {
           expected_edit_version: detail.edit_version,
         };
         if (kind === 'custom_delay') body.override_delay_minutes = overrideDelayMinutes;
-        res = await fetch(`/api/call-intelligence/evaluations/${detail.evaluation_id}/reveal-scheduling`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
+        res = await fetch(
+          `/api/call-intelligence/evaluations/${detail.evaluation_id}/reveal-scheduling`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          },
+        );
       }
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
       if (res.status === 409) {
         setConflict({
           expectedVersion: json.edit_version_expected ?? detail.edit_version,
           message: json.error ?? 'Conflict — another manager edited this evaluation.',
         });
+        setMutationLock({ kind: 'conflict-pending-reload' });
         return;
       }
       if (!res.ok) {
-        setActionError(json.error ?? `HTTP ${res.status}`);
+        setBanner({ kind: 'error', text: json.error ?? `HTTP ${res.status}` });
+        setMutationLock({ kind: 'idle' });
         return;
       }
       await load();
+      setMutationLock({ kind: 'idle' });
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Action failed');
-    } finally {
-      setActionPending(null);
+      setBanner({ kind: 'error', text: err instanceof Error ? err.message : 'Action failed' });
+      setMutationLock({ kind: 'idle' });
     }
   }
 
   if (loading) {
-    return <div className="px-4 py-6"><LoadingSpinner /></div>;
+    return (
+      <div className="px-4 py-6">
+        <LoadingSpinner />
+      </div>
+    );
   }
   if (error) {
     return (
       <div className="px-4 py-6 space-y-4">
-        <Link href={`/dashboard/call-intelligence?tab=${returnTab}`} className="inline-flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:underline">
-          <ArrowLeft className="w-4 h-4" /> Back to {returnTab === 'admin-refinements' ? 'refinements' : 'queue'}
+        <Link
+          href={`/dashboard/call-intelligence?tab=${returnTab}`}
+          className="inline-flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:underline"
+        >
+          <ArrowLeft className="w-4 h-4" /> Back to{' '}
+          {returnTab === 'admin-refinements' ? 'refinements' : 'queue'}
         </Link>
-        <div className="px-4 py-3 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded">{error}</div>
+        <div className="px-4 py-3 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded">
+          {error}
+        </div>
       </div>
     );
   }
   if (!detail) return null;
 
-  // Parse ai_original defensively — Step 5a-UI rendering. Step 5b-1 will replace
-  // this with the full transcript + citation-pill experience.
   const aiObj: Record<string, unknown> = isObj(detail.ai_original) ? detail.ai_original : {};
-  const dimensionScores = readDimensionScores(aiObj.dimensionScores);
-  const narrativeText = readText(aiObj.narrative);
-  const strengths = readCitedItemTexts(aiObj.strengths);
-  const weaknesses = readCitedItemTexts(aiObj.weaknesses);
-  const knowledgeGaps = readKnowledgeGaps(aiObj.knowledgeGaps);
-  const complianceFlags = readCitedItemTexts(aiObj.complianceFlags);
-  const coachingNudgeText = readText(aiObj.coachingNudge);
-  const additionalObservations = readCitedItemTexts(aiObj.additionalObservations);
+  const aiDimensionScores = readDimensionScores(aiObj.dimensionScores);
+  const aiNarrative =
+    isObj(aiObj.narrative) && typeof aiObj.narrative.text === 'string'
+      ? aiObj.narrative.text
+      : typeof aiObj.narrative === 'string'
+        ? aiObj.narrative
+        : '';
+  const aiStrengths = readCitedItems(aiObj.strengths);
+  const aiWeaknesses = readCitedItems(aiObj.weaknesses);
+  const aiKnowledgeGaps = readCitedItems(aiObj.knowledgeGaps);
+  const aiComplianceFlags = readCitedItems(aiObj.complianceFlags);
+  const aiAdditional = readCitedItems(aiObj.additionalObservations);
+  const aiCoachingNudge =
+    isObj(aiObj.coachingNudge) && typeof aiObj.coachingNudge.text === 'string'
+      ? aiObj.coachingNudge.text
+      : '';
   const repDeferrals = readDeferrals(aiObj.repDeferrals);
-  const overall = typeof detail.overall_score === 'number' && Number.isFinite(detail.overall_score)
-    ? detail.overall_score
-    : null;
+
+  // Canonical (manager-edited) view — falls back to AI-original arrays when canonical
+  // is missing, matching the existing Step 5a-UI behavior. The canonical mirror columns
+  // are NULL for pre-024 evals.
+  // Note: dimension_scores + narrative are JSONB OBJECTS on the row (not primitives) —
+  // we extract `.score` and `.text` for display.
+  const canonicalDimensionScores: DimensionScoreEntry[] = detail.dimension_scores
+    ? Object.entries(detail.dimension_scores).map(([name, v]) => ({
+        name,
+        score: v.score,
+        citations: v.citations,
+      }))
+    : aiDimensionScores;
+  const canonicalNarrative = detail.narrative?.text ?? aiNarrative;
+  const canonicalStrengths = detail.strengths.length > 0 ? detail.strengths : aiStrengths;
+  const canonicalWeaknesses = detail.weaknesses.length > 0 ? detail.weaknesses : aiWeaknesses;
+  const canonicalKnowledgeGaps =
+    detail.knowledge_gaps.length > 0 ? detail.knowledge_gaps : aiKnowledgeGaps;
+  const canonicalComplianceFlags =
+    detail.compliance_flags.length > 0 ? detail.compliance_flags : aiComplianceFlags;
+  const canonicalAdditional =
+    detail.additional_observations.length > 0 ? detail.additional_observations : aiAdditional;
+  const effectiveNudge = detail.coaching_nudge_effective?.text ?? aiCoachingNudge;
+
+  const overall =
+    typeof detail.overall_score === 'number' && Number.isFinite(detail.overall_score)
+      ? detail.overall_score
+      : null;
+
+  const supportsAdditional = isFieldSupportedByAiOriginalVersion(
+    detail.ai_original_schema_version,
+    'additionalObservations',
+  );
+  const supportsCoachingNudge = isFieldSupportedByAiOriginalVersion(
+    detail.ai_original_schema_version,
+    'coachingNudge',
+  );
+
+  const renderCitedDisplay = (item: ListItem) => (
+    <CitedTextLine
+      text={item.text}
+      citations={item.citations}
+      chunkLookup={detail.chunk_lookup}
+      onScrollToUtterance={handleScrollToUtterance}
+      onOpenKB={handleOpenKB}
+      disabled={isLocked}
+    />
+  );
+
+  /** Normalize a list-field draft for the bridge: every item gets a guaranteed
+   *  citations array (even if empty). Preserves expected_source for knowledge_gaps. */
+  const normalizeListForSave = (
+    items: ListItem[],
+    field: 'strengths' | 'weaknesses' | 'compliance_flags' | 'additional_observations' | 'knowledge_gaps',
+  ) => {
+    return items.map((it) => {
+      const base: { text: string; citations: Citation[]; expected_source?: string } = {
+        text: it.text,
+        citations: (it.citations ?? []) as Citation[],
+      };
+      if (field === 'knowledge_gaps' && it.expected_source) {
+        base.expected_source = it.expected_source;
+      }
+      return base;
+    });
+  };
 
   return (
     <div className="space-y-4 px-4 py-6">
@@ -269,8 +513,45 @@ export default function EvalDetailClient({ id, role, returnTab }: Props) {
         href={`/dashboard/call-intelligence?tab=${returnTab}`}
         className="inline-flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:underline"
       >
-        <ArrowLeft className="w-4 h-4" /> Back to {returnTab === 'admin-refinements' ? 'refinements' : 'queue'}
+        <ArrowLeft className="w-4 h-4" /> Back to{' '}
+        {returnTab === 'admin-refinements' ? 'refinements' : 'queue'}
       </Link>
+
+      {banner && (
+        <div
+          className={`px-4 py-3 text-sm rounded flex items-center justify-between gap-4 ${
+            banner.kind === 'success'
+              ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300'
+              : banner.kind === 'info'
+                ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
+          }`}
+        >
+          <span>{banner.text}</span>
+          <span className="flex items-center gap-3">
+            {banner.successLink && (
+              <Link href={banner.successLink.href} className="underline whitespace-nowrap">
+                {banner.successLink.label} →
+              </Link>
+            )}
+            {banner.cta && (
+              <button
+                onClick={banner.cta.onClick}
+                className="underline whitespace-nowrap font-medium"
+              >
+                {banner.cta.label} →
+              </button>
+            )}
+            <button
+              onClick={() => setBanner(null)}
+              aria-label="Dismiss"
+              className="text-current opacity-60 hover:opacity-100"
+            >
+              ×
+            </button>
+          </span>
+        </div>
+      )}
 
       <Card className="dark:bg-gray-800 dark:border-gray-700">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
@@ -285,183 +566,506 @@ export default function EvalDetailClient({ id, role, returnTab }: Props) {
         </div>
       </Card>
 
-      {(overall !== null || dimensionScores.length > 0) && (
-        <Card className="dark:bg-gray-800 dark:border-gray-700">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">AI Evaluation</h2>
-            {overall !== null && <OverallScoreBadge score={overall} />}
-          </div>
-          {dimensionScores.length > 0 && (
-            <div className="space-y-3">
-              {dimensionScores.map((s) => <DimensionBar key={s.name} {...s} />)}
-            </div>
-          )}
-        </Card>
-      )}
-
-      {narrativeText && (
-        <Card className="dark:bg-gray-800 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Narrative</h2>
-          <p className="whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-200 leading-relaxed">{narrativeText}</p>
-        </Card>
-      )}
-
-      {coachingNudgeText && (
-        <Card className="dark:bg-gray-800 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Coaching nudge</h2>
-          <p className="text-sm text-gray-800 dark:text-gray-200 italic leading-relaxed">{coachingNudgeText}</p>
-        </Card>
-      )}
-
-      {(strengths.length > 0 || weaknesses.length > 0) && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {strengths.length > 0 && (
-            <Card className="dark:bg-gray-800 dark:border-gray-700">
-              <h2 className="text-lg font-semibold text-green-700 dark:text-green-400 mb-2">Strengths</h2>
-              <BulletList items={strengths} />
-            </Card>
-          )}
-          {weaknesses.length > 0 && (
-            <Card className="dark:bg-gray-800 dark:border-gray-700">
-              <h2 className="text-lg font-semibold text-amber-700 dark:text-amber-400 mb-2">Areas for improvement</h2>
-              <BulletList items={weaknesses} />
-            </Card>
-          )}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setPendingUtteranceIdx(null);
+              setTranscriptOpen(true);
+            }}
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 dark:text-gray-200"
+          >
+            View transcript
+          </button>
+          <AuditToggle
+            evaluation={detail}
+            enabled={auditEnabled}
+            onToggle={() => setAuditEnabled((v) => !v)}
+          />
         </div>
-      )}
-
-      {knowledgeGaps.length > 0 && (
-        <Card className="dark:bg-gray-800 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Knowledge gaps</h2>
-          <ul className="list-disc list-inside space-y-1.5 text-sm text-gray-800 dark:text-gray-200">
-            {knowledgeGaps.map((g, i) => (
-              <li key={i}>
-                {g.text}
-                {g.expected_source && (
-                  <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
-                    (expected source: {g.expected_source})
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
-      {repDeferrals.length > 0 && (
-        <Card className="dark:bg-gray-800 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Rep deferrals</h2>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Moments where the rep verbally deferred or expressed uncertainty.</p>
-          <ul className="space-y-2 text-sm text-gray-800 dark:text-gray-200">
-            {repDeferrals.map((d, i) => (
-              <li key={i} className="border-l-2 border-gray-300 dark:border-gray-600 pl-3">
-                <div className="font-medium">{d.topic}</div>
-                <div className="text-gray-700 dark:text-gray-300">&ldquo;{d.deferral_text}&rdquo;</div>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
-      {complianceFlags.length > 0 && (
-        <Card className="dark:bg-gray-800 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-red-700 dark:text-red-400 mb-2">Compliance flags</h2>
-          <BulletList items={complianceFlags} />
-        </Card>
-      )}
-
-      {additionalObservations.length > 0 && (
-        <Card className="dark:bg-gray-800 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Additional observations</h2>
-          <BulletList items={additionalObservations} />
-        </Card>
-      )}
-
-      {detail.call_summary_markdown && (
-        <Card className="dark:bg-gray-800 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Call summary</h2>
-          <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-200 font-sans leading-relaxed">{detail.call_summary_markdown}</pre>
-        </Card>
-      )}
-
-      {showActions && (
-        <Card className="dark:bg-gray-800 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Reviewer actions</h2>
-          {conflict ? (
-            <div className="px-4 py-3 mb-3 text-sm bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded">
-              <div className="text-amber-800 dark:text-amber-200">{conflict.message}</div>
-              <button
-                type="button"
-                onClick={() => void load()}
-                className="mt-2 px-3 py-1 text-xs bg-amber-600 hover:bg-amber-700 text-white rounded"
-              >
-                Reload
-              </button>
-            </div>
-          ) : null}
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={!!actionPending}
-              onClick={() => performAction('hold')}
-              className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100 rounded disabled:opacity-50"
-            >
-              {actionPending === 'hold' ? 'Holding…' : 'Hold reveal'}
-            </button>
-            <button
-              type="button"
-              disabled={!!actionPending}
-              onClick={() => setCustomDelay({ ...customDelay, show: !customDelay.show })}
-              className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100 rounded disabled:opacity-50"
-            >
-              Custom delay…
-            </button>
-            <button
-              type="button"
-              disabled={!!actionPending}
-              onClick={() => performAction('use_default')}
-              className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100 rounded disabled:opacity-50"
-            >
-              {actionPending === 'use_default' ? 'Resetting…' : 'Use default'}
-            </button>
-            <button
-              type="button"
-              disabled={!!actionPending}
-              onClick={() => performAction('reveal_now')}
-              className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded"
-            >
-              {actionPending === 'reveal_now' ? 'Revealing…' : 'Reveal now'}
-            </button>
+        {detail.manager_edited_at && (
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            Last edited {formatRelativeTimestamp(detail.manager_edited_at)}
+            {detail.manager_edited_by_name ? ` by ${detail.manager_edited_by_name}` : ''}
+            {detail.manager_edited_by_active === false && <span className="italic"> (inactive)</span>}
           </div>
+        )}
+      </div>
 
-          {customDelay.show && (
-            <div className="mt-3 flex items-center gap-2">
-              <label htmlFor="custom_delay" className="text-sm text-gray-700 dark:text-gray-300">Delay (minutes):</label>
-              <input
-                id="custom_delay"
-                type="number"
-                min={1}
-                max={10080}
-                value={customDelay.minutes}
-                onChange={(e) => setCustomDelay({ ...customDelay, minutes: Number(e.target.value) })}
-                className="w-24 rounded border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 text-sm"
-              />
-              <button
-                type="button"
-                disabled={!!actionPending || customDelay.minutes < 1}
-                onClick={() => performAction('custom_delay', customDelay.minutes)}
-                className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded"
-              >
-                {actionPending === 'custom_delay' ? 'Applying…' : 'Apply custom delay'}
-              </button>
+      <div className="space-y-4">
+        {(overall !== null || canonicalDimensionScores.length > 0) && (
+            <Card className="dark:bg-gray-800 dark:border-gray-700">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  AI Evaluation
+                </h2>
+                {overall !== null && <OverallScoreBadge score={overall} />}
+              </div>
+              {canonicalDimensionScores.length > 0 && (
+                <div className="space-y-3">
+                  {canonicalDimensionScores.map((s) => {
+                    const aiCounterpart = aiDimensionScores.find((d) => d.name === s.name);
+                    if (auditEnabled && aiCounterpart) {
+                      return (
+                        <div key={s.name} className="grid grid-cols-2 gap-3 items-center">
+                          <DimensionBar name={s.name} score={s.score} />
+                          <div className="opacity-70 italic text-xs">
+                            <DimensionBar name={`AI: ${s.name}`} score={aiCounterpart.score} />
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={s.name} className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <DimensionBar name={s.name} score={s.score} />
+                        </div>
+                        {isManager && !auditEnabled && (
+                          <InlineEditDimensionScore
+                            dimension={humanizeKey(s.name)}
+                            score={s.score}
+                            disabled={isLocked}
+                            onSave={async (newScore) => {
+                              // Bridge schema expects { score, citations } per dimension. Preserve
+                              // existing citations on every dimension; only the edited dimension
+                              // gets its score swapped.
+                              const base: Record<string, { score: number; citations: Citation[] }> =
+                                {};
+                              const source =
+                                detail.dimension_scores ??
+                                Object.fromEntries(
+                                  aiDimensionScores.map((d) => [
+                                    d.name,
+                                    { score: d.score, citations: d.citations ?? [] },
+                                  ]),
+                                );
+                              for (const [name, v] of Object.entries(source)) {
+                                base[name] = {
+                                  score: v.score,
+                                  citations: (v.citations ?? []) as Citation[],
+                                };
+                              }
+                              base[s.name] = {
+                                score: newScore,
+                                citations: (s.citations ?? []) as Citation[],
+                              };
+                              return handleEdit({ dimension_scores: base });
+                            }}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+          )}
+
+          {(canonicalNarrative || aiNarrative) && (
+            <Card className="dark:bg-gray-800 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                Narrative
+              </h2>
+              {auditEnabled ? (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-xs uppercase font-semibold text-gray-500 mb-1">
+                      Canonical
+                    </div>
+                    <p className="whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-200 leading-relaxed">
+                      {canonicalNarrative || <span className="italic text-gray-400">—</span>}
+                    </p>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase font-semibold text-gray-500 mb-1">
+                      AI original
+                    </div>
+                    <p className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 italic leading-relaxed">
+                      {aiNarrative || <span>—</span>}
+                    </p>
+                  </div>
+                </div>
+              ) : isManager ? (
+                <InlineEditTextField
+                  value={canonicalNarrative ?? ''}
+                  emptyLabel="No narrative"
+                  disabled={isLocked}
+                  rows={6}
+                  onSave={(newValue) => {
+                    // Bridge schema requires { text, citations } object shape on narrative.
+                    // Preserve existing citations on edit so an unrelated text tweak doesn't
+                    // strip them; canonical edits can still drop citations by saving an empty
+                    // text or the parent product can later choose to scrub on canonical edit.
+                    const existingCitations = detail.narrative?.citations ?? [];
+                    return handleEdit({
+                      narrative: { text: newValue, citations: existingCitations },
+                    });
+                  }}
+                />
+              ) : (
+                <p className="whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-200 leading-relaxed">
+                  {canonicalNarrative}
+                </p>
+              )}
+            </Card>
+          )}
+
+          {supportsCoachingNudge && (effectiveNudge || isManager) && (
+            <Card className="dark:bg-gray-800 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                Coaching nudge
+              </h2>
+              {auditEnabled ? (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-xs uppercase font-semibold text-gray-500 mb-1">
+                      Canonical
+                    </div>
+                    <p className="text-sm text-gray-800 dark:text-gray-200 italic">
+                      {detail.coaching_nudge?.text ?? <span className="italic text-gray-400">—</span>}
+                    </p>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase font-semibold text-gray-500 mb-1">
+                      AI original
+                    </div>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 italic">
+                      {aiCoachingNudge || <span>—</span>}
+                    </p>
+                  </div>
+                </div>
+              ) : isManager ? (
+                <InlineEditTextField
+                  value={effectiveNudge ?? ''}
+                  emptyLabel="No coaching nudge"
+                  disabled={isLocked}
+                  rows={3}
+                  onSave={(newValue) => {
+                    const existingCitations =
+                      detail.coaching_nudge?.citations ?? detail.coaching_nudge_effective?.citations ?? [];
+                    return handleEdit({
+                      coaching_nudge: { text: newValue, citations: existingCitations },
+                    });
+                  }}
+                />
+              ) : (
+                <p className="text-sm text-gray-800 dark:text-gray-200 italic">{effectiveNudge}</p>
+              )}
+            </Card>
+          )}
+
+          {(canonicalStrengths.length > 0 || canonicalWeaknesses.length > 0) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {canonicalStrengths.length > 0 && (
+                <Card className="dark:bg-gray-800 dark:border-gray-700">
+                  <h2 className="text-lg font-semibold text-green-700 dark:text-green-400 mb-2">
+                    Strengths
+                  </h2>
+                  {auditEnabled ? (
+                    <AuditTwoColList canonical={canonicalStrengths} ai={aiStrengths} />
+                  ) : (
+                    <InlineEditListField
+                      items={canonicalStrengths}
+                      disabled={isLocked || !isManager}
+                      onSave={(newItems) =>
+                        handleEdit({ strengths: normalizeListForSave(newItems, 'strengths') })
+                      }
+                      renderItemDisplay={renderCitedDisplay}
+                    />
+                  )}
+                </Card>
+              )}
+              {canonicalWeaknesses.length > 0 && (
+                <Card className="dark:bg-gray-800 dark:border-gray-700">
+                  <h2 className="text-lg font-semibold text-amber-700 dark:text-amber-400 mb-2">
+                    Areas for improvement
+                  </h2>
+                  {auditEnabled ? (
+                    <AuditTwoColList canonical={canonicalWeaknesses} ai={aiWeaknesses} />
+                  ) : (
+                    <InlineEditListField
+                      items={canonicalWeaknesses}
+                      disabled={isLocked || !isManager}
+                      onSave={(newItems) =>
+                        handleEdit({ weaknesses: normalizeListForSave(newItems, 'weaknesses') })
+                      }
+                      renderItemDisplay={renderCitedDisplay}
+                    />
+                  )}
+                </Card>
+              )}
             </div>
           )}
 
-          {actionError && (
-            <div className="mt-3 px-3 py-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded">{actionError}</div>
+          {canonicalKnowledgeGaps.length > 0 && (
+            <Card className="dark:bg-gray-800 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                Knowledge gaps
+              </h2>
+              {auditEnabled ? (
+                <AuditTwoColList canonical={canonicalKnowledgeGaps} ai={aiKnowledgeGaps} />
+              ) : (
+                <InlineEditListField
+                  items={canonicalKnowledgeGaps}
+                  disabled={isLocked || !isManager}
+                  withExpectedSource
+                  onSave={(newItems) =>
+                    handleEdit({
+                      knowledge_gaps: normalizeListForSave(newItems, 'knowledge_gaps'),
+                    })
+                  }
+                  renderItemDisplay={renderCitedDisplay}
+                />
+              )}
+            </Card>
           )}
-        </Card>
+
+          {repDeferrals.length > 0 && (
+            <Card className="dark:bg-gray-800 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                Rep deferrals
+              </h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                Moments where the rep verbally deferred or expressed uncertainty.
+              </p>
+              <ul className="space-y-2 text-sm text-gray-800 dark:text-gray-200">
+                {repDeferrals.map((d, i) => (
+                  <li key={i} className="border-l-2 border-gray-300 dark:border-gray-600 pl-3">
+                    <div className="font-medium">{d.topic}</div>
+                    <div className="text-gray-700 dark:text-gray-300">
+                      &ldquo;{d.deferral_text}&rdquo;
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
+          {canonicalComplianceFlags.length > 0 && (
+            <Card className="dark:bg-gray-800 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-red-700 dark:text-red-400 mb-2">
+                Compliance flags
+              </h2>
+              {auditEnabled ? (
+                <AuditTwoColList canonical={canonicalComplianceFlags} ai={aiComplianceFlags} />
+              ) : (
+                <InlineEditListField
+                  items={canonicalComplianceFlags}
+                  disabled={isLocked || !isManager}
+                  onSave={(newItems) =>
+                    handleEdit({
+                      compliance_flags: normalizeListForSave(newItems, 'compliance_flags'),
+                    })
+                  }
+                  renderItemDisplay={renderCitedDisplay}
+                />
+              )}
+            </Card>
+          )}
+
+          {supportsAdditional && canonicalAdditional.length > 0 && (
+            <Card className="dark:bg-gray-800 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                Additional observations
+              </h2>
+              {auditEnabled ? (
+                <AuditTwoColList canonical={canonicalAdditional} ai={aiAdditional} />
+              ) : (
+                <InlineEditListField
+                  items={canonicalAdditional}
+                  disabled={isLocked || !isManager}
+                  onSave={(newItems) =>
+                    handleEdit({
+                      additional_observations: normalizeListForSave(
+                        newItems,
+                        'additional_observations',
+                      ),
+                    })
+                  }
+                  renderItemDisplay={renderCitedDisplay}
+                />
+              )}
+            </Card>
+          )}
+
+          {detail.call_summary_markdown && (
+            <Card className="dark:bg-gray-800 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                Call summary
+              </h2>
+              <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-200 font-sans leading-relaxed">
+                {detail.call_summary_markdown}
+              </pre>
+            </Card>
+          )}
+
+          {showActions && (
+            <Card className="dark:bg-gray-800 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                Reviewer actions
+              </h2>
+              {conflict ? (
+                <div className="px-4 py-3 mb-3 text-sm bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded">
+                  <div className="text-amber-800 dark:text-amber-200">{conflict.message}</div>
+                  <button
+                    type="button"
+                    onClick={handleReload}
+                    className="mt-2 px-3 py-1 text-xs bg-amber-600 hover:bg-amber-700 text-white rounded"
+                  >
+                    Reload
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={isLocked}
+                  onClick={() => performAction('hold')}
+                  className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100 rounded disabled:opacity-50"
+                >
+                  {mutationLock.kind === 'pending' && mutationLock.tag === 'hold'
+                    ? 'Holding…'
+                    : 'Hold reveal'}
+                </button>
+                <button
+                  type="button"
+                  disabled={isLocked}
+                  onClick={() => setCustomDelay({ ...customDelay, show: !customDelay.show })}
+                  className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100 rounded disabled:opacity-50"
+                >
+                  Custom delay…
+                </button>
+                <button
+                  type="button"
+                  disabled={isLocked}
+                  onClick={() => performAction('use_default')}
+                  className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100 rounded disabled:opacity-50"
+                >
+                  {mutationLock.kind === 'pending' && mutationLock.tag === 'use_default'
+                    ? 'Resetting…'
+                    : 'Use default'}
+                </button>
+                <button
+                  type="button"
+                  disabled={isLocked}
+                  onClick={() => performAction('reveal_now')}
+                  className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded"
+                >
+                  {mutationLock.kind === 'pending' && mutationLock.tag === 'reveal_now'
+                    ? 'Revealing…'
+                    : 'Reveal now'}
+                </button>
+              </div>
+
+              {customDelay.show && (
+                <div className="mt-3 flex items-center gap-2">
+                  <label
+                    htmlFor="custom_delay"
+                    className="text-sm text-gray-700 dark:text-gray-300"
+                  >
+                    Delay (minutes):
+                  </label>
+                  <input
+                    id="custom_delay"
+                    type="number"
+                    min={1}
+                    max={10080}
+                    value={customDelay.minutes}
+                    onChange={(e) =>
+                      setCustomDelay({ ...customDelay, minutes: Number(e.target.value) })
+                    }
+                    className="w-24 rounded border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 text-sm"
+                  />
+                  <button
+                    type="button"
+                    disabled={isLocked || customDelay.minutes < 1}
+                    onClick={() => performAction('custom_delay', customDelay.minutes)}
+                    className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded"
+                  >
+                    {mutationLock.kind === 'pending' && mutationLock.tag === 'custom_delay'
+                      ? 'Applying…'
+                      : 'Apply custom delay'}
+                  </button>
+                </div>
+              )}
+            </Card>
+          )}
+      </div>
+
+      {/* Transcript modal — opens via the "View transcript" button or any
+          citation pill carrying an utterance_index. */}
+      <TranscriptModal
+        ref={transcriptRef}
+        isOpen={transcriptOpen}
+        onClose={() => setTranscriptOpen(false)}
+        transcript={detail.transcript}
+        evaluationId={id}
+        comments={detail.transcript_comments}
+        currentUserId={currentRepId}
+        isAdmin={isAdmin}
+        canComposeComments={isManager}
+        repFullName={detail.rep_full_name}
+        onCommentChanged={() => void load()}
+        initialUtteranceIndex={pendingUtteranceIdx}
+      />
+
+      {/* KB chunk modal — opens when a citation pill carrying kb_source is clicked. */}
+      <KBSidePanel
+        kbSource={activeKb}
+        onClose={() => setActiveKb(null)}
+        onOpenRefinement={() => setRefinementOpen(true)}
+        disabled={isLocked}
+      />
+
+      {refinementOpen && activeKb && (
+        <RefinementModal
+          isOpen
+          evaluationId={id}
+          docId={activeKb.doc_id}
+          driveUrl={activeKb.drive_url}
+          docTitle={activeKb.doc_title}
+          currentChunkExcerpt={activeKb.chunk_text}
+          onClose={() => setRefinementOpen(false)}
+          onSuccess={() => {
+            setRefinementOpen(false);
+            setBanner({
+              kind: 'success',
+              text: "Refinement request sent to RevOps. They'll review and update the source doc.",
+              successLink: {
+                label: 'Track your refinement requests',
+                href: '/dashboard/call-intelligence/my-refinements',
+              },
+            });
+          }}
+          onDuplicate={() => {
+            setRefinementOpen(false);
+            setBanner({
+              kind: 'info',
+              text: 'You already have an open refinement for this text.',
+              cta: {
+                label: 'View existing',
+                onClick: () =>
+                  router.push(
+                    `/dashboard/call-intelligence/my-refinements?highlight=${id}`,
+                  ),
+              },
+            });
+          }}
+          onEvaluationGone={() => {
+            setRefinementOpen(false);
+            setBanner({
+              kind: 'error',
+              text: 'This evaluation is no longer available.',
+              cta: {
+                label: 'Return to queue',
+                onClick: () => router.push(`/dashboard/call-intelligence?tab=${returnTab}`),
+              },
+            });
+            setMutationLock({ kind: 'authority-lost' });
+          }}
+        />
       )}
     </div>
   );
@@ -470,8 +1074,39 @@ export default function EvalDetailClient({ id, role, returnTab }: Props) {
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">{label}</div>
+      <div className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+        {label}
+      </div>
       <div className="text-sm text-gray-900 dark:text-gray-100 mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+function AuditTwoColList({
+  canonical,
+  ai,
+}: {
+  canonical: ListItem[];
+  ai: ListItem[];
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-4 text-sm">
+      <div>
+        <div className="text-xs uppercase font-semibold text-gray-500 mb-1">Canonical</div>
+        <ul className="list-disc list-inside space-y-1 text-gray-800 dark:text-gray-200">
+          {canonical.length === 0 ? (
+            <li className="italic text-gray-400">—</li>
+          ) : (
+            canonical.map((it, i) => <li key={i}>{it.text}</li>)
+          )}
+        </ul>
+      </div>
+      <div>
+        <div className="text-xs uppercase font-semibold text-gray-500 mb-1">AI original</div>
+        <ul className="list-disc list-inside space-y-1 text-gray-700 dark:text-gray-300 italic">
+          {ai.length === 0 ? <li>—</li> : ai.map((it, i) => <li key={i}>{it.text}</li>)}
+        </ul>
+      </div>
     </div>
   );
 }

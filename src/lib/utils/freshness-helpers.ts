@@ -12,14 +12,27 @@ export function formatRelativeTime(minutesAgo: number): string {
   if (minutesAgo < 60) {
     return `${Math.floor(minutesAgo)} minute${minutesAgo >= 2 ? 's' : ''} ago`;
   }
-  
+
   const hoursAgo = Math.floor(minutesAgo / 60);
   if (hoursAgo < 24) {
     return `${hoursAgo} hour${hoursAgo >= 2 ? 's' : ''} ago`;
   }
-  
+
   const daysAgo = Math.floor(hoursAgo / 24);
   return `${daysAgo} day${daysAgo >= 2 ? 's' : ''} ago`;
+}
+
+/**
+ * Relative time from an ISO-8601 timestamp ("2 minutes ago", "3 hours ago", "1 day ago").
+ * Wraps formatRelativeTime(minutesAgo) so call sites don't redo the math.
+ * Returns '—' when the input is null/undefined or unparseable.
+ */
+export function formatRelativeTimestamp(isoTs: string | null | undefined): string {
+  if (!isoTs) return '—';
+  const ts = new Date(isoTs).getTime();
+  if (Number.isNaN(ts)) return '—';
+  const minutesAgo = Math.max(0, (Date.now() - ts) / 60_000);
+  return formatRelativeTime(minutesAgo);
 }
 
 /**

@@ -106,6 +106,24 @@ When writing, reviewing, or validating SQL against BigQuery views:
 
 The markdown docs (`.claude/bq-views.md`, `bq-field-dictionary.md`, `bq-patterns.md`, `bq-salesforce-mapping.md`, `bq-activity-layer.md`) remain authoritative fallback and are not being removed.
 
+## Bridge Schema Mirror — sales-coaching
+
+`src/lib/sales-coaching-client/schemas.ts` is a **byte-for-byte mirror** of the canonical Zod contract at `russellmoss/sales-coaching@main:src/lib/dashboard-api/schemas.ts`. Drift between the two breaks runtime parsing of bridge responses and silently corrupts typed errors.
+
+CI runs `npm run check:schema-mirror` (script: `scripts/check-schema-mirror.cjs`) on every push. The script fetches the upstream file from GH raw and compares byte-for-byte. Drift fails the build.
+
+**If `npm run check:schema-mirror` fails** (CI or local):
+
+1. In Claude Code: invoke `/sync-bridge-schema`. The skill pulls the upstream file via `gh api` (or local sibling repo at `C:/Users/russe/Documents/sales-coaching/` if available) and overwrites the mirror.
+2. Re-run `npm run check:schema-mirror` to confirm byte-equality.
+3. Re-run `npm run build` — type errors after sync usually indicate the upstream schema changed shape and a `salesCoachingClient` method or API route handler needs an update. Inspect `git diff --staged src/lib/sales-coaching-client/schemas.ts` to scope the work.
+
+**Local dev** — set `SALES_COACHING_SCHEMAS_PATH` env var to a sibling-repo file path (e.g. `C:/Users/russe/Documents/sales-coaching/src/lib/dashboard-api/schemas.ts`) to skip the network fetch.
+
+**CI** — `GH_TOKEN` must be available in the workflow env to fetch the raw file from a private repo. The default workflow `secrets.GITHUB_TOKEN` works if sales-coaching is in the same org with workflow permissions; otherwise use a PAT with `repo:read` scope.
+
+**Authoring side (sales-coaching)** — when changing `src/lib/dashboard-api/schemas.ts` in the sales-coaching repo, sales-coaching's CLAUDE.md instructs the agent to either run `/sync-bridge-schema` in Dashboard in the same PR, or open a paired Dashboard PR. Do not delete or rename existing exports without coordinating both repos — Dashboard imports them and a renamed export breaks runtime parsing.
+
 ## Git Commit Protocol — Wrike Session Context
 
 **Before every `git commit`, you MUST write `.ai-session-context.md` first.**
