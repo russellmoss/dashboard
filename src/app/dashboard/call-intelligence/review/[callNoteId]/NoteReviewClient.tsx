@@ -4,19 +4,21 @@ import { useRouter } from 'next/navigation';
 import { Card } from '@tremor/react';
 import type {
   CallNoteDetailT, SfdcSearchMatchT, SfdcSearchQueryTypeT,
+  BridgeSfdcSuggestionT,
 } from '@/lib/sales-coaching-client/schemas';
 import { LONG_NOTE_CHAR_THRESHOLD } from '@/lib/call-intelligence/note-review-constants';
 import { formatRelativeTimestamp } from '@/lib/utils/freshness-helpers';
 import { SaveStateChip } from '@/components/call-intelligence/SaveStateChip';
 import { QueryTypeSelector } from '@/components/call-intelligence/QueryTypeSelector';
 import { SfdcResultsList } from '@/components/call-intelligence/SfdcResultsList';
+import { SuggestedRecordsPanel } from '@/components/call-intelligence/SuggestedRecordsPanel';
 import { RejectReasonModal } from '@/components/call-intelligence/RejectReasonModal';
 import { ConfirmSubmitModal } from '@/components/call-intelligence/ConfirmSubmitModal';
 
 type SaveState = { kind: 'idle' } | { kind: 'saving' } | { kind: 'saved'; at: Date } | { kind: 'error'; onRetry: () => void };
 type Banner = null | { kind: 'success' | 'info' | 'error'; text: string };
 
-export function NoteReviewClient({ initial }: { initial: CallNoteDetailT }) {
+export function NoteReviewClient({ initial, suggestion }: { initial: CallNoteDetailT; suggestion: BridgeSfdcSuggestionT | null }) {
   const router = useRouter();
   const [note, setNote] = useState<CallNoteDetailT>(initial);
   const initialText = initial.summary_markdown_edited ?? initial.summary_markdown ?? '';
@@ -326,9 +328,16 @@ export function NoteReviewClient({ initial }: { initial: CallNoteDetailT }) {
                 <div className="text-gray-500 dark:text-gray-400 text-xs">{note.sfdc_record_type} · {note.sfdc_record_id}</div>
               </div>
             ) : (
-              <p className="text-sm text-gray-500 dark:text-gray-400">No SFDC record selected. Search below or paste an ID.</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">No SFDC record selected. Pick a suggestion below, search, or paste an ID.</p>
             )}
           </Card>
+
+          <SuggestedRecordsPanel
+            suggestion={suggestion}
+            currentRecordId={note.sfdc_record_id}
+            isLinking={isLinking}
+            onPick={(m) => handlePick({ id: m.id, name: m.name, type: m.type, score: 1, owner_email: undefined, crd: undefined })}
+          />
 
           <Card className="dark:bg-gray-800 dark:border-gray-700">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Search</h3>

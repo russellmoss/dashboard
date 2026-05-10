@@ -774,11 +774,60 @@ export const MyNoteReviewListResponse = z
   })
   .strict();
 
+// ─── SFDC suggestion subset (mirror of slack_review_messages.sfdc_suggestion) ─
+//
+// 2026-05-10 — exposed to the Dashboard so the rep sees the same waterfall
+// candidate dropdown the Slack DM rendered, instead of having to do a fresh
+// SOQL search. Fields use string types for `*_record_type` rather than the
+// concrete SfdcRecordType enum because the upstream SfdcCandidate carries
+// `who_record_type: SfdcWhoRecordType | null` and `what_record_type:
+// SfdcWhatRecordType | null` (subsets of the public enum that include null
+// for orphan-Opp candidates). Keeping them as `string().nullable()` here
+// matches that reality without coupling the bridge to the internal SFDC
+// type narrowing — Dashboard only consumes them for display.
+
+export const BridgeSfdcCandidateSchema = z
+  .object({
+    who_id: z.string().nullable(),
+    what_id: z.string().nullable(),
+    who_record_type: z.string().nullable(),
+    what_record_type: z.string().nullable(),
+    primary_label: z.string(),
+    primary_record_type: SfdcRecordTypeSchema,
+    display_subtitle: z.string(),
+    last_activity_date: z.string().nullable(),
+    owner_id: z.string().nullable(),
+    owner_name: z.string().nullable(),
+    owner_match: z.boolean(),
+  })
+  .strict();
+
+export const BridgeSfdcSuggestionSchema = z
+  .object({
+    linkage_strategy: z.string(),
+    candidate_who_id: z.string().nullable(),
+    candidate_what_id: z.string().nullable(),
+    candidate_record_type: z.string().nullable(),
+    candidate_display: z.string().nullable(),
+    detected_crd: z.string().nullable(),
+    matched_email: z.string().nullable(),
+    source_signal: z.string(),
+    candidates: z.array(BridgeSfdcCandidateSchema),
+  })
+  .strict();
+
 // ─── GET /api/dashboard/note-review/:callNoteId ─────────────────────────────
 
 export const GetCallNoteReviewResponse = z
   .object({
     call_note: CallNoteDetailSchema,
+    // Optional + nullable for forward/backward compat across deploys: old
+    // Cloud Run revisions return without this field, new Dashboard parses
+    // it as undefined and falls back to its existing search-only UI.
+    // Sourced from slack_review_messages.sfdc_suggestion JSONB on the
+    // canonical (surface='dm') row. Null when the call_note has no DM yet
+    // or when the suggestion column is null (manual-entry waterfall path).
+    sfdc_suggestion: BridgeSfdcSuggestionSchema.nullable().optional(),
   })
   .strict();
 
@@ -883,6 +932,8 @@ export type BridgeLinkageStrategyT = z.infer<typeof BridgeLinkageStrategySchema>
 export type CallNoteAttendeeT = z.infer<typeof CallNoteAttendeeSchema>;
 export type CallNoteSummaryT = z.infer<typeof CallNoteSummarySchema>;
 export type CallNoteDetailT = z.infer<typeof CallNoteDetailSchema>;
+export type BridgeSfdcCandidateT = z.infer<typeof BridgeSfdcCandidateSchema>;
+export type BridgeSfdcSuggestionT = z.infer<typeof BridgeSfdcSuggestionSchema>;
 export type MyNoteReviewListResponseT = z.infer<typeof MyNoteReviewListResponse>;
 export type GetCallNoteReviewResponseT = z.infer<typeof GetCallNoteReviewResponse>;
 export type EditCallNoteRequestT = z.infer<typeof EditCallNoteRequest>;

@@ -29,5 +29,5 @@ export default async function NoteReviewPage({ params }: { params: Promise<{ cal
     redirect('/dashboard/call-intelligence?tab=queue&note=unavailable');
   }
 
-  return <NoteReviewClient initial={initial.call_note} />;
+  return <NoteReviewClient initial={initial.call_note} suggestion={initial.sfdc_suggestion ?? null} />;
 }
