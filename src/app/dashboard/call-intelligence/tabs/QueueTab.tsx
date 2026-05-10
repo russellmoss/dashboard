@@ -403,7 +403,9 @@ export default function QueueTab({ role, mode }: Props) {
                             className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
                               r.rep_role === 'SGA'
                                 ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-200'
-                                : 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-200'
+                                : r.rep_role === 'SGM'
+                                  ? 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-200'
+                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200'
                             }`}
                           >
                             {r.rep_role}
