@@ -786,6 +786,11 @@ export const MyNoteReviewListResponse = z
 // matches that reality without coupling the bridge to the internal SFDC
 // type narrowing — Dashboard only consumes them for display.
 
+// 2026-05-10 — `.passthrough()` (not `.strict()`) so future SfdcCandidate /
+// SfdcSuggestion field additions on the producer side don't break Dashboard
+// parsing. Schema drift between bridge schema mirrors is still caught by
+// `npm run check:schema-mirror` in CI; passthrough only relaxes the runtime
+// parser, not the cross-repo byte-equal check.
 export const BridgeSfdcCandidateSchema = z
   .object({
     who_id: z.string().nullable(),
@@ -799,8 +804,17 @@ export const BridgeSfdcCandidateSchema = z
     owner_id: z.string().nullable(),
     owner_name: z.string().nullable(),
     owner_match: z.boolean(),
+    confidence_tier: z.enum(['likely', 'possible', 'unlikely']),
   })
-  .strict();
+  .passthrough();
+
+export const BridgeSfdcSuggestionAmbiguitySchema = z
+  .object({
+    source: z.string(),
+    match_count: z.number(),
+    enriched_name: z.string(),
+  })
+  .passthrough();
 
 export const BridgeSfdcSuggestionSchema = z
   .object({
@@ -813,8 +827,9 @@ export const BridgeSfdcSuggestionSchema = z
     matched_email: z.string().nullable(),
     source_signal: z.string(),
     candidates: z.array(BridgeSfdcCandidateSchema),
+    ambiguity: BridgeSfdcSuggestionAmbiguitySchema.optional(),
   })
-  .strict();
+  .passthrough();
 
 // ─── GET /api/dashboard/note-review/:callNoteId ─────────────────────────────
 
