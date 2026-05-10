@@ -399,7 +399,13 @@ export default function QueueTab({ role, mode }: Props) {
                       <span className="inline-flex items-center gap-2">
                         <span>{r.rep_full_name ?? '—'}</span>
                         {r.rep_role && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-200 font-medium">
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                              r.rep_role === 'SGA'
+                                ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-200'
+                                : 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-200'
+                            }`}
+                          >
                             {r.rep_role}
                           </span>
                         )}
