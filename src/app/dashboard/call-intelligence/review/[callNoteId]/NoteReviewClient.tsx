@@ -9,7 +9,6 @@ import type {
 import { LONG_NOTE_CHAR_THRESHOLD } from '@/lib/call-intelligence/note-review-constants';
 import { formatRelativeTimestamp } from '@/lib/utils/freshness-helpers';
 import { SaveStateChip } from '@/components/call-intelligence/SaveStateChip';
-import { QueryTypeSelector } from '@/components/call-intelligence/QueryTypeSelector';
 import { SfdcResultsList } from '@/components/call-intelligence/SfdcResultsList';
 import { SuggestedRecordsPanel } from '@/components/call-intelligence/SuggestedRecordsPanel';
 import { RejectReasonModal } from '@/components/call-intelligence/RejectReasonModal';
@@ -18,6 +17,26 @@ import { ConfirmSubmitModal } from '@/components/call-intelligence/ConfirmSubmit
 type SaveState = { kind: 'idle' } | { kind: 'saving' } | { kind: 'saved'; at: Date } | { kind: 'error'; onRetry: () => void };
 type Banner = null | { kind: 'success' | 'info' | 'error'; text: string };
 
+// 2026-05-10 — unified SFDC lookup input. The bridge backend has 4 query
+// types (crd / email / name / manual_id) and only manual_id accepts an
+// exact 15/18-char ID — URLs aren't extracted server-side. Detect the
+// shape client-side and dispatch to the right type. Falls through to
+// `name` for anything that isn't recognizable as an ID/CRD/email/URL.
+const SFDC_URL_RE = /lightning\.force\.com\/lightning\/r\/[a-zA-Z]+\/([a-zA-Z0-9]{15,18})/;
+const SFDC_ID_RE = /^00[1QF36][a-zA-Z0-9]{12}([a-zA-Z0-9]{3})?$/;
+const CRD_RE = /^[0-9]{5,8}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function detectSfdcQuery(input: string): { type: SfdcSearchQueryTypeT; query: string; label: string } {
+  const trimmed = input.trim();
+  const url = trimmed.match(SFDC_URL_RE);
+  if (url) return { type: 'manual_id', query: url[1], label: 'SFDC URL' };
+  if (SFDC_ID_RE.test(trimmed)) return { type: 'manual_id', query: trimmed, label: 'SFDC ID' };
+  if (CRD_RE.test(trimmed)) return { type: 'crd', query: trimmed, label: 'CRD' };
+  if (EMAIL_RE.test(trimmed)) return { type: 'email', query: trimmed, label: 'Email' };
+  return { type: 'name', query: trimmed, label: 'Name' };
+}
+
 export function NoteReviewClient({ initial, suggestion }: { initial: CallNoteDetailT; suggestion: BridgeSfdcSuggestionT | null }) {
   const router = useRouter();
   const [note, setNote] = useState<CallNoteDetailT>(initial);
@@ -25,8 +44,8 @@ export function NoteReviewClient({ initial, suggestion }: { initial: CallNoteDet
   const [draft, setDraft] = useState(initialText);
   const [saveState, setSaveState] = useState<SaveState>({ kind: 'idle' });
   const [banner, setBanner] = useState<Banner>(null);
-  const [searchType, setSearchType] = useState<SfdcSearchQueryTypeT>('crd');
   const [searchQuery, setSearchQuery] = useState('');
+  const [detectedLabel, setDetectedLabel] = useState<string>('');
   const [results, setResults] = useState<SfdcSearchMatchT[]>([]);
   const [isLinking, setIsLinking] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -130,16 +149,21 @@ export function NoteReviewClient({ initial, suggestion }: { initial: CallNoteDet
   }, [draft, scheduleSave]);
 
   // ─── SFDC search POST (400ms debounce, AbortController) ────────────────
-  const performSearch = useCallback(async (q: string, t: SfdcSearchQueryTypeT) => {
-    if (!q.trim()) { setResults([]); return; }
+  // 2026-05-10 — auto-detects the input shape (URL → SFDC ID extraction,
+  // SFDC ID, CRD, email, name) and dispatches to the matching backend
+  // query_type. One field replaces the previous radio strip + 4 separate
+  // input modes.
+  const performSearch = useCallback(async (raw: string) => {
+    if (!raw.trim()) { setResults([]); return; }
     if (searchAbortRef.current) searchAbortRef.current.abort();
     const ctrl = new AbortController();
     searchAbortRef.current = ctrl;
+    const { type, query } = detectSfdcQuery(raw);
     try {
       const res = await fetch(`/api/call-intelligence/note-reviews/${note.id}/sfdc-search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: q.trim(), query_type: t }),
+        body: JSON.stringify({ query, query_type: type }),
         cache: 'no-store',
         signal: ctrl.signal,
       });
@@ -160,14 +184,10 @@ export function NoteReviewClient({ initial, suggestion }: { initial: CallNoteDet
 
   function handleSearchChange(next: string) {
     setSearchQuery(next);
+    setDetectedLabel(next.trim() ? detectSfdcQuery(next).label : '');
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    searchTimerRef.current = setTimeout(() => { void performSearch(next, searchType); }, 400);
+    searchTimerRef.current = setTimeout(() => { void performSearch(next); }, 400);
   }
-
-  useEffect(() => {
-    if (searchQuery.trim()) void performSearch(searchQuery, searchType);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchType]);
 
   // ─── Pick a match → flush save → PATCH /sfdc-link ──────────────────────
   async function handlePick(m: SfdcSearchMatchT) {
@@ -340,15 +360,24 @@ export function NoteReviewClient({ initial, suggestion }: { initial: CallNoteDet
           />
 
           <Card className="dark:bg-gray-800 dark:border-gray-700">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Search</h3>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Find a record</h3>
+              {detectedLabel && (
+                <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
+                  {detectedLabel}
+                </span>
+              )}
+            </div>
             <div className="flex flex-col gap-2">
-              <QueryTypeSelector value={searchType} onChange={setSearchType} />
               <input
                 value={searchQuery}
                 onChange={(e) => handleSearchChange(e.target.value)}
-                placeholder={searchType === 'manual_id' ? 'Paste 15- or 18-char SFDC ID' : `Search by ${searchType}…`}
+                placeholder="Paste URL · CRD · 15/18-char Id · email · or type a name"
                 className="min-h-[44px] w-full text-sm bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-gray-100 rounded px-3 focus:outline-none focus:border-blue-500"
               />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Lead, Contact, Opportunity, or Account — full Lightning URL, the 15/18-char Id, a 5–8 digit CRD, an email, or a person/company name.
+              </p>
               <SfdcResultsList matches={results} onPick={handlePick} isLinking={isLinking} />
             </div>
           </Card>
