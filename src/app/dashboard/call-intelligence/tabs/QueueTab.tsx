@@ -1,12 +1,25 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@tremor/react';
+import { ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import type { EvaluationQueueRow } from '@/types/call-intelligence';
 
 type HistoryFilter = 'pending' | 'revealed' | 'all';
+type RepRoleFilter = 'any' | 'SGA' | 'SGM';
+type SortDir = 'asc' | 'desc';
+type SortField =
+  | 'date'
+  | 'time'
+  | 'rep'
+  | 'advisor'
+  | 'reviewer'
+  | 'status'
+  | 'edit_version'
+  | 'scheduled_reveal'
+  | 'call_id';
 
 interface Props {
   role: string;
@@ -48,6 +61,19 @@ function formatTimeOnly(ts: string | null): string {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+/** Multi-token case-insensitive substring match. "Bre McDan" matches
+ *  "Brennan McDaniel" because every space-separated token appears in the
+ *  target. Empty query → match-all. Mirrors CoachingUsage's helper. */
+function fuzzyMatches(target: string | null | undefined, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const t = (target ?? '').toLowerCase();
+  for (const token of q.split(/\s+/)) {
+    if (token && !t.includes(token)) return false;
+  }
+  return true;
+}
+
 function StatusBadge({ status }: { status: EvaluationQueueRow['status'] }) {
   const cls = status === 'pending_review'
     ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
@@ -57,12 +83,59 @@ function StatusBadge({ status }: { status: EvaluationQueueRow['status'] }) {
   return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{status}</span>;
 }
 
-export default function QueueTab({ role: _role, mode }: Props) {
+function SortHeader({
+  label,
+  field,
+  active,
+  dir,
+  onClick,
+}: {
+  label: string;
+  field: SortField;
+  active: boolean;
+  dir: SortDir;
+  onClick: (field: SortField) => void;
+}) {
+  return (
+    <th
+      className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-gray-800"
+      onClick={() => onClick(field)}
+      aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {active ? (
+          dir === 'asc' ? (
+            <ChevronUp className="w-3.5 h-3.5" />
+          ) : (
+            <ChevronDown className="w-3.5 h-3.5" />
+          )
+        ) : (
+          <ChevronsUpDown className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600" />
+        )}
+      </span>
+    </th>
+  );
+}
+
+export default function QueueTab({ role, mode }: Props) {
   const router = useRouter();
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('pending');
   const [rows, setRows] = useState<EvaluationQueueRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Sort state — defaults to date desc (newest first), matches existing server-side ORDER BY.
+  const [sortField, setSortField] = useState<SortField>('date');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+
+  // Client-side filters
+  const [repNameSearch, setRepNameSearch] = useState('');
+  const [advisorNameSearch, setAdvisorNameSearch] = useState('');
+  const [repRoleFilter, setRepRoleFilter] = useState<RepRoleFilter>('any');
+
+  // Admin-or-manager-only role filter visibility — SGM/SGA only see their own evals.
+  const isAdminOrManager = role === 'admin' || role === 'revops_admin' || role === 'manager';
 
   useEffect(() => {
     let cancelled = false;
@@ -89,6 +162,87 @@ export default function QueueTab({ role: _role, mode }: Props) {
     void load();
     return () => { cancelled = true; };
   }, [historyFilter]);
+
+  function handleSort(field: SortField) {
+    if (field === sortField) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDir(field === 'date' || field === 'time' || field === 'scheduled_reveal' ? 'desc' : 'asc');
+    }
+  }
+
+  function clearAllFilters() {
+    setRepNameSearch('');
+    setAdvisorNameSearch('');
+    setRepRoleFilter('any');
+  }
+  const hasActiveFilters =
+    repNameSearch.trim() !== '' ||
+    advisorNameSearch.trim() !== '' ||
+    repRoleFilter !== 'any';
+
+  // ─── Filter pass ─────────────────────────────────────────────────────────
+  const filteredRows = useMemo(() => {
+    return rows.filter((r) => {
+      if (!fuzzyMatches(r.rep_full_name, repNameSearch)) return false;
+      if (!fuzzyMatches(r.advisor_name, advisorNameSearch)) return false;
+      if (repRoleFilter !== 'any' && r.rep_role !== repRoleFilter) return false;
+      return true;
+    });
+  }, [rows, repNameSearch, advisorNameSearch, repRoleFilter]);
+
+  // ─── Sort pass ───────────────────────────────────────────────────────────
+  const visibleRows = useMemo(() => {
+    const arr = [...filteredRows];
+    const dir = sortDir === 'asc' ? 1 : -1;
+    arr.sort((a, b) => {
+      let av: string | number = '';
+      let bv: string | number = '';
+      switch (sortField) {
+        case 'date':
+        case 'time':
+          av = a.call_started_at ?? '';
+          bv = b.call_started_at ?? '';
+          break;
+        case 'rep':
+          av = (a.rep_full_name ?? '').toLowerCase();
+          bv = (b.rep_full_name ?? '').toLowerCase();
+          break;
+        case 'advisor':
+          av = (a.advisor_name ?? '').toLowerCase();
+          bv = (b.advisor_name ?? '').toLowerCase();
+          break;
+        case 'reviewer':
+          av = (a.assigned_manager_full_name ?? '').toLowerCase();
+          bv = (b.assigned_manager_full_name ?? '').toLowerCase();
+          break;
+        case 'status':
+          av = a.status;
+          bv = b.status;
+          break;
+        case 'edit_version':
+          av = a.edit_version;
+          bv = b.edit_version;
+          break;
+        case 'scheduled_reveal':
+          av = a.scheduled_reveal_at ?? '';
+          bv = b.scheduled_reveal_at ?? '';
+          break;
+        case 'call_id':
+          av = a.call_note_id;
+          bv = b.call_note_id;
+          break;
+      }
+      // Empty string sorts last regardless of direction (NULLS LAST behavior).
+      if (av === '' && bv !== '') return 1;
+      if (bv === '' && av !== '') return -1;
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+    return arr;
+  }, [filteredRows, sortField, sortDir]);
 
   return (
     <Card className="dark:bg-gray-800 dark:border-gray-700">
@@ -121,6 +275,63 @@ export default function QueueTab({ role: _role, mode }: Props) {
         </div>
       </div>
 
+      {/* Filter bar — global filters mirror CoachingUsage's pattern. */}
+      <div className="flex flex-wrap items-end gap-3 mb-4 pb-3 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex flex-col">
+          <label className="text-xs text-gray-600 dark:text-gray-400 mb-1">Rep name</label>
+          <input
+            type="text"
+            value={repNameSearch}
+            onChange={(e) => setRepNameSearch(e.target.value)}
+            placeholder="e.g. Bre McDan"
+            className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:border-blue-500 w-40"
+          />
+        </div>
+        <div className="flex flex-col">
+          <label className="text-xs text-gray-600 dark:text-gray-400 mb-1">Advisor name</label>
+          <input
+            type="text"
+            value={advisorNameSearch}
+            onChange={(e) => setAdvisorNameSearch(e.target.value)}
+            placeholder="e.g. Holdsworth"
+            className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:border-blue-500 w-40"
+          />
+        </div>
+        {isAdminOrManager && (
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-600 dark:text-gray-400 mb-1">Rep role</label>
+            <div className="inline-flex border border-gray-300 dark:border-gray-600 rounded-md overflow-hidden">
+              {(['any', 'SGA', 'SGM'] as const).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setRepRoleFilter(r)}
+                  className={`px-2 py-0.5 text-xs transition-colors ${
+                    repRoleFilter === r
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  {r === 'any' ? 'Any' : r}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={clearAllFilters}
+            className="px-2 py-1 text-xs text-blue-600 dark:text-blue-300 hover:underline"
+          >
+            Clear filters
+          </button>
+        )}
+        <div className="ml-auto text-xs text-gray-500 dark:text-gray-400 self-end">
+          {visibleRows.length} of {rows.length} shown
+        </div>
+      </div>
+
       {loading && (
         <div className="py-12 flex justify-center">
           <LoadingSpinner />
@@ -141,26 +352,32 @@ export default function QueueTab({ role: _role, mode }: Props) {
         </div>
       )}
 
-      {!loading && !error && rows.length > 0 && (
+      {!loading && !error && rows.length > 0 && visibleRows.length === 0 && (
+        <div className="py-12 text-center text-sm text-gray-500 dark:text-gray-400">
+          No rows match the current filters. <button onClick={clearAllFilters} className="text-blue-600 dark:text-blue-300 hover:underline">Clear filters</button>.
+        </div>
+      )}
+
+      {!loading && !error && visibleRows.length > 0 && (
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead className="bg-gray-50 dark:bg-gray-900">
               <tr>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Date</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Time</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Rep</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Advisor</th>
+                <SortHeader label="Date" field="date" active={sortField === 'date'} dir={sortDir} onClick={handleSort} />
+                <SortHeader label="Time" field="time" active={sortField === 'time'} dir={sortDir} onClick={handleSort} />
+                <SortHeader label="Rep" field="rep" active={sortField === 'rep'} dir={sortDir} onClick={handleSort} />
+                <SortHeader label="Advisor" field="advisor" active={sortField === 'advisor'} dir={sortDir} onClick={handleSort} />
                 {mode === 'queue' && (
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Reviewer</th>
+                  <SortHeader label="Reviewer" field="reviewer" active={sortField === 'reviewer'} dir={sortDir} onClick={handleSort} />
                 )}
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Edit ver.</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Scheduled reveal</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Call ID</th>
+                <SortHeader label="Status" field="status" active={sortField === 'status'} dir={sortDir} onClick={handleSort} />
+                <SortHeader label="Edit ver." field="edit_version" active={sortField === 'edit_version'} dir={sortDir} onClick={handleSort} />
+                <SortHeader label="Scheduled reveal" field="scheduled_reveal" active={sortField === 'scheduled_reveal'} dir={sortDir} onClick={handleSort} />
+                <SortHeader label="Call ID" field="call_id" active={sortField === 'call_id'} dir={sortDir} onClick={handleSort} />
               </tr>
             </thead>
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              {rows.map((r) => {
+              {visibleRows.map((r) => {
                 const href = `/dashboard/call-intelligence/evaluations/${r.evaluation_id}?returnTab=queue`;
                 return (
                   <tr
@@ -181,6 +398,11 @@ export default function QueueTab({ role: _role, mode }: Props) {
                     <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-100">
                       <span className="inline-flex items-center gap-2">
                         <span>{r.rep_full_name ?? '—'}</span>
+                        {r.rep_role && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-200 font-medium">
+                            {r.rep_role}
+                          </span>
+                        )}
                         {r.rubric_version !== null && (
                           <span
                             className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"

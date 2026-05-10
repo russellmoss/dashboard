@@ -17,6 +17,9 @@ export interface EvaluationQueueRow {
   advisor_name: string | null;
   rep_id: string;
   rep_full_name: string | null;
+  /** reps.role for the call's rep — 'SGA' | 'SGM' | 'manager' | 'admin' | null.
+   * Drives the queue's role filter (matches CoachingUsage's repRole semantics). */
+  rep_role: string | null;
   assigned_manager_id_snapshot: string;
   assigned_manager_full_name: string | null;
   status: 'pending_review' | 'revealed' | 'auto_revealed';

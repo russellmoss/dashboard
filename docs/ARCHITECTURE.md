@@ -2223,6 +2223,8 @@ The Queue heading is "My Evaluations" for SGM/SGA (coachee view, scoped by own `
 
 **Advisor-call filter** (added 2026-05-10): `getEvaluationsForManager` now hard-filters to `cn.likely_call_type = 'advisor_call'`. Internal-collaboration (all-hands, training, comp-plan walkthroughs), vendor calls, unknown, and unclassified (NULL) call_notes are excluded from the queue regardless of role. This matches the advisor-facing rule used by Coaching Usage (§Coaching Usage). Direct-link to a specific eval still works — the filter only hides rows from the listing query, not `getEvaluationDetail`. If a real recruiting call is mis-classified as `internal_collaboration` it won't surface; the manager-monitor classifier is the upstream truth source.
 
+**Client-side sort + filters on the queue** (added 2026-05-10, Phase A): every column header in `QueueTab` cycles asc/desc on click. Fuzzy multi-token name search on Rep + Advisor, mirroring CoachingUsage's helper. Rep role filter (any/SGA/SGM) renders for admin/manager only (SGM/SGA already see only their own evals). All operate over the already-fetched rows — no extra round-trips. `rep_role` was added to `EvaluationQueueRow` (sourced from `sga.role` in the existing SELECT — no new join). Funnel filters (SQL'd / SQO'd / Stages / Closed Lost / Pushed-to-SFDC) are Phase B and require backend BQ + SFDC enrichment per row.
+
 ### Data Flow
 
 ```
