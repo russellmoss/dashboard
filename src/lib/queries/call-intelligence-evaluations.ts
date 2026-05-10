@@ -143,7 +143,11 @@ export async function getEvaluationsForManager(
     LEFT JOIN reps  sga        ON sga.id = e.rep_id                     AND sga.is_system = false
     LEFT JOIN reps  mgr        ON mgr.id = e.assigned_manager_id_snapshot AND mgr.is_system = false
     WHERE (${scopeWhere}) AND (${statusWhere(historyFilter)})
-      AND cn.likely_call_type = 'advisor_call'
+      -- Advisor-facing rule: every Kixie call counts (outbound dialer = prospect-
+      -- facing by definition, never AI-classified). Granola calls require
+      -- likely_call_type='advisor_call' from the manager-monitor classifier;
+      -- internal_collaboration / vendor_call / unknown / NULL are filtered out.
+      AND (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')
     ORDER BY e.created_at DESC NULLS LAST
     LIMIT $${limitParamIdx}
   `;
