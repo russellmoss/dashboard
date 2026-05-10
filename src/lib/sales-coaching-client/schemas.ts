@@ -479,7 +479,8 @@ export const DeleteTranscriptCommentResponse = z.object({ ok: z.literal(true) })
 //   POST   /api/dashboard/rubrics                  CreateRubricRequest       → RubricResponse
 //   PATCH  /api/dashboard/rubrics/:id/activate     ActivateRubricRequest     → RubricResponse | (409)
 //   PATCH  /api/dashboard/rubrics/:id              UpdateDraftRubricRequest  → RubricResponse | (409)
-//   DELETE /api/dashboard/rubrics/:id              (no body) — drafts only   → DeleteRubricResponse | (404|409)
+//   DELETE /api/dashboard/rubrics/:id              (no body) — drafts or       → DeleteRubricResponse | (404|409)
+//                                                  safe archived (no eval refs)
 
 // Narrow enum — the rubrics.role CHECK constraint allows only 'SGA'|'SGM'.
 // Distinct from the cross-cutting RoleSchema (which also covers manager/admin/etc.).
@@ -674,3 +675,225 @@ export type RubricListQueryT = z.infer<typeof RubricListQuerySchema>;
 export type RubricResponseT = z.infer<typeof RubricResponse>;
 export type RubricListResponseT = z.infer<typeof RubricListResponse>;
 export type DeleteRubricResponseT = z.infer<typeof DeleteRubricResponse>;
+
+// ════════════════════════════════════════════════════════════════════════════
+// Step 5b-3-API — Rep note review bridge endpoints (added 2026-05-09)
+//
+// Six endpoints under /api/dashboard/note-review/* for the Dashboard long-note
+// review UI (notes >2,800 chars that don't fit in Slack's 3,000-char modal).
+// Reuses Step 5a-API bridge auth, Step 4 SFDC waterfall, and the same
+// enqueueSfdcWrite() orchestrator the Slack approve-path uses.
+//
+// OCC: every PATCH/POST request carries `expected_edit_version: number` —
+// migration 039 added the column. Council 2026-05-09 explicitly chose this
+// over `updated_at`-OCC because Postgres microsecond precision truncates to
+// millisecond in JSON serialization, guaranteeing OCC false-positives.
+// ════════════════════════════════════════════════════════════════════════════
+
+// Mirrors CallNoteSource in src/lib/db/types.ts.
+export const CallNoteSourceSchema = z.enum(['granola', 'kixie']);
+
+// Mirrors CallNoteStatus in src/lib/db/types.ts.
+export const CallNoteStatusSchema = z.enum(['pending', 'approved', 'rejected', 'sent_to_sfdc']);
+
+// Mirrors SfdcRecordType in src/lib/db/types.ts (CHECK on
+// call_notes.sfdc_record_type allows exactly these four).
+export const SfdcRecordTypeSchema = z.enum(['Lead', 'Contact', 'Opportunity', 'Account']);
+
+// STRICT SUBSET of LinkageStrategy in src/lib/db/types.ts:418-426 — bridge
+// rejects 'kixie_task_link' (that value is reserved for Kixie ingest only).
+// Compile-time guard below asserts the subset relationship.
+export const BridgeLinkageStrategySchema = z.enum([
+  'manual_entry',
+  'crd_prefix',
+  'attendee_email',
+  'calendar_title',
+]);
+
+// NOTE: the compile-time DAL-subset guard for BridgeLinkageStrategySchema
+// lives in src/lib/dashboard-api/schemas-dal-guard.ts (sales-coaching only,
+// NOT mirrored to Dashboard) so this file stays portable. The Dashboard
+// repo holds a byte-for-byte mirror at
+// src/lib/sales-coaching-client/schemas.ts and has no `../db/types`.
+
+// Attendee shape mirrors CallNoteAttendee in src/lib/db/types.ts.
+export const CallNoteAttendeeSchema = z
+  .object({
+    name: z.string(),
+    email: z.string(),
+  })
+  .strict();
+
+// List-row shape — preview without a second fetch.
+export const CallNoteSummarySchema = z
+  .object({
+    id: UuidSchema,
+    title: z.string(),
+    call_started_at: z.string(),  // ISO; mirror of timestamp with time zone
+    summary_text: z.string().nullable(),
+    summary_markdown: z.string().nullable(),
+    summary_markdown_edited: z.string().nullable(),
+    note_char_count: z.number().int(),
+    attendees: z.array(CallNoteAttendeeSchema),
+    granola_web_url: z.string().nullable(),
+    source: CallNoteSourceSchema,
+    status: CallNoteStatusSchema,
+    edit_version: z.number().int(),
+    updated_at: z.string(),
+  })
+  .strict();
+
+// Single-row shape — extends Summary with transcript JSONB + SFDC linkage.
+// Caller composes from getCallNoteForReview (joins call_transcripts 1:1 on
+// call_note_id, never on evaluation_id).
+export const CallNoteDetailSchema = CallNoteSummarySchema.extend({
+  rep_id: UuidSchema,
+  transcript: z.unknown().nullable(),  // TranscriptUtterance[]; opaque on the wire
+  sfdc_who_id: z.string().nullable(),
+  sfdc_what_id: z.string().nullable(),
+  sfdc_record_id: z.string().nullable(),
+  sfdc_record_type: SfdcRecordTypeSchema.nullable(),
+  // DAL value (full LinkageStrategy enum); the bridge will never WRITE
+  // 'kixie_task_link' but it can READ rows where that's the value (Kixie
+  // ingest set it) — so the response uses the FULL enum, not the bridge subset.
+  linkage_strategy: z.enum([
+    'manual_entry',
+    'crd_prefix',
+    'attendee_email',
+    'calendar_title',
+    'kixie_task_link',
+  ]),
+  evaluation_id: UuidSchema.nullable(),
+}).strict();
+
+// ─── GET /api/dashboard/note-review/me ───────────────────────────────────────
+
+export const MyNoteReviewListResponse = z
+  .object({
+    items: z.array(CallNoteSummarySchema),
+  })
+  .strict();
+
+// ─── GET /api/dashboard/note-review/:callNoteId ─────────────────────────────
+
+export const GetCallNoteReviewResponse = z
+  .object({
+    call_note: CallNoteDetailSchema,
+  })
+  .strict();
+
+// ─── PATCH /api/dashboard/note-review/:callNoteId ───────────────────────────
+
+export const EditCallNoteRequest = z
+  .object({
+    summary_markdown_edited: z.string().min(0).max(100_000),
+    expected_edit_version: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const EditCallNoteResponse = z
+  .object({
+    call_note: CallNoteDetailSchema,
+  })
+  .strict();
+
+// ─── POST /api/dashboard/note-review/:callNoteId/sfdc-search ────────────────
+
+export const SfdcSearchQueryTypeSchema = z.enum(['crd', 'email', 'name', 'manual_id']);
+
+export const SfdcSearchRequest = z
+  .object({
+    query: z.string().trim().min(1).max(200),
+    query_type: SfdcSearchQueryTypeSchema,
+  })
+  .strict();
+
+export const SfdcSearchMatchSchema = z
+  .object({
+    id: z.string(),  // 15- or 18-char SFDC ID
+    name: z.string(),
+    type: SfdcRecordTypeSchema,
+    crd: z.string().optional(),
+    owner_email: z.string().optional(),
+    score: z.number(),
+  })
+  .strict();
+
+export const SfdcSearchResponse = z
+  .object({
+    matches: z.array(SfdcSearchMatchSchema),
+  })
+  .strict();
+
+// ─── PATCH /api/dashboard/note-review/:callNoteId/sfdc-link ─────────────────
+
+export const SetSfdcLinkRequest = z
+  .object({
+    sfdc_who_id: z.string().nullable().optional(),
+    sfdc_what_id: z.string().nullable().optional(),
+    sfdc_record_id: z.string().min(15).max(18),  // 15- or 18-char SFDC ID
+    sfdc_record_type: SfdcRecordTypeSchema,
+    linkage_strategy: BridgeLinkageStrategySchema,
+    expected_edit_version: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const SetSfdcLinkResponse = z
+  .object({
+    call_note: CallNoteDetailSchema,
+  })
+  .strict();
+
+// ─── POST /api/dashboard/note-review/:callNoteId/submit ─────────────────────
+
+export const SubmitNoteReviewRequest = z
+  .object({
+    confirm: z.literal(true),
+    expected_edit_version: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const SubmitNoteReviewResponse = z
+  .object({
+    call_note: CallNoteDetailSchema,
+    sfdc_write_log_id: z.string().nullable(),  // null when STEP5_SAFE_MODE on
+  })
+  .strict();
+
+// ─── POST /api/dashboard/note-review/:callNoteId/reject ─────────────────────
+
+export const RejectNoteReviewRequest = z
+  .object({
+    reason: z.string().trim().min(1).max(2000),
+    expected_edit_version: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const RejectNoteReviewResponse = z
+  .object({
+    call_note: CallNoteDetailSchema,
+  })
+  .strict();
+
+// Step 5b-3-API inferred types — rep note review bridge.
+export type CallNoteSourceT = z.infer<typeof CallNoteSourceSchema>;
+export type CallNoteStatusT = z.infer<typeof CallNoteStatusSchema>;
+export type SfdcRecordTypeT = z.infer<typeof SfdcRecordTypeSchema>;
+export type BridgeLinkageStrategyT = z.infer<typeof BridgeLinkageStrategySchema>;
+export type CallNoteAttendeeT = z.infer<typeof CallNoteAttendeeSchema>;
+export type CallNoteSummaryT = z.infer<typeof CallNoteSummarySchema>;
+export type CallNoteDetailT = z.infer<typeof CallNoteDetailSchema>;
+export type MyNoteReviewListResponseT = z.infer<typeof MyNoteReviewListResponse>;
+export type GetCallNoteReviewResponseT = z.infer<typeof GetCallNoteReviewResponse>;
+export type EditCallNoteRequestT = z.infer<typeof EditCallNoteRequest>;
+export type EditCallNoteResponseT = z.infer<typeof EditCallNoteResponse>;
+export type SfdcSearchQueryTypeT = z.infer<typeof SfdcSearchQueryTypeSchema>;
+export type SfdcSearchRequestT = z.infer<typeof SfdcSearchRequest>;
+export type SfdcSearchMatchT = z.infer<typeof SfdcSearchMatchSchema>;
+export type SfdcSearchResponseT = z.infer<typeof SfdcSearchResponse>;
+export type SetSfdcLinkRequestT = z.infer<typeof SetSfdcLinkRequest>;
+export type SetSfdcLinkResponseT = z.infer<typeof SetSfdcLinkResponse>;
+export type SubmitNoteReviewRequestT = z.infer<typeof SubmitNoteReviewRequest>;
+export type SubmitNoteReviewResponseT = z.infer<typeof SubmitNoteReviewResponse>;
+export type RejectNoteReviewRequestT = z.infer<typeof RejectNoteReviewRequest>;
+export type RejectNoteReviewResponseT = z.infer<typeof RejectNoteReviewResponse>;

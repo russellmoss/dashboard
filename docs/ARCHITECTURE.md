@@ -2206,6 +2206,7 @@ The Call Intelligence page (`/dashboard/call-intelligence`, page ID 20) hosts AI
 - `src/app/dashboard/call-intelligence/page.tsx` — server gate + tab strip
 - `src/app/dashboard/call-intelligence/evaluations/[id]/page.tsx` — eval drill-down sub-route
 - `src/app/dashboard/call-intelligence/rubrics/[id]/page.tsx` — rubric editor sub-route (manager + admin only). `[id]` is a UUID for edit/view, or the literal `'new'` for create-new-version.
+- `src/app/dashboard/call-intelligence/review/[callNoteId]/page.tsx` — rep note-review sub-route (any active page-20 user). Reachable from the Slack DM `[Review in App →]` deep-link and from the "My pending note reviews" widget on the Queue tab. Mobile-responsive (≤375px). Editor + SFDC linkage panel + sticky Approve/Reject action bar. On bridge-fetch failure (note already approved/rejected/deleted/forbidden), redirects to `/dashboard/call-intelligence?tab=queue&note=unavailable`.
 
 **Permission**: Page ID 20 — `revops_admin`, `admin`, `manager`, `sgm`, `sga`. Recruiter and capital_partner roles have explicit redirects.
 
@@ -2263,15 +2264,21 @@ The bridge token format: `v1.<base64url(payload)>.<base64url(signature)>`, paylo
 | `/api/call-intelligence/rubrics` | GET / POST | direct GET (joins reps for `created_by_name`), bridge POST | Listing for the Rubrics tab / create new draft rubric |
 | `/api/call-intelligence/rubrics/[id]` | GET / PATCH | bridge | Single rubric / update draft (OCC via `expected_edit_version`; 409 `rubric_conflict` discriminator: `version_mismatch`/`not_in_draft`/`concurrent_activation`) |
 | `/api/call-intelligence/rubrics/[id]/activate` | PATCH | bridge | Activate draft (atomic archive-old + flip-new); 409 on concurrent activation |
+| `/api/call-intelligence/note-reviews` | GET | bridge | List `pending` note-reviews for the current rep (manager+admin see all) |
+| `/api/call-intelligence/note-reviews/[callNoteId]` | GET / PATCH | bridge | Detail / edit `summary_markdown_edited`. PATCH carries `expected_edit_version` (OCC); 409 `call_note_conflict` triggers reload + banner |
+| `/api/call-intelligence/note-reviews/[callNoteId]/sfdc-search` | POST | bridge | Search SFDC by CRD / Email / Name / Manual ID (read-only, no revalidate) |
+| `/api/call-intelligence/note-reviews/[callNoteId]/sfdc-link` | PATCH | bridge | Set linkage to a chosen SFDC record (always sends `linkage_strategy='manual_entry'`) |
+| `/api/call-intelligence/note-reviews/[callNoteId]/submit` | POST | bridge | Approve & queue for SFDC push; redirects to `?tab=queue` on success |
+| `/api/call-intelligence/note-reviews/[callNoteId]/reject` | POST | bridge | Reject with reason; redirects to `?tab=queue` on success |
 
-Cache tag: `CACHE_TAGS.CALL_INTELLIGENCE_QUEUE`. Mutating routes call `revalidateTag()` after a successful bridge response. Listed in `src/app/api/admin/refresh-cache/route.ts` for the bulk admin invalidation.
+Cache tag: `CACHE_TAGS.CALL_INTELLIGENCE_QUEUE`. Mutating routes call `revalidateTag()` after a successful bridge response. Listed in `src/app/api/admin/refresh-cache/route.ts` for the bulk admin invalidation. Note-review mutators also revalidate `CALL_INTELLIGENCE_QUEUE` (no separate `NOTE_REVIEWS` tag — the widget fetches with `cache: 'no-store'`).
 
 ### Bridge Client
 
 `src/lib/sales-coaching-client/`:
 - `index.ts` — server-only fetch wrapper, signs token + sets `X-Request-ID`, parses response against mirrored Zod schema, dispatches typed errors per response code
 - `token.ts` — `signDashboardToken(email, opts)` HMAC-SHA256
-- `errors.ts` — `BridgeAuthError`, `BridgeTransportError`, `BridgeValidationError`, `EvaluationConflictError`, `DeactivateBlockedError`, `ContentRefinementAlreadyResolvedError`, `EvaluationNotFoundError`, `ContentRefinementDuplicateError`, `RubricConflictError` (`reason: 'version_mismatch' | 'not_in_draft' | 'concurrent_activation'`)
+- `errors.ts` — `BridgeAuthError`, `BridgeTransportError`, `BridgeValidationError`, `EvaluationConflictError`, `DeactivateBlockedError`, `ContentRefinementAlreadyResolvedError`, `EvaluationNotFoundError`, `ContentRefinementDuplicateError`, `RubricConflictError` (`reason: 'version_mismatch' | 'not_in_draft' | 'concurrent_activation'`), `CallNoteConflictError` (carries `callNoteId`, `expectedVersion`, `actualVersion`; bridge-side and route-side both surface 409 status — defense in depth, since the typed branch fires only when the bridge envelope's `error` is exactly `'call_note_conflict'`).
 - `schemas.ts` — **byte-identical mirror** of `sales-coaching/src/lib/dashboard-api/schemas.ts`. CI workflow `.github/workflows/schema-mirror-check.yml` fails the build on drift (cross-repo checkout requires `secrets.CROSS_REPO_TOKEN`). Local check: `npm run check:schema-mirror` (uses GH raw with `GH_TOKEN`, or `SALES_COACHING_SCHEMAS_PATH` for sibling-repo dev). Recovery: `/sync-bridge-schema` skill in Claude Code.
 
 ### Key Files
@@ -2295,6 +2302,23 @@ Cache tag: `CACHE_TAGS.CALL_INTELLIGENCE_QUEUE`. Mutating routes call `revalidat
 | `src/lib/queries/call-intelligence-users.ts` | `getCoachingUsers`, `getRevealSettingsByEmail` |
 | `src/lib/queries/call-intelligence-refinements.ts` | `getContentRefinements` |
 | `src/types/call-intelligence.ts` | `EvaluationQueueRow`, `EvaluationDetail`, `Citation`, `TranscriptCommentRow`, `KbChunkAugmentation`, `TranscriptUtterance`, `CoachingRep`, `ContentRefinementRow`, `RevealSettings`, `CallIntelligenceTab` |
+| `src/app/dashboard/call-intelligence/review/[callNoteId]/page.tsx` | Server gate (page 20 + `recruiter`/`capital_partner` redirects) → fetches `getCallNoteReview` via bridge; on failure redirects to `?tab=queue&note=unavailable`. |
+| `src/app/dashboard/call-intelligence/review/[callNoteId]/NoteReviewClient.tsx` | Two-column editor + SFDC linkage panel. **Single-flight save queue** (refs: `editVersionRef`, `lastSavedDraftRef`, `inFlightRef`, `pendingDraftRef`) — only one PATCH in flight; new keystrokes during a save accumulate and flush after settle. `flushPendingSave()` called and awaited before Approve / Reject / Pick. SFDC search uses `AbortController` per request. Approve disabled when `!linked || isSubmitting || hasUnsavedChanges || draftIsEmpty`. On 409, banner + `router.refresh()`. |
+| `src/app/dashboard/call-intelligence/tabs/MyPendingNoteReviewsWidget.tsx` | "My pending note reviews" strip. Client-fetches `/api/call-intelligence/note-reviews` with `cache: 'no-store'`; renders nothing on empty. The bridge enforces visibility (managers + admins see all pending; reps see only their own). **Currently NOT mounted anywhere** — kept as a ready-to-use component. The previous mount on QueueTab was reverted because (a) the widget visually displaced the existing global filters / pills / sort / rep-role filter / search, and (b) the widget items aren't pre-filtered by advisor-call type, so they appeared inconsistent with the queue's `(cn.source='kixie' OR cn.likely_call_type='advisor_call')` rule. Re-mounting requires a sales-coaching change to expose `likely_call_type` on `CallNoteSummarySchema` so the same rule can be applied client-side, OR mounting on a less-trafficked surface (own tab, settings page) where the visual displacement is acceptable. |
+| `src/components/call-intelligence/RejectReasonModal.tsx` | Reusable a11y-baseline reject modal (focus textarea on open, Escape closes, `role="dialog" aria-modal aria-labelledby`). |
+| `src/components/call-intelligence/ConfirmSubmitModal.tsx` | Reusable Salesforce-push confirmation modal with the same a11y baseline. Approve button pinned to `dark:text-gray-900` to prevent global dark-text overrides from breaking contrast. |
+| `src/components/call-intelligence/SaveStateChip.tsx` | `idle`/`saving`/`saved at HH:MM:SS`/`error → retry` chip. |
+| `src/components/call-intelligence/QueryTypeSelector.tsx` | Radio strip ≥768px, native `<select>` below — sets the new mobile fallback pattern for new mobile-first surfaces. |
+| `src/components/call-intelligence/SfdcResultsList.tsx` | Tappable list of SFDC matches; rows show name + type + optional CRD / owner_email + score. |
+| `src/lib/call-intelligence/note-review-constants.ts` | `LONG_NOTE_CHAR_THRESHOLD = 2800` — mirrors sales-coaching's threshold; only affects the "Long note" hint chip. |
+
+**Note-review widget on Queue tab**: `MyPendingNoteReviewsWidget` mounts at the top of `QueueTab` for both `mode='mine'` and `mode='queue'` (the bridge enforces row-level visibility — Dashboard does not re-implement scoping). Empty list = no widget rendered. Each row is a tappable card linking to `/dashboard/call-intelligence/review/[callNoteId]`. The "Long note" hint chip appears on rows over `LONG_NOTE_CHAR_THRESHOLD`. After Approve/Reject the user is redirected to `?tab=queue` and `router.refresh()` causes the just-resolved row to vanish from the widget — no toast (no toast library is installed; the disappearance is the visible feedback).
+
+**Conventions established for this feature**:
+- **Single-flight save queue with ref-based OCC**. Use this pattern (not naive debounced setTimeout) any time a textarea autosave can race itself. Refs hold the latest server `edit_version` and the last-saved draft so closures don't go stale; new keystrokes during a save accumulate in `pendingDraftRef` and flush automatically when the in-flight save resolves.
+- **`min-h-[44px]` touch-target convention** — Apple HIG floor — for buttons, list rows, inputs, and `<select>` on new mobile-first surfaces.
+- **Radio→`<select>` mobile fallback** in `QueryTypeSelector` (radio strip with `hidden md:inline-flex`, `<select>` with `md:hidden`). Both share state.
+- **Defense-in-depth 409 mapping**: bridge throws typed `CallNoteConflictError` when the envelope's `error` is exactly `'call_note_conflict'`, otherwise falls through to `BridgeTransportError(status=409)`. Either way the API route returns 409 to the client. Client only branches on status, not on the error class.
 
 ### Environment Variables
 

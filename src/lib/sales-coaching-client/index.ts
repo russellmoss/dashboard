@@ -12,6 +12,8 @@ import {
   EditEvaluationRequest, TranscriptCommentCreateRequest,
   ContentRefinementCreateRequest,
   CreateRubricRequest, UpdateDraftRubricRequest, ActivateRubricRequest,
+  EditCallNoteRequest, SfdcSearchRequest, SetSfdcLinkRequest,
+  SubmitNoteReviewRequest, RejectNoteReviewRequest,
   // Response schema VALUES:
   CreateUserResponse, UpdateUserResponse,
   DeactivateUserResponseOk,
@@ -22,6 +24,9 @@ import {
   ContentRefinementResponse, MyContentRefinementsResponse,
   DeleteTranscriptCommentResponse,
   RubricResponse, RubricListResponse, DeleteRubricResponse,
+  MyNoteReviewListResponse, GetCallNoteReviewResponse,
+  EditCallNoteResponse, SfdcSearchResponse, SetSfdcLinkResponse,
+  SubmitNoteReviewResponse, RejectNoteReviewResponse,
   // Catch-all error envelope (used to parse ALL non-2xx bodies):
   ErrorResponseSchema,
   // Inferred types (always with `T` suffix):
@@ -43,6 +48,12 @@ import {
   type CreateRubricRequestT, type UpdateDraftRubricRequestT, type ActivateRubricRequestT,
   type RubricResponseT, type RubricListResponseT,
   type DeleteRubricResponseT,
+  type MyNoteReviewListResponseT, type GetCallNoteReviewResponseT,
+  type EditCallNoteRequestT, type EditCallNoteResponseT,
+  type SfdcSearchRequestT, type SfdcSearchResponseT,
+  type SetSfdcLinkRequestT, type SetSfdcLinkResponseT,
+  type SubmitNoteReviewRequestT, type SubmitNoteReviewResponseT,
+  type RejectNoteReviewRequestT, type RejectNoteReviewResponseT,
 } from './schemas';
 import { signDashboardToken } from './token';
 import {
@@ -50,7 +61,7 @@ import {
   EvaluationConflictError, DeactivateBlockedError,
   ContentRefinementAlreadyResolvedError,
   EvaluationNotFoundError, ContentRefinementDuplicateError,
-  RubricConflictError,
+  RubricConflictError, CallNoteConflictError,
 } from './errors';
 
 /**
@@ -61,6 +72,7 @@ import {
  */
 interface BridgeContext {
   evaluationId?: string;
+  callNoteId?: string;
   expectedEditVersion?: number;
 }
 
@@ -205,6 +217,16 @@ async function bridgeRequest<TReq, TRes>(opts: PostOptions<TReq>): Promise<TRes>
           throw new RubricConflictError(errMsg, reason, requestId);
         }
         // Unknown reason — fall through to generic 409 handling
+      }
+      if (errCode === 'call_note_conflict') {
+        // Server doesn't return actual version — caller should reload to discover it.
+        throw new CallNoteConflictError(
+          errMsg,
+          opts.context?.callNoteId ?? '',
+          opts.context?.expectedEditVersion ?? -1,
+          null,
+          requestId,
+        );
       }
       throw new BridgeTransportError(`Conflict: ${errCode ?? '409'}`, 409, requestId);
     }
@@ -407,6 +429,77 @@ export const salesCoachingClient = {
       email,
       responseSchema: DeleteRubricResponse,
     }),
+
+  // ----- Step 5b-3-API: Rep note-review bridge. -----
+  listMyNoteReviews: (email: string) =>
+    bridgeRequest<undefined, MyNoteReviewListResponseT>({
+      method: 'GET',
+      path: '/api/dashboard/note-review/me',
+      email,
+      responseSchema: MyNoteReviewListResponse,
+    }),
+
+  getCallNoteReview: (email: string, callNoteId: string) =>
+    bridgeRequest<undefined, GetCallNoteReviewResponseT>({
+      method: 'GET',
+      path: `/api/dashboard/note-review/${encodeURIComponent(callNoteId)}`,
+      email,
+      responseSchema: GetCallNoteReviewResponse,
+    }),
+
+  editCallNote: (email: string, callNoteId: string, body: EditCallNoteRequestT) =>
+    bridgeRequest<EditCallNoteRequestT, EditCallNoteResponseT>({
+      method: 'PATCH',
+      path: `/api/dashboard/note-review/${encodeURIComponent(callNoteId)}`,
+      email,
+      requestSchema: EditCallNoteRequest,
+      responseSchema: EditCallNoteResponse,
+      body,
+      context: { callNoteId, expectedEditVersion: (body as { expected_edit_version: number }).expected_edit_version },
+    }),
+
+  searchSfdcForNote: (email: string, callNoteId: string, body: SfdcSearchRequestT) =>
+    bridgeRequest<SfdcSearchRequestT, SfdcSearchResponseT>({
+      method: 'POST',
+      path: `/api/dashboard/note-review/${encodeURIComponent(callNoteId)}/sfdc-search`,
+      email,
+      requestSchema: SfdcSearchRequest,
+      responseSchema: SfdcSearchResponse,
+      body,
+    }),
+
+  setSfdcLink: (email: string, callNoteId: string, body: SetSfdcLinkRequestT) =>
+    bridgeRequest<SetSfdcLinkRequestT, SetSfdcLinkResponseT>({
+      method: 'PATCH',
+      path: `/api/dashboard/note-review/${encodeURIComponent(callNoteId)}/sfdc-link`,
+      email,
+      requestSchema: SetSfdcLinkRequest,
+      responseSchema: SetSfdcLinkResponse,
+      body,
+      context: { callNoteId, expectedEditVersion: (body as { expected_edit_version: number }).expected_edit_version },
+    }),
+
+  submitNoteReview: (email: string, callNoteId: string, body: SubmitNoteReviewRequestT) =>
+    bridgeRequest<SubmitNoteReviewRequestT, SubmitNoteReviewResponseT>({
+      method: 'POST',
+      path: `/api/dashboard/note-review/${encodeURIComponent(callNoteId)}/submit`,
+      email,
+      requestSchema: SubmitNoteReviewRequest,
+      responseSchema: SubmitNoteReviewResponse,
+      body,
+      context: { callNoteId, expectedEditVersion: (body as { expected_edit_version: number }).expected_edit_version },
+    }),
+
+  rejectNoteReview: (email: string, callNoteId: string, body: RejectNoteReviewRequestT) =>
+    bridgeRequest<RejectNoteReviewRequestT, RejectNoteReviewResponseT>({
+      method: 'POST',
+      path: `/api/dashboard/note-review/${encodeURIComponent(callNoteId)}/reject`,
+      email,
+      requestSchema: RejectNoteReviewRequest,
+      responseSchema: RejectNoteReviewResponse,
+      body,
+      context: { callNoteId, expectedEditVersion: (body as { expected_edit_version: number }).expected_edit_version },
+    }),
 };
 
 export {
@@ -414,5 +507,5 @@ export {
   EvaluationConflictError, DeactivateBlockedError,
   ContentRefinementAlreadyResolvedError,
   EvaluationNotFoundError, ContentRefinementDuplicateError,
-  RubricConflictError,
+  RubricConflictError, CallNoteConflictError,
 } from './errors';

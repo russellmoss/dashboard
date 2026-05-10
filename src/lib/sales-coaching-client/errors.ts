@@ -42,6 +42,25 @@ export class EvaluationConflictError extends BridgeError {
   }
 }
 
+/**
+ * 409 surfaced when a call_note OCC edit collides with concurrent state.
+ * Server returns: `{ ok: false, error: 'call_note_conflict', message }`.
+ * Like EvaluationConflictError, the envelope omits the actual version — the
+ * client should reload the call_note to learn the new edit_version.
+ */
+export class CallNoteConflictError extends BridgeError {
+  callNoteId: string;
+  expectedVersion: number;
+  actualVersion: number | null;
+  constructor(message: string, callNoteId: string, expectedVersion: number, actualVersion: number | null, requestId?: string) {
+    super(message, 409, requestId);
+    this.name = 'CallNoteConflictError';
+    this.callNoteId = callNoteId;
+    this.expectedVersion = expectedVersion;
+    this.actualVersion = actualVersion;
+  }
+}
+
 export class DeactivateBlockedError extends BridgeError {
   constructor(
     message: string,
