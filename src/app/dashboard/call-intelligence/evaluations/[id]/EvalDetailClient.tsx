@@ -15,6 +15,7 @@ import { InlineEditDimensionScore } from '@/components/call-intelligence/InlineE
 import { InlineEditTextField } from '@/components/call-intelligence/InlineEditTextField';
 import { InlineEditListField, type ListItem } from '@/components/call-intelligence/InlineEditListField';
 import { AuditToggle } from '@/components/call-intelligence/AuditToggle';
+import { RubricVersionBadge } from '@/components/call-intelligence/RubricVersionBadge';
 import {
   TranscriptModal,
   type TranscriptModalHandle,
@@ -600,7 +601,14 @@ export default function EvalDetailClient({ id, role, returnTab, currentRepId }: 
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                   AI Evaluation
                 </h2>
-                {overall !== null && <OverallScoreBadge score={overall} />}
+                <div className="flex items-center gap-2">
+                  {overall !== null && <OverallScoreBadge score={overall} />}
+                  <RubricVersionBadge
+                    version={detail.rubric_version}
+                    name={detail.rubric_name}
+                    dimensionCount={detail.rubric_dimension_count}
+                  />
+                </div>
               </div>
               {canonicalDimensionScores.length > 0 && (
                 <div className="space-y-3">

@@ -150,3 +150,10 @@ export function getDataFilters(permissions: UserPermissions): {
     recruiterFilter: permissions.recruiterFilter,
   };
 }
+
+export const RUBRIC_EDITOR_ROLES = ['admin', 'revops_admin', 'manager'] as const;
+export type RubricEditorRole = typeof RUBRIC_EDITOR_ROLES[number];
+
+export function canEditRubrics(role: string | undefined | null): role is RubricEditorRole {
+  return typeof role === 'string' && (RUBRIC_EDITOR_ROLES as readonly string[]).includes(role);
+}

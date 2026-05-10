@@ -62,9 +62,12 @@ function fetchUrl(url) {
             ),
           );
         }
-        let body = '';
-        res.on('data', (chunk) => (body += chunk));
-        res.on('end', () => resolve(body));
+        // Accumulate as Buffer so multi-byte UTF-8 sequences that span
+        // chunk boundaries decode correctly. Per-chunk `chunk.toString()`
+        // can produce U+FFFD when a code point straddles two chunks.
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
       })
       .on('error', reject);
   });

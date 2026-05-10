@@ -11,6 +11,7 @@ import {
   ContentRefinementResolveRequest,
   EditEvaluationRequest, TranscriptCommentCreateRequest,
   ContentRefinementCreateRequest,
+  CreateRubricRequest, UpdateDraftRubricRequest, ActivateRubricRequest,
   // Response schema VALUES:
   CreateUserResponse, UpdateUserResponse,
   DeactivateUserResponseOk,
@@ -20,6 +21,7 @@ import {
   EditEvaluationResponse, TranscriptCommentResponse,
   ContentRefinementResponse, MyContentRefinementsResponse,
   DeleteTranscriptCommentResponse,
+  RubricResponse, RubricListResponse, DeleteRubricResponse,
   // Catch-all error envelope (used to parse ALL non-2xx bodies):
   ErrorResponseSchema,
   // Inferred types (always with `T` suffix):
@@ -37,6 +39,10 @@ import {
   type EditEvaluationResponseT, type TranscriptCommentResponseT,
   type ContentRefinementResponseT, type MyContentRefinementsResponseT,
   type DeleteTranscriptCommentResponseT,
+  type RubricRoleT, type RubricStatusT,
+  type CreateRubricRequestT, type UpdateDraftRubricRequestT, type ActivateRubricRequestT,
+  type RubricResponseT, type RubricListResponseT,
+  type DeleteRubricResponseT,
 } from './schemas';
 import { signDashboardToken } from './token';
 import {
@@ -44,6 +50,7 @@ import {
   EvaluationConflictError, DeactivateBlockedError,
   ContentRefinementAlreadyResolvedError,
   EvaluationNotFoundError, ContentRefinementDuplicateError,
+  RubricConflictError,
 } from './errors';
 
 /**
@@ -187,6 +194,18 @@ async function bridgeRequest<TReq, TRes>(opts: PostOptions<TReq>): Promise<TRes>
           requestId,
         );
       }
+      if (errCode === 'rubric_conflict') {
+        const reason = errEnvelope?.reason;
+        if (
+          reason === 'version_mismatch' ||
+          reason === 'not_in_draft' ||
+          reason === 'concurrent_activation' ||
+          reason === 'has_evaluation_references'
+        ) {
+          throw new RubricConflictError(errMsg, reason, requestId);
+        }
+        // Unknown reason — fall through to generic 409 handling
+      }
       throw new BridgeTransportError(`Conflict: ${errCode ?? '409'}`, 409, requestId);
     }
     if (status === 400) {
@@ -323,6 +342,71 @@ export const salesCoachingClient = {
       email,
       responseSchema: MyContentRefinementsResponse,
     }),
+
+  // ----- Step 5b-2-API: Rubric management. -----
+  listRubrics: (
+    email: string,
+    query?: { role?: RubricRoleT; status?: RubricStatusT },
+  ) => {
+    const qs = new URLSearchParams();
+    if (query?.role) qs.set('role', query.role);
+    if (query?.status) qs.set('status', query.status);
+    const path = qs.toString()
+      ? `/api/dashboard/rubrics?${qs.toString()}`
+      : '/api/dashboard/rubrics';
+    return bridgeRequest<undefined, RubricListResponseT>({
+      method: 'GET',
+      path,
+      email,
+      responseSchema: RubricListResponse,
+    });
+  },
+
+  getRubric: (email: string, id: string) =>
+    bridgeRequest<undefined, RubricResponseT>({
+      method: 'GET',
+      path: `/api/dashboard/rubrics/${encodeURIComponent(id)}`,
+      email,
+      responseSchema: RubricResponse,
+    }),
+
+  createRubric: (email: string, body: CreateRubricRequestT) =>
+    bridgeRequest<CreateRubricRequestT, RubricResponseT>({
+      method: 'POST',
+      path: '/api/dashboard/rubrics',
+      email,
+      requestSchema: CreateRubricRequest,
+      responseSchema: RubricResponse,
+      body,
+    }),
+
+  updateDraftRubric: (email: string, id: string, body: UpdateDraftRubricRequestT) =>
+    bridgeRequest<UpdateDraftRubricRequestT, RubricResponseT>({
+      method: 'PATCH',
+      path: `/api/dashboard/rubrics/${encodeURIComponent(id)}`,
+      email,
+      requestSchema: UpdateDraftRubricRequest,
+      responseSchema: RubricResponse,
+      body,
+    }),
+
+  activateRubric: (email: string, id: string, body: ActivateRubricRequestT) =>
+    bridgeRequest<ActivateRubricRequestT, RubricResponseT>({
+      method: 'PATCH',
+      path: `/api/dashboard/rubrics/${encodeURIComponent(id)}/activate`,
+      email,
+      requestSchema: ActivateRubricRequest,
+      responseSchema: RubricResponse,
+      body,
+    }),
+
+  deleteRubric: (email: string, id: string) =>
+    bridgeRequest<undefined, DeleteRubricResponseT>({
+      method: 'DELETE',
+      path: `/api/dashboard/rubrics/${encodeURIComponent(id)}`,
+      email,
+      responseSchema: DeleteRubricResponse,
+    }),
 };
 
 export {
@@ -330,4 +414,5 @@ export {
   EvaluationConflictError, DeactivateBlockedError,
   ContentRefinementAlreadyResolvedError,
   EvaluationNotFoundError, ContentRefinementDuplicateError,
+  RubricConflictError,
 } from './errors';

@@ -135,6 +135,7 @@ export async function getEvaluationsForManager(
       e.scheduled_reveal_at,
       e.revealed_at,
       e.reveal_override_action,
+      e.rubric_version,
       e.created_at
     FROM evaluations e
     JOIN call_notes cn         ON cn.id = e.call_note_id
@@ -233,6 +234,7 @@ export async function getEvaluationsForManager(
       scheduled_reveal_at: r.scheduled_reveal_at,
       revealed_at: r.revealed_at,
       reveal_override_action: r.reveal_override_action,
+      rubric_version: r.rubric_version,
       created_at: r.created_at,
     };
   });
@@ -276,6 +278,9 @@ export async function getEvaluationDetail(evaluationId: string): Promise<Evaluat
       editor.is_active                  AS manager_edited_by_active,
       cn.summary_markdown               AS call_summary_markdown,
       ct.transcript,
+      e.rubric_version,
+      rb.name                           AS rubric_name,
+      COALESCE(jsonb_array_length(rb.dimensions), 0) AS rubric_dimension_count,
       e.created_at,
       e.updated_at
     FROM evaluations e
@@ -284,6 +289,7 @@ export async function getEvaluationDetail(evaluationId: string): Promise<Evaluat
     LEFT JOIN reps mgr               ON mgr.id = e.assigned_manager_id_snapshot AND mgr.is_system = false
     LEFT JOIN reps editor            ON editor.id = e.manager_edited_by         AND editor.is_system = false
     LEFT JOIN call_transcripts ct    ON ct.call_note_id = e.call_note_id
+    LEFT JOIN rubrics rb             ON rb.id = e.rubric_id
     WHERE e.id = $1
     LIMIT 1
   `;

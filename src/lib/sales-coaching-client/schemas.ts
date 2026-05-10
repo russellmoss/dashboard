@@ -469,6 +469,136 @@ export const MyContentRefinementsResponse = z
 
 export const DeleteTranscriptCommentResponse = z.object({ ok: z.literal(true) }).strict();
 
+// ─── Step 5b-2 — rubric-management endpoints ─────────────────────────────────
+//
+// All five endpoints live under /api/dashboard/rubrics/*. Manager + admin only.
+// Pure DB mutations; STEP5_SAFE_MODE has nothing to suppress here.
+//
+//   GET    /api/dashboard/rubrics                  RubricListQuerySchema     → RubricListResponse
+//   GET    /api/dashboard/rubrics/:id              (no body)                 → RubricResponse | (404)
+//   POST   /api/dashboard/rubrics                  CreateRubricRequest       → RubricResponse
+//   PATCH  /api/dashboard/rubrics/:id/activate     ActivateRubricRequest     → RubricResponse | (409)
+//   PATCH  /api/dashboard/rubrics/:id              UpdateDraftRubricRequest  → RubricResponse | (409)
+//   DELETE /api/dashboard/rubrics/:id              (no body) — drafts only   → DeleteRubricResponse | (404|409)
+
+// Narrow enum — the rubrics.role CHECK constraint allows only 'SGA'|'SGM'.
+// Distinct from the cross-cutting RoleSchema (which also covers manager/admin/etc.).
+export const RubricRoleSchema = z.enum(['SGA', 'SGM']);
+
+export const RubricStatusSchema = z.enum(['draft', 'active', 'archived']);
+
+// Controlled-vocabulary regex for dimension `name` (council fix D2).
+// Lowercase + digits + underscores; no leading digit; 3-50 chars.
+// Server-side enforcement at the Zod boundary AND in the DAL
+// (registerRubricDimensions) for defense-in-depth.
+const DimensionNameSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9_]{2,49}$/, {
+    message:
+      'Dimension name must match /^[a-z][a-z0-9_]{2,49}$/ (lowercase, digits, underscores; no leading digit; 3-50 chars).',
+  });
+
+// Mirrors RubricDimensionDef in src/lib/db/types.ts:129. `levels` keys are
+// stringified ints '1'..'4' on the wire (JSON.stringify of numeric keys).
+export const RubricDimensionDefSchema = z
+  .object({
+    name: DimensionNameSchema,
+    order: z.number().int().min(0).max(99),
+    levels: z
+      .object({
+        1: z.string().trim().min(1).max(2000),
+        2: z.string().trim().min(1).max(2000),
+        3: z.string().trim().min(1).max(2000),
+        4: z.string().trim().min(1).max(2000),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const RubricSchema = z
+  .object({
+    id: UuidSchema,
+    name: z.string(),
+    role: RubricRoleSchema,
+    version: z.number().int().min(1),
+    edit_version: z.number().int().min(1), // migration 038 — OCC counter
+    status: RubricStatusSchema,
+    dimensions: z.array(RubricDimensionDefSchema),
+    created_by: UuidSchema,
+    created_at: z.string(),
+    updated_at: z.string(),
+  })
+  .strict();
+
+// ─── POST /api/dashboard/rubrics ─────────────────────────────────────────────
+
+export const CreateRubricRequest = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    role: RubricRoleSchema,
+    dimensions: z.array(RubricDimensionDefSchema).min(1),
+    status: z.enum(['draft', 'active']).optional(), // archived is not a creation target
+  })
+  .strict();
+
+// ─── PATCH /api/dashboard/rubrics/:id ────────────────────────────────────────
+//
+// Edits a draft rubric in place. `name` and/or `dimensions` may change. Active
+// and archived rubrics are immutable — server returns 409 with reason='not_in_draft'.
+// Empty payload is rejected (must include at least one editable field).
+
+export const UpdateDraftRubricRequest = z
+  .object({
+    expected_edit_version: z.number().int().min(1),
+    name: z.string().trim().min(1).max(200).optional(),
+    dimensions: z.array(RubricDimensionDefSchema).min(1).optional(),
+  })
+  .strict()
+  .refine((v) => v.name !== undefined || v.dimensions !== undefined, {
+    message: 'At least one of name or dimensions must be provided.',
+  });
+
+// ─── PATCH /api/dashboard/rubrics/:id/activate ───────────────────────────────
+
+export const ActivateRubricRequest = z
+  .object({
+    expected_edit_version: z.number().int().min(1),
+  })
+  .strict();
+
+// ─── GET /api/dashboard/rubrics ──────────────────────────────────────────────
+
+export const RubricListQuerySchema = z
+  .object({
+    role: RubricRoleSchema.optional(),
+    status: RubricStatusSchema.optional(),
+  })
+  .strict();
+
+// ─── Response envelopes ──────────────────────────────────────────────────────
+
+export const RubricResponse = z.object({ rubric: RubricSchema }).strict();
+
+export const RubricListResponse = z
+  .object({ rubrics: z.array(RubricSchema) })
+  .strict();
+
+// DELETE /api/dashboard/rubrics/:id — drafts only.
+// Returns { ok: true, deleted: { id, version, role } } so the Dashboard UI
+// can surface a confirmation banner without re-fetching.
+export const DeleteRubricResponse = z
+  .object({
+    ok: z.literal(true),
+    deleted: z
+      .object({
+        id: UuidSchema,
+        version: z.number().int().min(1),
+        role: RubricRoleSchema,
+      })
+      .strict(),
+  })
+  .strict();
+
 // ─── Generic error envelope ──────────────────────────────────────────────
 //
 // Mirrors the existing { ok: false, error } shape the server.ts errorHandler
@@ -491,6 +621,12 @@ export const ErrorResponseSchema = z
     blocking_rep_ids: z.array(UuidSchema).optional(),
     // Step 5b-1-API: RequestValidationError → 400 carries Zod issues.
     issues: z.array(z.unknown()).optional(),
+    // Step 5b-2-API: RubricConflictError → 409 carries a discriminator the
+    // Dashboard UI uses to pick the right banner copy
+    // ('version_mismatch' | 'not_in_draft' | 'concurrent_activation').
+    // Optional + opaque z.string() so future error classes can reuse it
+    // without schema churn.
+    reason: z.string().optional(),
   })
   .strict();
 
@@ -525,3 +661,16 @@ export type ContentRefinementCreateRequestT = z.infer<typeof ContentRefinementCr
 export type ContentRefinementResponseT = z.infer<typeof ContentRefinementResponse>;
 export type MyContentRefinementsResponseT = z.infer<typeof MyContentRefinementsResponse>;
 export type DeleteTranscriptCommentResponseT = z.infer<typeof DeleteTranscriptCommentResponse>;
+
+// Step 5b-2-API inferred types — rubric management.
+export type RubricRoleT = z.infer<typeof RubricRoleSchema>;
+export type RubricStatusT = z.infer<typeof RubricStatusSchema>;
+export type RubricDimensionDefT = z.infer<typeof RubricDimensionDefSchema>;
+export type RubricT = z.infer<typeof RubricSchema>;
+export type CreateRubricRequestT = z.infer<typeof CreateRubricRequest>;
+export type UpdateDraftRubricRequestT = z.infer<typeof UpdateDraftRubricRequest>;
+export type ActivateRubricRequestT = z.infer<typeof ActivateRubricRequest>;
+export type RubricListQueryT = z.infer<typeof RubricListQuerySchema>;
+export type RubricResponseT = z.infer<typeof RubricResponse>;
+export type RubricListResponseT = z.infer<typeof RubricListResponse>;
+export type DeleteRubricResponseT = z.infer<typeof DeleteRubricResponse>;

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Card, Title, Text, Metric } from '@tremor/react';
 import { RefreshCw } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { CallDetailModal, type CallDetailRowSummary } from './CallDetailModal';
+import { CallDetailModal, type CallDetailRowSummary } from '@/components/call-intelligence/CallDetailModal';
 
 type AllowedRange = '7d' | '30d' | '90d' | 'all';
 type AllowedSortField = 'call_date' | 'sga_name' | 'sgm_name';

@@ -1,6 +1,9 @@
 import type {
   RoleT,
   RevealPolicyT,
+  RubricRoleT,
+  RubricStatusT,
+  RubricDimensionDefT,
 } from '@/lib/sales-coaching-client/schemas';
 
 /** Queue tab row. Source: getEvaluationsForManager. */
@@ -21,6 +24,9 @@ export interface EvaluationQueueRow {
   scheduled_reveal_at: string | null;
   revealed_at: string | null;
   reveal_override_action: 'hold' | 'custom_delay' | null;
+  /** Rubric version snapshot at evaluation time (mirrors evaluations.rubric_version).
+   * Null on legacy rows scored before rubric versioning was introduced. */
+  rubric_version: number | null;
   created_at: string;
 }
 
@@ -42,6 +48,13 @@ export interface EvaluationDetail {
   reveal_policy_snapshot: RevealPolicyT;
   reveal_delay_minutes_snapshot: number | null;
   reveal_reminder_minutes_snapshot: number | null;
+  /** Rubric version snapshot at evaluation time (from evaluations.rubric_version). */
+  rubric_version: number | null;
+  /** Joined rubric.name (from evaluations.rubric_id × rubrics.id). Null if rubric_id is null. */
+  rubric_name: string | null;
+  /** Count of dimensions in the snapshotted rubric — surfaces in the version-badge tooltip
+   * to make cross-version score comparisons explicit. */
+  rubric_dimension_count: number | null;
   /** Numeric overall score 1.0–4.0 (or null on legacy rows). Mirrors
    * `evaluations.overall_score` — pg-node returns numeric as string, the query
    * helper coerces to number. */
@@ -165,4 +178,24 @@ export type CallIntelligenceTab =
   | 'queue'
   | 'settings'
   | 'admin-users'
-  | 'admin-refinements';
+  | 'admin-refinements'
+  | 'rubrics'
+  | 'coaching-usage';
+
+/** Rubrics tab listing row. Source: getRubricsForList (LEFT JOIN reps for creator name). */
+export interface RubricListRow {
+  id: string;
+  name: string;
+  role: RubricRoleT;
+  version: number;
+  edit_version: number;
+  status: RubricStatusT;
+  dimensions: RubricDimensionDefT[];
+  created_by: string;
+  /** COALESCE(reps.full_name, 'System') — seeds with no rep row read 'System'. */
+  created_by_name: string;
+  /** COALESCE(reps.is_system, true) — drives Edit→View lock in the listing. */
+  created_by_is_system: boolean;
+  created_at: string;
+  updated_at: string;
+}

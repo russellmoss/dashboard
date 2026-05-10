@@ -1,22 +1,27 @@
 'use client';
 
 import { useState } from 'react';
-import { ListChecks, Settings as SettingsIcon, Users, FileText } from 'lucide-react';
+import { ListChecks, Settings as SettingsIcon, Users, FileText, Sliders, PhoneCall } from 'lucide-react';
 import type { CallIntelligenceTab } from '@/types/call-intelligence';
+import { canEditRubrics } from '@/lib/permissions';
 import QueueTab from './tabs/QueueTab';
 import SettingsTab from './tabs/SettingsTab';
 import AdminUsersTab from './tabs/AdminUsersTab';
 import AdminRefinementsTab from './tabs/AdminRefinementsTab';
+import { RubricsTab } from './tabs/RubricsTab';
+import { CoachingUsageClient } from './tabs/CoachingUsageTab';
 
 interface Props {
   role: string;
   initialTab?: CallIntelligenceTab;
 }
 
-const VALID_TABS: CallIntelligenceTab[] = ['queue', 'settings', 'admin-users', 'admin-refinements'];
+const VALID_TABS: CallIntelligenceTab[] = ['queue', 'settings', 'admin-users', 'admin-refinements', 'rubrics', 'coaching-usage'];
 
 export default function CallIntelligenceClient({ role, initialTab }: Props) {
   const isAdmin = role === 'admin' || role === 'revops_admin';
+  const isRevopsAdmin = role === 'revops_admin';
+  const isManagerOrAdmin = canEditRubrics(role);
   const safeInitial: CallIntelligenceTab =
     initialTab && VALID_TABS.includes(initialTab) ? initialTab : 'queue';
   const [activeTab, setActiveTab] = useState<CallIntelligenceTab>(safeInitial);
@@ -52,6 +57,16 @@ export default function CallIntelligenceClient({ role, initialTab }: Props) {
               <FileText className="w-4 h-4" /> Admin: Content Refinements
             </TabButton>
           )}
+          {isManagerOrAdmin && (
+            <TabButton active={activeTab === 'rubrics'} onClick={() => setActiveTab('rubrics')}>
+              <Sliders className="w-4 h-4" /> Rubrics
+            </TabButton>
+          )}
+          {isRevopsAdmin && (
+            <TabButton active={activeTab === 'coaching-usage'} onClick={() => setActiveTab('coaching-usage')}>
+              <PhoneCall className="w-4 h-4" /> Coaching Usage
+            </TabButton>
+          )}
         </nav>
       </div>
 
@@ -59,6 +74,8 @@ export default function CallIntelligenceClient({ role, initialTab }: Props) {
       {activeTab === 'settings' && <SettingsTab />}
       {isAdmin && activeTab === 'admin-users' && <AdminUsersTab />}
       {isAdmin && activeTab === 'admin-refinements' && <AdminRefinementsTab />}
+      {isManagerOrAdmin && activeTab === 'rubrics' && <RubricsTab />}
+      {isRevopsAdmin && activeTab === 'coaching-usage' && <CoachingUsageClient />}
     </div>
   );
 }

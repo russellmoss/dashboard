@@ -7,7 +7,7 @@ import type { CallIntelligenceTab } from '@/types/call-intelligence';
 
 export const dynamic = 'force-dynamic';
 
-const VALID_TABS: CallIntelligenceTab[] = ['queue', 'settings', 'admin-users', 'admin-refinements'];
+const VALID_TABS: CallIntelligenceTab[] = ['queue', 'settings', 'admin-users', 'admin-refinements', 'rubrics', 'coaching-usage'];
 
 export default async function CallIntelligencePage({
   searchParams,

@@ -2200,11 +2200,12 @@ The export creates a professionally styled 7-tab workbook. Every value traces to
 
 ### Overview
 
-The Call Intelligence page (`/dashboard/call-intelligence`, page ID 20) hosts AI evaluations of advisor calls produced by the sales-coaching service. It is a single Next.js route with a 4-tab strip plus a record-level sub-route for evaluation drill-down. All future call-coaching UI surfaces ship as additional tabs inside this page rather than new top-level routes.
+The Call Intelligence page (`/dashboard/call-intelligence`, page ID 20) hosts AI evaluations of advisor calls produced by the sales-coaching service. It is a single Next.js route with a 5-tab strip plus two record-level sub-routes for evaluation drill-down and rubric editing. All future call-coaching UI surfaces ship as additional tabs or `[id]` sub-routes inside this page rather than new top-level routes.
 
 **Pages**:
 - `src/app/dashboard/call-intelligence/page.tsx` — server gate + tab strip
 - `src/app/dashboard/call-intelligence/evaluations/[id]/page.tsx` — eval drill-down sub-route
+- `src/app/dashboard/call-intelligence/rubrics/[id]/page.tsx` — rubric editor sub-route (manager + admin only). `[id]` is a UUID for edit/view, or the literal `'new'` for create-new-version.
 
 **Permission**: Page ID 20 — `revops_admin`, `admin`, `manager`, `sgm`, `sga`. Recruiter and capital_partner roles have explicit redirects.
 
@@ -2216,6 +2217,7 @@ The Call Intelligence page (`/dashboard/call-intelligence`, page ID 20) hosts AI
 | `settings` | My settings | revops_admin, admin, manager, sgm, sga | — |
 | `admin-users` | Admin: Users | revops_admin, admin only | — |
 | `admin-refinements` | Admin: Content Refinements | revops_admin, admin only | — |
+| `rubrics` | Rubrics | revops_admin, admin, manager (centralized via `canEditRubrics()` in `src/lib/permissions.ts`) | — |
 
 The Queue heading is "My Evaluations" for SGM/SGA (coachee view, scoped by own `rep_id`) and "Review Queue" for manager (scoped by `assigned_manager_id_snapshot`) and admin (unscoped). A History toggle (Pending / Revealed / All) controls the row filter.
 
@@ -2254,6 +2256,9 @@ The bridge token format: `v1.<base64url(payload)>.<base64url(signature)>`, paylo
 | `/api/call-intelligence/refinements` | GET | direct | List open content_refinement_requests (admin only) |
 | `/api/call-intelligence/refinements/[id]/resolve` | POST | bridge | Mark addressed/declined |
 | `/api/call-intelligence/settings` | GET / PATCH | direct GET, bridge PATCH | Current user reveal policy |
+| `/api/call-intelligence/rubrics` | GET / POST | direct GET (joins reps for `created_by_name`), bridge POST | Listing for the Rubrics tab / create new draft rubric |
+| `/api/call-intelligence/rubrics/[id]` | GET / PATCH | bridge | Single rubric / update draft (OCC via `expected_edit_version`; 409 `rubric_conflict` discriminator: `version_mismatch`/`not_in_draft`/`concurrent_activation`) |
+| `/api/call-intelligence/rubrics/[id]/activate` | PATCH | bridge | Activate draft (atomic archive-old + flip-new); 409 on concurrent activation |
 
 Cache tag: `CACHE_TAGS.CALL_INTELLIGENCE_QUEUE`. Mutating routes call `revalidateTag()` after a successful bridge response. Listed in `src/app/api/admin/refresh-cache/route.ts` for the bulk admin invalidation.
 
@@ -2262,7 +2267,7 @@ Cache tag: `CACHE_TAGS.CALL_INTELLIGENCE_QUEUE`. Mutating routes call `revalidat
 `src/lib/sales-coaching-client/`:
 - `index.ts` — server-only fetch wrapper, signs token + sets `X-Request-ID`, parses response against mirrored Zod schema, dispatches typed errors per response code
 - `token.ts` — `signDashboardToken(email, opts)` HMAC-SHA256
-- `errors.ts` — `BridgeAuthError`, `BridgeTransportError`, `BridgeValidationError`, `EvaluationConflictError`, `DeactivateBlockedError`, `ContentRefinementAlreadyResolvedError`, `EvaluationNotFoundError`, `ContentRefinementDuplicateError`
+- `errors.ts` — `BridgeAuthError`, `BridgeTransportError`, `BridgeValidationError`, `EvaluationConflictError`, `DeactivateBlockedError`, `ContentRefinementAlreadyResolvedError`, `EvaluationNotFoundError`, `ContentRefinementDuplicateError`, `RubricConflictError` (`reason: 'version_mismatch' | 'not_in_draft' | 'concurrent_activation'`)
 - `schemas.ts` — **byte-identical mirror** of `sales-coaching/src/lib/dashboard-api/schemas.ts`. CI workflow `.github/workflows/schema-mirror-check.yml` fails the build on drift (cross-repo checkout requires `secrets.CROSS_REPO_TOKEN`). Local check: `npm run check:schema-mirror` (uses GH raw with `GH_TOKEN`, or `SALES_COACHING_SCHEMAS_PATH` for sibling-repo dev). Recovery: `/sync-bridge-schema` skill in Claude Code.
 
 ### Key Files
@@ -2274,7 +2279,12 @@ Cache tag: `CACHE_TAGS.CALL_INTELLIGENCE_QUEUE`. Mutating routes call `revalidat
 | `src/app/dashboard/call-intelligence/tabs/SettingsTab.tsx` | Reveal policy form (manual / auto_delay / auto_immediate) |
 | `src/app/dashboard/call-intelligence/tabs/AdminUsersTab.tsx` | Users CRUD + deactivate-blocked bulk-reassign UX |
 | `src/app/dashboard/call-intelligence/tabs/AdminRefinementsTab.tsx` | Open refinement list with addressed/decline actions |
-| `src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx` | Eval detail (full-width): inline edits + audit toggle + citation pills + transcript comments. Transcript and KB chunks render as **modals**, not a side pane — a "View transcript" button opens the transcript modal; clicking a citation pill opens the relevant modal (transcript scrolled to the cited utterance, or KB chunk inspector). |
+| `src/app/dashboard/call-intelligence/tabs/RubricsTab.tsx` | Rubrics listing — SGA + SGM sections, version chip, status badge, Edit/View button (auto-locked to "View" when `created_by_is_system === true`) |
+| `src/app/dashboard/call-intelligence/rubrics/[id]/page.tsx` | Rubric editor server gate. Re-applies the manager+admin allowlist independently (sub-routes do NOT inherit the parent page gate). For `[id] === 'new'`, seeds the form from the current active rubric for the role (Q1). Calls `isSystemRubric()` to set `readOnlyReason='system'` when the row's creator is a system rep. |
+| `src/app/dashboard/call-intelligence/rubrics/[id]/RubricEditorClient.tsx` | Editor client: name input, dimension cards with `@dnd-kit` (PointerSensor + KeyboardSensor for a11y), level-1..4 textareas, sticky save bar. Activate flow opens a confirm modal that diffs the draft against the active rubric (added / dropped / unchanged) with an `AbortController`-cancelled prefetch. Save-draft 409 preserves local edits and surfaces a "Fork to v{N+1}" CTA (Q2). Reads `readOnlyReason` to lock for system rubrics. |
+| `src/components/call-intelligence/RubricVersionBadge.tsx` | Small `Rubric vN` chip rendered alongside `OverallScoreBadge` in the eval detail header and in queue rows. Tooltip surfaces dimension count to make cross-version comparisons explicit. |
+| `src/lib/queries/call-intelligence-rubrics.ts` | `getRubricsForList({ role?, status? })` (LEFT JOIN reps for `created_by_name` + `created_by_is_system`), `isSystemRubric(id)` |
+| `src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx` | Eval detail (full-width): inline edits + audit toggle + citation pills + transcript comments. Transcript and KB chunks render as **modals**, not a side pane — a "View transcript" button opens the transcript modal; clicking a citation pill opens the relevant modal (transcript scrolled to the cited utterance, or KB chunk inspector). Header now shows `RubricVersionBadge` next to `OverallScoreBadge`. |
 | `src/app/dashboard/call-intelligence/my-refinements/page.tsx` | Per-user refinement requests list (linked from Settings tab) |
 | `src/components/call-intelligence/` | 12 components: `CitationPill`, `TranscriptModal` (wraps `TranscriptViewer` in a centered modal with auto-scroll-to-utterance), `TranscriptViewer`, `KBSidePanel` (renders as a centered modal despite the legacy name), `RefinementModal`, `InlineEditDimensionScore`, `InlineEditTextField`, `InlineEditListField`, `AuditToggle`, `UtteranceCommentCard`, `UtteranceCommentComposer`, `MyRefinementsTable`. Plus `citation-helpers.ts` (defensive readers + version-support helpers). |
 | `src/lib/queries/call-intelligence-evaluations.ts` | `getRepIdByEmail`, `getEvaluationsForManager`, `getEvaluationDetail`, `getTranscriptComments`, `getKbChunksByIds` |

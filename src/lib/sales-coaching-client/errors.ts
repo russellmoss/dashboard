@@ -97,3 +97,28 @@ export class ContentRefinementDuplicateError extends BridgeError {
     this.name = 'ContentRefinementDuplicateError';
   }
 }
+
+export type RubricConflictReason =
+  | 'version_mismatch'
+  | 'not_in_draft'
+  | 'concurrent_activation'
+  | 'has_evaluation_references';
+
+/**
+ * 409 surfaced when a rubric mutation collides with concurrent state changes.
+ * The `reason` discriminator distinguishes:
+ *   - `version_mismatch`: client's `expected_edit_version` doesn't match the row.
+ *   - `not_in_draft`: PATCH attempted on an active/archived rubric.
+ *   - `concurrent_activation`: another rubric for the same role was activated mid-flight.
+ * Server returns: `{ ok: false, error: 'rubric_conflict', reason, message }`.
+ */
+export class RubricConflictError extends BridgeError {
+  constructor(
+    message: string,
+    public readonly reason: RubricConflictReason,
+    requestId?: string,
+  ) {
+    super(message, 409, requestId);
+    this.name = 'RubricConflictError';
+  }
+}

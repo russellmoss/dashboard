@@ -178,7 +178,19 @@ export default function QueueTab({ role: _role, mode }: Props) {
                   >
                     <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-100 whitespace-nowrap">{formatDateOnly(r.call_started_at)}</td>
                     <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">{formatTimeOnly(r.call_started_at)}</td>
-                    <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-100">{r.rep_full_name ?? '—'}</td>
+                    <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-100">
+                      <span className="inline-flex items-center gap-2">
+                        <span>{r.rep_full_name ?? '—'}</span>
+                        {r.rubric_version !== null && (
+                          <span
+                            className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+                            title={`Scored against rubric v${r.rubric_version}`}
+                          >
+                            Rubric: v{r.rubric_version}
+                          </span>
+                        )}
+                      </span>
+                    </td>
                     <td
                       className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300"
                       title={r.call_title ?? undefined}
