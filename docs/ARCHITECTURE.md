@@ -2221,6 +2221,8 @@ The Call Intelligence page (`/dashboard/call-intelligence`, page ID 20) hosts AI
 
 The Queue heading is "My Evaluations" for SGM/SGA (coachee view, scoped by own `rep_id`) and "Review Queue" for manager (scoped by `assigned_manager_id_snapshot`) and admin (unscoped). A History toggle (Pending / Revealed / All) controls the row filter.
 
+**Advisor-call filter** (added 2026-05-10): `getEvaluationsForManager` now hard-filters to `cn.likely_call_type = 'advisor_call'`. Internal-collaboration (all-hands, training, comp-plan walkthroughs), vendor calls, unknown, and unclassified (NULL) call_notes are excluded from the queue regardless of role. This matches the advisor-facing rule used by Coaching Usage (§Coaching Usage). Direct-link to a specific eval still works — the filter only hides rows from the listing query, not `getEvaluationDetail`. If a real recruiting call is mis-classified as `internal_collaboration` it won't surface; the manager-monitor classifier is the upstream truth source.
+
 ### Data Flow
 
 ```

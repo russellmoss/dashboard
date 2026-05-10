@@ -142,6 +142,7 @@ export async function getEvaluationsForManager(
     LEFT JOIN reps  sga        ON sga.id = e.rep_id                     AND sga.is_system = false
     LEFT JOIN reps  mgr        ON mgr.id = e.assigned_manager_id_snapshot AND mgr.is_system = false
     WHERE (${scopeWhere}) AND (${statusWhere(historyFilter)})
+      AND cn.likely_call_type = 'advisor_call'
     ORDER BY e.created_at DESC NULLS LAST
     LIMIT $${limitParamIdx}
   `;
