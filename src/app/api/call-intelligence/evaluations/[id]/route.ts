@@ -8,6 +8,7 @@ import {
   getRepIdByEmail,
   getTranscriptComments,
 } from '@/lib/queries/call-intelligence-evaluations';
+import { getCoachingPool } from '@/lib/coachingDb';
 import { readAiOriginalCoachingNudge } from '@/components/call-intelligence/citation-helpers';
 
 export const dynamic = 'force-dynamic';
@@ -68,12 +69,34 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: st
     const detail = await getEvaluationDetail(id);
     if (!detail) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-    if (permissions.role !== 'admin' && permissions.role !== 'revops_admin') {
+    // 2026-05-10 — managers now see all (matches admin/revops_admin queue
+    // scope). SGA/SGM see own + cross-rep shared (call_note links to a
+    // SFDC record that ALSO appears on one of this rep's own call_notes).
+    if (
+      permissions.role !== 'admin' &&
+      permissions.role !== 'revops_admin' &&
+      permissions.role !== 'manager'
+    ) {
       const rep = await getRepIdByEmail(session.user.email);
       if (!rep) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       const isOwner = detail.rep_id === rep.id;
       const isAssignedManager = detail.assigned_manager_id_snapshot === rep.id;
-      if (!isOwner && !isAssignedManager) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      let isSharedRecord = false;
+      if (!isOwner && !isAssignedManager && detail.call_sfdc_record_id) {
+        // Single bounded lookup — at most one row needed to grant access.
+        const sharedRows = await getCoachingPool().query<{ exists: boolean }>(
+          `SELECT TRUE AS exists FROM call_notes
+            WHERE rep_id = $1
+              AND sfdc_record_id = $2
+              AND source_deleted_at IS NULL
+            LIMIT 1`,
+          [rep.id, detail.call_sfdc_record_id],
+        );
+        isSharedRecord = (sharedRows.rowCount ?? 0) > 0;
+      }
+      if (!isOwner && !isAssignedManager && !isSharedRecord) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
     }
 
     // Step 5b-1 (Bucket 2 Q2): comments are gated to managers + admins. Reps see

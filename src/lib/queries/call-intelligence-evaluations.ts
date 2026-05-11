@@ -80,11 +80,34 @@ export async function getEvaluationsForManager(
     scopeWhere = `TRUE`;
     scopeParams = [];
   } else if (scope.kind === 'manager') {
-    scopeWhere = `e.assigned_manager_id_snapshot = $1`;
-    scopeParams = [scope.managerRepId];
+    // 2026-05-10 — managers now see everything (matches admin/revops_admin
+    // behavior). Previously scoped to evals where they were the assigned
+    // manager; expanded per product call so managers can audit team-wide.
+    scopeWhere = `TRUE`;
+    scopeParams = [];
   } else {
-    // sgm AND sga: both are coachees — scope by own rep_id (eval.rep_id == cn.rep_id == self).
-    scopeWhere = `e.rep_id = $1`;
+    // sgm AND sga: both are coachees. 2026-05-10 — extended from "own only"
+    // to "own OR shared SFDC record". A rep sees another rep's eval if its
+    // underlying call_note links to the same SFDC record (Lead/Contact/
+    // Opportunity/Account) as any of THIS rep's own call_notes. Captures
+    // the "two reps both talked to the same person/firm" case. Requires
+    // at least one of the calls to have been linked to SFDC (post-approval
+    // or via Update SFDC record); pre-linkage calls only show under
+    // own-rep-id. Phase 2 follow-up will add Account.Id-level matching
+    // once call_notes.sfdc_account_id is populated.
+    scopeWhere = `(
+      e.rep_id = $1
+      OR (
+        cn.sfdc_record_id IS NOT NULL
+        AND cn.sfdc_record_id IN (
+          SELECT DISTINCT cn_me.sfdc_record_id
+            FROM call_notes cn_me
+           WHERE cn_me.rep_id = $1
+             AND cn_me.sfdc_record_id IS NOT NULL
+             AND cn_me.source_deleted_at IS NULL
+        )
+      )
+    )`;
     scopeParams = [scope.repId];
   }
 
@@ -284,6 +307,7 @@ export async function getEvaluationDetail(evaluationId: string): Promise<Evaluat
       editor.full_name                  AS manager_edited_by_name,
       editor.is_active                  AS manager_edited_by_active,
       COALESCE(cn.summary_markdown_edited, cn.summary_markdown) AS call_summary_markdown,
+      cn.sfdc_record_id                 AS call_sfdc_record_id,
       ct.transcript,
       e.rubric_version,
       rb.name                           AS rubric_name,

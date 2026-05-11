@@ -69,6 +69,10 @@ export interface EvaluationDetail {
   ai_original: unknown;
   ai_original_schema_version: number | null;
   call_summary_markdown: string | null;
+  /** call_notes.sfdc_record_id — null pre-approval / manual_entry. Used by
+   *  the eval-detail route's authority check to allow SGA/SGM cross-rep
+   *  access when both reps share the same SFDC record (2026-05-10). */
+  call_sfdc_record_id: string | null;
   transcript: unknown | null;
   created_at: string;
   updated_at: string;
