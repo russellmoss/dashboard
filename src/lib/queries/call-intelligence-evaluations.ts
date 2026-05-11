@@ -208,7 +208,7 @@ export async function getEvaluationsForManager(
   // BQ round-trip (skipped entirely when both sets are empty — first render of an
   // empty queue, or admin-only fully-internal calls).
   let bq: Awaited<ReturnType<typeof resolveAdvisorNames>> = {
-    whoIdToInfo: {}, emailToUniqueInfo: {}, kixieTaskIdToInfo: {},
+    whoIdToInfo: {}, whatIdToInfo: {}, emailToUniqueInfo: {}, kixieTaskIdToInfo: {},
   };
   try {
     if (whoIds.size > 0 || emails.size > 0) {

@@ -1,7 +1,16 @@
 // Resolve SFDC name + funnel status for the Coaching Usage drill-down.
 //
-// Three inputs (any or all may be empty):
+// Four inputs (any or all may be empty):
 //   - `whoIds`:        SFDC Lead/Contact Ids from `call_notes.sfdc_who_id`
+//   - `whatIds`:       SFDC Opportunity Ids from `call_notes.sfdc_what_id`.
+//                      Granola calls linked directly to an Opportunity have
+//                      `sfdc_who_id = NULL` and `sfdc_what_id = <Opp.Id>`;
+//                      the who-arm misses them entirely and the email
+//                      cascade can pick the wrong (Closed Lost) sibling
+//                      Lead. The what-arm reads StageName + advisor name
+//                      from THIS specific Opp via vw_funnel_master, which
+//                      is the only signal that matches what the rep sees
+//                      in SFDC.
 //   - `emails`:        lowercased non-Savvy invitee emails (Granola fallback)
 //   - `kixieTaskIds`:  SFDC Task.Ids from `call_notes.kixie_task_id`. Used as
 //                      a self-healing fallback for Kixie rows where
@@ -13,6 +22,10 @@
 //
 // Returns:
 //   - `whoIdToInfo[id] → AdvisorInfo`              (Lead or Contact match)
+//   - `whatIdToInfo[opp_id] → AdvisorInfo`         (Opportunity match — stage
+//     and SQL/SQO flags come from THIS specific opp row in vw_funnel_master,
+//     NOT the lead's primary opp, so a sibling Closed Lost opp on the same
+//     lead can't poison the stage of an active Negotiating opp)
 //   - `emailToUniqueInfo[lc_email] → AdvisorInfo`  (only when EXACTLY ONE
 //     distinct name across Lead + Contact matches that email; ambiguous
 //     matches are intentionally omitted so the caller can fall back to
@@ -51,12 +64,13 @@ export interface AdvisorInfo {
 
 export interface ResolvedAdvisorInfo {
   whoIdToInfo: Record<string, AdvisorInfo>;
+  whatIdToInfo: Record<string, AdvisorInfo>;
   emailToUniqueInfo: Record<string, AdvisorInfo>;
   kixieTaskIdToInfo: Record<string, AdvisorInfo>;
 }
 
 interface Row {
-  kind: 'who' | 'email' | 'kixie_task';
+  kind: 'who' | 'what' | 'email' | 'kixie_task';
   key: string;
   name: string;
   lead_id: string | null;
@@ -70,18 +84,25 @@ interface Row {
 export async function resolveAdvisorNames(args: {
   whoIds: string[];
   emails: string[];
+  whatIds?: string[];
   kixieTaskIds?: string[];
 }): Promise<ResolvedAdvisorInfo> {
   const whoIds = Array.from(new Set(args.whoIds.filter((s) => !!s && s.trim().length > 0)));
   const lcEmails = Array.from(
     new Set(args.emails.map((s) => s?.toLowerCase().trim()).filter((s): s is string => !!s)),
   );
+  const whatIds = Array.from(
+    new Set((args.whatIds ?? []).filter((s) => !!s && s.trim().length > 0)),
+  );
   const kixieTaskIds = Array.from(
     new Set((args.kixieTaskIds ?? []).filter((s) => !!s && s.trim().length > 0)),
   );
 
-  if (whoIds.length === 0 && lcEmails.length === 0 && kixieTaskIds.length === 0) {
-    return { whoIdToInfo: {}, emailToUniqueInfo: {}, kixieTaskIdToInfo: {} };
+  if (
+    whoIds.length === 0 && lcEmails.length === 0 &&
+    whatIds.length === 0 && kixieTaskIds.length === 0
+  ) {
+    return { whoIdToInfo: {}, whatIdToInfo: {}, emailToUniqueInfo: {}, kixieTaskIdToInfo: {} };
   }
 
   // Single query — four logical layers:
@@ -145,6 +166,32 @@ export async function resolveAdvisorNames(args: {
       FROM email_grouped
       WHERE distinct_names = 1
     ),
+    -- Opportunity arm: resolve a granola call linked directly to an Opp
+    -- (sfdc_what_id set). vw_funnel_master holds one row per opp, so we
+    -- read THIS opp's StageName + is_sql/is_sqo here — NOT the lead's
+    -- primary-opp stage (which can be a sibling Closed Lost opp on the
+    -- same lead and silently lie about whether the deal is alive).
+    -- Person name falls back to Account.Name (Opportunity.AccountId →
+    -- Account) when present, otherwise the opp's advisor_name from
+    -- vw_funnel_master. lead_id is NOT propagated here: in this org
+    -- vw_funnel_master.Full_prospect_id__c is sometimes an Opportunity
+    -- Id (006-prefixed), so building a /Lead/<id>/view URL from it
+    -- would 404. The callsite uses opportunityId for the deep-link.
+    what_to_opp AS (
+      SELECT
+        vfm.Full_Opportunity_ID__c AS what_id,
+        vfm.Full_prospect_id__c    AS lead_id,
+        COALESCE(acc.Name, vfm.advisor_name) AS person_name,
+        vfm.StageName               AS specific_stage,
+        COALESCE(vfm.is_sql, 0)     AS did_sql_specific,
+        COALESCE(vfm.is_sqo, 0)     AS did_sqo_specific
+      FROM \`savvy-gtm-analytics.Tableau_Views.vw_funnel_master\` vfm
+      LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.Opportunity\` opp
+        ON opp.Id = vfm.Full_Opportunity_ID__c AND opp.IsDeleted = FALSE
+      LEFT JOIN \`savvy-gtm-analytics.SavvyGTMData.Account\` acc
+        ON acc.Id = opp.AccountId AND acc.IsDeleted = FALSE
+      WHERE vfm.Full_Opportunity_ID__c IN UNNEST(@whatIds)
+    ),
     -- Kixie self-healing arm: resolve SFDC Task.Id → WhoId → Lead/Contact name.
     -- Only includes rows whose Task has a non-null, non-deleted WhoId pointing
     -- to a non-deleted Lead or Contact. A task whose WhoId hasn't been
@@ -178,6 +225,8 @@ export async function resolveAdvisorNames(args: {
     ),
     all_lookups AS (
       SELECT 'who' AS kind, who_id AS key, person_name, lead_id FROM who_to_lead
+      UNION ALL
+      SELECT 'what' AS kind, what_id AS key, person_name, lead_id FROM what_to_opp
       UNION ALL
       SELECT 'email' AS kind, lc_email AS key, person_name, lead_id FROM email_unique
       UNION ALL
@@ -223,30 +272,49 @@ export async function resolveAdvisorNames(args: {
       al.kind,
       al.key,
       al.person_name AS name,
-      al.lead_id AS lead_id,
-      pos.opp_id AS opportunity_id,
-      COALESCE(ff.did_sql, 0) AS did_sql,
-      COALESCE(ff.did_sqo, 0) AS did_sqo,
-      pos.StageName AS current_stage,
-      (
-        pos.StageName = 'Closed Lost'
-        OR (COALESCE(ff.has_lead_only, 0) = 1 AND COALESCE(ff.lead_closed, 0) = 1)
-      ) AS closed_lost
+      -- For kind='what', leave lead_id null on the wire so the caller
+      -- doesn't try to build /Lead/<id>/view from a 006-prefixed value.
+      -- Funnel flags below still join on al.lead_id internally.
+      CASE WHEN al.kind = 'what' THEN NULL ELSE al.lead_id END AS lead_id,
+      -- kind='what' carries its own opp_id (the linked Opp itself).
+      -- Other arms inherit the lead's primary/most-recent opp via pos.
+      CASE WHEN al.kind = 'what' THEN al.key ELSE pos.opp_id END AS opportunity_id,
+      -- kind='what' uses THIS opp's is_sql/is_sqo so a sibling Closed Lost
+      -- opp on the same lead can't downgrade the active opp's stats.
+      CASE WHEN al.kind = 'what'
+           THEN COALESCE(wto.did_sql_specific, 0)
+           ELSE COALESCE(ff.did_sql, 0)
+      END AS did_sql,
+      CASE WHEN al.kind = 'what'
+           THEN COALESCE(wto.did_sqo_specific, 0)
+           ELSE COALESCE(ff.did_sqo, 0)
+      END AS did_sqo,
+      CASE WHEN al.kind = 'what' THEN wto.specific_stage
+           ELSE pos.StageName
+      END AS current_stage,
+      CASE WHEN al.kind = 'what' THEN (wto.specific_stage = 'Closed Lost')
+           ELSE (
+             pos.StageName = 'Closed Lost'
+             OR (COALESCE(ff.has_lead_only, 0) = 1 AND COALESCE(ff.lead_closed, 0) = 1)
+           )
+      END AS closed_lost
     FROM all_lookups al
     LEFT JOIN funnel_flags ff ON ff.lead_id = al.lead_id
     LEFT JOIN primary_opp_stage pos ON pos.lead_id = al.lead_id
+    LEFT JOIN what_to_opp wto ON wto.what_id = al.key AND al.kind = 'what'
   `;
 
-  // Declare types for the three array params so BQ accepts empty arrays.
-  // Now that any one of the three may be [] (e.g. a 7d range with no
-  // unresolved kixie rows), the empty-array typing requirement bites.
+  // Declare types for the four array params so BQ accepts empty arrays.
+  // Any one (or several) may be [] for a given range — the empty-array
+  // typing requirement bites whenever a param is unused.
   const rows = await runQuery<Row>(
     sql,
-    { whoIds, lcEmails, kixieTaskIds },
-    { whoIds: ['STRING'], lcEmails: ['STRING'], kixieTaskIds: ['STRING'] },
+    { whoIds, whatIds, lcEmails, kixieTaskIds },
+    { whoIds: ['STRING'], whatIds: ['STRING'], lcEmails: ['STRING'], kixieTaskIds: ['STRING'] },
   );
 
   const whoIdToInfo: Record<string, AdvisorInfo> = {};
+  const whatIdToInfo: Record<string, AdvisorInfo> = {};
   const emailToUniqueInfo: Record<string, AdvisorInfo> = {};
   const kixieTaskIdToInfo: Record<string, AdvisorInfo> = {};
   for (const r of rows) {
@@ -265,6 +333,8 @@ export async function resolveAdvisorNames(args: {
       // Contact (rare — usually pre/post conversion) lands the Lead row first
       // by table order. Either name is correct identity, take the first.
       if (!whoIdToInfo[r.key]) whoIdToInfo[r.key] = info;
+    } else if (r.kind === 'what') {
+      if (!whatIdToInfo[r.key]) whatIdToInfo[r.key] = info;
     } else if (r.kind === 'email') {
       emailToUniqueInfo[r.key] = info;
     } else if (r.kind === 'kixie_task') {
@@ -273,5 +343,5 @@ export async function resolveAdvisorNames(args: {
       if (!kixieTaskIdToInfo[r.key]) kixieTaskIdToInfo[r.key] = info;
     }
   }
-  return { whoIdToInfo, emailToUniqueInfo, kixieTaskIdToInfo };
+  return { whoIdToInfo, whatIdToInfo, emailToUniqueInfo, kixieTaskIdToInfo };
 }

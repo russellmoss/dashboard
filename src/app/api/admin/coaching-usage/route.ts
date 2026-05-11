@@ -53,6 +53,12 @@ interface DetailRow {
   // Server-side only — used to resolve the Advisor name via SFDC, then stripped
   // from the API response (never sent to the client).
   sfdc_who_id: string | null;
+  /** SFDC Opportunity Id when a granola call is linked directly to an Opp
+   *  (sfdc_record_type='Opportunity'). Granola DMs that ranked an Opportunity
+   *  as the "likely" candidate push with WhatId set and WhoId NULL — without
+   *  this arm, the resolver's email-fallback cascade can pick a sibling
+   *  Closed Lost Lead on the same Account and silently misreport the stage. */
+  sfdc_what_id: string | null;
   sfdc_record_type: string | null;
   invitee_emails: string[] | null;
   /** Kixie-only: the SFDC Task.Id that owns this call's recording. Used as a
@@ -62,6 +68,32 @@ interface DetailRow {
    *  sfdc_who_id can land NULL even though the WhoId exists in SFDC now.
    *  We re-resolve via Task.WhoId at request time. Stripped from response. */
   kixie_task_id: string | null;
+  /** slack_review_messages.sfdc_suggestion JSONB (canonical surface='dm' row).
+   *  Only consumed for granola calls whose linkage is still empty
+   *  (sfdc_who_id IS NULL AND sfdc_what_id IS NULL): we treat the waterfall's
+   *  top candidate as authoritative when its confidence_tier='likely', so
+   *  pre-push rows resolve to the same stage the rep saw in the DM. Stripped
+   *  from the response. */
+  sfdc_suggestion: unknown;
+}
+
+/** Minimal shape we read from slack_review_messages.sfdc_suggestion. Avoids
+ *  importing the full BridgeSfdcSuggestion zod schema since we only care
+ *  about the recommended candidate's who_id/what_id/confidence_tier.
+ *  `.passthrough()` semantics on the producer side mean extra fields are
+ *  ignored here without breaking. */
+function extractLikelyCandidate(raw: unknown): { who_id: string | null; what_id: string | null } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const candidates = (raw as { candidates?: unknown }).candidates;
+  if (!Array.isArray(candidates) || candidates.length === 0) return null;
+  const top = candidates[0];
+  if (!top || typeof top !== 'object') return null;
+  const c = top as { confidence_tier?: unknown; who_id?: unknown; what_id?: unknown };
+  if (c.confidence_tier !== 'likely') return null;
+  const who = typeof c.who_id === 'string' && c.who_id.trim() ? c.who_id : null;
+  const what = typeof c.what_id === 'string' && c.what_id.trim() ? c.what_id : null;
+  if (!who && !what) return null;
+  return { who_id: who, what_id: what };
 }
 
 // Day-truncated cutoffs avoid the "calls disappearing mid-shift" effect of a
@@ -104,9 +136,15 @@ const _getCoachingUsageData = async (args: { range: AllowedRange }) => {
       sgm.full_name AS sgm_name,
       cn.source AS source,
       cn.sfdc_who_id AS sfdc_who_id,
+      cn.sfdc_what_id AS sfdc_what_id,
       cn.sfdc_record_type AS sfdc_record_type,
       cn.invitee_emails AS invitee_emails,
       cn.kixie_task_id AS kixie_task_id,
+      -- Canonical 'dm' row carries the waterfall's ranked candidates. We
+      -- only consume it when the call has no linkage of its own (and only
+      -- for granola — kixie has no DM). One row per call_note via the
+      -- (call_note_id, surface) UNIQUE constraint.
+      srm.sfdc_suggestion AS sfdc_suggestion,
       EXISTS (SELECT 1 FROM sfdc_write_log swl WHERE swl.call_note_id = cn.id AND swl.status = 'success') AS pushed_to_sfdc,
       EXISTS (
         SELECT 1 FROM ai_feedback af
@@ -126,6 +164,7 @@ const _getCoachingUsageData = async (args: { range: AllowedRange }) => {
     -- the company. Only the System Admin placeholder is suppressed.
     LEFT JOIN reps sga ON sga.id = cn.rep_id AND sga.is_system = false
     LEFT JOIN reps sgm ON sgm.id = sga.manager_id AND sgm.is_system = false
+    LEFT JOIN slack_review_messages srm ON srm.call_note_id = cn.id AND srm.surface = 'dm'
     ORDER BY cn.call_started_at DESC NULLS LAST
   `;
 
@@ -156,38 +195,71 @@ const _getCoachingUsageData = async (args: { range: AllowedRange }) => {
 // ─── Advisor-name annotation (post-pg, pre-cache wrap) ────────────────────────
 //
 // Cascade per row:
-//   1. sfdc_who_id is set → BigQuery resolves Lead/Contact name → use it.
-//   2. (Kixie self-healing) sfdc_who_id is null AND source='kixie' AND
+//   1. sfdc_what_id is set → BigQuery looks up the linked Opportunity (this
+//      specific opp's StageName + is_sql/is_sqo from vw_funnel_master, plus
+//      Account.Name for display). This is the only arm that handles granola
+//      calls pushed with WhatId only — the case the user reported, where
+//      sfdc_who_id is NULL and the email cascade was silently picking a
+//      sibling Closed Lost record on the same Account.
+//   2. sfdc_who_id is set → BigQuery resolves Lead/Contact name + primary
+//      opp stage → use it.
+//   3. (Granola pre-push) source='granola', no linkage of its own, but the
+//      slack_review_messages.sfdc_suggestion top candidate has
+//      confidence_tier='likely' → use that candidate's what_id (preferred,
+//      stage from THIS opp) or who_id. Lets the row show the right stage
+//      before the rep ever clicks Approve.
+//   4. (Kixie self-healing) sfdc_who_id is null AND source='kixie' AND
 //      kixie_task_id is set → look up Task.WhoId in BQ → resolve Lead/Contact
 //      name. This recovers calls where the WhoId was associated to the SFDC
 //      Task after the call-transcriber baked sfdc_who_id=NULL into Postgres
 //      (Salesforce association lag + BQ sync lag stack on top of each other,
 //      and Kixie calls have no calendar invitees to fall back on).
-//   3. sfdc_who_id is null AND row has at least one external invitee_email:
+//   5. sfdc_who_id is null AND row has at least one external invitee_email:
 //      a. If exactly ONE of those emails resolves to a unique person in
 //         Lead/Contact → use that name.
 //      b. Otherwise → display the FIRST external email; remaining externals
 //         go in advisorEmailExtras for the client tooltip.
-//   4. None of the above → 'Unknown'.
+//   6. None of the above → 'Unknown'.
 //
-// `sfdc_who_id`, `sfdc_record_type`, `invitee_emails`, and `kixie_task_id`
-// are stripped from the response shape — the resolved
-// `advisorName`/`advisorEmail`/`advisorEmailExtras` is the only public surface.
+// `sfdc_who_id`, `sfdc_what_id`, `sfdc_record_type`, `invitee_emails`,
+// `kixie_task_id`, and `sfdc_suggestion` are stripped from the response
+// shape — the resolved `advisorName` / `advisorEmail` / `advisorEmailExtras`
+// is the only public surface.
 async function annotateDrillDownWithAdvisor(rows: DetailRow[]) {
-  // Collect every possible lookup input from EVERY row — not just rows where
-  // sfdc_who_id is null. Reason: the primary who_id arm can miss even when
-  // sfdc_who_id is set if the referenced Lead/Contact hasn't sync'd to BQ
-  // yet (Fivetran lag on brand-new SFDC records is the common case). We need
-  // the kixie self-heal and email arms primed so the cascade can fall through
-  // to them; otherwise a same-day call on a fresh Lead/Contact silently
-  // shows the email or 'Unknown' even though either fallback would resolve.
+  // Collect every possible lookup input from EVERY row — not just rows that
+  // miss on the primary arm. Reason: any arm can miss even when its input
+  // is set (Fivetran lag on brand-new SFDC records is the common case).
+  // Priming every arm lets the per-row cascade fall through to whatever
+  // actually resolves; otherwise a same-day call on a fresh Lead/Contact
+  // silently shows the email or 'Unknown' even though a fallback would have
+  // hit. Per-row pre-computed "likely candidate" pointers are cached to
+  // avoid parsing the JSONB twice.
   const whoIds = new Set<string>();
+  const whatIds = new Set<string>();
   const externalEmails = new Set<string>();
   const kixieTaskIds = new Set<string>();
+  const likelyByCallNote = new Map<string, { who_id: string | null; what_id: string | null }>();
   for (const r of rows) {
     if (r.sfdc_who_id) whoIds.add(r.sfdc_who_id);
+    if (r.sfdc_what_id) whatIds.add(r.sfdc_what_id);
     if (r.source === 'kixie' && r.kixie_task_id) {
       kixieTaskIds.add(r.kixie_task_id);
+    }
+    // Suggestion fallback fires only for unlinked granola rows. Linked rows
+    // (who_id or what_id set) trust the call_note's own pointer — a rep who
+    // manually re-linked to a different record should not be overridden by
+    // a stale DM-time suggestion.
+    if (
+      r.source === 'granola'
+      && !r.sfdc_who_id
+      && !r.sfdc_what_id
+    ) {
+      const likely = extractLikelyCandidate(r.sfdc_suggestion);
+      if (likely) {
+        likelyByCallNote.set(r.call_note_id, likely);
+        if (likely.what_id) whatIds.add(likely.what_id);
+        if (likely.who_id) whoIds.add(likely.who_id);
+      }
     }
     if (Array.isArray(r.invitee_emails)) {
       for (const e of r.invitee_emails) {
@@ -201,8 +273,9 @@ async function annotateDrillDownWithAdvisor(rows: DetailRow[]) {
   }
 
   // One BigQuery round-trip (skipped entirely when all sets are empty).
-  const { whoIdToInfo, emailToUniqueInfo, kixieTaskIdToInfo } = await resolveAdvisorNames({
+  const { whoIdToInfo, whatIdToInfo, emailToUniqueInfo, kixieTaskIdToInfo } = await resolveAdvisorNames({
     whoIds: [...whoIds],
+    whatIds: [...whatIds],
     emails: [...externalEmails],
     kixieTaskIds: [...kixieTaskIds],
   });
@@ -213,8 +286,18 @@ async function annotateDrillDownWithAdvisor(rows: DetailRow[]) {
     const advisorEmailExtras: string[] = [];
     let info: AdvisorInfo | null = null;
 
-    if (r.sfdc_who_id && whoIdToInfo[r.sfdc_who_id]) {
-      info = whoIdToInfo[r.sfdc_who_id]!;
+    const likely = likelyByCallNote.get(r.call_note_id) ?? null;
+    // Effective Opp / Who pointers. The call_note's own linkage wins over
+    // the suggestion (see set-population logic above — likely is only
+    // populated for unlinked granola rows).
+    const effectiveWhatId = r.sfdc_what_id ?? likely?.what_id ?? null;
+    const effectiveWhoId = r.sfdc_who_id ?? likely?.who_id ?? null;
+
+    if (effectiveWhatId && whatIdToInfo[effectiveWhatId]) {
+      info = whatIdToInfo[effectiveWhatId]!;
+      advisorName = info.name;
+    } else if (effectiveWhoId && whoIdToInfo[effectiveWhoId]) {
+      info = whoIdToInfo[effectiveWhoId]!;
       advisorName = info.name;
     } else if (r.source === 'kixie' && r.kixie_task_id && kixieTaskIdToInfo[r.kixie_task_id]) {
       // Self-healing kixie path — Postgres' baked-in sfdc_who_id is NULL but

@@ -45,7 +45,7 @@ describe('GET /api/admin/coaching-usage', () => {
     mockGetSessionPermissions.mockReset();
     mockResolveAdvisorNames.mockReset();
     // Default resolver: no SFDC matches. Tests that need SFDC names override.
-    mockResolveAdvisorNames.mockResolvedValue({ whoIdToInfo: {}, emailToUniqueInfo: {}, kixieTaskIdToInfo: {} });
+    mockResolveAdvisorNames.mockResolvedValue({ whoIdToInfo: {}, whatIdToInfo: {}, emailToUniqueInfo: {}, kixieTaskIdToInfo: {} });
   });
 
   it('returns 401 when no session', async () => {
@@ -414,7 +414,7 @@ describe('GET /api/admin/coaching-usage', () => {
       }
       return defaultMockImpl(sql);
     });
-    mockResolveAdvisorNames.mockResolvedValue({ whoIdToInfo: {}, emailToUniqueInfo: {}, kixieTaskIdToInfo: {} });
+    mockResolveAdvisorNames.mockResolvedValue({ whoIdToInfo: {}, whatIdToInfo: {}, emailToUniqueInfo: {}, kixieTaskIdToInfo: {} });
     const res = await GET(makeReq() as never);
     const body = await res.json() as { drillDown: Array<{ advisorName: string|null; advisorEmail: string|null; advisorEmailExtras: string[] }> };
     expect(body.drillDown[0]!.advisorName).toBeNull();
@@ -583,5 +583,195 @@ describe('GET /api/admin/coaching-usage', () => {
     expect(linked.opportunityUrl).toBe('https://savvywealth.lightning.force.com/lightning/r/Opportunity/0061234/view');
     expect(unlinked.leadUrl).toBeNull();
     expect(unlinked.opportunityUrl).toBeNull();
+  });
+
+  // 2026-05-11 — bug repro: Granola call linked directly to an Opportunity
+  // (sfdc_who_id=NULL, sfdc_what_id=<Opp.Id>) showed "Closed Lost" in the
+  // drill-down because the resolver only consulted who_id and the email
+  // cascade picked a stale sibling Lead. The what-arm pulls THIS opp's
+  // stage from vw_funnel_master directly so a sibling can't poison it.
+  it('advisor cascade: granola call linked to Opportunity uses what_id arm (no Closed-Lost regression)', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
+    mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('AS call_note_id')) {
+        return Promise.resolve({
+          rows: [{
+            call_note_id: '7f7aa08c-d2ea-4418-a7d1-89386cd36c61',
+            call_date: new Date('2026-05-11T14:00:52Z'),
+            rep_id: 'rep-1', sga_name: 'Clayton K.', rep_role: 'SGA', sgm_name: null, source: 'granola',
+            sfdc_who_id: null,
+            sfdc_what_id: '006VS00000XXtabYAD',
+            sfdc_record_type: 'Opportunity',
+            invitee_emails: ['kurt.fetter@example.com'],
+            kixie_task_id: null,
+            sfdc_suggestion: null,
+            pushed_to_sfdc: true, has_ai_feedback: true, has_manager_edit_eval: false,
+          }],
+          rowCount: 1,
+        });
+      }
+      return defaultMockImpl(sql);
+    });
+    // The what-arm wins; the email arm is intentionally NOT consulted even
+    // though the row has an invitee email that resolves to a different (and,
+    // in real data, Closed-Lost) lead.
+    mockResolveAdvisorNames.mockResolvedValue({
+      whoIdToInfo: {},
+      whatIdToInfo: {
+        '006VS00000XXtabYAD': {
+          name: 'Kurt Fetter - Account', leadId: null, opportunityId: '006VS00000XXtabYAD',
+          didSql: true, didSqo: true, currentStage: 'Negotiating', closedLost: false,
+        },
+      },
+      emailToUniqueInfo: {
+        'kurt.fetter@example.com': {
+          name: 'Stale Closed-Lost Lead', leadId: '00QStaleLead', opportunityId: '006StaleOpp',
+          didSql: true, didSqo: false, currentStage: 'Closed Lost', closedLost: true,
+        },
+      },
+      kixieTaskIdToInfo: {},
+    });
+    const res = await GET(makeReq() as never);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { drillDown: Array<{ advisorName: string|null; currentStage: string|null; closedLost: boolean; linkedToSfdc: boolean; leadUrl: string|null; opportunityUrl: string|null }> };
+    expect(body.drillDown[0]!.advisorName).toBe('Kurt Fetter - Account');
+    expect(body.drillDown[0]!.currentStage).toBe('Negotiating');
+    expect(body.drillDown[0]!.closedLost).toBe(false);
+    expect(body.drillDown[0]!.linkedToSfdc).toBe(true);
+    // leadId is intentionally null for what-arm hits — Full_prospect_id__c
+    // in this org is sometimes an Opp Id, not a Lead Id.
+    expect(body.drillDown[0]!.leadUrl).toBeNull();
+    expect(body.drillDown[0]!.opportunityUrl).toBe('https://savvywealth.lightning.force.com/lightning/r/Opportunity/006VS00000XXtabYAD/view');
+    expect(mockResolveAdvisorNames.mock.calls[0]![0]).toMatchObject({
+      whatIds: ['006VS00000XXtabYAD'],
+    });
+  });
+
+  // Pre-push case: granola row has no linkage of its own (sfdc_who_id and
+  // sfdc_what_id both NULL) but the waterfall ranked an Opp as 'likely'.
+  // The DM's recommendation drives the stage display until the rep approves.
+  it("advisor cascade: pre-push granola row inherits 'likely' suggestion's Opp + stage", async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
+    mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('AS call_note_id')) {
+        return Promise.resolve({
+          rows: [{
+            call_note_id: 'pre-push', call_date: new Date('2026-05-11T14:00:52Z'),
+            rep_id: 'rep-1', sga_name: 'Clayton K.', rep_role: 'SGA', sgm_name: null, source: 'granola',
+            sfdc_who_id: null, sfdc_what_id: null, sfdc_record_type: null,
+            invitee_emails: null, kixie_task_id: null,
+            sfdc_suggestion: {
+              candidates: [
+                { confidence_tier: 'likely', who_id: null, what_id: '006VS00000XXtabYAD', primary_record_type: 'Opportunity' },
+                { confidence_tier: 'possible', who_id: '003ContactX', what_id: null, primary_record_type: 'Contact' },
+              ],
+            },
+            pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
+          }],
+          rowCount: 1,
+        });
+      }
+      return defaultMockImpl(sql);
+    });
+    mockResolveAdvisorNames.mockResolvedValue({
+      whoIdToInfo: {},
+      whatIdToInfo: {
+        '006VS00000XXtabYAD': {
+          name: 'Kurt Fetter - Account', leadId: null, opportunityId: '006VS00000XXtabYAD',
+          didSql: true, didSqo: true, currentStage: 'Negotiating', closedLost: false,
+        },
+      },
+      emailToUniqueInfo: {},
+      kixieTaskIdToInfo: {},
+    });
+    const res = await GET(makeReq() as never);
+    const body = await res.json() as { drillDown: Array<{ advisorName: string|null; currentStage: string|null }> };
+    expect(body.drillDown[0]!.advisorName).toBe('Kurt Fetter - Account');
+    expect(body.drillDown[0]!.currentStage).toBe('Negotiating');
+    // Resolver was primed with the suggestion's what_id even though the call
+    // note's own sfdc_what_id was null.
+    expect(mockResolveAdvisorNames.mock.calls[0]![0]).toMatchObject({
+      whatIds: ['006VS00000XXtabYAD'],
+    });
+  });
+
+  // Suggestion is consulted ONLY when the call_note has no linkage of its
+  // own. If the rep manually re-linked to a different record, that pointer
+  // wins — a stale DM-time suggestion must not override the rep's choice.
+  it("advisor cascade: 'likely' suggestion is ignored when call_note has its own linkage", async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
+    mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('AS call_note_id')) {
+        return Promise.resolve({
+          rows: [{
+            call_note_id: 'relinked', call_date: new Date('2026-05-11T14:00:52Z'),
+            rep_id: 'rep-1', sga_name: null, rep_role: null, sgm_name: null, source: 'granola',
+            sfdc_who_id: 'WHO-MANUAL', sfdc_what_id: null, sfdc_record_type: 'Lead',
+            invitee_emails: null, kixie_task_id: null,
+            sfdc_suggestion: {
+              candidates: [
+                { confidence_tier: 'likely', who_id: null, what_id: '006StaleSuggestion', primary_record_type: 'Opportunity' },
+              ],
+            },
+            pushed_to_sfdc: true, has_ai_feedback: false, has_manager_edit_eval: false,
+          }],
+          rowCount: 1,
+        });
+      }
+      return defaultMockImpl(sql);
+    });
+    mockResolveAdvisorNames.mockResolvedValue({
+      whoIdToInfo: {
+        'WHO-MANUAL': {
+          name: 'Manually Linked Person', leadId: '00QManual', opportunityId: '006Manual',
+          didSql: true, didSqo: true, currentStage: 'Signed', closedLost: false,
+        },
+      },
+      whatIdToInfo: {},
+      emailToUniqueInfo: {},
+      kixieTaskIdToInfo: {},
+    });
+    const res = await GET(makeReq() as never);
+    const body = await res.json() as { drillDown: Array<{ advisorName: string|null; currentStage: string|null }> };
+    expect(body.drillDown[0]!.advisorName).toBe('Manually Linked Person');
+    expect(body.drillDown[0]!.currentStage).toBe('Signed');
+    // The stale suggestion's what_id was NOT added to the resolver lookup
+    // because the row already has its own who_id.
+    expect(mockResolveAdvisorNames.mock.calls[0]![0].whatIds ?? []).not.toContain('006StaleSuggestion');
+  });
+
+  // Internal-only fields stay server-side. Both sfdc_what_id and the JSONB
+  // suggestion blob get stripped before the response leaves the route.
+  it('drill-down response strips sfdc_what_id and sfdc_suggestion (server-only)', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
+    mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('AS call_note_id')) {
+        return Promise.resolve({
+          rows: [{
+            call_note_id: 'strip', call_date: new Date('2026-04-01T12:00:00Z'),
+            rep_id: null, sga_name: null, rep_role: null, sgm_name: null, source: 'granola',
+            sfdc_who_id: null,
+            sfdc_what_id: '006InternalOnly',
+            sfdc_record_type: 'Opportunity',
+            invitee_emails: null, kixie_task_id: null,
+            sfdc_suggestion: { candidates: [{ confidence_tier: 'likely', what_id: '006InternalOnly', who_id: null }] },
+            pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
+          }],
+          rowCount: 1,
+        });
+      }
+      return defaultMockImpl(sql);
+    });
+    const res = await GET(makeReq() as never);
+    const body = await res.json() as { drillDown: Array<Record<string, unknown>> };
+    const row = body.drillDown[0]!;
+    expect(row).not.toHaveProperty('sfdc_what_id');
+    expect(row).not.toHaveProperty('sfdcWhatId');
+    expect(row).not.toHaveProperty('sfdc_suggestion');
+    expect(row).not.toHaveProperty('sfdcSuggestion');
   });
 });
