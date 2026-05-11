@@ -201,25 +201,35 @@ const _getCoachingUsageData = async (args: { range: AllowedRange }) => {
 //      calls pushed with WhatId only — the case the user reported, where
 //      sfdc_who_id is NULL and the email cascade was silently picking a
 //      sibling Closed Lost record on the same Account.
-//   2. sfdc_who_id is set → BigQuery resolves Lead/Contact name + primary
-//      opp stage → use it.
-//   3. (Granola pre-push) source='granola', no linkage of its own, but the
+//   2. sfdc_who_id is a Contact and the Contact's Account hosts a more-
+//      current opp than the Contact's converted-Lead primary opp → use the
+//      Account-best opp (open opps before closed; most-recent within each
+//      bucket). Catches the kixie case where a rep called a previously-
+//      Closed-Lost Contact that has since had a Re-Engagement / new opp on
+//      the same Account. Disambiguation: opp.Name must contain the
+//      Contact's LastName so multi-advisor Accounts don't pick the wrong
+//      advisor's opp.
+//   3. sfdc_who_id is set → BigQuery resolves Lead/Contact name + the
+//      lead's primary opp stage → use it. (Pre-existing path; still the
+//      right answer for single-lifecycle Leads and Contacts whose Account
+//      best-opp didn't match the name guard above.)
+//   4. (Granola pre-push) source='granola', no linkage of its own, but the
 //      slack_review_messages.sfdc_suggestion top candidate has
 //      confidence_tier='likely' → use that candidate's what_id (preferred,
 //      stage from THIS opp) or who_id. Lets the row show the right stage
 //      before the rep ever clicks Approve.
-//   4. (Kixie self-healing) sfdc_who_id is null AND source='kixie' AND
+//   5. (Kixie self-healing) sfdc_who_id is null AND source='kixie' AND
 //      kixie_task_id is set → look up Task.WhoId in BQ → resolve Lead/Contact
 //      name. This recovers calls where the WhoId was associated to the SFDC
 //      Task after the call-transcriber baked sfdc_who_id=NULL into Postgres
 //      (Salesforce association lag + BQ sync lag stack on top of each other,
 //      and Kixie calls have no calendar invitees to fall back on).
-//   5. sfdc_who_id is null AND row has at least one external invitee_email:
+//   6. sfdc_who_id is null AND row has at least one external invitee_email:
 //      a. If exactly ONE of those emails resolves to a unique person in
 //         Lead/Contact → use that name.
 //      b. Otherwise → display the FIRST external email; remaining externals
 //         go in advisorEmailExtras for the client tooltip.
-//   6. None of the above → 'Unknown'.
+//   7. None of the above → 'Unknown'.
 //
 // `sfdc_who_id`, `sfdc_what_id`, `sfdc_record_type`, `invitee_emails`,
 // `kixie_task_id`, and `sfdc_suggestion` are stripped from the response
@@ -273,7 +283,13 @@ async function annotateDrillDownWithAdvisor(rows: DetailRow[]) {
   }
 
   // One BigQuery round-trip (skipped entirely when all sets are empty).
-  const { whoIdToInfo, whatIdToInfo, emailToUniqueInfo, kixieTaskIdToInfo } = await resolveAdvisorNames({
+  // Defensive `= {}` defaults guard against the field being absent at
+  // runtime — only happens when test mocks return partial maps; the typed
+  // contract on `resolveAdvisorNames` always includes every map.
+  const {
+    whoIdToInfo, whatIdToInfo, contactAccountOppToInfo = {},
+    emailToUniqueInfo, kixieTaskIdToInfo,
+  } = await resolveAdvisorNames({
     whoIds: [...whoIds],
     whatIds: [...whatIds],
     emails: [...externalEmails],
@@ -292,9 +308,18 @@ async function annotateDrillDownWithAdvisor(rows: DetailRow[]) {
     // populated for unlinked granola rows).
     const effectiveWhatId = r.sfdc_what_id ?? likely?.what_id ?? null;
     const effectiveWhoId = r.sfdc_who_id ?? likely?.who_id ?? null;
+    // Account-pivot result is keyed by Contact.Id (only Contact who-ids
+    // produce a row in contactAccountOppToInfo). For Lead who-ids this
+    // map is empty and the cascade falls through to whoIdToInfo unchanged.
+    const accountHit = effectiveWhoId ? contactAccountOppToInfo[effectiveWhoId] : null;
 
     if (effectiveWhatId && whatIdToInfo[effectiveWhatId]) {
       info = whatIdToInfo[effectiveWhatId]!;
+      advisorName = info.name;
+    } else if (accountHit) {
+      // Contact's Account has a more-current opp than the Contact's
+      // converted-Lead primary opp — pick the Account-best to match SFDC.
+      info = accountHit;
       advisorName = info.name;
     } else if (effectiveWhoId && whoIdToInfo[effectiveWhoId]) {
       info = whoIdToInfo[effectiveWhoId]!;

@@ -45,7 +45,7 @@ describe('GET /api/admin/coaching-usage', () => {
     mockGetSessionPermissions.mockReset();
     mockResolveAdvisorNames.mockReset();
     // Default resolver: no SFDC matches. Tests that need SFDC names override.
-    mockResolveAdvisorNames.mockResolvedValue({ whoIdToInfo: {}, whatIdToInfo: {}, emailToUniqueInfo: {}, kixieTaskIdToInfo: {} });
+    mockResolveAdvisorNames.mockResolvedValue({ whoIdToInfo: {}, whatIdToInfo: {}, contactAccountOppToInfo: {}, emailToUniqueInfo: {}, kixieTaskIdToInfo: {} });
   });
 
   it('returns 401 when no session', async () => {
@@ -414,7 +414,7 @@ describe('GET /api/admin/coaching-usage', () => {
       }
       return defaultMockImpl(sql);
     });
-    mockResolveAdvisorNames.mockResolvedValue({ whoIdToInfo: {}, whatIdToInfo: {}, emailToUniqueInfo: {}, kixieTaskIdToInfo: {} });
+    mockResolveAdvisorNames.mockResolvedValue({ whoIdToInfo: {}, whatIdToInfo: {}, contactAccountOppToInfo: {}, emailToUniqueInfo: {}, kixieTaskIdToInfo: {} });
     const res = await GET(makeReq() as never);
     const body = await res.json() as { drillDown: Array<{ advisorName: string|null; advisorEmail: string|null; advisorEmailExtras: string[] }> };
     expect(body.drillDown[0]!.advisorName).toBeNull();
@@ -741,6 +741,107 @@ describe('GET /api/admin/coaching-usage', () => {
     // The stale suggestion's what_id was NOT added to the resolver lookup
     // because the row already has its own who_id.
     expect(mockResolveAdvisorNames.mock.calls[0]![0].whatIds ?? []).not.toContain('006StaleSuggestion');
+  });
+
+  // 2026-05-11 — second bug repro: kixie call whose sfdc_who_id is a Contact
+  // tied to a 2024 Closed Lost lead lifecycle, while SFDC has a newer
+  // Qualifying opp on the SAME Account. The Contact→Account→best-opp arm
+  // returns the active Qualifying opp; the existing who→ConvertedLead arm
+  // would have returned the stale Closed Lost.
+  it('advisor cascade: Contact-on-Account-with-newer-opp resolves to Account-best (not stale lead-primary)', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
+    mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('AS call_note_id')) {
+        return Promise.resolve({
+          rows: [{
+            call_note_id: 'dbd1f176-b63b-48cc-ae5a-47ee2249146d',
+            call_date: new Date('2026-05-05T15:12:41Z'),
+            rep_id: 'rep-1', sga_name: 'Russell A.', rep_role: 'SGA', sgm_name: null, source: 'kixie',
+            sfdc_who_id: '003VS00000GrSzRYAV',  // Colin's Contact
+            sfdc_what_id: null,
+            sfdc_record_type: 'Contact',
+            invitee_emails: null,
+            kixie_task_id: '00TVS00000n7UOr2AM',
+            sfdc_suggestion: null,
+            pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
+          }],
+          rowCount: 1,
+        });
+      }
+      return defaultMockImpl(sql);
+    });
+    // who-arm finds the stale 2024 Closed Lost lead; contactAccountOppToInfo
+    // returns the current Qualifying opp on the same Account.
+    mockResolveAdvisorNames.mockResolvedValue({
+      whoIdToInfo: {
+        '003VS00000GrSzRYAV': {
+          name: 'Colin Kampfe', leadId: '00QVS00000CTVhT2AX', opportunityId: '006VS00000D0vN1YAJ',
+          didSql: true, didSqo: false, currentStage: 'Closed Lost', closedLost: true,
+        },
+      },
+      whatIdToInfo: {},
+      contactAccountOppToInfo: {
+        '003VS00000GrSzRYAV': {
+          name: 'Colin Kampfe', leadId: null, opportunityId: '006VS00000a20LmYAI',
+          didSql: true, didSqo: false, currentStage: 'Qualifying', closedLost: false,
+        },
+      },
+      emailToUniqueInfo: {},
+      kixieTaskIdToInfo: {},
+    });
+    const res = await GET(makeReq() as never);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { drillDown: Array<{ advisorName: string|null; currentStage: string|null; closedLost: boolean; linkedToSfdc: boolean; opportunityUrl: string|null }> };
+    expect(body.drillDown[0]!.advisorName).toBe('Colin Kampfe');
+    expect(body.drillDown[0]!.currentStage).toBe('Qualifying');
+    expect(body.drillDown[0]!.closedLost).toBe(false);
+    expect(body.drillDown[0]!.linkedToSfdc).toBe(true);
+    expect(body.drillDown[0]!.opportunityUrl).toBe('https://savvywealth.lightning.force.com/lightning/r/Opportunity/006VS00000a20LmYAI/view');
+  });
+
+  // The Account-pivot arm fires only for Contact who-ids; Lead who-ids are
+  // not affected (the Account-arm map is empty for them). Same row layout
+  // as the above, but the existing whoIdToInfo wins — no override.
+  it('advisor cascade: Lead-direct who-id is NOT affected by the Account-pivot arm', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
+    mockGetSessionPermissions.mockReturnValue({ role: 'revops_admin' });
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('AS call_note_id')) {
+        return Promise.resolve({
+          rows: [{
+            call_note_id: 'lead-row', call_date: new Date('2026-05-05T15:12:41Z'),
+            rep_id: 'rep-1', sga_name: null, rep_role: null, sgm_name: null, source: 'kixie',
+            sfdc_who_id: '00QVS00000LeadOnly',  // Lead.Id, not Contact
+            sfdc_what_id: null,
+            sfdc_record_type: 'Lead',
+            invitee_emails: null, kixie_task_id: null,
+            sfdc_suggestion: null,
+            pushed_to_sfdc: false, has_ai_feedback: false, has_manager_edit_eval: false,
+          }],
+          rowCount: 1,
+        });
+      }
+      return defaultMockImpl(sql);
+    });
+    mockResolveAdvisorNames.mockResolvedValue({
+      whoIdToInfo: {
+        '00QVS00000LeadOnly': {
+          name: 'Lead Person', leadId: '00QVS00000LeadOnly', opportunityId: '006LeadOpp',
+          didSql: true, didSqo: true, currentStage: 'Sales Process', closedLost: false,
+        },
+      },
+      whatIdToInfo: {},
+      // Account-pivot returns nothing for Lead who-ids (SQL only matches
+      // Contact.Id values), so the cascade falls through to whoIdToInfo.
+      contactAccountOppToInfo: {},
+      emailToUniqueInfo: {},
+      kixieTaskIdToInfo: {},
+    });
+    const res = await GET(makeReq() as never);
+    const body = await res.json() as { drillDown: Array<{ advisorName: string|null; currentStage: string|null }> };
+    expect(body.drillDown[0]!.advisorName).toBe('Lead Person');
+    expect(body.drillDown[0]!.currentStage).toBe('Sales Process');
   });
 
   // Internal-only fields stay server-side. Both sfdc_what_id and the JSONB
