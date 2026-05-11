@@ -2207,7 +2207,7 @@ The Call Intelligence page (`/dashboard/call-intelligence`, page ID 20) hosts AI
 - `src/app/dashboard/call-intelligence/evaluations/[id]/page.tsx` — eval drill-down sub-route
 - `src/app/dashboard/call-intelligence/rubrics/[id]/page.tsx` — rubric editor sub-route (manager + admin only). `[id]` is a UUID for edit/view, or the literal `'new'` for create-new-version.
 - `src/app/dashboard/call-intelligence/review/[callNoteId]/page.tsx` — rep note-review sub-route (any active page-20 user). Reachable from the Slack DM `[Review in App →]` deep-link and from the "My pending note reviews" widget on the Queue tab. Mobile-responsive (≤375px). Editor + SFDC linkage panel + sticky Approve/Reject action bar. On bridge-fetch failure (note already approved/rejected/deleted/forbidden), redirects to `/dashboard/call-intelligence?tab=queue&note=unavailable`.
-- `src/app/dashboard/call-intelligence/insights/evals/page.tsx` — filtered eval-list drill-down from Insights heat-map cells (manager + admin only). Re-applies the Insights authority union; `?rep=<uuid>` that resolves outside `getRepIdsVisibleToActor` returns `notFound()` (404, not 403 — no rep-existence leak).
+- Insights heat-map drill-down is now an in-tab three-layer modal stack inside `InsightsTab.tsx` (the page route under `insights/evals/` was retired 2026-05-11; a `permanent: true` redirect in `next.config.js` strips legacy `?…` query params and lands the user on `?tab=insights`). The API at `/api/call-intelligence/insights/evals` still backs Layer 1's eval list — only the page-route was deleted.
 
 **Permission**: Page ID 20 — `revops_admin`, `admin`, `manager`, `sgm`, `sga`. Recruiter and capital_partner roles have explicit redirects.
 
@@ -2277,6 +2277,7 @@ The bridge token format: `v1.<base64url(payload)>.<base64url(signature)>`, paylo
 | `/api/call-intelligence/insights/clusters` | GET | direct (coachingDb) | Knowledge-gap clusters: UNION of `evaluations.knowledge_gaps` JSONB + `rep_deferrals`. Synonym-matched against `kb_vocab_topics` via curated `KB_VOCAB_SYNONYMS`. Source filter pill: `all` / `gaps_only` / `deferrals_only` / `deferrals_kb_missing` / `deferrals_kb_covered`. |
 | `/api/call-intelligence/insights/pods` | GET | direct (coachingDb) | Active `coaching_teams` pods whose members intersect the actor's visible rep set. |
 | `/api/call-intelligence/insights/evals` | GET | direct (coachingDb) | Filtered eval list for heat-map cell drill-down. Filters: role, rubric_version, pod, dimension, range, focused rep. Limit 500. |
+| `/api/call-intelligence/cost-analysis` | GET | bridge | AI spend rollup for the Cost Analysis tab (admin-only). Query params `start_date` + `end_date` (YYYY-MM-DD, end inclusive). Returns total spend, distinct-advisor-call denominator, $/advisor-call, avg $/day, avg $/month (avg_daily × 31), by-day series, by-feature + by-model rollups. Spend filtered by `ai_usage_log.created_at`; denominator filtered by `call_notes.created_at` where source='kixie' OR (source='granola' AND likely_call_type='advisor_call'). |
 
 Cache tag: `CACHE_TAGS.CALL_INTELLIGENCE_QUEUE`. Mutating routes call `revalidateTag()` after a successful bridge response. Listed in `src/app/api/admin/refresh-cache/route.ts` for the bulk admin invalidation. Note-review mutators also revalidate `CALL_INTELLIGENCE_QUEUE` (no separate `NOTE_REVIEWS` tag — the widget fetches with `cache: 'no-store'`).
 
@@ -2332,7 +2333,7 @@ Cache tag: `CACHE_TAGS.CALL_INTELLIGENCE_QUEUE`. Mutating routes call `revalidat
 
 The `insights` tab (manager + admin only) renders two team-shape views and a per-rep drilldown, all from Neon (no BigQuery):
 
-1. **Dimension heat map** — grid of dimensions × pods, aggregating `evaluations.dimension_scores` JSONB via `jsonb_each`, grouped by `(role, rubric_version, pod_label)`. Pod sub-grouping for SGMs (named pods + `Unassigned (no pod)`); SGAs render as a single `__SGA__` sentinel block. Cell color: Savvy Green `#175242` ≥3.0, Savvy Gold `#8e7e57` ≥2.0, Tan `#c7bca1` <2.0. Click a cell → drill-down at `/dashboard/call-intelligence/insights/evals`.
+1. **Dimension heat map** — grid of dimensions × pods, aggregating `evaluations.dimension_scores` JSONB via `jsonb_each`, grouped by `(role, rubric_version, pod_label)`. Pod sub-grouping for SGMs (named pods + `Unassigned (no pod)`); SGAs render as a single `__SGA__` sentinel block. Cell color: Savvy Green `#175242` ≥3.0, Savvy Gold `#8e7e57` ≥2.0, Tan `#c7bca1` <2.0. Click a cell → opens Layer 1 of the three-layer modal stack (eval list → eval detail → transcript). All three layers render inside `InsightsTab.tsx`; URL hash (`#modal=list|detail|transcript`) makes browser back pop one layer at a time.
 2. **Knowledge-gap clusters** — UNION of `evaluations.knowledge_gaps` JSONB rows + `rep_deferrals` table rows, keyword-matched against `kb_vocab_topics` using `KB_VOCAB_SYNONYMS` (curated synonyms map passed as `$9::jsonb`). Source pills filter to gap-only / deferral-only / deferrals→KB-missing / deferrals→KB-covered.
 3. **Rep focus** — triggered by `?focus_rep=<uuid>`. Same heat-map helper, scoped to `repIds=[focus_rep]`; additionally returns 90d-trailing sparkline series. `repBreakdown` is suppressed in cluster cards (n=1 by definition).
 
@@ -2355,12 +2356,13 @@ The `insights` tab (manager + admin only) renders two team-shape views and a per
 | `dimension-heatmap.ts` | `getDimensionHeatmap({...})` | Grid SQL + (when n=1) trailing-90d sparkline SQL. Sparkline lookback is decoupled from the main date filter to avoid n=1 collapse. |
 | `knowledge-gap-clusters.ts` | `getKnowledgeGapClusters({...})` | Curated-synonym UNION query. All filters bound as `$N` params — no SQL interpolation. |
 | `kb-vocab-synonyms.ts` | `KB_VOCAB_SYNONYMS` (32 vocab values incl. `annuity`) | Hand-curated lowercase substrings per `kb_vocab_topics` value. Reviewed monthly. Defaults to snake-case-to-space when no entry present. |
-| `insights-evals-list.ts` | `getInsightsEvalsList({...})` | Drill-down list at `/insights/evals`. Filters by role/rubric_version/pod/dimension/range/rep. `DISTINCT` to dedupe LEFT-JOINed multi-team rows. |
+| `insights-evals-list.ts` | `getInsightsEvalsList({...})` | Drill-down list used by Layer 1 of the in-tab modal stack (heat-map cell click). Filters by role/rubric_version/pod/dimension/range/rep. `DISTINCT` to dedupe LEFT-JOINed multi-team rows. |
 
 **Components**:
 - `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx` — full client tab with sticky filter bar (range, role, pod multi-select, source pills), heat-map render (team mode + rep-focus mode with sparklines), cluster list, URL-param persistence via `router.replace({ scroll: false })`.
 - `src/components/call-intelligence/Sparkline.tsx` — shared SVG sparkline (extracted from `GCHubAdvisorTable`). Auto-trend coloring; falls back to `—` when <2 points.
-- `src/app/dashboard/call-intelligence/insights/evals/EvalsListClient.tsx` — drill-down table; each row links to `/dashboard/call-intelligence/evaluations/${id}?returnTab=insights`.
+- `src/components/call-intelligence/InsightsEvalListModal.tsx` (Layer 1) and `InsightsEvalDetailModal.tsx` (Layer 2) — modal-stack drill-down rendered inline inside the Insights tab. Layer 3 reuses `TranscriptModal.tsx` with `disableOwnEscHandler` + `zClassName="z-[70]"` so the parent owns a unified Esc handler.
+- `src/app/dashboard/call-intelligence/tabs/CostAnalysisTab.tsx` — admin-only "Cost Analysis" tab (2026-05-11). Date-range picker with presets (Month-to-date default, Last 7/30/90 days, Custom). Four KPI cards (Total spend, Spend per advisor call, Avg $/day, Avg $/month projection). Recharts area chart for daily spend series + two rollup tables (by feature, by model). Backed by GET `/api/call-intelligence/cost-analysis` pass-through to the sales-coaching bridge. Tab gated on `isAdmin` in `CallIntelligenceClient.tsx`.
 
 **URL contract** — filters persist via query params: `?tab=insights&range=30d&role=SGM&pods=<id1>,<id2>&source=deferrals_kb_missing&focus_rep=<uuid>`. The "← Back to team" button only clears `focus_rep` — range/role/pod/source remain intact. Role + pod controls switch to read-only chips while in focus mode.
 

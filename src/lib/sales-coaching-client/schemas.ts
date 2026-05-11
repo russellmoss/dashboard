@@ -945,6 +945,85 @@ export const RejectNoteReviewResponse = z
   })
   .strict();
 
+// ════════════════════════════════════════════════════════════════════════════
+// AI Cost Analysis bridge — GET /api/dashboard/cost-analysis
+//
+// Powers the Dashboard "Cost Analysis" tab. Total Anthropic spend across all
+// 13 AI call sites (Migration 042 ai_usage_log), denominator = distinct
+// advisor calls processed in the window (source='kixie' OR (source='granola'
+// AND likely_call_type='advisor_call')). Date filter applies to ai_usage_log
+// .created_at for the spend numerator and call_notes.created_at for the
+// advisor-call denominator — chosen by Russell 2026-05-11 over the
+// alternative "filter both by call_notes.created_at" because monthly bill
+// reconciliation needs the actual API-spend timestamp.
+// ════════════════════════════════════════════════════════════════════════════
+
+// ISO date string (YYYY-MM-DD). End is INCLUSIVE of the day (server expands
+// to next-day-00:00 UTC for the half-open SQL range).
+const IsoDateStringSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD required');
+
+export const CostAnalysisRequest = z
+  .object({
+    start_date: IsoDateStringSchema,
+    end_date: IsoDateStringSchema,
+  })
+  .strict()
+  .refine((v) => v.start_date <= v.end_date, { message: 'start_date must be on or before end_date' });
+
+const CostAnalysisByDayRow = z
+  .object({
+    day: IsoDateStringSchema,
+    spend_micro_usd: z.number().int().nonnegative(),
+    api_call_count: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const CostAnalysisByFeatureRow = z
+  .object({
+    feature: z.string(),
+    spend_micro_usd: z.number().int().nonnegative(),
+    api_call_count: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const CostAnalysisByModelRow = z
+  .object({
+    model: z.string(),
+    spend_micro_usd: z.number().int().nonnegative(),
+    api_call_count: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const CostAnalysisResponse = z
+  .object({
+    date_range: z
+      .object({
+        start: IsoDateStringSchema,
+        end: IsoDateStringSchema,
+        days_in_range: z.number().int().positive(),
+      })
+      .strict(),
+
+    // Headline KPIs
+    total_spend_micro_usd: z.number().int().nonnegative(),
+    total_api_calls: z.number().int().nonnegative(),
+    advisor_call_count: z.number().int().nonnegative(),
+    spend_per_advisor_call_micro_usd: z.number().int().nonnegative(),
+    avg_daily_spend_micro_usd: z.number().int().nonnegative(),
+    avg_monthly_spend_micro_usd: z.number().int().nonnegative(),
+
+    // Time series + rollups for charts/tables
+    by_day: z.array(CostAnalysisByDayRow),
+    by_feature: z.array(CostAnalysisByFeatureRow),
+    by_model: z.array(CostAnalysisByModelRow),
+  })
+  .strict();
+
+export type CostAnalysisRequestT = z.infer<typeof CostAnalysisRequest>;
+export type CostAnalysisResponseT = z.infer<typeof CostAnalysisResponse>;
+
 // Step 5b-3-API inferred types — rep note review bridge.
 export type CallNoteSourceT = z.infer<typeof CallNoteSourceSchema>;
 export type CallNoteStatusT = z.infer<typeof CallNoteStatusSchema>;

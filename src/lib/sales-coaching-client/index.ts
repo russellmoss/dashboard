@@ -14,6 +14,7 @@ import {
   CreateRubricRequest, UpdateDraftRubricRequest, ActivateRubricRequest,
   EditCallNoteRequest, SfdcSearchRequest, SetSfdcLinkRequest,
   SubmitNoteReviewRequest, RejectNoteReviewRequest,
+  CostAnalysisResponse,
   // Response schema VALUES:
   CreateUserResponse, UpdateUserResponse,
   DeactivateUserResponseOk,
@@ -54,6 +55,7 @@ import {
   type SetSfdcLinkRequestT, type SetSfdcLinkResponseT,
   type SubmitNoteReviewRequestT, type SubmitNoteReviewResponseT,
   type RejectNoteReviewRequestT, type RejectNoteReviewResponseT,
+  type CostAnalysisResponseT,
 } from './schemas';
 import { signDashboardToken } from './token';
 import {
@@ -500,6 +502,20 @@ export const salesCoachingClient = {
       body,
       context: { callNoteId, expectedEditVersion: (body as { expected_edit_version: number }).expected_edit_version },
     }),
+
+  // ----- Cost Analysis tab — AI spend rollups. -----
+  getCostAnalysis: (email: string, params: { start_date: string; end_date: string }) => {
+    const qs = new URLSearchParams({
+      start_date: params.start_date,
+      end_date: params.end_date,
+    });
+    return bridgeRequest<undefined, CostAnalysisResponseT>({
+      method: 'GET',
+      path: `/api/dashboard/cost-analysis?${qs.toString()}`,
+      email,
+      responseSchema: CostAnalysisResponse,
+    });
+  },
 };
 
 export {

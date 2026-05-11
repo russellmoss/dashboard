@@ -5,6 +5,7 @@ import type {
   RubricStatusT,
   RubricDimensionDefT,
 } from '@/lib/sales-coaching-client/schemas';
+import type { UserRole } from '@/types/user';
 
 /** Queue tab row. Source: getEvaluationsForManager. */
 export interface EvaluationQueueRow {
@@ -73,6 +74,12 @@ export interface EvaluationDetail {
    *  the eval-detail route's authority check to allow SGA/SGM cross-rep
    *  access when both reps share the same SFDC record (2026-05-10). */
   call_sfdc_record_id: string | null;
+  /** Advisor/prospect name resolved via the same cascade as the queue:
+   *  SFDC who_id → BQ Lead/Contact → unique-email match → attendee cascade.
+   *  Null when the call has only Savvy-internal attendees. */
+  advisor_name: string | null;
+  /** call_notes.title — call subject line from Granola/Kixie. Null when unset. */
+  call_title: string | null;
   transcript: unknown | null;
   created_at: string;
   updated_at: string;
@@ -91,6 +98,8 @@ export interface EvaluationDetail {
   coaching_nudge: { text: string; citations?: Citation[] } | null;
   /** COALESCE(canonical, ai_original.coachingNudge) — computed in API route for pre-024 evals. */
   coaching_nudge_effective: { text: string; citations?: Citation[] } | null;
+  /** Direct quotes the rep deferred to another team. Empty array when none captured. */
+  rep_deferrals: RepDeferral[];
   manager_edited_at: string | null;
   manager_edited_by: string | null;
   manager_edited_by_name: string | null;
@@ -100,7 +109,9 @@ export interface EvaluationDetail {
   chunk_lookup: Record<string, KbChunkAugmentation>;
 }
 
-/** A single utterance/KB citation block embedded inside ai_original or canonical fields. */
+/** A single utterance/KB citation block embedded inside ai_original or canonical fields.
+ *  NOTE: NOT a real discriminated union — both fields are optional. Consumers must
+ *  render defensively when both are set on a single citation. */
 export interface Citation {
   utterance_index?: number;
   kb_source?: {
@@ -109,6 +120,14 @@ export interface Citation {
     drive_url: string;
     doc_title: string;
   };
+}
+
+/** Canonical rep_deferrals item — a topic the rep deferred to another team
+ *  with the direct quote and supporting citations. */
+export interface RepDeferral {
+  topic: string;
+  deferral_text: string;
+  citations: Citation[];
 }
 
 /** A pinned utterance-level comment (manager+admin authored). */
@@ -187,7 +206,9 @@ export type CallIntelligenceTab =
   | 'admin-users'
   | 'admin-refinements'
   | 'rubrics'
-  | 'coaching-usage';
+  | 'coaching-usage'
+  | 'insights'
+  | 'cost-analysis';
 
 /** Rubrics tab listing row. Source: getRubricsForList (LEFT JOIN reps for creator name). */
 export interface RubricListRow {
@@ -206,3 +227,128 @@ export interface RubricListRow {
   created_at: string;
   updated_at: string;
 }
+
+// === Team Insights tab (5c-1) ===
+
+export interface VisibleRepsActor {
+  repId: string;
+  role: UserRole;
+  email: string;
+}
+
+export type InsightsDateRangeKind = '7d' | '30d' | '90d' | 'custom';
+
+export type InsightsDateRange =
+  | { kind: '7d' | '30d' | '90d' }
+  | { kind: 'custom'; start: string; end: string }; // ISO yyyy-mm-dd
+
+export type InsightsRoleFilter = 'SGA' | 'SGM' | 'both';
+
+export type InsightsSourceFilter =
+  | 'all'
+  | 'gaps_only'
+  | 'deferrals_only'
+  | 'deferrals_kb_missing'
+  | 'deferrals_kb_covered';
+
+export interface InsightsFilterState {
+  dateRange: InsightsDateRange;
+  role: InsightsRoleFilter;
+  podIds: string[];
+  repIds: string[];
+  sourceFilter: InsightsSourceFilter;
+  rubricVersion: number | null;
+  focusRep: string | null;
+}
+
+export interface DimensionHeatmapCell {
+  dimensionName: string;
+  avgScore: number;
+  n: number;
+}
+
+export interface DimensionHeatmapRowBlock {
+  role: string;
+  rubricVersion: number;
+  /** e.g. "GinaRose's SGM Pod", "Unassigned (no pod)", or "__SGA__" sentinel */
+  podLabel: string;
+  podId: string | null;
+  leadFullName: string | null;
+  cells: DimensionHeatmapCell[];
+}
+
+/** Rep-focus trend row: current window vs prior window for one dimension.
+ *  Either side can be null when n=0 in that window; `delta` is computed only
+ *  when both sides are non-null. */
+export interface RepFocusTrendComparison {
+  dimensionName: string;
+  currentAvg: number | null;
+  currentN: number;
+  priorAvg: number | null;
+  priorN: number;
+  delta: number | null;
+}
+
+export type InsightsTrendMode = '30d' | '90d';
+
+export interface DimensionHeatmapResult {
+  rowBlocks: DimensionHeatmapRowBlock[];
+  sparklines: RepFocusTrendComparison[] | null;
+}
+
+export interface KnowledgeGapClusterRow {
+  topic: string;
+  totalOccurrences: number;
+  gapCount: number;
+  deferralCount: number;
+  deferralByCoverage: { covered: number; partial: number; missing: number };
+  repBreakdown: Array<{ repId: string; repName: string; gapCount: number; deferralCount: number }>;
+  sampleEvalIds: string[];
+}
+
+export interface InsightsPod {
+  id: string;
+  name: string;
+  leadRepId: string;
+  leadFullName: string | null;
+}
+
+/** One row in the rep type-ahead filter on the Insights tab.
+ *  Pod fields are nullable: SGM leads and unassigned reps have no active pod. */
+export interface InsightsRep {
+  id: string;
+  fullName: string;
+  /** reps.role from the coaching DB — 'SGA' | 'SGM' | 'manager' | 'admin'. */
+  role: string;
+  podId: string | null;
+  podName: string | null;
+}
+
+// === Insights tab — three-layer modal stack (5c-2) ===
+
+export type InsightsModalStackLayer =
+  | { kind: 'list';       payload: EvalListModalPayload }
+  | { kind: 'detail';     payload: EvalDetailDrillPayload }
+  | { kind: 'transcript'; payload: TranscriptDrillPayload };
+
+export interface EvalListModalPayload {
+  role: string;
+  rubricVersion: number;
+  podId: string | null;
+  dimension: string | null;
+  dateRange: InsightsDateRange;
+  focusRep: string | null;
+}
+
+export interface EvalDetailDrillPayload {
+  evaluationId: string;
+  dimension?: string;
+  topic?: string;
+}
+
+export interface TranscriptDrillPayload {
+  evaluationId: string;
+  initialUtteranceIndex: number | null;
+}
+
+export type { InsightsEvalListRow } from '@/lib/queries/call-intelligence/insights-evals-list';
