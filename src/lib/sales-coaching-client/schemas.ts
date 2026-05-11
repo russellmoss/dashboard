@@ -801,10 +801,16 @@ export const BridgeSfdcCandidateSchema = z
     primary_record_type: SfdcRecordTypeSchema,
     display_subtitle: z.string(),
     last_activity_date: z.string().nullable(),
-    owner_id: z.string().nullable(),
-    owner_name: z.string().nullable(),
-    owner_match: z.boolean(),
-    confidence_tier: z.enum(['likely', 'possible', 'unlikely']),
+    // 2026-05-10 — these fields are produced by current waterfall code but are
+    // absent in legacy slack_review_messages.sfdc_suggestion JSONB written
+    // before owner-aware ranking (2026-05-07) + confidence_tier + account_name
+    // (2026-05-10) shipped. Made optional so the bridge GET response parses
+    // for legacy 'dm' rows too. SuggestedRecordsPanel tolerates undefined.
+    owner_id: z.string().nullable().optional(),
+    owner_name: z.string().nullable().optional(),
+    owner_match: z.boolean().optional(),
+    confidence_tier: z.enum(['likely', 'possible', 'unlikely']).optional(),
+    account_name: z.string().nullable().optional(),
   })
   .passthrough();
 
