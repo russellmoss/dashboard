@@ -235,7 +235,7 @@ export async function fetchNotesForContext(ctx: RecordContext): Promise<NoteReco
       cn.source,
       cn.sfdc_who_id,
       cn.invitee_emails,
-      cn.summary_markdown,
+      COALESCE(cn.summary_markdown_edited, cn.summary_markdown) AS summary_markdown,
       sga.full_name AS rep_name,
       sga.role     AS rep_role,
       sgm.full_name AS manager_name,

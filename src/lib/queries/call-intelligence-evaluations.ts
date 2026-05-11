@@ -283,7 +283,7 @@ export async function getEvaluationDetail(evaluationId: string): Promise<Evaluat
       e.manager_edited_by,
       editor.full_name                  AS manager_edited_by_name,
       editor.is_active                  AS manager_edited_by_active,
-      cn.summary_markdown               AS call_summary_markdown,
+      COALESCE(cn.summary_markdown_edited, cn.summary_markdown) AS call_summary_markdown,
       ct.transcript,
       e.rubric_version,
       rb.name                           AS rubric_name,
