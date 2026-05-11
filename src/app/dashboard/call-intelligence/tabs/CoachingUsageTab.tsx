@@ -152,6 +152,28 @@ export function CoachingUsageClient() {
   const [refreshing, setRefreshing] = useState(false);
   const [cacheBuster, setCacheBuster] = useState(0);
   const [selectedRow, setSelectedRow] = useState<CallDetailRowSummary | null>(null);
+  const [copiedNoteId, setCopiedNoteId] = useState<string | null>(null);
+
+  async function copyNoteId(id: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopiedNoteId(id);
+      setTimeout(() => setCopiedNoteId((curr) => (curr === id ? null : curr)), 1200);
+    } catch {
+      // Older browsers / non-secure contexts — fall back to a hidden textarea.
+      const ta = document.createElement('textarea');
+      ta.value = id;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch { /* noop */ }
+      document.body.removeChild(ta);
+      setCopiedNoteId(id);
+      setTimeout(() => setCopiedNoteId((curr) => (curr === id ? null : curr)), 1200);
+    }
+  }
 
   // Fetch is range-only — no filter changes trigger a refetch.
   useEffect(() => {
@@ -513,6 +535,7 @@ export function CoachingUsageClient() {
                 <th className="py-2 px-2">SFDC</th>
                 <th className="py-2 px-2">AI FB</th>
                 <th className="py-2 px-2">Edit Eval</th>
+                <th className="py-2 px-2">Note ID</th>
               </tr>
             </thead>
             <tbody>
@@ -572,6 +595,16 @@ export function CoachingUsageClient() {
                     <td className="py-2 px-2 dark:text-gray-200">{row.pushedToSfdc ? '✓' : '—'}</td>
                     <td className="py-2 px-2 dark:text-gray-200">{row.hasAiFeedback ? '✓' : '—'}</td>
                     <td className="py-2 px-2 dark:text-gray-200">{row.hasManagerEditEval ? '✓' : '—'}</td>
+                    <td className="py-2 px-2">
+                      <button
+                        type="button"
+                        onClick={(e) => copyNoteId(row.callNoteId, e)}
+                        title={`Copy ${row.callNoteId}`}
+                        className="px-1.5 py-0.5 font-mono text-xs rounded border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-400 transition-colors"
+                      >
+                        {copiedNoteId === row.callNoteId ? 'Copied!' : `${row.callNoteId.slice(0, 8)}…`}
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
