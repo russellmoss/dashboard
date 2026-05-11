@@ -14,7 +14,10 @@
 interface AiCitedItem { text?: unknown }
 export interface AiOriginalSnapshot {
   overallScore?: unknown;
-  dimensionScores?: Record<string, { score?: unknown }>;
+  // 2026-05-11 — schema v6 adds optional per-dim `body` (2-3 sentence rationale).
+  // Kept loosely typed (`body?: unknown`) so the render helper can defensively
+  // string-narrow without forcing a Zod-strict shape on this internal type.
+  dimensionScores?: Record<string, { score?: unknown; body?: unknown }>;
   narrative?: { text?: unknown };
   strengths?: AiCitedItem[];
   weaknesses?: AiCitedItem[];
@@ -55,14 +58,23 @@ export function renderAiOriginalToMarkdown(raw: unknown): string {
     lines.push('## Narrative', '', ai.narrative.text.trim(), '');
   }
   if (ai.dimensionScores && typeof ai.dimensionScores === 'object') {
-    const entries = Object.entries(ai.dimensionScores)
+    // v6 — render body (2-3 sentence rationale) under each dimension if present.
+    // Pre-v6 rows render the score-only one-liner exactly as before.
+    const blocks = Object.entries(ai.dimensionScores)
       .map(([name, val]) => {
-        const score = val && typeof val === 'object' ? (val as { score?: unknown }).score : undefined;
-        return typeof score === 'number' ? `- **${name}**: ${score}` : null;
+        if (!val || typeof val !== 'object') return null;
+        const v = val as { score?: unknown; body?: unknown };
+        const score = typeof v.score === 'number' ? v.score : null;
+        if (score === null) return null;
+        const body =
+          typeof v.body === 'string' && v.body.trim().length > 0 ? v.body.trim() : null;
+        return body
+          ? `- **${name}**: ${score}\n  ${body}`
+          : `- **${name}**: ${score}`;
       })
       .filter((s): s is string => s !== null);
-    if (entries.length > 0) {
-      lines.push('## Dimension Scores', '', ...entries, '');
+    if (blocks.length > 0) {
+      lines.push('## Dimension Scores', '', ...blocks, '');
     }
   }
   pushBullets('Strengths',              ai.strengths);

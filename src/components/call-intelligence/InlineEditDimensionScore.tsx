@@ -59,7 +59,7 @@ export function InlineEditDimensionScore({ dimension, score, disabled, onSave }:
         {score} / 4
       </button>
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-30 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-lg p-3">
+        <div className="absolute right-0 top-full mt-1 z-30 w-64 max-w-[calc(100vw-1rem)] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-lg p-3">
           <div className="text-xs font-semibold mb-2 dark:text-white">{dimension}</div>
           {[1, 2, 3, 4].map((n) => (
             <label key={n} className="flex items-start gap-2 py-1 cursor-pointer">

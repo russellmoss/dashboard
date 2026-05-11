@@ -4,6 +4,7 @@ import type {
   EvaluationQueueRow,
   EvaluationDetail,
   TranscriptCommentRow,
+  RepDeferral,
 } from '@/types/call-intelligence';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -279,6 +280,32 @@ export async function getEvaluationDetail(evaluationId: string): Promise<Evaluat
       e.id                              AS evaluation_id,
       e.call_note_id,
       cn.call_started_at,
+      cn.title                          AS call_title,
+      cn.sfdc_who_id                    AS sfdc_who_id,
+      cn.invitee_emails                 AS invitee_emails,
+      COALESCE(
+        (SELECT a->>'name'
+           FROM jsonb_array_elements(cn.attendees) AS a
+          WHERE NULLIF(TRIM(a->>'name'), '') IS NOT NULL
+            AND LOWER(COALESCE(a->>'email','')) NOT LIKE '%@savvywealth.com'
+            AND LOWER(COALESCE(a->>'email','')) NOT LIKE '%@savvyadvisors.com'
+            AND LOWER(COALESCE(a->>'email','')) NOT LIKE '%@resource.calendar.google.com'
+            AND TRIM(a->>'name') NOT LIKE '%@resource.calendar.google.com'
+          LIMIT 1),
+        (SELECT a->>'email'
+           FROM jsonb_array_elements(cn.attendees) AS a
+          WHERE LOWER(COALESCE(a->>'email','')) NOT LIKE '%@savvywealth.com'
+            AND LOWER(COALESCE(a->>'email','')) NOT LIKE '%@savvyadvisors.com'
+            AND LOWER(COALESCE(a->>'email','')) NOT LIKE '%@resource.calendar.google.com'
+            AND COALESCE(a->>'email','') <> ''
+          LIMIT 1),
+        (SELECT eml
+           FROM unnest(cn.invitee_emails) AS eml
+          WHERE LOWER(eml) NOT LIKE '%@savvywealth.com'
+            AND LOWER(eml) NOT LIKE '%@savvyadvisors.com'
+            AND LOWER(eml) NOT LIKE '%@resource.calendar.google.com'
+          LIMIT 1)
+      )                                  AS advisor_name_fallback,
       e.rep_id,
       sga.full_name                     AS rep_full_name,
       e.assigned_manager_id_snapshot,
@@ -303,6 +330,7 @@ export async function getEvaluationDetail(evaluationId: string): Promise<Evaluat
       e.compliance_flags,
       e.additional_observations,
       e.coaching_nudge,
+      e.rep_deferrals,
       e.manager_edited_at,
       e.manager_edited_by,
       editor.full_name                  AS manager_edited_by_name,
@@ -328,21 +356,77 @@ export async function getEvaluationDetail(evaluationId: string): Promise<Evaluat
   // pg-node returns `numeric` columns as strings; coerce overall_score per the
   // sales-coaching DAL convention (context-ledger d_1777156126_5823).
   // Omit list grows because none of these are returned by SELECT (post-spread merges):
-  //   transcript_comments, chunk_lookup, coaching_nudge_effective.
+  //   transcript_comments, chunk_lookup, coaching_nudge_effective, advisor_name (resolved below).
   interface RawDetailRow extends Omit<
     EvaluationDetail,
-    'overall_score' | 'transcript_comments' | 'chunk_lookup' | 'coaching_nudge_effective'
+    'overall_score' | 'transcript_comments' | 'chunk_lookup' | 'coaching_nudge_effective' | 'advisor_name'
   > {
     overall_score: number | string | null;
+    sfdc_who_id: string | null;
+    invitee_emails: string[] | null;
+    advisor_name_fallback: string | null;
   }
   const { rows } = await pool.query<RawDetailRow>(sql, [evaluationId]);
   const row = rows[0];
   if (!row) return null;
+
+  // Resolve advisor name via the same cascade as getEvaluationsForManager:
+  // SFDC who_id → unique-email match → fallback email lookup → fallback name.
+  const whoIds = new Set<string>();
+  const emails = new Set<string>();
+  if (row.sfdc_who_id) whoIds.add(row.sfdc_who_id);
+  if (Array.isArray(row.invitee_emails)) {
+    for (const e of row.invitee_emails) {
+      if (typeof e !== 'string') continue;
+      const t = e.trim();
+      if (!t || isInternalOrResource(t)) continue;
+      emails.add(t.toLowerCase());
+    }
+  }
+  if (row.advisor_name_fallback && looksLikeEmail(row.advisor_name_fallback)) {
+    const lc = row.advisor_name_fallback.toLowerCase().trim();
+    if (lc && !isInternalOrResource(lc)) emails.add(lc);
+  }
+  let bq: Awaited<ReturnType<typeof resolveAdvisorNames>> = {
+    whoIdToInfo: {}, whatIdToInfo: {}, contactAccountOppToInfo: {},
+    emailToUniqueInfo: {}, kixieTaskIdToInfo: {},
+  };
+  try {
+    if (whoIds.size > 0 || emails.size > 0) {
+      bq = await resolveAdvisorNames({ whoIds: [...whoIds], emails: [...emails] });
+    }
+  } catch (err) {
+    // BQ failure is not fatal — fall back to the SQL cascade.
+    console.warn('[getEvaluationDetail] resolveAdvisorNames failed; using SQL fallback only', err);
+  }
+  let advisor_name: string | null = null;
+  if (row.sfdc_who_id && bq.whoIdToInfo[row.sfdc_who_id]) {
+    advisor_name = bq.whoIdToInfo[row.sfdc_who_id]!.name;
+  }
+  if (!advisor_name && Array.isArray(row.invitee_emails)) {
+    for (const e of row.invitee_emails) {
+      if (typeof e !== 'string') continue;
+      const lc = e.toLowerCase().trim();
+      if (!lc || isInternalOrResource(lc)) continue;
+      const hit = bq.emailToUniqueInfo[lc];
+      if (hit) { advisor_name = hit.name; break; }
+    }
+  }
+  if (!advisor_name && row.advisor_name_fallback && looksLikeEmail(row.advisor_name_fallback)) {
+    const lc = row.advisor_name_fallback.toLowerCase().trim();
+    const hit = lc && !isInternalOrResource(lc) ? bq.emailToUniqueInfo[lc] : null;
+    if (hit) advisor_name = hit.name;
+  }
+  if (!advisor_name) advisor_name = row.advisor_name_fallback ?? null;
+
   return {
     ...row,
     overall_score: row.overall_score === null || row.overall_score === undefined
       ? null
       : Number(row.overall_score),
+    advisor_name,
+    // pg returns jsonb pre-parsed; default to [] if null/missing/non-array.
+    rep_deferrals: Array.isArray(row.rep_deferrals) ? (row.rep_deferrals as RepDeferral[]) : [],
     transcript_comments: [],            // populated by API route
     chunk_lookup: {},                    // populated by API route
     coaching_nudge_effective: row.coaching_nudge,  // overwritten by API route via COALESCE

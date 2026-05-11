@@ -346,10 +346,15 @@ const KnowledgeGapDashSchema = z
   .strict();
 
 // DimensionScore — mirrors src/lib/db/types.ts:163. Score is 1-4.
+// `body` (ai_original_schema_version=6, 2026-05-11) is an optional 2-3 sentence
+// AI rationale per dimension. Optional so v2-v5 historical rows still parse;
+// v6+ rows always have body populated (post-Phase D backfill or natively from
+// the evaluator when EMIT_DIMENSION_BODY=true).
 const DimensionScoreDashSchema = z
   .object({
     score: z.number().min(1).max(4),
     citations: citationArrayDash,
+    body: z.string().optional(),
   })
   .strict();
 

@@ -26,6 +26,13 @@ interface Props {
   onCommentChanged: () => void;
   /** Utterance to scroll to once the modal mounts. */
   initialUtteranceIndex?: number | null;
+  /** When true, suppress the internal document keydown listener.
+   *  Use when rendered inside a parent that owns a unified Esc handler
+   *  (e.g. the Insights modal stack). */
+  disableOwnEscHandler?: boolean;
+  /** Tailwind class for outer fixed wrapper. Default 'z-50'. Override (e.g. 'z-[70]')
+   *  when stacked above other modals. */
+  zClassName?: string;
 }
 
 export const TranscriptModal = forwardRef<TranscriptModalHandle, Props>(function TranscriptModal(
@@ -42,6 +49,8 @@ export const TranscriptModal = forwardRef<TranscriptModalHandle, Props>(function
     advisorName,
     onCommentChanged,
     initialUtteranceIndex,
+    disableOwnEscHandler,
+    zClassName,
   },
   ref,
 ) {
@@ -60,27 +69,26 @@ export const TranscriptModal = forwardRef<TranscriptModalHandle, Props>(function
     return () => clearTimeout(t);
   }, [isOpen, initialUtteranceIndex]);
 
-  // Close on Escape.
+  // Close on Escape — skip when parent owns the unified Esc handler.
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || disableOwnEscHandler) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, disableOwnEscHandler]);
 
   if (!isOpen) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center"
+      className={`fixed inset-0 ${zClassName ?? 'z-50'} bg-black/40 flex md:items-center md:justify-center`}
       onClick={onClose}
     >
       <div
-        // Roughly matches the right-pane footprint: ~half viewport width on desktop,
-        // capped sensibly, full-height with internal scroll.
-        className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl mx-4 my-6 max-h-[90vh] flex flex-col"
+        // Roughly matches the right-pane footprint at >= md; full-screen below.
+        className="bg-white dark:bg-gray-800 shadow-xl flex flex-col overflow-hidden w-full h-full md:h-auto md:max-w-3xl md:mx-4 md:my-6 md:max-h-[90vh] md:rounded-lg"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

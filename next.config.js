@@ -28,6 +28,18 @@ const nextConfig = {
       },
     ],
   },
+  async redirects() {
+    return [
+      // Retired: the /insights/evals page-route was replaced by an in-tab
+      // three-layer modal stack on /dashboard/call-intelligence?tab=insights.
+      // Query strings are stripped — the new flow opens via heat-map cell clicks.
+      {
+        source: '/dashboard/call-intelligence/insights/evals',
+        destination: '/dashboard/call-intelligence?tab=insights',
+        permanent: true,
+      },
+    ];
+  },
 };
 
 module.exports = withSentryConfig(

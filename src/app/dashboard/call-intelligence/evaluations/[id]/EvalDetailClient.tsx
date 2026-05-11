@@ -96,6 +96,9 @@ interface DimensionScoreEntry {
   name: string;
   score: number;
   citations?: Citation[];
+  // 2026-05-11 — schema v6 per-dim AI rationale. v2-v5 historical rows lack
+  // this until backfilled offline (scripts/backfill-dimension-bodies.cjs).
+  body?: string;
 }
 
 function readDimensionScores(x: unknown): DimensionScoreEntry[] {
@@ -111,7 +114,9 @@ function readDimensionScores(x: unknown): DimensionScoreEntry[] {
     if (score === null) continue;
     const citations =
       isObj(val) && Array.isArray(val.citations) ? (val.citations as Citation[]) : undefined;
-    out.push({ name, score, citations });
+    const body =
+      isObj(val) && typeof val.body === 'string' && val.body.length > 0 ? val.body : undefined;
+    out.push({ name, score, citations, body });
   }
   return out;
 }
@@ -452,6 +457,7 @@ export default function EvalDetailClient({ id, role, returnTab, currentRepId }: 
         name,
         score: v.score,
         citations: v.citations,
+        body: v.body,
       }))
     : aiDimensionScores;
   const canonicalNarrative = detail.narrative?.text ?? aiNarrative;
@@ -635,28 +641,38 @@ export default function EvalDetailClient({ id, role, returnTab, currentRepId }: 
                             score={s.score}
                             disabled={isLocked}
                             onSave={async (newScore) => {
-                              // Bridge schema expects { score, citations } per dimension. Preserve
-                              // existing citations on every dimension; only the edited dimension
-                              // gets its score swapped.
-                              const base: Record<string, { score: number; citations: Citation[] }> =
-                                {};
+                              // Bridge schema expects { score, citations, body? } per dimension.
+                              // Preserve existing citations AND body on every dimension; only the
+                              // edited dimension gets its score swapped. Dropping body here would
+                              // silently nuke the AI rationale on every score edit (R1 data loss).
+                              const base: Record<
+                                string,
+                                { score: number; citations: Citation[]; body?: string }
+                              > = {};
                               const source =
                                 detail.dimension_scores ??
                                 Object.fromEntries(
                                   aiDimensionScores.map((d) => [
                                     d.name,
-                                    { score: d.score, citations: d.citations ?? [] },
+                                    { score: d.score, citations: d.citations ?? [], body: d.body },
                                   ]),
                                 );
                               for (const [name, v] of Object.entries(source)) {
+                                const body = (v as { body?: unknown }).body;
                                 base[name] = {
                                   score: v.score,
                                   citations: (v.citations ?? []) as Citation[],
+                                  ...(typeof body === 'string' && body.length > 0
+                                    ? { body }
+                                    : {}),
                                 };
                               }
                               base[s.name] = {
                                 score: newScore,
                                 citations: (s.citations ?? []) as Citation[],
+                                ...(typeof s.body === 'string' && s.body.length > 0
+                                  ? { body: s.body }
+                                  : {}),
                               };
                               return handleEdit({ dimension_scores: base });
                             }}

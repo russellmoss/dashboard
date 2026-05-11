@@ -46,12 +46,32 @@ function walkForKbSources(node: unknown, acc: Set<string>): void {
   Object.values(obj).forEach((v) => walkForKbSources(v, acc));
 }
 
-async function buildChunkLookup(
-  aiOriginal: unknown,
-): Promise<Record<string, { owner: string; chunk_text: string }>> {
-  if (!aiOriginal || typeof aiOriginal !== 'object') return {};
+/**
+ * Per council S1: walk both `ai_original` AND the canonical columns
+ * (dimension_scores, rep_deferrals, knowledge_gaps, strengths, weaknesses,
+ * additional_observations) so the inline KB viewer in Layer 2 of the
+ * Insights modal stack has every chunk it could possibly need.
+ * Falls back gracefully if any individual root is null/missing.
+ */
+async function buildChunkLookup(detail: {
+  ai_original: unknown;
+  dimension_scores: unknown;
+  rep_deferrals: unknown;
+  knowledge_gaps: unknown;
+  strengths: unknown;
+  weaknesses: unknown;
+  additional_observations: unknown;
+}): Promise<Record<string, { owner: string; chunk_text: string }>> {
   const chunkIds = new Set<string>();
-  walkForKbSources(aiOriginal, chunkIds);
+  // ai_original may be null on transitional fixtures; walker no-ops in that case.
+  walkForKbSources(detail.ai_original, chunkIds);
+  walkForKbSources(detail.dimension_scores, chunkIds);
+  walkForKbSources(detail.rep_deferrals, chunkIds);
+  walkForKbSources(detail.knowledge_gaps, chunkIds);
+  walkForKbSources(detail.strengths, chunkIds);
+  walkForKbSources(detail.weaknesses, chunkIds);
+  walkForKbSources(detail.additional_observations, chunkIds);
+  if (chunkIds.size === 0) return {};
   return getKbChunksByIds([...chunkIds]);
 }
 
@@ -106,7 +126,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: st
 
     const [comments, chunkLookup] = await Promise.all([
       canSeeComments ? getTranscriptComments(id) : Promise.resolve([]),
-      buildChunkLookup(detail.ai_original),
+      buildChunkLookup(detail),
     ]);
 
     // Pre-024 fallback: canonical coaching_nudge is null for older rows; read from ai_original.

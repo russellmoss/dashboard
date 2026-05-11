@@ -35,12 +35,15 @@ export function readCitedItems(
  */
 export function isFieldSupportedByAiOriginalVersion(
   version: number | null,
-  field: 'coachingNudge' | 'additionalObservations' | 'repDeferrals',
+  field: 'coachingNudge' | 'additionalObservations' | 'repDeferrals' | 'body',
 ): boolean {
   if (version === null) return false;
   if (field === 'coachingNudge') return version >= 3;
   if (field === 'additionalObservations') return version >= 4;
   if (field === 'repDeferrals') return version >= 5;
+  // 2026-05-11 — per-dimension `body`. v6+ rows emit natively; older rows are
+  // filled by the offline backfill script which also bumps schema_version_after.
+  if (field === 'body') return version >= 6;
   return true;
 }
 

@@ -85,10 +85,12 @@ export interface EvaluationDetail {
   updated_at: string;
 
   // Step 5b-1: canonical (manager-edited) mirrors of ai_original fields.
-  // dimension_scores: Record<dimension_name, { score: number 1-4, citations: Citation[] }>
+  // dimension_scores: Record<dimension_name, { score: number 1-4, citations: Citation[], body?: string }>
+  //   2026-05-11: schema v6 adds optional per-dimension `body` (2-3 sentence AI
+  //   rationale). v2-v5 historical rows lack body until backfilled offline.
   // narrative: { text: string, citations: Citation[] } — JSONB NOT NULL on the column,
   //   but the response type is nullable so older transitional fixtures don't crash.
-  dimension_scores: Record<string, { score: number; citations?: Citation[] }> | null;
+  dimension_scores: Record<string, { score: number; citations?: Citation[]; body?: string }> | null;
   narrative: { text: string; citations?: Citation[] } | null;
   strengths: Array<{ text: string; citations?: Citation[] }>;
   weaknesses: Array<{ text: string; citations?: Citation[] }>;
