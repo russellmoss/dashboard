@@ -34,9 +34,14 @@ const _getCallDetail = async (callNoteId: string) => {
   // multiple evals — different roles or re-evaluations). For Kixie calls the
   // ai_original is unused (coaching comes from summary_markdown markers); the
   // join is harmless when the row doesn't exist.
+  // 2026-05-10 — prefer summary_markdown_edited when the rep edited the note
+  // via the Dashboard rep-note-review sub-route (Step 5b-3-UI). Fallback to
+  // summary_markdown for legacy rows and rep-untouched notes. This matches
+  // what the SFDC writeback uses (approve flow reads call_note.summary_*_edited
+  // ?? summary_markdown via the same precedence).
   const sql = `
     SELECT cn.source,
-           cn.summary_markdown,
+           COALESCE(cn.summary_markdown_edited, cn.summary_markdown) AS summary_markdown,
            ct.transcript,
            e.ai_original
     FROM call_notes cn

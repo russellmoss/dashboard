@@ -51,6 +51,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ callN
     if (!parsed.success) return NextResponse.json({ error: 'Invalid body', issues: parsed.error.issues }, { status: 400 });
     const result = await salesCoachingClient.editCallNote(session.user.email, callNoteId, parsed.data);
     revalidateTag(CACHE_TAGS.CALL_INTELLIGENCE_QUEUE);
+    revalidateTag(CACHE_TAGS.COACHING_USAGE);
     return NextResponse.json(result);
   } catch (err) {
     if (err instanceof CallNoteConflictError) return NextResponse.json({ error: 'note_conflict', message: err.message, requestId: err.requestId }, { status: 409 });
