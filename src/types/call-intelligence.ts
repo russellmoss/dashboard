@@ -174,6 +174,11 @@ export interface CoachingRep {
   reveal_policy: RevealPolicyT;
   reveal_delay_minutes: number | null;
   reveal_reminder_minutes: number | null;
+  slack_user_id: string | null;
+  sfdc_user_id: string | null;
+  granola_key_status: 'valid' | 'invalid' | 'unverified';
+  granola_key_last_validated_at: string | null;
+  has_granola_key: boolean;
   created_at: string;
 }
 
@@ -211,6 +216,18 @@ export type CallIntelligenceTab =
   | 'coaching-usage'
   | 'insights'
   | 'cost-analysis';
+
+export interface NeedsLinkingRow {
+  callNoteId: string;
+  callDate: string;
+  source: string;
+  advisorHint: string;
+  repName: string;
+  managerName: string | null;
+  linkageStrategy: string;
+  confidenceTier: string | null;
+  daysSinceCall: number;
+}
 
 /** Rubrics tab listing row. Source: getRubricsForList (LEFT JOIN reps for creator name). */
 export interface RubricListRow {

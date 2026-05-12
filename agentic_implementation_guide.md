@@ -1,1014 +1,857 @@
-# Agentic Implementation Guide — Per-Dimension AI Narrative ("body" field)
+# Agentic Implementation Guide — Needs Linking Sub-Tab
 
-**Feature:** Add a 2-3 sentence AI rationale per dimension score in evaluations, with citation pills, rendered as the primary content of the Insights drill-down modal. Backfill 406 historic evaluations via an offline body-only generation script.
+## Reference Documents
+All decisions in this guide are based on the completed exploration files:
+- `exploration-results.md` — synthesized findings (primary)
+- `code-inspector-findings.md` — types, construction sites, file dependencies
+- `data-verifier-findings.md` — schema verification, data quality, value distributions
+- `pattern-finder-findings.md` — established patterns, data flow architecture
 
-**Architecture decision (council + user approved):** No application-layer re-eval endpoint. No admin "Re-evaluate" button. No new Dashboard API route or bridge method for re-eval. A single offline `scripts/backfill-dimension-bodies.cjs` calls Anthropic directly, takes existing scores + citations as **locked inputs**, generates only `body` per dimension.
+## Feature Summary
 
-**Approved decisions:**
-- Model: Sonnet 4.6 (~$27-31 total)
-- Score pinning: pure pin (body-only prompt produces no new score, so drift is moot)
-- Body shape: plain string + trailing citation pills (no inline tokens)
-- Rollout: schema mirror first → upstream prompt flip behind env flag → offline backfill
-- Splicing infra: extract shared `CitedProse` from the two diverged private impls
-- Drift handling: strict — drop orphan citations, skip invalid dims
+| Capability | Source | Notes |
+|---|---|---|
+| Needs Linking queue table | `call_notes` (sales-coaching Neon, direct pg) | `status='pending'` filter — spec's `confidence_tier` column doesn't exist as scalar |
+| Advisor hint extraction | `call_notes.attendees` JSONB + `invitee_emails` text[] + `title` | Cascade: first non-internal attendee name → first non-internal email → title |
+| Rep + Manager names | `reps` table self-join on `manager_id` | 5 reps lack `manager_id` — managerName nullable |
+| Confidence tier display | `slack_review_messages.sfdc_suggestion` JSONB | LEFT JOIN, display-only column, NULL for ~61% of rows |
+| Days since call | SQL-computed `FLOOR(EXTRACT(EPOCH FROM (now() - call_started_at)) / 86400)::int` | Integer, no client date math |
+| RBAC scoping | `getRepIdsVisibleToActor()` + actor self-union | admins=global, SGMs=own + coachees. SGM data linkage gap exists (data-setup, not code) |
+| Row action | Link to `/dashboard/call-intelligence/review/[callNoteId]` | Existing NoteReviewClient SFDC search flow |
 
-**Cross-repo scope:**
-- Upstream (`russellmoss/sales-coaching`): schema + audit migration + version bump + prompt flag
-- Downstream (this repo, `russellmoss/Dashboard`): mirror sync + UI restructure + data-loss-fix + extracted CitedProse + doc sync
-- Backfill: standalone offline script in this repo
-
-**Execution mode:** Phase-by-phase, end-to-end. Stop at each validation gate. Phase A is upstream-only (sales-coaching sibling repo at `C:\Users\russe\Documents\sales-coaching`). Phase B and onward run in this Dashboard repo. Verify each phase's gate passes before proceeding.
-
----
+## Architecture Rules
+- All queries use parameterized `$N` syntax — never string interpolation
+- Direct-pg via `getCoachingPool()` from `src/lib/coachingDb.ts`
+- Date coercion: `instanceof Date ? .toISOString() : String(x)`
+- No caching — actor-scoped data (`export const dynamic = 'force-dynamic'`)
+- Import merges — never add a second import from the same module
+- Neon `pg` driver returns TIMESTAMPTZ as JS Date, BIGINT as string (cast `::text` or `::int`)
 
 ## Pre-Flight Checklist
 
-Before starting:
-
 ```bash
-# 1. Confirm sales-coaching sibling repo exists for cross-repo work
-ls C:/Users/russe/Documents/sales-coaching/
-
-# 2. Confirm env vars exist in both repos
-grep -c SALES_COACHING_DATABASE_URL .env       # Dashboard repo, should be >=1
-grep -c DATABASE_URL C:/Users/russe/Documents/sales-coaching/.env  # upstream, should be >=1
-grep -c ANTHROPIC_API_KEY .env                  # Dashboard repo, for backfill script
-
-# 3. Working tree clean check
-git status
-# If dirty, stash or commit first.
-
-# 4. Schema mirror is currently in sync
-npm run check:schema-mirror
-# Expect: PASS. If it fails, fix drift before starting.
-
-# 5. Confirm Neon DB connectivity from this repo
-node -e "const{Pool}=require('pg');new Pool({connectionString:process.env.SALES_COACHING_DATABASE_URL,ssl:{rejectUnauthorized:false}}).query('SELECT 1').then(r=>{console.log('OK');process.exit(0)}).catch(e=>{console.error(e);process.exit(1)})"
-# Expect: OK.
+npm run build 2>&1 | head -50
 ```
 
-If any of the above fail, **STOP** and resolve before starting Phase A.
+If pre-existing errors, stop and report. Do not proceed with a broken baseline.
 
 ---
 
-## Phase A — Upstream (sales-coaching) PR
+# PHASE 1: Type Definitions
 
-Work in `C:\Users\russe\Documents\sales-coaching`. The Dashboard repo stays untouched in this phase.
+## Context
+Define the new `NeedsLinkingRow` interface. Do NOT extend `CallIntelligenceTab` — Needs Linking is a sub-tab inside Coaching Usage, not a top-level tab. The sub-tab state is managed locally inside the Coaching Usage wrapper component (Phase 5).
 
-### A.1 — Update DimensionScore Zod schema
+## Step 1.1: Add `NeedsLinkingRow` interface
 
-File: `C:/Users/russe/Documents/sales-coaching/src/lib/dashboard-api/schemas.ts`
+**File**: `src/types/call-intelligence.ts` (after the existing interfaces)
 
-Find `DimensionScore` schema (search for `score: z.number()` near a dimension shape). It currently looks like:
-
-```ts
-const DimensionScore = z.object({
-  score: z.number(),
-  citations: z.array(Citation),
-}).strict();
-```
-
-Change to:
-
-```ts
-const DimensionScore = z.object({
-  score: z.number(),
-  citations: z.array(Citation),
-  body: z.string().optional(),
-}).strict();
-```
-
-Keep `.strict()` — the `optional()` lets the field be omitted but rejects other unknown keys.
-
-### A.2 — Update DB types
-
-File: `C:/Users/russe/Documents/sales-coaching/src/lib/db/types.ts`
-
-Find the corresponding `DimensionScore` type or `dimension_scores` field. Add `body?: string` to the per-dim shape. Match the Zod change byte-for-byte where the shape is mirrored.
-
-### A.3 — Migration: backfill audit table
-
-Create new migration file (next sequential number — check existing `migrations/` directory):
-
-```sql
--- migrations/NNN_eval_body_backfill_audit.sql
-CREATE TABLE eval_body_backfill_audit (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  evaluation_id uuid NOT NULL REFERENCES evaluations(id) ON DELETE CASCADE,
-  attempt_number integer NOT NULL DEFAULT 1,
-  status text NOT NULL CHECK (status IN ('pending','success','failure','skipped')),
-  error_message text,
-  input_tokens integer,
-  output_tokens integer,
-  schema_version_before integer NOT NULL,
-  schema_version_after integer,
-  model_id text NOT NULL,
-  prompt_version text NOT NULL,
-  dropped_orphan_citations integer DEFAULT 0,
-  skipped_dims integer DEFAULT 0,
-  started_at timestamptz NOT NULL DEFAULT now(),
-  completed_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX idx_eval_body_backfill_eval_attempt
-  ON eval_body_backfill_audit(evaluation_id, attempt_number);
-CREATE INDEX idx_eval_body_backfill_status
-  ON eval_body_backfill_audit(status, started_at DESC);
-```
-
-### A.4 — Bump schema version constant
-
-Find the constant `AI_ORIGINAL_SCHEMA_VERSION` (likely in `src/lib/ai/...` or a constants file). Bump from `5` → `6`.
-
-### A.5 — Add prompt emission flag
-
-In the evaluator prompt build path, gate the new `body` instruction behind an env flag:
-
-```ts
-const EMIT_DIMENSION_BODY = process.env.EMIT_DIMENSION_BODY === 'true';
-// In prompt assembly:
-if (EMIT_DIMENSION_BODY) {
-  prompt += `\nFor each dimension, ALSO include a "body" field: a 2-3 sentence rationale (150-300 chars, paragraph prose, no bullets) explaining WHY this score, citing at least one utterance_index from this dimension's citations array. Map the rep's behavior to the rubric criteria.`;
+```typescript
+export interface NeedsLinkingRow {
+  callNoteId: string;
+  callDate: string;
+  source: string;
+  advisorHint: string;
+  repName: string;
+  managerName: string | null;
+  linkageStrategy: string;
+  confidenceTier: string | null;
+  daysSinceCall: number;
 }
 ```
 
-**Default is OFF in prod.** The flag stays off until Dashboard mirror is deployed.
-
-### A.6 — Tests
-
-Add tests in upstream test suite:
-- Zod schema parse with `body` present + absent — both pass
-- Zod schema parse with extra key — fails (.strict() still works)
-- Insert + select round-trip preserving body in JSONB
-
-### A.7 — Phase A validation gate
+## PHASE 1 — VALIDATION GATE
 
 ```bash
-cd C:/Users/russe/Documents/sales-coaching
-npm run build
-npm test
+npx tsc --noEmit 2>&1 | head -20
 ```
 
-Both must pass. **Stop and report.** The user reviews + merges + deploys the upstream PR with `EMIT_DIMENSION_BODY=false` in prod env.
+**Expected**: Zero new errors. `NeedsLinkingRow` is net-new with no consumers yet.
 
-### A.8 — Phase A ship checklist (user-side)
-
-After PR merges and CI passes:
-
-#### A.8.1 — Migration
-
-The sales-coaching service does NOT auto-migrate on deploy. Run the new migration manually against staging Neon **before** the Cloud Run redeploy, since the deploy reads schema-aware code:
-
-```bash
-# From sales-coaching repo root (C:/Users/russe/Documents/sales-coaching)
-# Use whatever the repo's migrate script is — check package.json scripts.
-# Typical pattern:
-npm run migrate:up   # or psql -f migrations/NNN_eval_body_backfill_audit.sql against $DATABASE_URL
-```
-
-Verify the table exists:
-
-```sql
-SELECT column_name FROM information_schema.columns
-WHERE table_name = 'eval_body_backfill_audit'
-ORDER BY ordinal_position;
-```
-
-Expected: 14 columns matching A.3's CREATE TABLE.
-
-#### A.8.2 — Set EMIT_DIMENSION_BODY=false in env config
-
-The sales-coaching service reads non-secret config from `.env-vars-staging.yaml` at the repo root. Add the new variable:
-
-```yaml
-# .env-vars-staging.yaml
-# ... existing keys ...
-EMIT_DIMENSION_BODY: "false"
-```
-
-**Do NOT** put it in Secret Manager — it's non-secret toggle config. Commit this change as part of the Phase A PR.
-
-#### A.8.3 — Redeploy sales-coaching to Cloud Run
-
-Service runs at `https://sales-coaching-154995667624.us-east1.run.app` in GCP project `savvy-gtm-analytics`, region `us-east1`. Buildpacks-from-source (no Dockerfile).
-
-**Exact command** (must run from sales-coaching repo root — `.gcloudignore` and `.env-vars-staging.yaml` must be in CWD):
-
-```powershell
-# From C:/Users/russe/Documents/sales-coaching
-gcloud run deploy sales-coaching `
-  --source . `
-  --region us-east1 `
-  --project savvy-gtm-analytics `
-  --env-vars-file=.env-vars-staging.yaml
-```
-
-Notes:
-- Do NOT pass `--set-env-vars` or `--set-secrets` on the command line — Secret Manager bindings are configured on the service and `--env-vars-file` carries the rest. Adding flags overwrites the service config.
-- Last known-good baseline revision (for rollback reference): `sales-coaching-00110-th2`, 2026-05-10.
-- Cloud Scheduler jobs (5 sales-coaching-* jobs in `us-east1`) are managed separately and are NOT affected by a code deploy.
-- There is currently no `sales-coaching-prod` service. Staging is the deployable target (Phase 9 in upstream's roadmap stands up prod separately).
-
-Build typically takes 3-6 minutes. Watch for the new revision number in the output.
-
-#### A.8.4 — Smoke test
-
-Verify the deploy is live and the flag is still off:
-
-```bash
-# Health check
-curl -sS https://sales-coaching-154995667624.us-east1.run.app/api/health
-# Expect: 200, healthy payload
-
-# Confirm flag from a Cloud Run revision env dump (gcloud)
-gcloud run services describe sales-coaching \
-  --region us-east1 --project savvy-gtm-analytics \
-  --format='value(spec.template.spec.containers[0].env[].name,spec.template.spec.containers[0].env[].value)' \
-  | grep EMIT_DIMENSION_BODY
-# Expect: EMIT_DIMENSION_BODY false
-```
-
-Then wait for a fresh eval to be created organically (or trigger one if you have a manual path):
-
-```sql
--- Confirm no body field on the most recent eval — flag still off, prompt not emitting body
-SELECT id, created_at, jsonb_pretty(dimension_scores)
-FROM evaluations
-ORDER BY created_at DESC
-LIMIT 1;
-```
-
-The newest row's `dimension_scores` entries must still have exactly `{ score, citations }` per dim. If `body` appears, the flag is NOT being respected — STOP and investigate the prompt gate at A.5.
-
-Once verified clean, Phase A is done and Phase B can begin.
+**STOP AND REPORT**:
+- "Added `NeedsLinkingRow` interface and extended `CallIntelligenceTab` union in `src/types/call-intelligence.ts`"
+- "Zero build errors expected — net-new type with no consumers"
+- "Ready to proceed to Phase 2 (Query Layer)?"
 
 ---
 
-## Phase B — Dashboard PR
+# PHASE 2: Query Layer
 
-Now work in `C:\Users\russe\Documents\Dashboard`. Gated on Phase A being merged + deployed.
+## Context
+Create the direct-pg query function that fetches needs-linking rows from the sales-coaching Neon DB. Uses `getCoachingPool()`, RBAC via `repIds` parameter, and the corrected orphan predicate (`status='pending'`).
 
-### B.1 — Sync bridge schema mirror
+## Step 2.1: Create query function
+
+**File**: `src/lib/queries/call-intelligence/needs-linking.ts` (NEW)
+
+```typescript
+import { getCoachingPool } from '@/lib/coachingDb';
+import type { NeedsLinkingRow } from '@/types/call-intelligence';
+
+interface NeedsLinkingQueryRow {
+  call_note_id: string;
+  call_started_at: Date;
+  source: string;
+  linkage_strategy: string;
+  advisor_hint: string | null;
+  rep_name: string;
+  manager_name: string | null;
+  top_confidence_tier: string | null;
+  days_since_call: number;
+}
+
+export async function getNeedsLinkingRows(
+  repIds: string[],
+  showAll: boolean
+): Promise<NeedsLinkingRow[]> {
+  if (repIds.length === 0) return [];
+
+  const pool = getCoachingPool();
+
+  const { rows } = await pool.query<NeedsLinkingQueryRow>(
+    `SELECT
+      cn.id AS call_note_id,
+      cn.call_started_at,
+      cn.source,
+      cn.linkage_strategy,
+      COALESCE(
+        (SELECT a->>'name'
+           FROM jsonb_array_elements(
+             CASE WHEN jsonb_typeof(cn.attendees) = 'array' THEN cn.attendees ELSE '[]'::jsonb END
+           ) AS a
+          WHERE NULLIF(TRIM(a->>'name'), '') IS NOT NULL
+            AND LOWER(COALESCE(a->>'email', '')) NOT LIKE '%@savvywealth.com'
+            AND LOWER(COALESCE(a->>'email', '')) NOT LIKE '%@savvyadvisors.com'
+            AND LOWER(COALESCE(a->>'email', '')) NOT LIKE '%resource.calendar.google.com'
+            AND LOWER(COALESCE(a->>'email', '')) NOT LIKE 'noreply@%'
+            AND LOWER(COALESCE(a->>'email', '')) NOT LIKE 'reply@%'
+            AND LOWER(COALESCE(a->>'email', '')) NOT LIKE 'invites@%'
+          LIMIT 1),
+        (SELECT eml FROM unnest(cn.invitee_emails) AS eml
+          WHERE LOWER(eml) NOT LIKE '%@savvywealth.com'
+            AND LOWER(eml) NOT LIKE '%@savvyadvisors.com'
+            AND LOWER(eml) NOT LIKE '%resource.calendar.google.com'
+            AND LOWER(eml) NOT LIKE 'noreply@%'
+            AND LOWER(eml) NOT LIKE 'reply@%'
+          LIMIT 1),
+        cn.title
+      ) AS advisor_hint,
+      sga.full_name AS rep_name,
+      sgm.full_name AS manager_name,
+      lat_srm.top_confidence_tier,
+      FLOOR(EXTRACT(EPOCH FROM (now() - cn.call_started_at)) / 86400)::int AS days_since_call
+    FROM call_notes cn
+    LEFT JOIN reps sga ON sga.id = cn.rep_id AND sga.is_system = false
+    LEFT JOIN reps sgm ON sgm.id = sga.manager_id AND sgm.is_system = false
+    LEFT JOIN LATERAL (
+      SELECT srm.sfdc_suggestion->'candidates'->0->>'confidence_tier' AS top_confidence_tier
+      FROM slack_review_messages srm
+      WHERE srm.call_note_id = cn.id AND srm.surface = 'dm'
+      ORDER BY srm.created_at DESC
+      LIMIT 1
+    ) lat_srm ON true
+    WHERE cn.source_deleted_at IS NULL
+      AND cn.status = 'pending'
+      AND (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')
+      AND cn.rep_id = ANY($1::uuid[])
+      AND ($2::boolean OR cn.call_started_at >= date_trunc('day', now()) - interval '14 days')
+    ORDER BY cn.call_started_at DESC NULLS LAST`,
+    [repIds, showAll]
+  );
+
+  return rows.map((r) => ({
+    callNoteId: r.call_note_id,
+    callDate: r.call_started_at instanceof Date ? r.call_started_at.toISOString() : String(r.call_started_at),
+    source: r.source,
+    advisorHint: r.advisor_hint ?? r.source,
+    repName: r.rep_name,
+    managerName: r.manager_name,
+    linkageStrategy: r.linkage_strategy,
+    confidenceTier: r.top_confidence_tier,
+    daysSinceCall: r.days_since_call,
+  }));
+}
+```
+
+Key design decisions:
+- `status='pending'` is the sole orphan filter (corrected from spec)
+- Advisor-call filter: `cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call'` (matches coaching-usage scope)
+- Confidence tier is display-only via LATERAL subquery to `slack_review_messages` (prevents row duplication)
+- JSONB safety: `jsonb_typeof` guard on `cn.attendees` before `jsonb_array_elements`
+- Advisor hint cascade: attendee name → invitee email → title
+- Domain filtering: `@savvywealth.com`, `@savvyadvisors.com`, `resource.calendar.google.com`, `noreply@`, `reply@`, `invites@`
+- `showAll=false` → last 14 days; `showAll=true` → no date limit
+- `repIds` parameter enables RBAC without duplicating the visibility logic
+
+## PHASE 2 — VALIDATION GATE
 
 ```bash
-# Use the skill — it pulls upstream and overwrites the mirror
-# /sync-bridge-schema
-# Or manually:
-gh api repos/russellmoss/sales-coaching/contents/src/lib/dashboard-api/schemas.ts \
-  -H 'Accept: application/vnd.github.raw' --ref main \
-  > src/lib/sales-coaching-client/schemas.ts
+npx tsc --noEmit 2>&1 | head -20
 ```
 
-Then:
+**Expected**: Zero new errors. The query function imports `NeedsLinkingRow` from Phase 1 and `getCoachingPool` from existing code.
+
+Verify the file exists and imports resolve:
+```bash
+grep -n "import.*getCoachingPool" src/lib/queries/call-intelligence/needs-linking.ts
+grep -n "import.*NeedsLinkingRow" src/lib/queries/call-intelligence/needs-linking.ts
+```
+
+**STOP AND REPORT**:
+- "Created `src/lib/queries/call-intelligence/needs-linking.ts` with `getNeedsLinkingRows()` function"
+- "Corrected orphan predicate: `status='pending'` only (spec's `confidence_tier` column doesn't exist as scalar)"
+- "Ready to proceed to Phase 3 (API Route)?"
+
+---
+
+# PHASE 3: API Route
+
+## Context
+Create the API route at `/api/call-intelligence/needs-linking`. Placed under `call-intelligence/` (NOT `admin/`) because SGMs need access. Auth follows the insights/heatmap pattern. No caching — results are actor-scoped.
+
+## Step 3.1: Create API route
+
+**File**: `src/app/api/call-intelligence/needs-linking/route.ts` (NEW)
+
+Follow auth pattern from `src/app/api/call-intelligence/insights/heatmap/route.ts`.
+
+```typescript
+import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { getSessionPermissions } from '@/lib/permissions';
+import { getRepIdByEmail } from '@/lib/queries/call-intelligence/visible-reps';
+import { getRepIdsVisibleToActor } from '@/lib/queries/call-intelligence/visible-reps';
+import { getNeedsLinkingRows } from '@/lib/queries/call-intelligence/needs-linking';
+
+export const dynamic = 'force-dynamic';
+
+const ALLOWED_ROLES = ['manager', 'admin', 'revops_admin', 'sgm'] as const;
+
+export async function GET(request: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const permissions = await getSessionPermissions(session);
+  if (!permissions.allowedPages.includes(20)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  if (!(ALLOWED_ROLES as readonly string[]).includes(permissions.role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  const isPrivileged = permissions.role === 'admin' || permissions.role === 'revops_admin';
+  const rep = await getRepIdByEmail(session.user.email);
+
+  if (!rep && !isPrivileged) {
+    return NextResponse.json({ error: 'Rep not found' }, { status: 403 });
+  }
+
+  const actorRepId = rep?.id ?? '';
+  const visibleRepIds = await getRepIdsVisibleToActor({
+    repId: actorRepId,
+    role: permissions.role,
+    email: session.user.email,
+  });
+
+  // Union actor's own rep ID so SGMs see their own pending notes
+  const allRepIds = actorRepId && !visibleRepIds.includes(actorRepId)
+    ? [actorRepId, ...visibleRepIds]
+    : visibleRepIds;
+
+  const { searchParams } = new URL(request.url);
+  const showAll = searchParams.get('showAll') === 'true';
+
+  const rows = await getNeedsLinkingRows(allRepIds, showAll);
+
+  return NextResponse.json({ rows, total: rows.length });
+}
+```
+
+**Important**: Verify that `getRepIdByEmail` and `getRepIdsVisibleToActor` are both exported from `visible-reps.ts`. If `getRepIdByEmail` is not exported from there, find where it's exported from and adjust the import. The heatmap route uses it — match that pattern exactly.
+
+## PHASE 3 — VALIDATION GATE
 
 ```bash
-npm run check:schema-mirror
-# Expected: byte-equal PASS
+npx tsc --noEmit 2>&1 | head -20
 ```
 
-If fail: investigate drift. Likely cause: upstream PR not yet merged, or `BRANCH = 'master'` vs `main` discrepancy (see B.9 below — fix in same PR).
+**Expected**: Zero new errors. All imports reference existing exports.
 
-### B.2 — Reconcile schema-mirror check branch
-
-File: `scripts/check-schema-mirror.cjs` line 26
-
-```js
-// Current:
-const BRANCH = 'master';
-// Change to:
-const BRANCH = 'main';
+Verify route structure:
+```bash
+ls src/app/api/call-intelligence/needs-linking/route.ts
 ```
 
-Re-run `npm run check:schema-mirror` to confirm.
-
-### B.3 — Fix the data-loss bug FIRST (R1)
-
-**This must merge before any backfill writes body data.**
-
-File: `src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx` lines 641-661
-
-Find the inline-edit reconstruction loop. Current:
-
-```ts
-const base: Record<string, { score: number; citations: Citation[] }> = {};
-for (const [name, v] of Object.entries(canonicalDimensionScores)) {
-  base[name] = {
-    score: v.score,
-    citations: (v.citations ?? []) as Citation[],
-  };
-}
+Verify imports resolve:
+```bash
+grep -n "getRepIdByEmail\|getRepIdsVisibleToActor" src/app/api/call-intelligence/needs-linking/route.ts
 ```
 
-Change to:
+**STOP AND REPORT**:
+- "Created `/api/call-intelligence/needs-linking` route with auth, role gate, and RBAC"
+- "Auth: page 20 + role in [manager, admin, revops_admin, sgm]"
+- "No caching — actor-scoped data"
+- "Ready to proceed to Phase 4 (Component)?"
 
-```ts
-const base: Record<string, { score: number; citations: Citation[]; body?: string }> = {};
-for (const [name, v] of Object.entries(canonicalDimensionScores)) {
-  base[name] = {
-    score: v.score,
-    citations: (v.citations ?? []) as Citation[],
-    ...(v.body !== undefined && v.body !== '' && { body: v.body }),
-  };
-}
-```
+---
 
-Spread is conditional so undefined body doesn't pollute the JSONB with `{ body: undefined }`.
+# PHASE 4: Component — NeedsLinkingTab
 
-### B.4 — Update shared type
+## Context
+Create the tab component with a data table, "last 14 days" / "all" toggle, ExportButton, and per-row "Review" action that links to the existing NoteReviewClient. No sub-tab wrapper needed — this is a top-level tab in CallIntelligenceClient, not a sub-tab of Coaching Usage.
 
-File: `src/types/call-intelligence.ts` line 91
+## Step 4.1: Create the component
 
-Find the `EvaluationDetail` interface, locate `dimension_scores`:
+**File**: `src/app/dashboard/call-intelligence/tabs/NeedsLinkingTab.tsx` (NEW)
 
-```ts
-// Current:
-dimension_scores: Record<string, { score: number; citations?: Citation[] }> | null;
-// Change to:
-dimension_scores: Record<string, { score: number; citations?: Citation[]; body?: string }> | null;
-```
+Follow the pattern of existing tabs in the same directory. Use Tremor React components (`Table`, `TableHead`, `TableRow`, `TableHeaderCell`, `TableBody`, `TableCell`, `Badge`, `Button`) consistent with the existing Call Intelligence UI.
 
-### B.5 — Update local `DimensionScoreEntry` interface
+Key requirements:
+- Fetch from `/api/call-intelligence/needs-linking?showAll=false|true`
+- Default state: `showAll = false` (last 14 days)
+- Toggle button to switch between "Last 14 Days" and "All"
+- Columns: Call Date, Source, Advisor Hint, Rep, Manager, Strategy, Confidence, Days
+- "Review" link per row → `/dashboard/call-intelligence/review/${row.callNoteId}?returnTab=coaching-usage`
+- ExportButton for CSV export with human-friendly column headers
+- Loading state and empty state
+- Sort: server-side `call_started_at DESC` (no client sorting needed)
 
-File: `src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx` lines 95-99
-
-```ts
-// Current:
-interface DimensionScoreEntry {
-  name: string;
-  score: number;
-  citations?: Citation[];
-}
-// Change to:
-interface DimensionScoreEntry {
-  name: string;
-  score: number;
-  citations?: Citation[];
-  body?: string;
-}
-```
-
-### B.6 — Update `readDimensionScores()` to read body from ai_original
-
-File: `src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx` lines 101-117
-
-Find the loop that maps `ai_original.dimensionScores` entries to `DimensionScoreEntry`. Add `body: val.body` to the returned object:
-
-```ts
-return Object.entries(dimScores).map(([name, val]: [string, any]) => ({
-  name,
-  score: Number(val.score),
-  citations: Array.isArray(val.citations) ? val.citations : [],
-  body: typeof val.body === 'string' ? val.body : undefined,
-}));
-```
-
-### B.7 — Update `canonicalDimensionScores` map
-
-File: `src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx` lines 450-455
-
-Find the map that builds canonical dimension entries from `detail.dimension_scores`. Add `body`:
-
-```ts
-const canonicalDimensionScores = Object.entries(detail.dimension_scores ?? {}).map(
-  ([name, v]: [string, any]) => ({
-    name,
-    score: Number(v.score),
-    citations: Array.isArray(v.citations) ? v.citations : [],
-    body: typeof v.body === 'string' ? v.body : undefined,
-  })
-);
-```
-
-### B.8 — Extract shared `CitedProse` component
-
-Create new file: `src/components/call-intelligence/CitedProse.tsx`
-
-```tsx
+```typescript
 'use client';
 
-import { CitationPill } from './CitationPill';
-import type { Citation } from '@/types/call-intelligence';
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import {
+  Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell,
+  Badge, Button, Text,
+} from '@tremor/react';
+import ExportButton from '@/components/dashboard/ExportButton';
+import type { NeedsLinkingRow } from '@/types/call-intelligence';
 
-interface CitedProseProps {
-  text: string;
-  citations: Citation[];
-  chunkLookup: Record<string, { owner: string; chunk_text: string }>;
-  onScrollToUtterance?: (idx: number) => void;
-  onOpenKB?: (kb: NonNullable<Citation['kb_source']>) => void;
-  className?: string;
+const STRATEGY_LABELS: Record<string, string> = {
+  manual_entry: 'Manual Entry',
+  kixie_task_link: 'Kixie Task',
+  crd_prefix: 'CRD Match',
+  calendar_title: 'Calendar Title',
+  attendee_email: 'Attendee Email',
+};
+
+function strategyLabel(raw: string): string {
+  return STRATEGY_LABELS[raw] ?? raw;
 }
 
-/**
- * Renders prose followed by a trailing wrapped row of citation pills.
- * Replaces the two private CitedText / CitedTextLine impls in
- * InsightsEvalDetailModal.tsx and EvalDetailClient.tsx.
- */
-export function CitedProse({
-  text,
-  citations,
-  chunkLookup,
-  onScrollToUtterance,
-  onOpenKB,
-  className,
-}: CitedProseProps) {
-  if (!text) return null;
+export default function NeedsLinkingTab() {
+  const [rows, setRows] = useState<NeedsLinkingRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [showAll, setShowAll] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/call-intelligence/needs-linking?showAll=${showAll}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled) {
+          setRows(data.rows ?? []);
+          setTotal(data.total ?? 0);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [showAll]);
+
+  const exportData = rows.map((r) => ({
+    'Call Date': new Date(r.callDate).toLocaleDateString(),
+    'Source': r.source,
+    'Advisor Hint': r.advisorHint,
+    'Rep': r.repName,
+    'Manager': r.managerName ?? '',
+    'Linkage Strategy': strategyLabel(r.linkageStrategy),
+    'Confidence Tier': r.confidenceTier ?? '',
+    'Days Since Call': r.daysSinceCall,
+  }));
+
+  if (loading) {
+    return <Text className="p-4">Loading needs-linking queue...</Text>;
+  }
+
   return (
-    <div className={className ?? 'text-sm text-gray-800'}>
-      <p className="whitespace-pre-wrap leading-relaxed">{text}</p>
-      {citations.length > 0 && (
-        <div className="mt-1.5 inline-flex flex-wrap items-center gap-1">
-          {citations.map((c, i) => (
-            <CitationPill
-              key={`${c.utterance_index ?? c.kb_source?.chunk_id ?? i}-${i}`}
-              citation={c}
-              chunkLookup={chunkLookup}
-              onScrollToUtterance={onScrollToUtterance}
-              onOpenKB={onOpenKB}
-            />
-          ))}
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Text className="font-medium">
+            {total} call{total !== 1 ? 's' : ''} need linking
+          </Text>
+          <Button
+            size="xs"
+            variant={showAll ? 'secondary' : 'primary'}
+            onClick={() => setShowAll(false)}
+          >
+            Last 14 Days
+          </Button>
+          <Button
+            size="xs"
+            variant={showAll ? 'primary' : 'secondary'}
+            onClick={() => setShowAll(true)}
+          >
+            All
+          </Button>
         </div>
+        {rows.length > 0 && (
+          <ExportButton data={exportData} filename="needs-linking" />
+        )}
+      </div>
+
+      {rows.length === 0 ? (
+        <Text className="p-4 text-center text-gray-500">
+          No calls need linking{showAll ? '' : ' in the last 14 days'}.
+        </Text>
+      ) : (
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableHeaderCell>Call Date</TableHeaderCell>
+              <TableHeaderCell>Source</TableHeaderCell>
+              <TableHeaderCell>Advisor Hint</TableHeaderCell>
+              <TableHeaderCell>Rep</TableHeaderCell>
+              <TableHeaderCell>Manager</TableHeaderCell>
+              <TableHeaderCell>Strategy</TableHeaderCell>
+              <TableHeaderCell>Confidence</TableHeaderCell>
+              <TableHeaderCell>Days</TableHeaderCell>
+              <TableHeaderCell>Action</TableHeaderCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {rows.map((r) => (
+              <TableRow key={r.callNoteId}>
+                <TableCell>{new Date(r.callDate).toLocaleDateString()}</TableCell>
+                <TableCell>
+                  <Badge color={r.source === 'granola' ? 'blue' : 'amber'} size="xs">
+                    {r.source}
+                  </Badge>
+                </TableCell>
+                <TableCell className="max-w-[200px] truncate">{r.advisorHint}</TableCell>
+                <TableCell>{r.repName}</TableCell>
+                <TableCell>{r.managerName ?? '—'}</TableCell>
+                <TableCell>
+                  <Badge color="gray" size="xs">{strategyLabel(r.linkageStrategy)}</Badge>
+                </TableCell>
+                <TableCell>
+                  {r.confidenceTier ? (
+                    <Badge
+                      color={r.confidenceTier === 'unlikely' ? 'red' : r.confidenceTier === 'possible' ? 'yellow' : 'green'}
+                      size="xs"
+                    >
+                      {r.confidenceTier}
+                    </Badge>
+                  ) : (
+                    <span className="text-gray-400">—</span>
+                  )}
+                </TableCell>
+                <TableCell>{r.daysSinceCall}d</TableCell>
+                <TableCell>
+                  <Link
+                    href={`/dashboard/call-intelligence/review/${r.callNoteId}?returnTab=coaching-usage`}
+                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                  >
+                    Review
+                  </Link>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       )}
     </div>
   );
 }
 ```
 
-Then refactor the two private impls to use it:
+**Adaptation note**: The executing agent should check the exact Tremor component import paths and prop APIs used by existing tabs in the same directory (`CoachingUsageTab.tsx`, `InsightsTab.tsx`, etc.) and match them. If `ExportButton` uses a different API, adjust accordingly.
 
-**File: `src/components/call-intelligence/InsightsEvalDetailModal.tsx`**
+## PHASE 4 — VALIDATION GATE
 
-Delete the file-local `CitedText` component at lines 106-139. Replace usages of `<CitedText ...>` with `<CitedProse ...>`. Update prop names (`detail` and `onOpenTranscript` → `chunkLookup` and `onScrollToUtterance`).
+```bash
+npx tsc --noEmit 2>&1 | head -20
+```
 
-**File: `src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx`**
+**Expected**: Zero new errors. Component imports `NeedsLinkingRow` from Phase 1, uses standard Tremor components.
 
-Replace the file-local `CitedTextLine` at lines 163-197 with usages of `<CitedProse ...>`. Note: `CitedTextLine` has an editable mode (disabled prop). If editability is needed for body in EvalDetailClient.tsx later, that's a follow-up — for this ship, body is read-only.
+Verify component structure:
+```bash
+grep -n "export default function NeedsLinkingTab" src/app/dashboard/call-intelligence/tabs/NeedsLinkingTab.tsx
+grep -n "returnTab=coaching-usage" src/app/dashboard/call-intelligence/tabs/NeedsLinkingTab.tsx
+```
 
-### B.9 — Restructure `InsightsEvalDetailModal.tsx` to lead with body
+**STOP AND REPORT**:
+- "Created `NeedsLinkingTab.tsx` with table, 14-day/all toggle, CSV export, and review links"
+- "Review links include `?returnTab=coaching-usage` for proper return navigation"
+- "Ready to proceed to Phase 5 (Integration)?"
 
-File: `src/components/call-intelligence/InsightsEvalDetailModal.tsx`
+---
 
-**Remove sections from the dimension-drill panel (lines ~274-309):**
-- Narrative
-- Strengths
-- Weaknesses
-- Knowledge gaps
-- Compliance flags
-- Additional observations
-- Rep deferrals
+# PHASE 5: Integration — Sub-Tab Inside Coaching Usage
 
-**Keep:**
-- Dimension banner (name + score badge)
-- Topic-drill panel (lines ~313-349, fully independent)
+## Context
+Wire Needs Linking as a sub-tab inside the Coaching Usage view. This requires:
+1. Creating a wrapper component that manages sub-tab state (Overview vs Needs Linking)
+2. Widening the Coaching Usage tab visibility to include SGMs and managers
+3. The existing `CoachingUsageTab.tsx` (now the "Overview" sub-tab) remains byte-for-byte unchanged
 
-**Add per-dimension body section** at the top of the dimension drill (after the score badge, before the topic panel):
+**Important**: Do NOT add `'needs-linking'` to `CallIntelligenceTab`, `VALID_TABS`, or `page.tsx`. This is an internal sub-tab, not a top-level tab.
 
-```tsx
-{payload.dimension && (() => {
-  const entry = detail.dimension_scores?.[payload.dimension];
-  if (!entry) return null;
-  const { score, citations = [], body } = entry;
+## Step 5.1: Create the Coaching Usage wrapper component
+
+**File**: `src/app/dashboard/call-intelligence/tabs/CoachingUsageWrapper.tsx` (NEW)
+
+This wrapper renders either the existing `CoachingUsageTab` (Overview) or `NeedsLinkingTab` based on local state. Only the Overview sub-tab is gated to `revops_admin`; Needs Linking is accessible to `manager`, `admin`, `revops_admin`, and `sgm`.
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+import { Button } from '@tremor/react';
+import CoachingUsageTab from './CoachingUsageTab';
+import NeedsLinkingTab from './NeedsLinkingTab';
+
+type CoachingSubTab = 'overview' | 'needs-linking';
+
+interface CoachingUsageWrapperProps {
+  role: string;
+}
+
+export default function CoachingUsageWrapper({ role }: CoachingUsageWrapperProps) {
+  const isRevopsAdmin = role === 'revops_admin';
+  const defaultTab: CoachingSubTab = isRevopsAdmin ? 'overview' : 'needs-linking';
+  const [subTab, setSubTab] = useState<CoachingSubTab>(defaultTab);
+
   return (
-    <section className="mb-4">
-      <div className="flex items-baseline gap-2 mb-2">
-        <h3 className="text-lg font-semibold">{payload.dimension}</h3>
-        <span className={`px-2 py-0.5 rounded text-sm font-medium ${scoreColor(score)}`}>
-          {score.toFixed(1)} / 4
-        </span>
+    <div className="space-y-4">
+      <div className="flex gap-2 border-b border-gray-200 pb-2">
+        {isRevopsAdmin && (
+          <Button
+            size="xs"
+            variant={subTab === 'overview' ? 'primary' : 'secondary'}
+            onClick={() => setSubTab('overview')}
+          >
+            Overview
+          </Button>
+        )}
+        <Button
+          size="xs"
+          variant={subTab === 'needs-linking' ? 'primary' : 'secondary'}
+          onClick={() => setSubTab('needs-linking')}
+        >
+          Needs Linking
+        </Button>
       </div>
-      {body && body.trim().length > 0 ? (
-        <CitedProse
-          text={body}
-          citations={citations}
-          chunkLookup={chunkLookup}
-          onScrollToUtterance={onScrollToUtterance}
-          onOpenKB={onOpenKB}
-        />
-      ) : (
-        <p className="text-sm text-gray-500 italic">
-          No per-dimension rationale on file. Admin can re-run AI eval via CLI backfill script.
-        </p>
-      )}
-    </section>
+
+      {subTab === 'overview' && isRevopsAdmin && <CoachingUsageTab />}
+      {subTab === 'needs-linking' && <NeedsLinkingTab />}
+    </div>
   );
-})()}
-```
-
-(Use the existing `scoreColor` helper — likely already imported. Add if needed.)
-
-### B.10 — Plumb `onOpenKB` prop
-
-File: `src/components/call-intelligence/InsightsEvalDetailModal.tsx`
-
-Add `onOpenKB` to the props interface. Pass through from `InsightsTab.tsx` (the modal's parent).
-
-File: `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx`
-
-Find where `InsightsEvalDetailModal` is rendered. Add `onOpenKB={(kb) => { /* handler */ }}`. If `KBSidePanel` already exists and is used elsewhere in this tab, reuse its handler. If not for this ship, pass a no-op and TODO comment for follow-up.
-
-### B.11 — Update version gate
-
-File: `src/components/call-intelligence/citation-helpers.ts` lines 36-45
-
-```ts
-// Current (last line of the function):
-if (field === 'repDeferrals') return version >= 5;
-return true;
-
-// Change to:
-if (field === 'repDeferrals') return version >= 5;
-if (field === 'body') return version >= 6;
-return true;
-```
-
-Also update the TypeScript union type `field` parameter to include `'body'`.
-
-### B.12 — Update coaching notes markdown export
-
-File: `src/lib/coaching-notes-markdown.ts` lines 17 and 57-65
-
-Find the dimensionScores render block. Currently outputs `score` only. Add body:
-
-```ts
-for (const [name, entry] of Object.entries(dimensionScores)) {
-  const score = typeof entry.score === 'number' ? entry.score : Number(entry.score);
-  md += `**${name}**: ${score.toFixed(1)}/4\n`;
-  const body = (entry as { body?: string }).body;
-  if (body && body.trim().length > 0) {
-    md += `${body}\n`;
-  }
-  md += `\n`;
 }
 ```
 
-Also widen `AiOriginalSnapshot.dimensionScores` at line 17:
+**Key design**: Non-revops_admin users (SGM, manager) only see the "Needs Linking" sub-tab button — no "Overview" button, no access to coaching analytics. `revops_admin` users see both sub-tabs and default to Overview. `CoachingUsageTab` is never modified — it renders inside the wrapper unchanged.
 
-```ts
-dimensionScores: Record<string, { score?: unknown; body?: unknown }>;
-```
+## Step 5.2: Update CallIntelligenceClient.tsx
 
-### B.13 — TypeScript build gate
+**File**: `src/app/dashboard/call-intelligence/CallIntelligenceClient.tsx`
+
+1. Replace the `CoachingUsageTab` import with `CoachingUsageWrapper`:
+   ```typescript
+   // REMOVE: import CoachingUsageTab from './tabs/CoachingUsageTab';
+   // ADD:
+   import CoachingUsageWrapper from './tabs/CoachingUsageWrapper';
+   ```
+
+2. Widen the Coaching Usage tab button visibility. Find the condition that gates the "Coaching Usage" tab button (currently `isRevopsAdmin`) and change it to:
+   ```typescript
+   {(isRevopsAdmin || isManagerOrAdmin || role === 'sgm') && (
+     // tab button for coaching-usage
+   )}
+   ```
+   Read the file to find the exact condition pattern — it may use a different variable structure.
+
+3. Replace the Coaching Usage render branch:
+   ```typescript
+   // REMOVE: {isRevopsAdmin && activeTab === 'coaching-usage' && <CoachingUsageTab />}
+   // ADD:
+   {activeTab === 'coaching-usage' && <CoachingUsageWrapper role={role} />}
+   ```
+
+   The render branch no longer needs a role gate because the tab button is already gated. The wrapper handles sub-tab visibility internally.
+
+**Do NOT**: Modify `VALID_TABS`, add `'needs-linking'` to any array, or change `page.tsx`.
+
+## Step 5.3: Fix pre-existing VALID_TABS mismatch (optional)
+
+**File**: `src/app/dashboard/call-intelligence/page.tsx` (line 12)
+
+Add `'cost-analysis'` to the server-side `VALID_TABS` array to fix the pre-existing mismatch with the client. This is a separate bug fix, not related to Needs Linking.
+
+## PHASE 5 — VALIDATION GATE
 
 ```bash
-rm -rf .next
-npm run build 2>&1 | tail -30
+npx tsc --noEmit 2>&1 | head -20
+npm run build 2>&1 | tail -20
 ```
 
-Expected: `Compiled successfully`. Any TS errors point to missed construction sites — go back and add `body` where it's been dropped.
+**Expected**: Zero errors. Build succeeds.
 
-### B.14 — Lint gate
-
+Verify integration:
 ```bash
-npm run lint 2>&1 | tail -10
+grep -n "CoachingUsageWrapper" src/app/dashboard/call-intelligence/CallIntelligenceClient.tsx
+grep -rn "CoachingUsageTab" src/app/dashboard/call-intelligence/tabs/CoachingUsageWrapper.tsx
 ```
 
-Expected: zero errors.
+**Expected**: `CoachingUsageWrapper` imported and rendered in client. Wrapper imports `CoachingUsageTab` (unchanged) and `NeedsLinkingTab`.
 
-### B.15 — Schema mirror byte-equality gate
-
-```bash
-npm run check:schema-mirror
-```
-
-Expected: PASS.
-
-### B.16 — Agent-guard doc sync
-
-```bash
-npx agent-guard sync
-```
-
-This regenerates `docs/_generated/*.md` and prompts updates to `docs/ARCHITECTURE.md`. Read the diff to ARCHITECTURE.md before committing.
-
-### B.17 — Stop-and-report
-
-Report to user:
-- All TS errors resolved
-- Schema mirror PASS
-- Lint clean
-- agent-guard sync ran
-- List of files changed
-- Suggest manual smoke test: open Insights tab → drill into eval cell → verify modal renders without body section showing the fallback message
-
-User reviews and merges Phase B PR. Deploys to Vercel.
+**STOP AND REPORT**:
+- "Created `CoachingUsageWrapper` with Overview/Needs Linking sub-tabs"
+- "Widened Coaching Usage tab visibility to include SGMs and managers"
+- "Existing `CoachingUsageTab.tsx` remains byte-for-byte unchanged (rendered inside wrapper)"
+- "Build passes with zero errors"
+- "Ready to proceed to Phase 6 (Return Navigation Fix)?"
 
 ---
 
-## Phase C — Upstream prompt flip
+# PHASE 6: Return Navigation Fix
 
-Gated on Phase B being deployed to Vercel prod.
+## Context
+`NoteReviewClient.tsx` hardcodes return navigation to `?tab=queue` after submit/reject. SGMs arriving from the Needs Linking tab will be deposited at the wrong tab. Fix: read `returnTab` from search params and use it for return navigation.
 
-### C.1 — Flip the env flag in sales-coaching
+## Step 6.1: Fix NoteReviewClient return URL
 
-Same Cloud Run service as Phase A: `sales-coaching` in `savvy-gtm-analytics` / `us-east1`. The flag flip requires a new revision (Cloud Run does not hot-reload env vars on existing revisions).
+**File**: `src/app/dashboard/call-intelligence/review/[callNoteId]/NoteReviewClient.tsx`
 
-#### C.1.1 — Update the env file
+Read the file first to find the exact return-navigation code. The code-inspector found:
+- `handleSubmit` and `handleReject` both push to `/dashboard/call-intelligence?tab=queue`
+- `NoteReviewPage` (server component) reads `searchParams.returnTab` but doesn't use it
 
-```yaml
-# sales-coaching/.env-vars-staging.yaml
-# ... existing keys ...
-EMIT_DIMENSION_BODY: "true"
+Update the return navigation to respect the `returnTab` parameter:
+
+1. In the client component, use `useSearchParams()` from `next/navigation` to read `returnTab`.
+2. Replace the hardcoded `?tab=queue` with `?tab=${returnTab || 'queue'}`.
+3. Both `handleSubmit` and `handleReject` should use the same return URL.
+
+**Pattern**:
+```typescript
+const VALID_RETURN_TABS = ['queue', 'record-notes', 'coaching-usage', 'insights', 'settings', 'usage-analytics', 'cost-analysis'];
+
+const searchParams = useSearchParams();
+const rawReturnTab = searchParams.get('returnTab');
+const returnTab = rawReturnTab && VALID_RETURN_TABS.includes(rawReturnTab) ? rawReturnTab : 'queue';
+// ... in handleSubmit/handleReject:
+router.push(`/dashboard/call-intelligence?tab=${returnTab}`);
 ```
 
-Commit + push this change to sales-coaching `main` (a one-line PR is fine — no code changes needed because the prompt gate was already shipped in Phase A behind the flag).
+**Important**: Only modify the return URL construction — do not change any other behavior of `handleSubmit` or `handleReject`. The `VALID_RETURN_TABS` allowlist prevents invalid tab values from breaking navigation.
 
-#### C.1.2 — Redeploy
-
-```powershell
-# From C:/Users/russe/Documents/sales-coaching (repo root — required for buildpacks + .env-vars file resolution)
-gcloud run deploy sales-coaching `
-  --source . `
-  --region us-east1 `
-  --project savvy-gtm-analytics `
-  --env-vars-file=.env-vars-staging.yaml
-```
-
-Same caveats as A.8.3: no `--set-env-vars` flag, no `--set-secrets` flag, no Dockerfile (buildpacks pick up Node automatically).
-
-#### C.1.3 — Verify the flag is live
+## PHASE 6 — VALIDATION GATE
 
 ```bash
-gcloud run services describe sales-coaching \
-  --region us-east1 --project savvy-gtm-analytics \
-  --format='value(spec.template.spec.containers[0].env[].name,spec.template.spec.containers[0].env[].value)' \
-  | grep EMIT_DIMENSION_BODY
-# Expect: EMIT_DIMENSION_BODY true
+npx tsc --noEmit 2>&1 | head -20
 ```
 
-### C.2 — Smoke test
+Verify the fix:
+```bash
+grep -n "returnTab" src/app/dashboard/call-intelligence/review/[callNoteId]/NoteReviewClient.tsx
+```
 
-Trigger a fresh evaluation (organic next-call, or manual eval-run path if sales-coaching exposes one). Verify body is now emitted:
+**Expected**: `returnTab` appears in both the searchParams read and the router.push calls.
 
+```bash
+npm run build 2>&1 | tail -20
+```
+
+**Expected**: Build passes.
+
+**STOP AND REPORT**:
+- "Fixed NoteReviewClient return navigation to respect `returnTab` search param"
+- "SGMs arriving from Needs Linking tab will return to the correct tab after review"
+- "Build passes"
+- "Ready to proceed to Phase 7 (Documentation Sync)?"
+
+---
+
+# PHASE 7: Documentation Sync
+
+## Step 7.1: Run generators
+
+```bash
+npm run gen:api-routes
+```
+
+This regenerates `docs/_generated/api-routes.md` to include the new `/api/call-intelligence/needs-linking` route.
+
+## Step 7.2: Update ARCHITECTURE.md
+
+Read `docs/ARCHITECTURE.md` and find the Call Intelligence section. Add a brief mention of the Needs Linking tab and its API route. Match the existing format.
+
+## Step 7.3: Write session context
+
+Write `.ai-session-context.md` (required before git commit per project protocol):
+
+```markdown
+### Session Summary
+Added "Needs Linking" sub-tab to the Call Intelligence page, surfacing call_notes not confidently attached to a Salesforce record.
+
+### Business Context
+SGMs and managers need visibility into unlinked coaching calls so they can manually attach them to Salesforce records via the existing NoteReviewClient search flow.
+
+### Technical Approach
+Direct-pg query against sales-coaching Neon DB using status='pending' as the orphan filter. RBAC via getRepIdsVisibleToActor(). New API route at /api/call-intelligence/needs-linking (not under /api/admin/ — SGMs need access). No schema migrations needed.
+
+### What Changed
+- New type: NeedsLinkingRow in call-intelligence.ts
+- New query: needs-linking.ts with advisor hint extraction from JSONB
+- New API route: /api/call-intelligence/needs-linking (with actor self-union for SGMs)
+- New component: NeedsLinkingTab.tsx with 14-day/all toggle and export
+- New component: CoachingUsageWrapper.tsx (sub-tab orchestration for Overview/Needs Linking)
+- Modified: CallIntelligenceClient.tsx (widened Coaching Usage visibility, replaced CoachingUsageTab with CoachingUsageWrapper)
+- Fixed: NoteReviewClient return navigation to respect returnTab param
+
+### Verification
+TypeScript build passes. API route has auth + role gate + RBAC.
+```
+
+## PHASE 7 — VALIDATION GATE
+
+```bash
+npm run build 2>&1 | tail -10
+```
+
+**Expected**: Clean build. All generators ran without errors.
+
+**STOP AND REPORT**:
+- "Documentation synced — API route inventory regenerated, ARCHITECTURE.md updated"
+- "Session context written for Wrike integration"
+- "Ready to proceed to Phase 8 (UI Validation)?"
+
+---
+
+# PHASE 8: UI/UX Validation (Requires Human)
+
+## Test Group 1: Tab Visibility and Sub-Tab Navigation
+
+1. Log in as `revops_admin` → navigate to `/dashboard/call-intelligence`
+2. Click "Coaching Usage" tab → verify two sub-tab buttons: "Overview" and "Needs Linking"
+3. Verify "Overview" is selected by default for revops_admin
+4. Click "Needs Linking" → verify sub-tab switches to the Needs Linking table
+5. Click "Overview" → verify the original Coaching Usage analytics view (KPI strip + table) appears unchanged
+6. Log in as `sgm` → navigate to `/dashboard/call-intelligence`
+7. Click "Coaching Usage" tab → verify only "Needs Linking" sub-tab button appears (no "Overview")
+8. Verify the Needs Linking table loads directly
+9. Log in as `sga` → verify "Coaching Usage" tab is NOT visible
+
+## Test Group 2: Needs Linking Table
+
+1. Click "Needs Linking" tab
+2. Verify table loads with columns: Call Date, Source, Advisor Hint, Rep, Manager, Strategy, Confidence, Days, Action
+3. Verify default shows "Last 14 Days" data
+4. Click "All" toggle → verify more rows appear (if applicable)
+5. Click "Last 14 Days" toggle → verify filters back to 14-day window
+6. Verify rows are sorted by call date descending (newest first)
+
+## Test Group 3: Advisor Hint Quality
+
+1. Spot-check several rows:
+   - Granola rows should show external attendee names (not Savvy employees)
+   - Kixie rows should show prospect name or email
+   - If both attendees and invitee_emails are internal-only, title should appear
+
+## Test Group 4: Review Action
+
+1. Click "Review" link on any row
+2. Verify navigation to `/dashboard/call-intelligence/review/[callNoteId]`
+3. Verify the NoteReviewClient SFDC search interface loads
+4. Click back or submit/reject → verify return to `?tab=coaching-usage` (not `?tab=queue`)
+
+## Test Group 5: CSV Export
+
+1. Click the export/download button
+2. Verify CSV downloads with correct columns and data
+3. Verify no data corruption (advisor hints with commas, special characters)
+
+## Test Group 6: Coaching Usage Preservation
+
+1. Navigate to Coaching Usage tab (as revops_admin)
+2. Verify KPI strip and main table are completely unchanged
+3. Verify data loads correctly — no regressions
+
+---
+
+# Troubleshooting Appendix
+
+## Common Issues
+
+### `getRepIdByEmail` returns null for admin users
+Expected behavior. The `isPrivileged` check handles this — admins get all reps without needing a coaching DB rep record.
+
+### SGM sees empty Needs Linking table
+Most likely cause: SGM has no coachee linkage in `reps.manager_id` or `coaching_teams`. This is a data-setup issue. Verify with:
 ```sql
--- The most-recently created eval should have body on every dimension
-SELECT
-  id,
-  created_at,
-  ai_original_schema_version,
-  (
-    SELECT COUNT(*) FROM jsonb_each(dimension_scores) ds
-    WHERE ds.value ? 'body' AND length(ds.value->>'body') > 0
-  ) AS dims_with_body,
-  (SELECT COUNT(*) FROM jsonb_object_keys(dimension_scores)) AS total_dims
-FROM evaluations
-ORDER BY created_at DESC
-LIMIT 1;
+SELECT id, full_name, manager_id FROM reps WHERE is_active = true AND role = 'SGA';
 ```
+If no SGAs have `manager_id` pointing to the SGM's rep record, the visibility function returns an empty set.
 
-Expected: `dims_with_body = total_dims` AND `ai_original_schema_version = 6`.
+### Confidence tier shows "—" for most rows
+Expected. Only ~87/224 pending call_notes have a corresponding `slack_review_messages` row with waterfall candidates. The confidence_tier column is display-only and NULL for rows without waterfall data.
 
-If body is still missing, the flag isn't being read — check the deploy revision picked up the new env file, and confirm the prompt gate code at A.5 is reading `process.env.EMIT_DIMENSION_BODY` (string `'true'`, not boolean true).
+### `invitee_emails` shows email instead of name
+Expected fallback. When no non-internal attendee name is available, the cascade falls through to the email from `invitee_emails`, then to `title`. This is by design.
 
-### C.3 — Stop-and-report
+### Return navigation goes to queue tab
+The `NoteReviewClient` fix (Phase 6) reads `returnTab` from search params. If the review link doesn't include `?returnTab=coaching-usage`, the fix won't help. Verify the link in `NeedsLinkingTab.tsx` includes the query param.
 
-Once one organic eval has body on every dimension and schema version 6, Phase C is done. User gives the go-ahead for Phase D backfill.
+## Known Limitations
+
+1. **SGM RBAC data gap**: SGMs have zero coachee linkage in the coaching DB today. The code is correct but will show an empty table until `reps.manager_id` or `coaching_observers` rows are populated for SGMs.
+
+2. **Confidence tier coverage**: Only ~39% of pending rows have confidence_tier data (via `slack_review_messages` JOIN). The rest show "—". This is a data coverage issue in the waterfall pipeline, not a query bug.
+
+3. **No real-time updates**: After an SGM reviews a call (submit/reject), the row remains in the Needs Linking list until the next fetch. No WebSocket or polling. The user must manually refresh or toggle the date filter.
+
+4. **`linkage_strategy` values are sparse**: Currently only 3 values exist in production (`manual_entry`, `kixie_task_link`, `crd_prefix`). `calendar_title` and `attendee_email` exist in the DB CHECK constraint but have zero rows. As the ingestion pipeline matures, more strategies may appear.
 
 ---
 
-## Phase D — Offline backfill script
+# Refinement Log
 
-Build the script in this Dashboard repo. Gated on Phase C deploy + smoke test.
+## Bucket 1 — Applied Autonomously
 
-### D.1 — Create the script
-
-File: `scripts/backfill-dimension-bodies.cjs` (new)
-
-```js
-#!/usr/bin/env node
-// Offline backfill: generate per-dimension `body` for historic evaluations.
-// Locked inputs: existing score + citations. Strict drift handling.
-// Default dry run; --commit to write.
-
-require('dotenv').config();
-const { Pool } = require('pg');
-const Anthropic = require('@anthropic-ai/sdk').default;
-
-const COMMIT = process.argv.includes('--commit');
-const LIMIT = (() => {
-  const i = process.argv.indexOf('--limit');
-  return i > -1 ? parseInt(process.argv[i + 1], 10) : null;
-})();
-const MODEL_ID = 'claude-sonnet-4-6';
-const PROMPT_VERSION = 'body-only-v1';
-const SLEEP_MS = 200;
-
-const pool = new Pool({
-  connectionString: process.env.SALES_COACHING_DATABASE_URL_UNPOOLED
-    ?? process.env.SALES_COACHING_DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function fetchTargets() {
-  const { rows } = await pool.query(`
-    SELECT
-      e.id AS evaluation_id,
-      e.dimension_scores,
-      e.ai_original_schema_version,
-      ct.transcript
-    FROM evaluations e
-    LEFT JOIN call_transcripts ct ON ct.call_note_id = e.call_note_id
-    WHERE e.dimension_scores IS NOT NULL
-      AND e.dimension_scores <> '{}'::jsonb
-      AND EXISTS (
-        SELECT 1 FROM jsonb_each(e.dimension_scores) ds
-        WHERE NOT (ds.value ? 'body') OR (ds.value->>'body') = '' OR (ds.value->>'body') IS NULL
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM eval_body_backfill_audit a
-        WHERE a.evaluation_id = e.id AND a.status = 'success'
-      )
-    ORDER BY e.created_at DESC
-    ${LIMIT ? `LIMIT ${LIMIT}` : ''}
-  `);
-  return rows;
-}
-
-function buildPrompt(dimensionName, score, citedUtterances) {
-  const utterancesBlock = citedUtterances
-    .map((u) => `[${u.utterance_index}] (${u.speaker_role}): ${u.text}`)
-    .join('\n');
-  return `You are writing a 2-3 sentence rationale for a SALES CALL EVALUATION dimension.
-
-Dimension: ${dimensionName}
-Score: ${score} / 4
-Cited utterances (these are LOCKED — you may only cite these utterance_index values):
-${utterancesBlock}
-
-Write a single paragraph, 150-300 characters, explaining WHY this dimension received this score, based on the cited utterances. No bullets. Reference at least one utterance_index inline using square brackets like [12]. Do not invent utterances. If the cited utterances do not justify the score, say so.
-
-Respond as JSON: { "body": "...", "cited_utterance_indexes": [12, 15] }`;
-}
-
-function getCitedUtterances(transcript, citations) {
-  if (!Array.isArray(transcript)) return [];
-  const wantedIdxs = new Set(
-    citations
-      .filter((c) => typeof c.utterance_index === 'number')
-      .map((c) => c.utterance_index)
-  );
-  return transcript.filter((u) => wantedIdxs.has(u.utterance_index));
-}
-
-async function generateBody(dimName, score, citedUtterances, citationsLocked) {
-  const resp = await anthropic.messages.create({
-    model: MODEL_ID,
-    max_tokens: 400,
-    messages: [{ role: 'user', content: buildPrompt(dimName, score, citedUtterances) }],
-  });
-  const text = resp.content[0].type === 'text' ? resp.content[0].text : '';
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error('No JSON in model response');
-  const parsed = JSON.parse(match[0]);
-  if (typeof parsed.body !== 'string') throw new Error('No body in JSON');
-  const allowedIdxs = new Set(citationsLocked.map((c) => c.utterance_index).filter((i) => typeof i === 'number'));
-  const orphanCount = (parsed.cited_utterance_indexes ?? []).filter((i) => !allowedIdxs.has(i)).length;
-  return {
-    body: parsed.body.trim(),
-    inputTokens: resp.usage?.input_tokens ?? 0,
-    outputTokens: resp.usage?.output_tokens ?? 0,
-    droppedOrphans: orphanCount,
-  };
-}
-
-async function writeBody(evaluationId, dimName, body) {
-  if (!COMMIT) return;
-  await pool.query(
-    `UPDATE evaluations
-     SET dimension_scores = jsonb_set(dimension_scores, $1::text[], $2::jsonb, false)
-     WHERE id = $3`,
-    [[dimName, 'body'], JSON.stringify(body), evaluationId]
-  );
-}
-
-async function recordAudit(evaluationId, status, opts) {
-  if (!COMMIT) return;
-  await pool.query(
-    `INSERT INTO eval_body_backfill_audit
-     (evaluation_id, status, error_message, input_tokens, output_tokens,
-      schema_version_before, model_id, prompt_version, dropped_orphan_citations,
-      skipped_dims, completed_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())`,
-    [
-      evaluationId, status, opts.error ?? null,
-      opts.inputTokens ?? null, opts.outputTokens ?? null,
-      opts.schemaVersionBefore, MODEL_ID, PROMPT_VERSION,
-      opts.droppedOrphans ?? 0, opts.skippedDims ?? 0,
-    ]
-  );
-}
-
-async function processEval(row) {
-  const { evaluation_id, dimension_scores, ai_original_schema_version, transcript } = row;
-  const dims = Object.entries(dimension_scores);
-  let totalIn = 0, totalOut = 0, totalOrphans = 0, skipped = 0;
-  for (const [dimName, entry] of dims) {
-    const existingBody = entry.body;
-    if (typeof existingBody === 'string' && existingBody.trim().length > 0) continue;
-    const citations = Array.isArray(entry.citations) ? entry.citations : [];
-    if (citations.length === 0) {
-      skipped++;
-      console.log(`  SKIP ${dimName} (no citations to anchor body)`);
-      continue;
-    }
-    const citedUtts = getCitedUtterances(transcript, citations);
-    if (citedUtts.length === 0) {
-      skipped++;
-      console.log(`  SKIP ${dimName} (citations don't match transcript utterances)`);
-      continue;
-    }
-    try {
-      const result = await generateBody(dimName, entry.score, citedUtts, citations);
-      totalIn += result.inputTokens;
-      totalOut += result.outputTokens;
-      totalOrphans += result.droppedOrphans;
-      console.log(`  ${COMMIT ? 'WRITE' : 'DRY '} ${dimName}: "${result.body.slice(0, 60)}..."`);
-      await writeBody(evaluation_id, dimName, result.body);
-      await sleep(SLEEP_MS);
-    } catch (e) {
-      if (e?.status === 429) {
-        console.warn(`  429 rate-limited; sleeping 30s`);
-        await sleep(30000);
-        // Retry once; if it fails again, hard-error
-        const result = await generateBody(dimName, entry.score, citedUtts, citations);
-        totalIn += result.inputTokens;
-        totalOut += result.outputTokens;
-        await writeBody(evaluation_id, dimName, result.body);
-      } else {
-        throw e;
-      }
-    }
-  }
-  return {
-    inputTokens: totalIn,
-    outputTokens: totalOut,
-    droppedOrphans: totalOrphans,
-    skippedDims: skipped,
-    schemaVersionBefore: ai_original_schema_version,
-  };
-}
-
-async function main() {
-  console.log(`Mode: ${COMMIT ? 'COMMIT' : 'DRY RUN'}, Model: ${MODEL_ID}`);
-  const targets = await fetchTargets();
-  console.log(`Found ${targets.length} evaluations needing body backfill\n`);
-  let successes = 0, failures = 0, totalIn = 0, totalOut = 0;
-  for (let i = 0; i < targets.length; i++) {
-    const row = targets[i];
-    console.log(`[${i + 1}/${targets.length}] eval ${row.evaluation_id} (schema v${row.ai_original_schema_version})`);
-    try {
-      const stats = await processEval(row);
-      totalIn += stats.inputTokens;
-      totalOut += stats.outputTokens;
-      await recordAudit(row.evaluation_id, 'success', stats);
-      successes++;
-    } catch (e) {
-      console.error(`  FAIL: ${e.message}`);
-      await recordAudit(row.evaluation_id, 'failure', {
-        error: e.message,
-        schemaVersionBefore: row.ai_original_schema_version,
-      });
-      failures++;
-    }
-  }
-  const inCost = (totalIn / 1_000_000) * 3.0;
-  const outCost = (totalOut / 1_000_000) * 15.0;
-  console.log(`\nDone. Success: ${successes}, Failure: ${failures}`);
-  console.log(`Tokens: in=${totalIn}, out=${totalOut}`);
-  console.log(`Estimated cost: $${(inCost + outCost).toFixed(2)} (Sonnet 4.6 pricing)`);
-  await pool.end();
-}
-
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
-```
-
-### D.2 — Dry run (no writes)
-
-```bash
-node scripts/backfill-dimension-bodies.cjs
-```
-
-Expected output: `Found 406 evaluations...` followed by per-eval logs showing dry-run lines (`DRY <dimName>: "..."`). Final summary should show estimated cost ~$27-31.
-
-If output is suspicious (e.g. 0 found, or radically different cost), **STOP** and investigate.
-
-### D.3 — Pilot run
-
-```bash
-node scripts/backfill-dimension-bodies.cjs --limit 5 --commit
-```
-
-Verify in Neon:
-
-```sql
-SELECT id, jsonb_pretty(dimension_scores) FROM evaluations
-WHERE id IN (SELECT evaluation_id FROM eval_body_backfill_audit ORDER BY created_at DESC LIMIT 5);
-```
-
-Manually review the 5 generated bodies for quality. If quality is poor:
-- Inspect the prompt — tune wording
-- Re-run pilot with adjusted prompt (update `PROMPT_VERSION` constant for audit tracking)
-
-If quality is good, proceed.
-
-### D.4 — Full backfill
-
-```bash
-node scripts/backfill-dimension-bodies.cjs --commit
-```
-
-Monitor for 429s. Should run ~30-60 minutes (406 evals × ~9 dims × 200ms = ~12 minutes of API time + processing).
-
-### D.5 — Verification
-
-```sql
--- Every eval should now have body on every dimension
-SELECT COUNT(*) FROM evaluations
-WHERE dimension_scores IS NOT NULL
-  AND dimension_scores <> '{}'::jsonb
-  AND EXISTS (
-    SELECT 1 FROM jsonb_each(dimension_scores) ds
-    WHERE NOT (ds.value ? 'body') OR (ds.value->>'body') = '' OR (ds.value->>'body') IS NULL
-  );
--- Expected: 0 (or close to it; rows with no citations on any dim are legitimately skipped)
-
--- Audit summary
-SELECT status, COUNT(*) FROM eval_body_backfill_audit GROUP BY status;
-
--- Failures, if any
-SELECT evaluation_id, error_message FROM eval_body_backfill_audit WHERE status = 'failure';
-```
-
-If failures > 0: investigate and re-run targeted retries with `--limit` after fixing.
-
-### D.6 — UI smoke test
-
-Open Dashboard Insights tab → drill any heat-map cell → confirm:
-- Body paragraph renders at the top of Layer 2 modal
-- Citation pills are clickable
-- Utterance citations open Layer 3 jumped to the cited utterance
-- KB citations render the chunk inline
-- Score badge matches the historical score (no drift)
-
-### D.7 — Stop-and-report
-
-Report: total cost actual vs estimate, success/failure counts, any quality concerns observed in pilot.
-
----
-
-## Final acceptance criteria (verify all)
-
-- [ ] (a) Manager drills heat-map cell → Layer 2 opens → dimension name + score + 2-3 sentence body + citation pills.
-- [ ] (b) Click utterance citation in body → Layer 3 transcript modal jumps to that utterance.
-- [ ] (c) Click KB citation → renders the KB chunk inline.
-- [ ] (d) Pre-backfill eval (hypothetical edge case after pilot) → fallback "no rationale on file" message renders.
-- [ ] (e) ~~Admin clicks Re-evaluate~~ **CUT — offline script only.**
-- [ ] (f) `npm run check:schema-mirror` PASS.
-- [ ] (g) Manager edits a dimension score → body for THAT and OTHER dimensions is preserved (R1 data-loss-fix verified). **Manually test this in prod.**
-- [ ] (h) After backfill, verification SQL shows 0 evals missing body.
-- [ ] (i) Backfill audit table has one row per eval with `status='success'`.
-- [ ] (j) New evals created after Phase C have `body` per dimension natively (no backfill needed).
-
----
-
-## Risk register reference
-
-| ID | Risk | Phase | Status |
+| # | Change | Reviewer | Rationale |
 |---|---|---|---|
-| R1 | Inline-edit drops body | B.3 | Fixed first in Phase B |
-| R2 | Strict schema rejects body if order wrong | A.5 / C.1 | Env flag rollout |
-| R3 | Score drift | N/A | Eliminated — body-only prompt |
-| R4 | Branch drift (main vs master) | B.2 | Fixed in B |
-| R5 | KB pills no-op | B.10 | Plumbed |
-| R6 | Legacy v2/v3 evals | D.3 | Sampled in pilot |
-| R7 | Markdown export omits body | B.12 | Fixed in B |
-| R8 | No re-eval endpoint | N/A | Eliminated — offline only |
-| R9 | Anthropic rate limit | D.1 | 429 backoff |
-| R10 | Orphan citations | D.1 | Strict drop in script |
-| R11 | JSONB partial-update clobber | D.1 | `jsonb_set` not full-replace |
+| C1 | Replaced LEFT JOIN slack_review_messages with LATERAL subquery + LIMIT 1 | Gemini | Prevents row duplication if multiple slack_review_messages exist per call_note |
+| C2 | Added `CASE WHEN jsonb_typeof(cn.attendees) = 'array'` guard around `jsonb_array_elements` | Gemini | Prevents fatal PG error if attendees JSONB is not an array |
+| S1 | Added `AND (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')` to WHERE clause | Codex | Matches coaching-usage scope — prevents internal/practice calls from appearing |
+| S2 | Added `VALID_RETURN_TABS` allowlist for returnTab validation in NoteReviewClient | Codex | Prevents broken navigation from invalid search param values |
+| S4 | Added `noreply@`, `reply@`, `invites@` prefix exclusions to advisor hint extraction | Gemini | Prevents calendar tool artifacts from appearing as advisor hints |
+| S5 | Added `STRATEGY_LABELS` mapping and `strategyLabel()` helper in component | Gemini | Human-friendly labels in table and CSV export (e.g., "Kixie Task" instead of "kixie_task_link") |
 
----
+## Human Decisions Applied
 
-## Doc sync (Phase 7.5 reminder)
+| # | Question | Decision | Rationale |
+|---|---|---|---|
+| Q1 | Sub-tab vs top-level tab | **Sub-tab of Coaching Usage** | Created CoachingUsageWrapper with Overview/Needs Linking sub-tabs. Widened Coaching Usage visibility to SGMs/managers. CoachingUsageTab unchanged. |
+| Q2 | SGM self-inclusion | **Yes, include self** | Union actor's own rep ID in API route. SGMs see both their own and coachees' unlinked calls. |
+| Q3 | Advisor-call filter | **Advisor calls only** | Matches Coaching Usage scope. Already applied in S1. |
 
-After Phase B merges, run:
+## Bucket 3 — Noted, Not Applied
 
-```bash
-npx agent-guard sync
-```
-
-Update `docs/ARCHITECTURE.md` Call Intelligence section to mention the per-dimension body field and the offline backfill workflow. Update `.claude/bq-views.md` if any view annotations reference dimension_scores shape.
-
----
-
-## End of guide
-
-Built: 2026-05-11.
-Council-reviewed (Codex + Gemini).
-User-approved scope reduction: offline script only.
-Total estimated cost: $27-31 (Sonnet 4.6).
-Total estimated wall-clock execution time: 1-2 hours for code, 30-60 min for backfill.
+| # | Item | Reviewer | Reason Deferred |
+|---|---|---|---|
+| I2 | Centralize VALID_TABS in shared constant | Codex | Good idea but scope expansion — fix in a separate cleanup PR |
+| I3 | Business days vs calendar days for days_since_call | Gemini | Calendar days match existing patterns; business days add complexity for v1 |
+| S3 | NoteReviewPage error fallback also hardcodes queue | Codex | Edge case (page load failure) — address in follow-up |
+| G1 | Exclude manual_entry from query | Gemini | DISMISSED — data verifier confirms manual_entry+pending rows (192) are genuinely unresolved (sfdc_record_id=0) |

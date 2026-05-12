@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@tremor/react';
 import type {
   CallNoteDetailT, SfdcSearchMatchT, SfdcSearchQueryTypeT,
@@ -37,8 +37,12 @@ function detectSfdcQuery(input: string): { type: SfdcSearchQueryTypeT; query: st
   return { type: 'name', query: trimmed, label: 'Name' };
 }
 
-export function NoteReviewClient({ initial, suggestion }: { initial: CallNoteDetailT; suggestion: BridgeSfdcSuggestionT | null }) {
+export function NoteReviewClient({ initial, suggestion, onDone }: { initial: CallNoteDetailT; suggestion: BridgeSfdcSuggestionT | null; onDone?: () => void }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const rawReturnTab = searchParams.get('returnTab');
+  const VALID_RETURN_TABS = ['queue', 'record-notes', 'coaching-usage', 'insights', 'settings', 'usage-analytics', 'cost-analysis'];
+  const returnTab = rawReturnTab && VALID_RETURN_TABS.includes(rawReturnTab) ? rawReturnTab : 'queue';
   const [note, setNote] = useState<CallNoteDetailT>(initial);
   const initialText = initial.summary_markdown_edited ?? initial.summary_markdown ?? '';
   const [draft, setDraft] = useState(initialText);
@@ -52,6 +56,7 @@ export function NoteReviewClient({ initial, suggestion }: { initial: CallNoteDet
   const [isRejecting, setIsRejecting] = useState(false);
   const [confirmSubmitOpen, setConfirmSubmitOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
 
   // Refs: read latest server state without depending on render closures
   const editVersionRef = useRef(initial.edit_version);
@@ -239,7 +244,8 @@ export function NoteReviewClient({ initial, suggestion }: { initial: CallNoteDet
       });
       setConfirmSubmitOpen(false);
       if (res.ok) {
-        router.push('/dashboard/call-intelligence?tab=queue');
+        if (onDone) { onDone(); return; }
+        router.push(`/dashboard/call-intelligence?tab=${returnTab}`);
         router.refresh();
         return;
       }
@@ -272,7 +278,8 @@ export function NoteReviewClient({ initial, suggestion }: { initial: CallNoteDet
       });
       setRejectOpen(false);
       if (res.ok) {
-        router.push('/dashboard/call-intelligence?tab=queue');
+        if (onDone) { onDone(); return; }
+        router.push(`/dashboard/call-intelligence?tab=${returnTab}`);
         router.refresh();
         return;
       }
@@ -300,6 +307,13 @@ export function NoteReviewClient({ initial, suggestion }: { initial: CallNoteDet
   return (
     <div className="flex flex-col min-h-[calc(100vh-64px)] px-4 py-4 bg-white dark:bg-gray-900">
       <header className="mb-4">
+        <button
+          type="button"
+          onClick={() => onDone ? onDone() : router.push(`/dashboard/call-intelligence?tab=${returnTab}`)}
+          className="mb-2 flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+        >
+          <span aria-hidden="true">&larr;</span> {onDone ? 'Back to Needs Linking' : `Back to ${returnTab === 'coaching-usage' ? 'Coaching Usage' : returnTab.replace(/-/g, ' ')}`}
+        </button>
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-lg md:text-xl font-semibold text-gray-900 dark:text-gray-100">{note.title}</h1>
           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300" title={note.call_started_at}>
@@ -308,6 +322,15 @@ export function NoteReviewClient({ initial, suggestion }: { initial: CallNoteDet
           <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${note.source === 'granola' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'}`}>{note.source === 'granola' ? 'Granola' : 'Kixie'}</span>
           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{note.note_char_count.toLocaleString()} chars</span>
           {isLong && <span className="text-xs text-gray-500 dark:text-gray-400">Long note (&gt;{LONG_NOTE_CHAR_THRESHOLD} chars)</span>}
+          {initial.transcript != null && (
+            <button
+              type="button"
+              onClick={() => setTranscriptOpen(true)}
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 hover:bg-indigo-200 dark:hover:bg-indigo-900/60 transition-colors cursor-pointer"
+            >
+              View Transcript
+            </button>
+          )}
         </div>
       </header>
 
@@ -419,6 +442,92 @@ export function NoteReviewClient({ initial, suggestion }: { initial: CallNoteDet
         onConfirm={handleReject}
         isSubmitting={isRejecting}
       />
+
+      {transcriptOpen && initial.transcript != null && (
+        <ReadOnlyTranscriptModal
+          transcript={initial.transcript}
+          onClose={() => setTranscriptOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+interface TranscriptEntry { speaker: 'rep' | 'advisor' | 'unknown'; text: string; startSeconds?: number }
+
+function parseTranscriptUtterances(raw: unknown): TranscriptEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const result: TranscriptEntry[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const o = item as Record<string, unknown>;
+    const text = typeof o.text === 'string' ? o.text : '';
+    if (!text) continue;
+    const roleRaw = typeof o.speaker_role === 'string' ? o.speaker_role.toLowerCase()
+      : typeof o.speaker === 'string' ? o.speaker.toLowerCase() : '';
+    const speaker: 'rep' | 'advisor' | 'unknown' =
+      roleRaw === 'rep' || roleRaw === 'microphone' ? 'rep'
+      : roleRaw === 'other_party' || roleRaw === 'advisor' || roleRaw === 'speaker' ? 'advisor'
+      : 'unknown';
+    const startSeconds = typeof o.start_seconds === 'number' ? o.start_seconds : undefined;
+    result.push({ speaker, text, startSeconds });
+  }
+  return result;
+}
+
+function ReadOnlyTranscriptModal({ transcript, onClose }: { transcript: unknown; onClose: () => void }) {
+  const utterances = parseTranscriptUtterances(transcript);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const speakerLabel = (s: 'rep' | 'advisor' | 'unknown') =>
+    s === 'rep' ? 'Rep' : s === 'advisor' ? 'Advisor' : 'Unknown';
+  const speakerClass = (s: 'rep' | 'advisor' | 'unknown') =>
+    s === 'rep' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200'
+    : s === 'advisor' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200'
+    : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300';
+  const formatTime = (secs?: number) => {
+    if (typeof secs !== 'number') return '';
+    return `${Math.floor(secs / 60)}:${Math.floor(secs % 60).toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex md:items-center md:justify-center" onClick={onClose}>
+      <div
+        className="bg-white dark:bg-gray-800 shadow-xl flex flex-col overflow-hidden w-full h-full md:h-auto md:max-w-3xl md:mx-4 md:my-6 md:max-h-[90vh] md:rounded-lg"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Call transcript"
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Transcript</h2>
+          <button onClick={onClose} aria-label="Close transcript" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <span className="text-xl">&times;</span>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          {utterances.length === 0 ? (
+            <p className="text-sm italic text-gray-500 dark:text-gray-400">No transcript available for this call.</p>
+          ) : (
+            utterances.map((u, i) => (
+              <div key={i} className="border border-gray-200 dark:border-gray-700 rounded p-3">
+                <div className="flex items-baseline justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-medium ${speakerClass(u.speaker)}`}>
+                    {speakerLabel(u.speaker)}
+                  </span>
+                  {u.startSeconds !== undefined && <span>{formatTime(u.startSeconds)}</span>}
+                </div>
+                <p className="text-sm dark:text-gray-200 whitespace-pre-wrap">{u.text}</p>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </div>
   );
 }

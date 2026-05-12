@@ -1,0 +1,155 @@
+=== db-router-decision.md ===
+```yaml
+feature: "Add a pipeline forecast accuracy report comparing predicted vs actual SQOs in the last 4 quarters"
+databases:
+  bigquery:
+    in_scope: true
+    reason: "Funnel SQO data, forecast predictions, and historical actuals all live in BigQuery (vw_funnel_master, vw_forecast_p2, vw_funnel_audit)."
+  neon_savvy_dashboard:
+    in_scope: false
+    reason: "This is a read-only report; no Dashboard Prisma tables (ForecastScenario family or others) are written or read."
+  neon_sales_coaching:
+    in_scope: false
+    reason: "No coaching evaluations or call notes are involved."
+preread_paths:
+  bigquery:
+    - .claude/bq-views.md
+    - .claude/bq-field-dictionary.md
+    - .claude/bq-patterns.md
+    - .claude/bq-activity-layer.md
+    - .claude/bq-salesforce-mapping.md
+mcp_tools:
+  bigquery:
+    - schema-context.describe_view
+    - schema-context.get_rule
+    - schema-context.get_metric
+    - schema-context.resolve_term
+    - schema-context.lint_query
+```
+
+=== code-inspector prompt ===
+## DB Context (from Phase 0.5 router)
+
+```yaml
+feature: "Add a pipeline forecast accuracy report comparing predicted vs actual SQOs in the last 4 quarters"
+databases:
+  bigquery:
+    in_scope: true
+    reason: "Funnel SQO data, forecast predictions, and historical actuals all live in BigQuery (vw_funnel_master, vw_forecast_p2, vw_funnel_audit)."
+  neon_savvy_dashboard:
+    in_scope: false
+    reason: "This is a read-only report; no Dashboard Prisma tables (ForecastScenario family or others) are written or read."
+  neon_sales_coaching:
+    in_scope: false
+    reason: "No coaching evaluations or call notes are involved."
+preread_paths:
+  bigquery:
+    - .claude/bq-views.md
+    - .claude/bq-field-dictionary.md
+    - .claude/bq-patterns.md
+    - .claude/bq-activity-layer.md
+    - .claude/bq-salesforce-mapping.md
+```
+
+Pre-read these files before investigating: .claude/bq-views.md, .claude/bq-field-dictionary.md, .claude/bq-patterns.md, .claude/bq-activity-layer.md, .claude/bq-salesforce-mapping.md. Do not default to other context sources unless none are listed.
+
+## Task
+
+Investigate the codebase for the following feature: Add a pipeline forecast accuracy report comparing predicted vs actual SQOs in the last 4 quarters
+
+Find:
+- Every TypeScript type/interface that needs new fields
+- Every file that CONSTRUCTS objects of those types (construction sites)
+- Every query function, API route, and component that needs changes
+- Both export paths: ExportButton (auto via Object.keys) and ExportMenu/MetricDrillDownModal (explicit column mappings)
+- Any components that manually construct typed records from raw data (e.g., ExploreResults.tsx drilldown handler)
+
+If what you find in the code contradicts the pre-read docs (when applicable), trust the code, proceed with what the code shows, and note the discrepancy in your findings.
+
+Save findings to `code-inspector-findings.md` in the project root.
+
+=== data-verifier prompt ===
+## DB Context (from Phase 0.5 router)
+
+```yaml
+feature: "Add a pipeline forecast accuracy report comparing predicted vs actual SQOs in the last 4 quarters"
+databases:
+  bigquery:
+    in_scope: true
+    reason: "Funnel SQO data, forecast predictions, and historical actuals all live in BigQuery (vw_funnel_master, vw_forecast_p2, vw_funnel_audit)."
+  neon_savvy_dashboard:
+    in_scope: false
+    reason: "This is a read-only report; no Dashboard Prisma tables (ForecastScenario family or others) are written or read."
+  neon_sales_coaching:
+    in_scope: false
+    reason: "No coaching evaluations or call notes are involved."
+preread_paths:
+  bigquery:
+    - .claude/bq-views.md
+    - .claude/bq-field-dictionary.md
+    - .claude/bq-patterns.md
+    - .claude/bq-activity-layer.md
+    - .claude/bq-salesforce-mapping.md
+mcp_tools:
+  bigquery:
+    - schema-context.describe_view
+    - schema-context.get_rule
+    - schema-context.get_metric
+    - schema-context.resolve_term
+    - schema-context.lint_query
+```
+
+Use these MCP tools as primary schema context: schema-context.describe_view, schema-context.get_rule, schema-context.get_metric, schema-context.resolve_term, schema-context.lint_query. Fall back to these pre-read paths if MCP is unavailable or incomplete: .claude/bq-views.md, .claude/bq-field-dictionary.md, .claude/bq-patterns.md, .claude/bq-activity-layer.md, .claude/bq-salesforce-mapping.md. Do not use any MCP tool or context source that is not listed above for the database investigation portion of this task.
+
+## Task
+
+Verify the data layer for the following feature: Add a pipeline forecast accuracy report comparing predicted vs actual SQOs in the last 4 quarters
+
+For every in-scope database listed in the DB Context block, do the following work using the listed MCP tools as primary:
+- Confirm source fields, tables, or columns exist in the relevant views or schemas.
+- Run appropriate data-quality checks against in-scope sources: existence, population rate (`COUNTIF(field IS NOT NULL) / COUNT(*)` style or equivalent), value distribution, max-length on text fields, and edge cases (NULLs, empty strings, newlines, special characters). Sample JSONB shapes when the in-scope schema exposes them.
+- Always use parameterized queries — never string interpolation.
+- If a schema modification or migration is needed in any in-scope source, document exactly what needs to change and flag it as a blocker.
+
+Do NOT investigate or query databases that are out of scope per the DB Context block.
+
+Save findings to `data-verifier-findings.md` in the project root.
+
+=== pattern-finder prompt ===
+## DB Context (from Phase 0.5 router)
+
+```yaml
+feature: "Add a pipeline forecast accuracy report comparing predicted vs actual SQOs in the last 4 quarters"
+databases:
+  bigquery:
+    in_scope: true
+    reason: "Funnel SQO data, forecast predictions, and historical actuals all live in BigQuery (vw_funnel_master, vw_forecast_p2, vw_funnel_audit)."
+  neon_savvy_dashboard:
+    in_scope: false
+    reason: "This is a read-only report; no Dashboard Prisma tables (ForecastScenario family or others) are written or read."
+  neon_sales_coaching:
+    in_scope: false
+    reason: "No coaching evaluations or call notes are involved."
+preread_paths:
+  bigquery:
+    - .claude/bq-views.md
+    - .claude/bq-field-dictionary.md
+    - .claude/bq-patterns.md
+    - .claude/bq-activity-layer.md
+    - .claude/bq-salesforce-mapping.md
+```
+
+Pre-read these files before investigating: .claude/bq-views.md, .claude/bq-field-dictionary.md, .claude/bq-patterns.md, .claude/bq-activity-layer.md, .claude/bq-salesforce-mapping.md. Do not default to other context sources unless none are listed.
+
+## Task
+
+Find implementation patterns for the following feature: Add a pipeline forecast accuracy report comparing predicted vs actual SQOs in the last 4 quarters
+
+Trace how existing similar fields flow end-to-end, for the in-scope data source(s) only:
+- Data source (per DB Context block) → query function SELECT → transform → return type → API route → component → export/CSV
+- Document date handling patterns: `extractDate()` vs `extractDateValue()` — which files use which
+- Document NULL handling and type coercion patterns for the in-scope data sources (e.g., the wrapper helpers used to coerce raw query output to typed records)
+- Document CSV export column mapping patterns for both export paths
+- Flag any inconsistencies between files that should follow the same pattern
+
+Save findings to `pattern-finder-findings.md` in the project root.

@@ -1,0 +1,32 @@
+import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { getSessionPermissions } from '@/types/auth';
+import {
+  salesCoachingClient,
+  BridgeAuthError, BridgeTransportError, BridgeValidationError,
+} from '@/lib/sales-coaching-client';
+
+export const dynamic = 'force-dynamic';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isAdmin(role: string) { return role === 'admin' || role === 'revops_admin'; }
+
+export async function POST(_request: Request, ctx: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await ctx.params;
+    if (!UUID_RE.test(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const permissions = getSessionPermissions(session);
+    if (!permissions || !isAdmin(permissions.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+    const result = await salesCoachingClient.verifyGranolaKey(session.user.email, id);
+    return NextResponse.json(result);
+  } catch (err) {
+    if (err instanceof BridgeValidationError) return NextResponse.json({ error: err.message, issues: err.issues, requestId: err.requestId }, { status: 400 });
+    if (err instanceof BridgeAuthError) return NextResponse.json({ error: err.message, requestId: err.requestId }, { status: err.status });
+    if (err instanceof BridgeTransportError) return NextResponse.json({ error: err.message, requestId: err.requestId }, { status: err.status || 500 });
+    console.error('[/api/call-intelligence/users/[id]/granola-key/verify POST] error', err);
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Failed' }, { status: 500 });
+  }
+}

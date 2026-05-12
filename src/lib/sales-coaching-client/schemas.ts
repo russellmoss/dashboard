@@ -32,6 +32,17 @@
  *   POST   /api/dashboard/content-refinements                      ContentRefinementCreateRequest    → ContentRefinementResponse
  *   GET    /api/dashboard/my-content-refinements                   (no body)                         → MyContentRefinementsResponse
  *
+ * Step 5a-API extension — Dashboard admin:Users tab (added 2026-05-12):
+ *
+ *   GET    /api/dashboard/managers                                 (no body)                         → ListManagersResponse
+ *   GET    /api/dashboard/coaching-teams                           (no body)                         → ListCoachingTeamsResponse
+ *   POST   /api/dashboard/coaching-teams                           CreateCoachingTeamRequest         → CreateCoachingTeamResponse
+ *   POST   /api/dashboard/coaching-teams/:teamId/members           AddCoachingTeamMemberRequest      → AddCoachingTeamMemberResponse
+ *   DELETE /api/dashboard/coaching-teams/:teamId/members/:repId    (no body)                         → RemoveCoachingTeamMemberResponse
+ *   POST   /api/dashboard/users/:id/granola-key                    SaveGranolaKeyRequest             → SaveGranolaKeyResponse
+ *   POST   /api/dashboard/users/:id/granola-key/verify             (no body)                         → VerifyGranolaKeyResponse
+ *   DELETE /api/dashboard/users/:id/granola-key                    (no body)                         → ClearGranolaKeyResponse
+ *
  * Author: Step 5a-API Phase 3 (2026-05-08); extended in Step 5b-1-API Phase 3 (2026-05-08).
  */
 
@@ -1053,3 +1064,217 @@ export type SubmitNoteReviewRequestT = z.infer<typeof SubmitNoteReviewRequest>;
 export type SubmitNoteReviewResponseT = z.infer<typeof SubmitNoteReviewResponse>;
 export type RejectNoteReviewRequestT = z.infer<typeof RejectNoteReviewRequest>;
 export type RejectNoteReviewResponseT = z.infer<typeof RejectNoteReviewResponse>;
+
+// ════════════════════════════════════════════════════════════════════════════
+// Step 5a-API extension — Dashboard admin:Users tab support endpoints
+// (added 2026-05-12). Eight new bridge endpoints under /api/dashboard/* that
+// the Dashboard admin:Users add/edit form needs:
+//
+//   GET    /api/dashboard/managers                             → ListManagersResponse
+//   GET    /api/dashboard/coaching-teams                       → ListCoachingTeamsResponse
+//   POST   /api/dashboard/coaching-teams                       CreateCoachingTeamRequest        → CreateCoachingTeamResponse
+//   POST   /api/dashboard/coaching-teams/:teamId/members       AddCoachingTeamMemberRequest     → AddCoachingTeamMemberResponse
+//   DELETE /api/dashboard/coaching-teams/:teamId/members/:repId (no body)                       → RemoveCoachingTeamMemberResponse
+//   POST   /api/dashboard/users/:id/granola-key                SaveGranolaKeyRequest            → SaveGranolaKeyResponse
+//   POST   /api/dashboard/users/:id/granola-key/verify         (no body)                        → VerifyGranolaKeyResponse
+//   DELETE /api/dashboard/users/:id/granola-key                (no body)                        → ClearGranolaKeyResponse
+//
+// All admin-only (requireDashboardAuthority(['admin'])). All write verbs emit
+// admin_audit_log rows in the same transaction as the canonical write.
+// Granola-key endpoints wrap the existing saveGranolaKey / verifyGranolaKey /
+// clearGranolaKey kernel in src/api/settings/granola-key.ts — server validates
+// the key against Granola's /v1/notes BEFORE storage on save, and bumps
+// granola_key_version on every save/clear so any in-flight poller against the
+// stale version silently no-ops via OCC.
+//
+// Coaching-team membership wraps the migration 016 kernel
+// (addTeamMember / removeTeamMember / createTeam / getTeamMembers) and joins
+// coaching_teams.lead_rep_id (migration 040) → reps to surface the pod
+// director's display name without a second round-trip. Members are scoped to
+// active reps only — deactivated reps fall out of the list naturally.
+// ════════════════════════════════════════════════════════════════════════════
+
+// ─── GET /api/dashboard/managers ─────────────────────────────────────────────
+//
+// Returns the strict role=manager active reps cohort — the dropdown source for
+// "canonical manager" when creating SGA/SGM users. Pod-director admins
+// (e.g., GinaRose Galli) are intentionally EXCLUDED: assertManagerAssignmentValid
+// rejects manager_id pointing at a non-role=manager rep, so listing them here
+// would build a UI dropdown that produces 400s on submit. They surface
+// elsewhere as coaching_teams.lead_rep_id values.
+
+const ManagerSummarySchema = z
+  .object({
+    id: UuidSchema,
+    full_name: z.string(),
+    email: z.string(),
+    slack_user_id: z.string().nullable(),
+  })
+  .strict();
+
+export const ListManagersResponse = z
+  .object({
+    managers: z.array(ManagerSummarySchema),
+  })
+  .strict();
+
+// ─── GET /api/dashboard/coaching-teams ───────────────────────────────────────
+//
+// Lists active coaching_teams with their members embedded — single round-trip
+// powers both the "pod" select in the Add User form and the pod-management UI.
+// lead_rep_id + lead_full_name + lead_email come from coaching_teams.lead_rep_id
+// JOIN reps (migration 040). lead_* are nullable because a pod without a
+// designated lead is a valid intermediate state (e.g., during reorg).
+
+const CoachingTeamMemberSchema = z
+  .object({
+    rep_id: UuidSchema,
+    full_name: z.string(),
+    email: z.string(),
+    role: RoleSchema,
+    added_at: z.string(),
+  })
+  .strict();
+
+const CoachingTeamSummarySchema = z
+  .object({
+    id: UuidSchema,
+    name: z.string(),
+    description: z.string().nullable(),
+    lead_rep_id: UuidSchema.nullable(),
+    lead_full_name: z.string().nullable(),
+    lead_email: z.string().nullable(),
+    members: z.array(CoachingTeamMemberSchema),
+  })
+  .strict();
+
+export const ListCoachingTeamsResponse = z
+  .object({
+    teams: z.array(CoachingTeamSummarySchema),
+  })
+  .strict();
+
+// ─── POST /api/dashboard/coaching-teams ──────────────────────────────────────
+//
+// Creates a new active coaching_teams row. Name must be unique among active
+// teams (idx_coaching_teams_name_active_ci enforces case-insensitive). The
+// lead_rep_id is optional — UI can call this then PATCH later, or stand up a
+// pod without a designated lead. lead_rep_id, when present, must point at an
+// active, non-system rep with role IN ('manager','admin'); server validates.
+
+export const CreateCoachingTeamRequest = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    description: z.string().trim().min(1).max(1000).nullable().optional(),
+    lead_rep_id: UuidSchema.nullable().optional(),
+  })
+  .strict();
+
+export const CreateCoachingTeamResponse = z
+  .object({
+    team: CoachingTeamSummarySchema,
+  })
+  .strict();
+
+// ─── POST /api/dashboard/coaching-teams/:teamId/members ──────────────────────
+//
+// Idempotent: re-adding an already-member rep silently no-ops (ON CONFLICT DO
+// NOTHING in the kernel) and the handler returns 200 with the unchanged team
+// payload. `rep_id` must point at an active, non-system rep — server validates.
+
+export const AddCoachingTeamMemberRequest = z
+  .object({
+    rep_id: UuidSchema,
+  })
+  .strict();
+
+export const AddCoachingTeamMemberResponse = z
+  .object({
+    team: CoachingTeamSummarySchema,
+  })
+  .strict();
+
+// ─── DELETE /api/dashboard/coaching-teams/:teamId/members/:repId ─────────────
+//
+// Idempotent: removing a rep who isn't in the team returns 200 with
+// removed=false. `removed=true` means the row was actually deleted.
+
+export const RemoveCoachingTeamMemberResponse = z
+  .object({
+    ok: z.literal(true),
+    removed: z.boolean(),
+    team: CoachingTeamSummarySchema,
+  })
+  .strict();
+
+// ─── POST /api/dashboard/users/:id/granola-key ───────────────────────────────
+//
+// `key` must start with 'grn_' (server enforces; rejected with 400 otherwise).
+// Server validates against Granola's /v1/notes BEFORE storing:
+//   - 200 from Granola → status='valid', stored, granola_key_version bumped.
+//   - 401 from Granola → 400 to caller ("Granola rejected this key").
+//   - 5xx/network      → status='unknown', stored as 'unverified',
+//                        granola_key_version bumped; the 30-min poll cron
+//                        re-validates.
+// The OCC bump invalidates any in-flight poll against the prior key version.
+
+export const SaveGranolaKeyRequest = z
+  .object({
+    key: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+export const GranolaKeyStatusSchema = z.enum(['valid', 'invalid', 'unverified']);
+
+export const SaveGranolaKeyResponse = z
+  .object({
+    status: z.enum(['valid', 'unknown']),
+    granola_key_status: GranolaKeyStatusSchema,
+    granola_key_version: z.number().int().min(1),
+  })
+  .strict();
+
+// ─── POST /api/dashboard/users/:id/granola-key/verify ────────────────────────
+//
+// Re-validates the currently-stored key (no input). Distinct from save: does
+// NOT bump granola_key_version (the key itself didn't change). Used by the
+// Dashboard's "Test key" button on the user-edit form.
+
+export const VerifyGranolaKeyResponse = z
+  .object({
+    status: z.enum(['valid', 'invalid', 'unknown', 'no_key']),
+    granola_key_status: GranolaKeyStatusSchema.nullable(),
+    granola_key_last_validated_at: z.string().nullable(),
+  })
+  .strict();
+
+// ─── DELETE /api/dashboard/users/:id/granola-key ─────────────────────────────
+//
+// Clears the stored key. Bumps granola_key_version so any in-flight poll
+// silently no-ops via OCC. Subsequent poll cycles skip this rep until a new
+// key is set.
+
+export const ClearGranolaKeyResponse = z
+  .object({
+    ok: z.literal(true),
+    granola_key_version: z.number().int().min(1),
+  })
+  .strict();
+
+// ─── Inferred types ──────────────────────────────────────────────────────────
+
+export type ManagerSummaryT = z.infer<typeof ManagerSummarySchema>;
+export type CoachingTeamMemberT = z.infer<typeof CoachingTeamMemberSchema>;
+export type CoachingTeamSummaryT = z.infer<typeof CoachingTeamSummarySchema>;
+export type ListManagersResponseT = z.infer<typeof ListManagersResponse>;
+export type ListCoachingTeamsResponseT = z.infer<typeof ListCoachingTeamsResponse>;
+export type CreateCoachingTeamRequestT = z.infer<typeof CreateCoachingTeamRequest>;
+export type CreateCoachingTeamResponseT = z.infer<typeof CreateCoachingTeamResponse>;
+export type AddCoachingTeamMemberRequestT = z.infer<typeof AddCoachingTeamMemberRequest>;
+export type AddCoachingTeamMemberResponseT = z.infer<typeof AddCoachingTeamMemberResponse>;
+export type RemoveCoachingTeamMemberResponseT = z.infer<typeof RemoveCoachingTeamMemberResponse>;
+export type SaveGranolaKeyRequestT = z.infer<typeof SaveGranolaKeyRequest>;
+export type SaveGranolaKeyResponseT = z.infer<typeof SaveGranolaKeyResponse>;
+export type VerifyGranolaKeyResponseT = z.infer<typeof VerifyGranolaKeyResponse>;
+export type ClearGranolaKeyResponseT = z.infer<typeof ClearGranolaKeyResponse>;
+export type GranolaKeyStatusT = z.infer<typeof GranolaKeyStatusSchema>;

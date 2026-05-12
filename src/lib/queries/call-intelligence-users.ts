@@ -5,6 +5,10 @@ export async function getCoachingUsers(
   opts: { includeInactive?: boolean } = {},
 ): Promise<CoachingRep[]> {
   const pool = getCoachingPool();
+  // Note: filters only on is_system — admins are deliberately INCLUDED in the
+  // listing (the Users tab manages them too, and the pod-lead picker downstream
+  // relies on `role IN ('manager','admin')` being available client-side). Do
+  // NOT add a role filter here without updating the pod-lead picker source.
   const where = opts.includeInactive ? 'r.is_system = false' : 'r.is_system = false AND r.is_active = true';
   const sql = `
     SELECT
@@ -15,6 +19,11 @@ export async function getCoachingUsers(
       r.reveal_policy,
       r.reveal_delay_minutes,
       r.reveal_reminder_minutes,
+      r.slack_user_id,
+      r.sfdc_user_id,
+      r.granola_key_status,
+      r.granola_key_last_validated_at,
+      (r.granola_api_key_encrypted IS NOT NULL) AS has_granola_key,
       r.created_at
     FROM reps r
     LEFT JOIN reps mgr ON mgr.id = r.manager_id AND mgr.is_system = false

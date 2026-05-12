@@ -1,136 +1,313 @@
-# Data Verifier Findings — Per-Dimension AI Narrative
-Date: 2026-05-11
-Scope: Neon Postgres data layer for evaluations.dimension_scores body field
-DB: sales-coaching Neon via SALES_COACHING_DATABASE_URL
+# Data Verifier Findings -- Needs Linking Sub-Tab
+Feature: Needs Linking sub-tab in Call Intelligence / Coaching Usage view
+Database scope: neon_sales_coaching (project falling-hall-15641609)
+Date: 2026-05-12
 
 ---
 
-## Probe 1 — evaluations Schema
+## 1. Column Existence Check -- call_notes
 
-- 43 columns confirmed.
-- `dimension_scores` is JSONB NOT NULL.
-- `ai_original` is JSONB NOT NULL.
-- `ai_original_schema_version` is a dedicated INTEGER NOT NULL column on the row (NOT embedded inside the JSONB blob).
-- `ai_baseline_shadow` exists (nullable JSONB) but never populated (all 407 rows NULL).
+Table has 90 columns confirmed. Feature-required columns:
 
----
+Column            | Exists | Type        | Nullable | Notes
+---               | ---    | ---         | ---      | ---
+id                | YES    | uuid        | NO       | PK FK target
+call_started_at   | YES    | timestamptz | NO       | 100pct populated
+source            | YES    | text        | NO       | granola or kixie only
+title             | YES    | text        | NO       | max 78 chars
+invitee_emails    | YES    | text[]      | NO       | 36 empty arrays 549 with 1+ email
+attendees         | YES    | jsonb       | NO       | 1 empty array 584 non-empty
+rep_id            | YES    | uuid        | NO       | FK to reps.id
+linkage_strategy  | YES    | text        | NO       | 100pct populated
+status            | YES    | text        | NO       | 100pct populated
+confidence_tier   | NO BLOCKER | n/a     | n/a      | Does not exist on call_notes
 
-## Probe 2 — Version Distribution
-
-All 407 evaluations are on rubric_version = 1.
-
-`ai_original_schema_version` distribution:
-- v4 = 319 (78.4%)
-- v5 = 77 (18.9%)
-- v3 = 6
-- v2 = 5
-
-The camelCase key `ai_original->>'schemaVersion'` inside the JSONB returns NULL for all rows — version is exclusively in the dedicated column.
+Soft-delete: source_deleted_at. All queries: WHERE source_deleted_at IS NULL
 
 ---
 
-## Probe 3 — Current dimension_scores Shape
+## 2. Population Rates (non-soft-deleted rows N=585)
 
-Exhaustive key scan across all 406 evals with non-empty `dimension_scores` found **exactly two keys** per dimension entry:
-- `score`
-- `citations`
+All 8 target columns: 100% populated. No NULL-handling needed at query time.
 
-**No `body`, `reasoning`, `rationale`, or any prose field exists anywhere.** The field is clean — no partial backfill has occurred.
-
-Citations are a mixed array. Each entry is either:
-- `{ "utterance_index": number }`
-- `{ "kb_source": { doc_id, chunk_id, doc_title, drive_url } }`
-
-Dimension count per eval: avg 8.58, min 7, max 15.
-
----
-
-## Probe 4 — ai_original.dimensionScores Shape
-
-Exhaustive key scan confirms the upstream AI prompt is currently emitting **only `{ score, citations }`** per dimension — identical to what is stored in `dimension_scores`.
-
-**No prose field exists at the per-dimension level in any schema version.**
-
-Top-level `ai_original` keys include `narrative`, `strengths`, `weaknesses`, `knowledgeGaps` (prose at the eval level) but nothing per-dimension. Adding `body` requires a genuine new AI prompt instruction.
+Column                  | Rate
+---                     | ---
+linkage_strategy        | 100%
+status                  | 100%
+call_started_at         | 100%
+source                  | 100%
+title (non-empty)       | 100%
+invitee_emails (present)| 100%
+attendees               | 100%
+rep_id                  | 100%
 
 ---
 
-## Probe 5 — Backfill Sizing
+## 3. Value Distributions
 
-- Total evaluations: 407
-- With non-empty dimension_scores: 406
-- Missing `body` on any dimension: **406 (100%)**
-- Avg dims/eval: 8.58, min 7, max 15
-- Avg transcript chars: 63,476; max 246,852; min 394
-- call_transcripts rows: 550 (143 unevaluated transcripts exist — out of scope)
+### linkage_strategy -- only 3 distinct values; spec names 6
 
----
+Value           | Count | %
+---             | ---   | ---
+manual_entry    | 502   | 85.81%
+kixie_task_link | 82    | 14.02%
+crd_prefix      | 1     | 0.17%
 
-## Probe 6 — Audit Table Status
+SPEC MISMATCH: calendar_title, lead_contact_name, summary_name do not exist in live DB.
+These are aspirational/stale strategy names.
+The predicate linkage_strategy IN (calendar_title, lead_contact_name, summary_name, manual_entry)
+currently matches only manual_entry rows.
 
-No backfill/re-eval audit table exists. The `eval_correction_diff_jobs`, `eval_correction_judgments`, and `eval_correction_retrievals` tables all have 0 rows — infrastructure exists but never used in production.
+### status
 
-A new migration is needed to track backfill job state. `evaluation_edit_audit_log` (active, with `edit_source`, `field_path`, `old_value`/`new_value`) could be repurposed for lightweight logging of backfill writes, but a dedicated table is cleaner.
+Value        | Count | %
+---          | ---   | ---
+rejected     | 283   | 48.38%
+pending      | 224   | 38.29%
+approved     | 51    | 8.72%
+sent_to_sfdc | 27    | 4.62%
 
----
+### source
 
-## Probe 7 — call_transcripts Shape
-
-3 columns only:
-- `call_note_id` (PK/FK, no surrogate id)
-- `transcript` (jsonb, NOT NULL)
-- `created_at`
-
-Transcript is a JSONB array. Utterance shape:
-```json
-{ "text": "...", "start_seconds": 0, "end_seconds": 0.08, "speaker_role": "other_party", "utterance_index": 0 }
-```
-
-Transcript content field is `text`, **not** `body`.
-
-Utterance counts per call: avg 276, min 3, max 1,495.
+Value   | Count | %
+---     | ---   | ---
+granola | 503   | 85.98%
+kixie   | 82    | 14.02%
 
 ---
 
-## Probe 8 — Cost Estimate
+## 4. manual_entry Deep Dive: SGM-Resolved vs Unresolved
 
-| Model | Low estimate | High estimate |
-|---|---|---|
-| Sonnet 4.6 | $27.29 | $31.08 |
-| Opus 4.7 | $136.46 | $155.40 |
+Cross-tab: manual_entry rows by status (N=502):
 
-Assumptions:
-- ~19,300 input tokens/call (avg transcript + system prompt + rubric context)
-- 622–943 output tokens/call (150–300 chars/dim narrative × ~8.58 dims)
-- All 406 evals in scope
-- Both models fit within 200k context window for even the longest transcript (246k chars)
+status       | Count | has sfdc_record_id | has approved_by
+---          | ---   | ---                | ---
+rejected     | 282   | 0                  | 20
+pending      | 192   | 0                  | 0
+sent_to_sfdc | 26    | 10                 | 26
+approved     | 2     | 0                  | 2
 
-**Sonnet 4.6 is the clear default. Opus requires explicit justification.**
+Interpretation:
+- sent_to_sfdc (26): Reviewed and pushed to SFDC. RESOLVED. approved_by always set. EXCLUDE.
+- approved (2): Human confirmed linkage, not yet pushed. approved_by set. EXCLUDE.
+- rejected (282): SGM reviewed and declined. RESOLVED. Including these re-queues already-reviewed calls. EXCLUDE.
+- pending (192): No sfdc_record_id, no approved_by. GENUINELY UNRESOLVED. INCLUDE.
+
+Recommendation: Restrict manual_entry rows to status=pending only.
+The spec confidence_tier filter intended to flag low-confidence rows;
+status=pending achieves the same intent -- pending means the waterfall did not
+confidently resolve the SFDC record and the SGM has not reviewed it.
+
+kixie_task_link + pending (32 rows): Most have sfdc_record_id set per sample.
+These represent Kixie pipeline ingestion-in-progress, not SFDC orphans. EXCLUDE from queue.
 
 ---
 
-## Probe 9 — Bridge Zod Schema
+## 5. BLOCKER: confidence_tier Column Does Not Exist
 
-`DimensionScoreDashSchema` at `src/lib/sales-coaching-client/schemas.ts` lines 349–354 declares only `{ score, citations }` with `.strict()`. `body` is NOT declared.
+call_notes.confidence_tier does not exist as a scalar column.
+Full search for columns with name containing confidence returned:
 
-If `body` appears in API responses before both schema mirrors are updated, all `EditEvaluationRequest` calls that touch `dimension_scores` will fail with a Zod `unrecognized_keys` error at the bridge. This is a **hard cross-repo coordination gate**.
+Table            | Column                        | Type
+---              | ---                           | ---
+call_notes       | likely_call_type_confidence   | text
+call_notes       | speaker_mapping_confidence    | double precision
+call_notes       | transcript_confidence         | double precision
+kb_corrections_log | diagnosis_confidence        | numeric
+
+confidence_tier DOES exist inside slack_review_messages.sfdc_suggestion JSONB
+as a per-candidate field. Values: likely, possible, unlikely.
+
+Distribution in slack_review_messages.sfdc_suggestion.candidates (dm surface):
+
+confidence_tier | Count (candidate entries)
+---             | ---
+null            | 2307
+unlikely        | 254
+likely          | 75
+possible        | 38
+
+Of 224 pending call_notes rows, only 87 have a slack_review_messages row.
+The remaining 137 have no waterfall data; confidence_tier = null even via JOIN.
+
+Options:
+Option 1 (RECOMMENDED for v1): Use status=pending as sole criterion. 224 all-time, 67 last 14 days.
+  No schema change. Achieves spec intent.
+Option 2: LEFT JOIN slack_review_messages (surface=dm), read candidates[0].confidence_tier.
+  Covers only 87/224 pending rows; rest appear as null tier. Adds complexity.
+Option 3: Add confidence_tier scalar column to call_notes via migration in sales-coaching repo.
+  Flag as blocker if scalar filter is a hard requirement.
 
 ---
 
-## Critical Planning Implications
+## 6. reps Table Schema
 
-1. **The AI prompt change is the critical path.** There is no latent `body` field anywhere to surface — it must be added to the prompt output spec from scratch.
+Column         | Type    | Nullable | Notes
+---            | ---     | ---      | ---
+id             | uuid    | NO       | PK
+full_name      | text    | NO       | Use for rep name display
+role           | text    | NO       | SGA SGM manager admin (uppercase SGA/SGM in this DB)
+manager_id     | uuid    | YES      | Self-FK to reps.id
+is_active      | boolean | NO       | Always filter is_active=true
+is_system      | boolean | NO       | Always filter is_system=false
+email          | text    | NO       | Available if needed
+coaching_scope | text    | YES      | Values: SGA SGM both null
 
-2. **`.strict()` on `DimensionScoreDashSchema` is a deployment ordering hard gate.** Schema mirrors (both repos) must be updated and deployed before any re-eval emits the new field. Sequence: update schemas → deploy → run backfill.
+Manager name via self-join: LEFT JOIN reps mgr ON mgr.id = rep.manager_id.
+27 of 33 active non-system reps have manager_id set (81.8%). 5 have no manager.
 
-3. **A new migration is required for backfill job tracking.** The existing `eval_correction_*` infrastructure is 0-row untested.
+Role enum boundary: reps.role uses coaching enum (SGA SGM manager admin) with uppercase.
+Do not conflate with the Dashboard role enum (lowercase sga/sgm).
 
-4. **Backfill script JOIN path:**
-   ```
-   evaluations e
-     LEFT JOIN call_transcripts ct ON ct.call_note_id = e.call_note_id
-     LEFT JOIN rubrics r ON r.id = e.rubric_id
-   ```
-   The rubrics join is essential — rubric level descriptions must be in the prompt for quality narratives.
+---
 
-5. **The 11 legacy schema v2/v3 evals are a small-but-real edge case.** Manual sampling recommended before finalizing the prompt.
+## 7. JSONB Shapes for Advisor Hint Extraction
+
+### attendees (jsonb, 100% array type)
+
+All 585 rows are arrays. 584 non-empty, 1 empty.
+
+Observed element shape (consistent across all sampled rows, both sources):
+  { name: Lena Allouche, email: lena.allouche@savvywealth.com }
+
+- Kixie: 2-element array (1 internal rep + 1 external prospect).
+- Granola: variable count, mix of internal and external participants.
+
+### invitee_emails (text[])
+
+36 rows are empty arrays. Max array length 37. Mix of internal and external emails.
+Google Calendar resource accounts (c_...@resource.calendar.google.com) must be excluded.
+
+Advisor hint extraction priority:
+1. Filter attendees where email not in @savvywealth.com / @savvyadvisors.com /
+   resource.calendar.google.com. Take first match name field.
+2. Filter invitee_emails to first non-internal email (email only, no name).
+3. Last resort: title (always populated, max 78 chars).
+
+---
+
+## 8. Needs Linking Filter Volume Estimates
+
+Using status=pending (RECOMMENDED):
+
+Time window  | Row count
+---          | ---
+Last 14 days | 67
+Last 30 days | 108
+Last 90 days | 194
+All time     | 224
+
+Oldest pending row: 2025-10-15 (7 months ago). 14-day default with all toggle is appropriate.
+
+Using spec combined filter (status=pending OR linkage_strategy IN list) without confidence_tier:
+
+Time window  | Row count
+---          | ---
+Last 14 days | 147
+All time     | 534
+
+The 534 all-time count is inflated by 282 manual_entry+rejected already-reviewed rows.
+
+---
+
+## 9. RBAC: getRepIdsVisibleToActor Compatibility
+
+Source: src/lib/queries/call-intelligence/visible-reps.ts
+
+Existing function handles:
+- admin / revops_admin: all active non-system reps (correct for global queue)
+- manager_id hierarchy: direct reports
+- coaching_team_members via coaching_teams.lead_rep_id: pod overlay
+- coaching_observers scope all_sgm / all_sga
+
+RBAC gap -- SGM coachee visibility:
+- Zero coaching_teams rows have a SGM as lead_rep_id.
+- Zero manager_id relationships link any SGM to any SGA in live data.
+- Active coaching_observers (4 rows): 2 admins, 2 managers. Zero SGM-scoped rows.
+- An SGM calling getRepIdsVisibleToActor today receives zero visible rep IDs.
+
+Resolution paths (implementation team must choose):
+(a) Create coaching_observers rows with scope=all_sga for each SGM.
+(b) Add a new branch to getRepIdsVisibleToActor for role=SGM mapping to SGAs.
+(c) Role-based shortcut: any active SGM sees all active SGAs.
+
+This RBAC wiring is required before the tab can enforce SGM-scoped visibility.
+
+Live RBAC table counts:
+- coaching_teams (active): 2
+- coaching_team_members: 7
+- coaching_observers (active): 4 (2 admins, 2 managers; no SGMs)
+- Active reps: 17 SGA, 8 SGM, 5 admin, 3 manager
+
+---
+
+## 10. Review Route and NoteReviewClient
+
+Both confirmed to exist:
+- src/app/dashboard/call-intelligence/review/[callNoteId]/page.tsx
+- src/app/dashboard/call-intelligence/review/[callNoteId]/NoteReviewClient.tsx
+
+The Open SFDC search action routing to /dashboard/call-intelligence/review/[callNoteId]
+points at an existing route. No new routes are needed for this action.
+
+---
+
+## 11. Text Field Max Lengths
+
+Field            | Max Length
+---              | ---
+title            | 78 chars
+linkage_strategy | 15 chars (kixie_task_link)
+status           | 12 chars (sent_to_sfdc)
+source           | 7 chars (granola)
+
+No truncation risk for any field in table column display.
+
+---
+
+## 12. Edge Cases
+
+Check                       | Result
+---                         | ---
+Empty title                 | 0 rows
+Whitespace-only title       | 0 rows
+title with newlines         | 0 rows
+title over 200 chars        | 0 rows
+Empty invitee_emails array  | 36 rows (6.2%) -- fallback needed
+Empty attendees array       | 1 row (0.17%)
+attendees not an array      | 0 rows
+call_started_at NULL        | 0 rows
+days since call formula     | EXTRACT(DAY FROM NOW() - call_started_at)::int confirmed working
+
+---
+
+## 13. Schema Migration Requirements
+
+Requirement                                    | Status                              | Blocking?
+---                                            | ---                                 | ---
+Add confidence_tier scalar to call_notes       | NOT required with status=pending    | Only blocks if scalar filter is hard req
+New API route for needs-linking data           | Implementation task (no existing endpoint) | Not a schema migration
+reps, coaching_teams, team_members, observers  | No column changes needed            | No schema blocker
+
+---
+
+## Summary of Key Blockers and Flags
+
+1. BLOCKER (spec mismatch): confidence_tier is not a column on call_notes.
+   It lives inside slack_review_messages.sfdc_suggestion JSONB as a per-candidate field.
+   Cannot be used as a scalar WHERE clause.
+   Recommendation: simplify orphan definition to status=pending for v1.
+
+2. SPEC MISMATCH: linkage_strategy values calendar_title, lead_contact_name, summary_name
+   do not exist in live DB. Only manual_entry (86%), kixie_task_link (14%), crd_prefix (<1%).
+   The spec strategy list is aspirational or stale.
+
+3. RBAC gap: SGMs have no coachee linkage in current data.
+   No coaching_observers rows for SGMs. No manager_id or coaching_team links SGMs to SGAs.
+   SGM-scoped visibility must be explicitly wired before the tab can enforce it.
+
+4. manual_entry + rejected rows (282) must be excluded.
+   status=pending naturally excludes them. Do not include rejected or sent_to_sfdc rows.
+
+5. Advisor hint requires JSONB parsing with internal domain filtering.
+   Exclude @savvywealth.com, @savvyadvisors.com, resource.calendar.google.com accounts.

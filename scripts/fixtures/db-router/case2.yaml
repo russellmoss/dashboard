@@ -1,0 +1,27 @@
+```yaml
+feature: "Add a pipeline forecast accuracy report comparing predicted vs actual SQOs in the last 4 quarters"
+databases:
+  bigquery:
+    in_scope: true
+    reason: "Funnel SQO data, forecast predictions, and historical actuals all live in BigQuery (vw_funnel_master, vw_forecast_p2, vw_funnel_audit)."
+  neon_savvy_dashboard:
+    in_scope: false
+    reason: "This is a read-only report; no Dashboard Prisma tables (ForecastScenario family or others) are written or read."
+  neon_sales_coaching:
+    in_scope: false
+    reason: "No coaching evaluations or call notes are involved."
+preread_paths:
+  bigquery:
+    - .claude/bq-views.md
+    - .claude/bq-field-dictionary.md
+    - .claude/bq-patterns.md
+    - .claude/bq-activity-layer.md
+    - .claude/bq-salesforce-mapping.md
+mcp_tools:
+  bigquery:
+    - schema-context.describe_view
+    - schema-context.get_rule
+    - schema-context.get_metric
+    - schema-context.resolve_term
+    - schema-context.lint_query
+```

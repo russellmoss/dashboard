@@ -56,6 +56,23 @@ import {
   type SubmitNoteReviewRequestT, type SubmitNoteReviewResponseT,
   type RejectNoteReviewRequestT, type RejectNoteReviewResponseT,
   type CostAnalysisResponseT,
+  // Step 5b-3-API admin: managers list + coaching-teams CRUD + Granola key.
+  ListManagersResponse,
+  ListCoachingTeamsResponse,
+  CreateCoachingTeamRequest, CreateCoachingTeamResponse,
+  AddCoachingTeamMemberRequest, AddCoachingTeamMemberResponse,
+  RemoveCoachingTeamMemberResponse,
+  SaveGranolaKeyRequest, SaveGranolaKeyResponse,
+  VerifyGranolaKeyResponse,
+  ClearGranolaKeyResponse,
+  type ListManagersResponseT,
+  type ListCoachingTeamsResponseT,
+  type CreateCoachingTeamRequestT, type CreateCoachingTeamResponseT,
+  type AddCoachingTeamMemberRequestT, type AddCoachingTeamMemberResponseT,
+  type RemoveCoachingTeamMemberResponseT,
+  type SaveGranolaKeyRequestT, type SaveGranolaKeyResponseT,
+  type VerifyGranolaKeyResponseT,
+  type ClearGranolaKeyResponseT,
 } from './schemas';
 import { signDashboardToken } from './token';
 import {
@@ -516,6 +533,86 @@ export const salesCoachingClient = {
       responseSchema: CostAnalysisResponse,
     });
   },
+
+  // ----- Admin: managers + coaching-teams + Granola key. Admin-only on bridge. -----
+  // listManagers returns role='manager' reps ONLY — admins (incl. pod directors
+  // like GinaRose Galli) are intentionally excluded because the kernel's
+  // assertManagerAssignmentValid rejects non-role=manager reps as manager_id.
+  // For pod-lead pickers, source candidates from the broader rep list filtered
+  // client-side to role IN ('manager','admin').
+  listManagers: (email: string) =>
+    bridgeRequest<undefined, ListManagersResponseT>({
+      method: 'GET',
+      path: '/api/dashboard/managers',
+      email,
+      responseSchema: ListManagersResponse,
+    }),
+
+  listCoachingTeams: (email: string) =>
+    bridgeRequest<undefined, ListCoachingTeamsResponseT>({
+      method: 'GET',
+      path: '/api/dashboard/coaching-teams',
+      email,
+      responseSchema: ListCoachingTeamsResponse,
+    }),
+
+  createCoachingTeam: (email: string, body: CreateCoachingTeamRequestT) =>
+    bridgeRequest<CreateCoachingTeamRequestT, CreateCoachingTeamResponseT>({
+      method: 'POST',
+      path: '/api/dashboard/coaching-teams',
+      email,
+      requestSchema: CreateCoachingTeamRequest,
+      responseSchema: CreateCoachingTeamResponse,
+      body,
+    }),
+
+  addCoachingTeamMember: (
+    email: string,
+    teamId: string,
+    body: AddCoachingTeamMemberRequestT,
+  ) =>
+    bridgeRequest<AddCoachingTeamMemberRequestT, AddCoachingTeamMemberResponseT>({
+      method: 'POST',
+      path: `/api/dashboard/coaching-teams/${encodeURIComponent(teamId)}/members`,
+      email,
+      requestSchema: AddCoachingTeamMemberRequest,
+      responseSchema: AddCoachingTeamMemberResponse,
+      body,
+    }),
+
+  removeCoachingTeamMember: (email: string, teamId: string, repId: string) =>
+    bridgeRequest<undefined, RemoveCoachingTeamMemberResponseT>({
+      method: 'DELETE',
+      path: `/api/dashboard/coaching-teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(repId)}`,
+      email,
+      responseSchema: RemoveCoachingTeamMemberResponse,
+    }),
+
+  saveGranolaKey: (email: string, repId: string, body: SaveGranolaKeyRequestT) =>
+    bridgeRequest<SaveGranolaKeyRequestT, SaveGranolaKeyResponseT>({
+      method: 'POST',
+      path: `/api/dashboard/users/${encodeURIComponent(repId)}/granola-key`,
+      email,
+      requestSchema: SaveGranolaKeyRequest,
+      responseSchema: SaveGranolaKeyResponse,
+      body,
+    }),
+
+  verifyGranolaKey: (email: string, repId: string) =>
+    bridgeRequest<undefined, VerifyGranolaKeyResponseT>({
+      method: 'POST',
+      path: `/api/dashboard/users/${encodeURIComponent(repId)}/granola-key/verify`,
+      email,
+      responseSchema: VerifyGranolaKeyResponse,
+    }),
+
+  clearGranolaKey: (email: string, repId: string) =>
+    bridgeRequest<undefined, ClearGranolaKeyResponseT>({
+      method: 'DELETE',
+      path: `/api/dashboard/users/${encodeURIComponent(repId)}/granola-key`,
+      email,
+      responseSchema: ClearGranolaKeyResponse,
+    }),
 };
 
 export {

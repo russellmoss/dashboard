@@ -1,274 +1,313 @@
-# Code Inspector Findings: Per-Dimension AI Narrative body field
+# Code Inspector Findings -- Needs Linking Sub-Tab for Coaching Usage
 
-Investigation scope: Adding body to dimension_scores[dim] JSONB
-Date: 2026-05-11
-Status: Read-only investigation complete
-
----
-
-## 1. TypeScript Type and Construction Sites
-
-### 1a. Shared type definition
-
-- File: src/types/call-intelligence.ts, line 91
-- Current: dimension_scores: Record<string, { score: number; citations?: Citation[] }> | null
-- ACTION REQUIRED: Add body?: string to the value shape.
-
-### 1b. Bridge Zod schema (CRITICAL - blocks PATCH requests)
-
-- File: src/lib/sales-coaching-client/schemas.ts, lines 348-354
-- DimensionScoreDashSchema uses .strict() which rejects unknown keys.
-- Sending body in a PATCH /edit request fails Zod validation (400) before DB is touched.
-- body does NOT currently exist in this schema.
-- EditEvaluationResponse (line 374) uses evaluation: z.unknown() so GET path is safe.
-- Line 362: dimension_scores: z.record(z.string(), DimensionScoreDashSchema).optional()
-  inside EditEvaluationRequest.
-- ACTION REQUIRED: Add body: z.string().optional() to DimensionScoreDashSchema
-  AND mirror the change to russellmoss/sales-coaching src/lib/db/types.ts.
-
-### 1c. Local DimensionScoreEntry interface (not exported)
-
-- File: src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx, lines 95-99
-- Current shape: { name: string; score: number; citations?: Citation[] }
-- Used by readDimensionScores() (lines 101-117) and canonicalDimensionScores (lines 450-455).
-- ACTION REQUIRED: Add body?: string here.
-
-### 1d. readDimensionScores function (reads ai_original)
-
-- File: src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx, lines 101-117
-- Reads ai_original.dimensionScores, builds DimensionScoreEntry from score + citations only.
-- Does NOT read body. body from ai_original is silently dropped here.
-- ACTION REQUIRED: Read val.body and pass through to DimensionScoreEntry.
-
-### 1e. canonicalDimensionScores construction (reads canonical DB column)
-
-- File: src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx, lines 450-455
-- Maps detail.dimension_scores to { name, score, citations } only. Drops body.
-- ACTION REQUIRED: Add body: v.body to the map output.
-
-### 1f. InlineEditDimensionScore onSave reconstruction loop (MOST CRITICAL)
-
-- File: src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx, lines 641-661
-- Runs on EVERY manager score edit for ANY dimension.
-- Rebuilds the entire dimension_scores map from scratch.
-- body is NOT included in the reconstruction - silently dropped for ALL dimensions on every save.
-- base is typed as Record<string, { score: number; citations: Citation[] }> with no body.
-- ACTION REQUIRED (data loss fix): Spread body in the loop:
-    base[name] = { score: v.score, citations: (v.citations ?? []) as Citation[],
-      ...(v.body !== undefined && { body: v.body }) };
-  Also widen the base type annotation to include body once shared type gains body.
----
-
-## 2. Rendering and Serialization Consumers
-
-### 2a. InsightsEvalDetailModal.tsx - dimension drill panel (PRIMARY UI TARGET)
-
-- File: src/components/call-intelligence/InsightsEvalDetailModal.tsx, lines 178-184
-- Currently destructures: const { score, citations } = detail.dimension_scores[payload.dimension]
-- No body access.
-- PRIMARY INSERTION POINT: lines 274-309, between score badge and citation chip row.
-- Pattern to reuse: CitedText local component at lines 106-139 (text + trailing chip row).
-
-### 2b. InsightsEvalDetailModal.tsx - topic drill panel
-
-- File: src/components/call-intelligence/InsightsEvalDetailModal.tsx, lines 313-349
-- Filters rep_deferrals by topic. Fully independent of dimension_scores. LEAVE UNCHANGED.
-
-### 2c. EvalDetailClient.tsx - score display
-
-- Renders canonicalDimensionScores (name, score, citations).
-- Once body is threaded through DimensionScoreEntry, a render site must be added here too.
-
-### 2d. coaching-notes-markdown.ts
-
-- File: src/lib/coaching-notes-markdown.ts, lines 17 and 57-65
-- AiOriginalSnapshot.dimensionScores typed as Record<string, { score?: unknown }>.
-- Renders only score to markdown. Needs updating to include body in exported notes.
-
-### 2e. GET API route - safe, no action needed
-
-- File: src/app/api/call-intelligence/evaluations/[id]/route.ts
-- Line 137: ...detail spread passes dimension_scores through as-is.
-- Line 68: walkForKbSources(detail.dimension_scores, chunkIds) already traverses JSONB.
-  KB citations inside a body citations array would be automatically hydrated.
-- No Zod validation on GET path. Safe once body is in the DB.
-
-### 2f. PATCH API route - blocked until schema is updated
-
-- File: src/app/api/call-intelligence/evaluations/[id]/edit/route.ts
-- Line 29: EditEvaluationRequest.safeParse(json) - .strict() blocks body here.
-- Calls salesCoachingClient.editEvaluation() which calls PATCH on the bridge service.
-- No fix needed in this file once DimensionScoreDashSchema is updated.
----
-
-## 3. SQL Consumers - All Unaffected
-
-- src/lib/queries/call-intelligence-evaluations.ts, line 325:
-  SELECT e.dimension_scores - full JSONB passthrough. Unaffected.
-- src/lib/queries/call-intelligence/dimension-heatmap.ts:
-  CROSS JOIN jsonb_each then AVG score. Only touches score key. Unaffected.
-- src/lib/queries/call-intelligence/insights-evals-list.ts:
-  dimension_scores -> dim ->> score. Only touches score key. Unaffected.
+Feature: Add Needs Linking sub-tab to /dashboard/call-intelligence
+Date: 2026-05-12
 
 ---
 
-## 4. InsightsEvalDetailModal Structure Map
+## CRITICAL SCHEMA FINDING -- confidence_tier is NOT a call_notes column
 
-File: src/components/call-intelligence/InsightsEvalDetailModal.tsx
+The feature spec references confidence_tier IN (possible, unlikely) and
+linkage_strategy IN (calendar_title, lead_contact_name, summary_name, manual_entry).
+Three problems with this definition:
 
-- Lines 15-25: Props interface. Fields: chunkLookup, onScrollToUtterance, onOpenKB, detail, payload.
-  No isAdmin or role prop. Admin-gated UI not available without adding a prop.
-- Lines 106-139: CitedText local component. Renders text paragraph + trailing chip row.
-  Reuse this pattern for body paragraph + body citations.
-- Line 162: Guard: if (!payload.dimension && !payload.topic) return null.
-  Both can be set simultaneously (dimension + topic are independent drill paths).
-- Lines 178-184: Dimension drill entry. INSERTION POINT for body destructure.
-- Lines 274-309: Dimension drill banner. PRIMARY INSERTION POINT for body paragraph.
-- Lines 313-349: Topic drill (rep_deferrals). Fully independent. Leave unchanged.
+Problem 1 -- confidence_tier does not exist on call_notes.
+It only exists inside slack_review_messages.sfdc_suggestion JSONB
+as a per-candidate field on the waterfall candidates array.
+Source A: sales-coaching/src/lib/db/types.ts -- no confidence_tier on CallNote interface.
+Source B: src/lib/sales-coaching-client/schemas.ts:828 -- confidence_tier is on
+BridgeSfdcCandidateSchema inside the suggestion JSONB, not on call_notes.
 
----
+Problem 2 -- lead_contact_name and summary_name are not valid linkage_strategy values.
+Valid enum: crd_prefix | attendee_email | calendar_title | manual_entry | kixie_task_link.
+Source: migrations/001_initial_schema.sql:133-134 and 009_extend_call_notes_for_kixie.sql:106-113.
 
-## 5. CitationPill Component Contract
+Problem 3 -- manual_entry rows ARE already resolved. They must be EXCLUDED.
+linkage_strategy=manual_entry means the rep manually selected an SFDC record.
+sfdc_record_id is always set in that write (setCallNoteSfdcLink DAL).
+Source: sales-coaching/src/lib/db/call-notes.ts:1304-1342 (setCallNoteSfdcLink).
+Source: src/app/dashboard/call-intelligence/review/[callNoteId]/NoteReviewClient.tsx:200
+confirms Dashboard writes linkage_strategy=manual_entry on rep pick.
 
-File: src/components/call-intelligence/CitationPill.tsx
+Corrected orphan predicate (schema-accurate):
 
-Props:
-  - citation: Citation
-  - chunkLookup: Record<string, { owner: string; chunk_text: string }>
-  - onScrollToUtterance?: (idx: number) => void
-  - onOpenKB?: callback for KB pill clicks
-  - utteranceTextForTooltip?: string
-  - disabled?: boolean
+    WHERE cn.source_deleted_at IS NULL
+      AND cn.status = pending
+      AND cn.linkage_strategy IN (crd_prefix, attendee_email, calendar_title)
 
-Three render modes: gray pill (transcript cite), blue pill (KB chunk found), violet pill (KB no-lookup).
-Renders as inline-flex rounded-full button - embeddable in flowing prose text.
-
-InsightsEvalDetailModal only passes onScrollToUtterance. KB pill clicks silently no-op.
-If body citations include kb_source entries, caller must pass onOpenKB to activate them.
----
-
-## 6. Bridge Schema Mirror Status
-
-File: src/lib/sales-coaching-client/schemas.ts
-
-body does NOT exist in DimensionScoreDashSchema (lines 348-354).
-.strict() will reject body with a 400 until schema is updated.
-
-Mirror contract: byte-for-byte sync with
-russellmoss/sales-coaching@main:src/lib/dashboard-api/schemas.ts.
-CI enforces via scripts/check-schema-mirror.cjs.
-
-Required work order (both repos atomically):
-  1. Add body: z.string().optional() to DimensionScoreDashSchema in bridge mirror
-  2. Match change in russellmoss/sales-coaching src/lib/dashboard-api/schemas.ts
-  3. Also update src/lib/db/types.ts in sales-coaching (comment on line 348 points there)
-  4. Run npm run check:schema-mirror to verify byte-equality
+kixie_task_link and manual_entry are excluded by the IN clause.
+If confidence_tier filtering is required, query must LEFT JOIN slack_review_messages
+and extract candidates[0].confidence_tier from JSONB -- non-trivial, requires SME input.
 
 ---
 
-## 7. Re-Evaluate Endpoint Status
+## Pre-Existing Code Discrepancy (not introduced by this feature)
 
-File: src/lib/sales-coaching-client/index.ts, lines 267-503
+File: C:/Users/russe/Documents/Dashboard/src/app/dashboard/call-intelligence/page.tsx:12
 
-No triggerReEvaluation or re-eval method exists anywhere in the client.
-Complete salesCoachingClient contains only:
-  getEvaluations, getEvaluation, editEvaluation, getTranscript, getTranscriptComments,
-  createTranscriptComment, getRecordNotes, getRecordNote, saveRecordNote,
-  getKnowledgeBase, getKnowledgeBaseChunk
+page.tsx VALID_TABS is missing cost-analysis:
+  [queue, settings, admin-users, admin-refinements, rubrics, coaching-usage, insights]
 
-To add re-evaluation support, all of the following must be built from scratch:
-  - POST endpoint in sales-coaching: /api/dashboard/evaluations/:id/re-evaluate
-  - Zod schemas in both repos: ReEvaluateRequest, ReEvaluateResponse
-  - salesCoachingClient.triggerReEvaluation() method
-  - API route: src/app/api/call-intelligence/evaluations/[id]/re-evaluate/route.ts
-  - UI trigger (button + permission gate)
+But CallIntelligenceClient.tsx:22 has 8 tabs including cost-analysis, and
+call-intelligence.ts:210-218 defines 8 variants in CallIntelligenceTab.
+Deep-linking to ?tab=cost-analysis silently falls back to queue.
+Fix both arrays together when adding needs-linking.
 
 ---
 
-## 8. Admin Permission Pattern
+## 1. TypeScript Types That Need Changes
 
-Canonical definition:
-  File: src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx, lines 251-252
-  const isAdmin = role === admin || role === revops_admin;
-  const isManager = isAdmin || role === manager;
+### 1a. CallIntelligenceTab union
 
-Also at:
-  File: src/app/dashboard/call-intelligence/CallIntelligenceClient.tsx, lines 24-26
-  const isAdmin = role === admin || role === revops_admin;
-  const isRevopsAdmin = role === revops_admin;
-  const isManagerOrAdmin = canEditRubrics(role);
+File: C:/Users/russe/Documents/Dashboard/src/types/call-intelligence.ts:210-218
+Add: | needs-linking
 
-InsightsEvalDetailModal has NO isAdmin or role prop.
-Adding body-editing UI in the modal requires adding a role or isManager prop.
+Construction sites and consumers (exhaustive):
 
-InsightsTab.tsx lines 711-712 hardcodes isAdmin={false} and canComposeComments={false}
-for TranscriptModal in the Insights stack. Would need updating if admin body editing is added.
----
+  src/types/call-intelligence.ts:210
+    -- Type definition, add needs-linking variant
 
-## 9. Risk Register
+  src/app/dashboard/call-intelligence/CallIntelligenceClient.tsx:22
+    -- VALID_TABS array, add needs-linking
 
-RISK-1 (DATA LOSS, CRITICAL):
-  File: src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx, lines 641-661
-  Inline-edit reconstruction loop drops body on every manager score save.
-  Fix BEFORE any body data is written to the DB, or data will be lost on first edit.
+  src/app/dashboard/call-intelligence/page.tsx:12
+    -- VALID_TABS array, add cost-analysis (bug fix) AND needs-linking
 
-RISK-2 (400 ON PATCH):
-  File: src/lib/sales-coaching-client/schemas.ts, lines 348-354
-  .strict() on DimensionScoreDashSchema rejects body. Must update both repos atomically.
+### 1b. New NeedsLinkingRow interface (net-new; no existing construction sites)
 
-RISK-3 (TYPE MISMATCH):
-  File: src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx, line 641
-  base type annotation Record<string, { score, citations }> lacks body.
-  TypeScript will reject body spread once shared type gains body.
-  Widen the annotation alongside DimensionScoreEntry.
+Define in src/types/call-intelligence.ts or in the new query file.
 
-RISK-4 (SILENT DROP in ai_original path):
-  File: src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx, lines 101-117
-  readDimensionScores() only extracts score + citations from ai_original JSONB.
-  body from ai_original invisible in EvalDetail page until fixed.
+Required fields:
+  callNoteId: string
+  callDate: string
+  source: granola | kixie
+  advisorHint: string | null  -- best-available: attendees JSONB / invitee_emails / title
+  repName: string | null
+  managerName: string | null
+  linkageStrategy: string  -- the call_notes.linkage_strategy column value
+  daysSinceCall: number  -- floor(EXTRACT(EPOCH FROM NOW() - call_started_at) / 86400)
+  confidenceTier?: string | null  -- OPTIONAL; requires JSONB extraction if included
 
-RISK-5 (BRIDGE MIRROR DRIFT):
-  CI check (scripts/check-schema-mirror.cjs) fails if repos go out of sync.
-  Local-only change to DimensionScoreDashSchema breaks CI until upstream updated.
-
-RISK-6 (coaching-notes-markdown.ts):
-  File: src/lib/coaching-notes-markdown.ts
-  dimensionScores typed as Record<string, { score?: unknown }>.
-  body silently omitted from exported coaching note markdown unless updated.
-
-RISK-7 (walkForKbSources - neutral/good):
-  File: src/app/api/call-intelligence/evaluations/[id]/route.ts, line 68
-  walkForKbSources already traverses dimension_scores recursively.
-  KB citations in body.citations will be hydrated automatically.
-  Verify walker handles the nested path correctly.
-
-RISK-8 (onOpenKB not passed):
-  File: src/components/call-intelligence/InsightsEvalDetailModal.tsx
-  Only onScrollToUtterance passed to CitationPill, not onOpenKB.
-  KB citations in body render as violet no-lookup pills until onOpenKB is wired.
-
-RISK-9 (no role prop in modal):
-  File: src/components/call-intelligence/InsightsEvalDetailModal.tsx, lines 15-25
-  No isAdmin or role prop. Cannot gate body-editing UI without adding one.
-
-RISK-10 (ai_original_schema_version gate):
-  File: src/components/call-intelligence/citation-helpers.ts, lines 36-45
-  Field union: coachingNudge | additionalObservations | repDeferrals.
-  If body display is gated on schema version, a new version constant is needed
-  and the union + auditToggle version array must be updated.
+No existing construction sites. Net-new interface.
 
 ---
 
-## 10. Recommended Change Order
+## 2. New Query Function Needed
 
-1. sales-coaching repo: Add body to DimensionScore in src/lib/db/types.ts and
-   src/lib/dashboard-api/schemas.ts
-2. Bridge mirror: Update DimensionScoreDashSchema in src/lib/sales-coaching-client/schemas.ts
-3. Run npm run check:schema-mirror - must pass before any commits
-4. src/types/call-intelligence.ts line 91: Add body?: string
-5. EvalDetailClient.tsx: Update DimensionScoreEntry interface, readDimensionScores(),
-   canonicalDimensionScores map, AND the inline-edit reconstruction loop (RISK-1)
-6. InsightsEvalDetailModal.tsx: Destructure body, add paragraph in lines 274-309
-   using the CitedText component pattern
-7. coaching-notes-markdown.ts: Include body in markdown export if desired
-8. Run full TypeScript build - must be clean before any UI testing
+New file: C:/Users/russe/Documents/Dashboard/src/lib/queries/call-intelligence/needs-linking.ts
+
+Pattern: direct-pg from src/app/api/admin/coaching-usage/route.ts
++ RBAC scoping from src/lib/queries/call-intelligence/dimension-heatmap.ts.
+
+Key design:
+  - Uses getCoachingPool() from src/lib/coachingDb.ts
+  - Joins: call_notes cn, reps sga ON cn.rep_id, reps mgr ON sga.manager_id
+  - LEFT JOIN slack_review_messages srm ON srm.call_note_id=cn.id AND srm.surface=dm
+    (only if confidence_tier extraction is needed)
+  - Date filter: parameterized (14d default; no lower bound for all)
+  - RBAC: WHERE cn.rep_id = ANY($N::uuid[]) with repIds from getRepIdsVisibleToActor()
+  - Sort: call_started_at DESC
+  - No BigQuery round-trip -- advisor hint uses local columns only
+
+Advisor hint cascade (direct call_notes columns only):
+  1. cn.attendees JSONB {name,email} -- first non-savvy name
+  2. cn.invitee_emails TEXT[] -- first non-savvy email
+  3. cn.calendar_title TEXT
+  4. cn.title TEXT
+
+Savvy-internal filter: @savvywealth.com, @savvyadvisors.com
+(same as isSavvyInternal in coaching-usage/route.ts:33-37).
+
+---
+
+## 3. New API Route Needed
+
+New file: C:/Users/russe/Documents/Dashboard/src/app/api/call-intelligence/needs-linking/route.ts
+
+NOT under src/app/api/admin/ -- SGMs access it.
+
+  GET /api/call-intelligence/needs-linking?range=14d|all
+
+Auth pattern mirrors src/app/api/call-intelligence/insights/heatmap/route.ts:37-110:
+
+  1. getServerSession + getSessionPermissions
+  2. allowedPages.includes(20) gate
+  3. Role gate: [manager, admin, revops_admin, sgm]
+     (widens from revops_admin-only coaching-usage route)
+  4. getRepIdByEmail(session.user.email) -> actorRepId (fail-open for privileged)
+  5. getRepIdsVisibleToActor({repId, role, email}) -> visibleRepIds
+  6. Call needs-linking query with visibleRepIds
+
+Caching: Do NOT reuse CACHE_TAGS.COACHING_USAGE.
+Coaching-usage cache entries are revops_admin-only; mixing exposes cross-role data.
+Either no caching or a new CACHE_TAGS.NEEDS_LINKING tag in src/lib/cache.ts.
+
+---
+
+## 4. New Components Needed
+
+### NeedsLinkingTab
+
+New file: C:/Users/russe/Documents/Dashboard/src/app/dashboard/call-intelligence/tabs/NeedsLinkingTab.tsx
+
+Pattern: CoachingUsageTab.tsx (range toggle, fetch effect, table render).
+
+Differences from CoachingUsageTab:
+  - No KPI strip
+  - No complex filter set (no tri-state controls, no stage filter)
+  - Table: call date, source, advisor hint, rep, manager, linkage_strategy, days since call, action
+  - Row action: router.push to /dashboard/call-intelligence/review/[callNoteId]
+  - Default range: 14d (not 30d)
+  - No advisorEmailExtras complexity -- hint only
+  - No sort dropdown -- fixed call_started_at DESC from server
+
+Fetches from: /api/call-intelligence/needs-linking?range=14d|all
+
+### No changes to CallDetailModal.tsx
+
+CallDetailRowSummary at src/components/call-intelligence/CallDetailModal.tsx:13-33
+does NOT need changes. Needs Linking rows navigate to review page, not the modal.
+
+---
+
+## 5. Changes to CallIntelligenceClient.tsx
+
+File: C:/Users/russe/Documents/Dashboard/src/app/dashboard/call-intelligence/CallIntelligenceClient.tsx
+
+  1. Add import NeedsLinkingTab from ./tabs/NeedsLinkingTab
+  2. Line 22: add needs-linking to VALID_TABS
+  3. Add tab button -- visibility: isManagerOrAdmin || role === sgm
+  4. Add render branch:
+     {(isManagerOrAdmin || role===sgm) && activeTab===needs-linking && <NeedsLinkingTab/>}
+  5. safeInitial fallback (lines 28-33): no changes -- falls back gracefully
+
+Suggested icon: Link from lucide-react.
+
+---
+
+## 6. Changes to page.tsx
+
+File: C:/Users/russe/Documents/Dashboard/src/app/dashboard/call-intelligence/page.tsx:12
+
+Replace (current -- missing cost-analysis):
+  [queue,settings,admin-users,admin-refinements,rubrics,coaching-usage,insights]
+
+With (fix bug + add needs-linking):
+  [queue,settings,admin-users,admin-refinements,rubrics,
+   coaching-usage,insights,cost-analysis,needs-linking]
+
+---
+
+## 7. Existing Coaching Usage View -- ZERO CHANGES
+
+Must remain byte-for-byte unchanged:
+  C:/Users/russe/Documents/Dashboard/src/app/api/admin/coaching-usage/route.ts
+  C:/Users/russe/Documents/Dashboard/src/app/dashboard/call-intelligence/tabs/CoachingUsageTab.tsx
+
+New tab is fully independent. CoachingUsageClient render guarded by
+isRevopsAdmin && activeTab===coaching-usage. Adding a new branch does not touch it.
+
+---
+
+## 8. Export Paths -- No Changes Required
+
+ExportButton (src/components/dashboard/ExportButton.tsx): Object.keys() -- not applicable.
+ExportMenu (src/components/dashboard/ExportMenu.tsx): Explicit columns -- not applicable.
+MetricDrillDownModal (src/components/sga-hub/MetricDrillDownModal.tsx): Not applicable.
+
+Needs Linking is an action queue, not an export surface. No export path changes needed.
+
+---
+
+## 9. RBAC Summary
+
+| Role         | Access | Scope                                    |
+|--------------|--------|------------------------------------------|
+| revops_admin | Yes    | All reps                                 |
+| admin        | Yes    | All reps                                 |
+| manager      | Yes    | Direct reports + pod members + observers |
+| sgm          | Yes    | Direct reports + pod members             |
+| sga          | No     | Tab reviews others calls                 |
+| viewer       | No     | No page 20 access                        |
+
+getRepIdsVisibleToActor() at src/lib/queries/call-intelligence/visible-reps.ts
+handles all cases. No changes to that function needed.
+
+RBAC pattern to copy from src/app/api/call-intelligence/insights/heatmap/route.ts:54-93:
+
+  const isPrivileged = permissions.role===admin || permissions.role===revops_admin;
+  const rep = await getRepIdByEmail(session.user.email);
+  if (!rep && !isPrivileged) return 403;
+  const actorRepId = rep?.id ?? empty-string;
+  const visibleRepIds = await getRepIdsVisibleToActor({repId:actorRepId, role:permissions.role, email});
+  // SQL: WHERE cn.rep_id = ANY($N::uuid[])
+
+---
+
+## 10. Full File Change List
+
+MODIFY:
+  src/types/call-intelligence.ts
+    -- Add needs-linking to CallIntelligenceTab; add NeedsLinkingRow interface
+  src/app/dashboard/call-intelligence/CallIntelligenceClient.tsx
+    -- Import, VALID_TABS, tab button, render branch
+  src/app/dashboard/call-intelligence/page.tsx
+    -- Add cost-analysis (pre-existing bug fix) + needs-linking to VALID_TABS
+
+CREATE:
+  src/app/dashboard/call-intelligence/tabs/NeedsLinkingTab.tsx
+  src/app/api/call-intelligence/needs-linking/route.ts
+  src/lib/queries/call-intelligence/needs-linking.ts
+
+NOT changed:
+  src/app/api/admin/coaching-usage/route.ts
+  src/app/dashboard/call-intelligence/tabs/CoachingUsageTab.tsx
+  src/lib/coachingDb.ts
+  src/lib/cache.ts  (add NEEDS_LINKING tag only if caching is wanted)
+  src/components/call-intelligence/CallDetailModal.tsx
+  src/lib/queries/call-intelligence/visible-reps.ts
+  src/lib/permissions.ts
+
+---
+
+## 11. Advisor Hint -- Available call_notes Columns
+
+All are direct call_notes columns (no BigQuery resolution needed):
+  cn.attendees JSONB      -- {name,email} array, extract first non-savvy name
+  cn.invitee_emails TEXT[] -- first non-savvy email fallback
+  cn.calendar_title TEXT  -- event title, may contain advisor name
+  cn.title TEXT           -- Granola note title
+
+Savvy-internal filter: @savvywealth.com and @savvyadvisors.com
+(same as isSavvyInternal in coaching-usage/route.ts:33-37).
+
+---
+
+## 12. manual_entry Validation -- Confirmed: EXCLUDE
+
+Per sales-coaching/src/lib/db/call-notes.ts:1304-1342 (setCallNoteSfdcLink):
+manual_entry always sets sfdc_record_id (required non-null argument). Confirmed-linked.
+
+Per NoteReviewClient.tsx:200: Dashboard writes linkage_strategy=manual_entry on rep pick.
+
+Conclusion: manual_entry rows are resolved, not orphaned.
+The spec inclusion of manual_entry in the predicate is incorrect.
+
+---
+
+## 13. Open Questions for Implementation Team
+
+Q1. Is confidence_tier extraction required?
+    If yes: LEFT JOIN slack_review_messages + extract candidates[0].confidence_tier from JSONB.
+    If no: use simpler linkage_strategy-only predicate.
+
+Q2. Kixie edge cases.
+    kixie_task_link excluded by IN clause. If a Kixie call has crd_prefix or
+    attendee_email as linkage_strategy (edge case), it correctly appears.
+    Confirm intended behavior with SME.
+
+Q3. SGM access to /dashboard/call-intelligence/review/[callNoteId].
+    NoteReviewPage calls salesCoachingClient.getCallNoteReview(email, callNoteId)
+    which has RBAC inside the bridge. Verify bridge allows SGM-role users to access
+    call notes in their visible-rep set (not only their own calls).
+    If not, Open SFDC search will 404 for SGMs accessing a coachee call.
