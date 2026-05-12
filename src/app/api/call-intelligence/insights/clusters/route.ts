@@ -86,6 +86,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'invalid focus_rep' }, { status: 400 });
     }
 
+    const limitRaw = sp.get('limit');
+    if (limitRaw && limitRaw !== 'full') {
+      return NextResponse.json({ error: 'invalid limit' }, { status: 400 });
+    }
+    const mode: 'team' | 'rep_focus' = (focusRep || limitRaw === 'full') ? 'rep_focus' : 'team';
+
     const visibleRepIds = await getRepIdsVisibleToActor({
       repId: actorRepId, role: permissions.role, email: session.user.email,
     });
@@ -105,6 +111,7 @@ export async function GET(request: NextRequest) {
       repIds: effectiveRepIds,
       sourceFilter: sourceRaw,
       visibleRepIds,
+      mode,
     });
 
     return NextResponse.json({ clusters });

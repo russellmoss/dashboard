@@ -11,6 +11,7 @@ import type {
 } from '@/types/call-intelligence';
 import { CitationPill } from './CitationPill';
 import { CitedProse } from './CitedProse';
+import { isGapMatchingBucket, sortGapsByMatchFirst } from './bucket-match';
 
 interface Props {
   isOpen: boolean;
@@ -26,6 +27,9 @@ interface Props {
   ) => void;
   /** When true, this modal is below a deeper modal — set aria-hidden + suppress focus. */
   ariaHidden?: boolean;
+  /** When true, render no black backdrop. Used when this modal is layered above
+   *  another that already owns the dimming backdrop, so opacity doesn't compound. */
+  hideBackdrop?: boolean;
 }
 
 function humanizeKey(key: string): string {
@@ -109,19 +113,20 @@ export default function InsightsEvalDetailModal({
   onOpenTranscript,
   onOpenKB,
   ariaHidden,
+  hideBackdrop,
 }: Props) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   // Focus-on-open.
   useEffect(() => {
     if (isOpen && !ariaHidden) {
-      const t = setTimeout(() => closeButtonRef.current?.focus(), 0);
+      const t = setTimeout(() => closeButtonRef.current?.focus({ preventScroll: true }), 0);
       return () => clearTimeout(t);
     }
   }, [isOpen, ariaHidden]);
 
   if (!isOpen) return null;
-  if (!payload || (!payload.dimension && !payload.topic)) return null;
+  if (!payload || (!payload.dimension && !payload.topic && !payload.bucket)) return null;
 
   // Resolve the dimension's own score + citations + body (the drill anchor).
   // 2026-05-11: body (schema v6) is the primary content; v2-v5 historical rows
@@ -163,7 +168,7 @@ export default function InsightsEvalDetailModal({
       aria-labelledby="insights-eval-detail-title"
       aria-hidden={ariaHidden}
     >
-      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
+      <div className={`fixed inset-0 ${hideBackdrop ? '' : 'bg-black/40'}`} onClick={onClose} />
       <div className="relative bg-white dark:bg-gray-800 shadow-xl flex flex-col overflow-hidden w-full h-full md:h-auto md:max-w-3xl md:mx-4 md:max-h-[90vh] md:rounded-lg">
         <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
           <div className="min-w-0 flex-1">
@@ -261,6 +266,65 @@ export default function InsightsEvalDetailModal({
                         </div>
                       )}
                     </>
+                  )}
+                </section>
+              )}
+
+              {/* Bucket drill — entered from a cluster card row (Q13: only renders
+                  when payload.bucket is set; heat-map drills keep the existing
+                  dimension section unchanged). Shows ALL knowledge_gaps[] for the
+                  eval (filter-on-client per Q2), with the matched-bucket items
+                  highlighted. */}
+              {payload.bucket && (
+                <section className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-gray-50 dark:bg-gray-900/40">
+                  <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                    Knowledge gaps — bucket: {payload.bucket}
+                  </h3>
+                  {detail.knowledge_gaps.length === 0 ? (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 italic">
+                      No knowledge gaps captured on this evaluation.
+                    </p>
+                  ) : (
+                    <ul className="space-y-2 text-sm text-gray-800 dark:text-gray-200">
+                      {sortGapsByMatchFirst(detail.knowledge_gaps, payload.bucket, payload.bucketKind).map((g, i) => {
+                        const matched = isGapMatchingBucket(g, payload.bucket!, payload.bucketKind);
+                        return (
+                          <li
+                            key={i}
+                            className={
+                              matched
+                                ? 'border-l-2 border-[#175242] dark:border-[#5a9c89] pl-3 bg-emerald-50/40 dark:bg-emerald-900/10 rounded-r'
+                                : 'border-l-2 border-gray-300 dark:border-gray-600 pl-3'
+                            }
+                          >
+                            {matched && (
+                              <span className="inline-block mb-1 text-[10px] uppercase tracking-wide text-[#175242] dark:text-[#5a9c89] font-semibold">
+                                ⓘ matched bucket
+                              </span>
+                            )}
+                            <div className="text-gray-800 dark:text-gray-200">{g.text}</div>
+                            {g.expected_source && (
+                              <div className="mt-0.5 text-[11px] font-mono text-gray-500 dark:text-gray-400">
+                                source: {g.expected_source}
+                              </div>
+                            )}
+                            {(g.citations ?? []).length > 0 && (
+                              <div className="mt-1 flex flex-wrap items-center gap-1">
+                                {(g.citations ?? []).map((c, ci) => (
+                                  <CitationPill
+                                    key={ci}
+                                    citation={c}
+                                    chunkLookup={detail.chunk_lookup}
+                                    onScrollToUtterance={scrollToUtterance}
+                                    onOpenKB={onOpenKB}
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
                   )}
                 </section>
               )}

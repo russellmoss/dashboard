@@ -6,12 +6,14 @@ import { Card } from '@tremor/react';
 import RepFilterCombobox from '@/components/call-intelligence/RepFilterCombobox';
 import InsightsEvalListModal from '@/components/call-intelligence/InsightsEvalListModal';
 import InsightsEvalDetailModal from '@/components/call-intelligence/InsightsEvalDetailModal';
+import InsightsClusterEvidenceModal from '@/components/call-intelligence/InsightsClusterEvidenceModal';
 import { TranscriptModal } from '@/components/call-intelligence/TranscriptModal';
 import type {
   DimensionHeatmapResult,
   DimensionHeatmapRowBlock,
   DimensionHeatmapCell,
   KnowledgeGapClusterRow,
+  KnowledgeGapClusterEvidence,
   InsightsPod,
   InsightsRep,
   InsightsDateRange,
@@ -53,6 +55,36 @@ function cellColor(score: number | null | undefined): string {
 
 function humanizeKey(key: string): string {
   return key.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+/** Compile-time guard: forces the modal-stack dispatcher to cover every variant
+ *  of {@link InsightsModalStackLayer}. Adding a new variant without wiring its
+ *  render branch fails the build here. (Council C2 intent.) */
+function _assertExhaustiveModalLayer(layer: InsightsModalStackLayer): InsightsModalStackLayer['kind'] {
+  switch (layer.kind) {
+    case 'list':       return 'list';
+    case 'cluster':    return 'cluster';
+    case 'detail':     return 'detail';
+    case 'transcript': return 'transcript';
+    default: {
+      const _exhaustive: never = layer;
+      return _exhaustive;
+    }
+  }
+}
+void _assertExhaustiveModalLayer;
+
+/** Human label for a cluster bucket. 'kb_path' buckets render as a ›-separated
+ *  Title-case path; 'kb_topic' buckets render as Title-case underscore tags;
+ *  'Uncategorized' / 'Uncategorized: <topic>' values pass through verbatim. */
+function humanizeBucket(bucket: string, kind: 'kb_path' | 'kb_topic' | 'uncategorized'): string {
+  if (bucket === 'Uncategorized' || bucket.startsWith('Uncategorized: ')) return bucket;
+  if (kind === 'kb_path') {
+    return bucket.split('/').map(seg =>
+      seg.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+    ).join(' › ');
+  }
+  return bucket.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
 /** Weighted-average aggregation across multiple (role, rubricVersion) blocks.
@@ -203,6 +235,7 @@ export default function InsightsTab({ initialFocusRep }: Props) {
     if (next.has(key)) next.delete(key); else next.add(key);
     return next;
   });
+  const [longtailOpen, setLongtailOpen] = useState(false);
 
   // === Three-layer modal stack (5c-2) ===
   const [modalStack, setModalStack] = useState<InsightsModalStackLayer[]>([]);
@@ -215,7 +248,7 @@ export default function InsightsTab({ initialFocusRep }: Props) {
   const popTopLayer = useCallback(() => setModalStack(s => s.slice(0, -1)), []);
   const closeAll = useCallback(() => {
     setModalStack([]);
-    setTimeout(() => triggerRef.current?.focus(), 0);
+    setTimeout(() => triggerRef.current?.focus({ preventScroll: true }), 0);
   }, []);
 
   const openListModal = useCallback((payload: EvalListModalPayload, trigger: HTMLElement | null) => {
@@ -264,6 +297,8 @@ export default function InsightsTab({ initialFocusRep }: Props) {
     let hash = '';
     if (top?.kind === 'list') {
       hash = '#modal=list';
+    } else if (top?.kind === 'cluster') {
+      hash = `#modal=cluster&bucket=${encodeURIComponent(top.payload.bucket)}`;
     } else if (top?.kind === 'detail') {
       hash = `#modal=detail&eval=${top.payload.evaluationId}`;
     } else if (top?.kind === 'transcript') {
@@ -330,7 +365,16 @@ export default function InsightsTab({ initialFocusRep }: Props) {
     }
   }, [dateRange, role, podIds, repIds, sourceFilter, focusRep, trendMode]);
 
-  useEffect(() => { void fetchData(); }, [fetchData]);
+  // Key the fetch effect on the raw URL search string instead of fetchData's
+  // identity. fetchData is a useCallback over derived useMemo values keyed on
+  // searchParams — in Next.js 14, useSearchParams() returns a new reference
+  // whenever the URL changes for ANY reason (including hash changes from the
+  // modal-stack pushState below). Keying on the URL's search string keeps the
+  // fetch from re-firing on hash-only updates while still reacting to real
+  // filter changes. fetchData itself remains a stable closure-over-state via
+  // useCallback so async work in-flight can finish without stale captures.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void fetchData(); }, [searchParams.toString(), initialFocusRep]);
 
   // URL state update helper
   const updateUrl = useCallback((updates: Record<string, string | null>) => {
@@ -620,19 +664,44 @@ export default function InsightsTab({ initialFocusRep }: Props) {
       <Card className="dark:bg-gray-800 dark:border-gray-700">
         <h2 className="text-lg font-semibold mb-3 text-gray-900 dark:text-gray-100">Knowledge gap clusters</h2>
         {loading && <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">Loading…</div>}
-        {!loading && (!clusters || clusters.length === 0) && (
-          <div className="py-12 text-center text-sm text-gray-500 dark:text-gray-400">
-            No clusters for this filter.
+        {!loading && (!clusters || clusters.length === 0) ? (
+          <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-700 p-8 text-center">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              <strong className="block text-gray-900 dark:text-gray-100 mb-1">No advisor calls in this window.</strong>
+              Adjust the date range or filters above.
+            </p>
           </div>
-        )}
-        {!loading && clusters && clusters.length > 0 && (
-          <div className="space-y-2">
-            {clusters.map(c => (
-              <div key={c.topic} className="border border-gray-200 dark:border-gray-700 rounded p-3">
+        ) : !loading && clusters && clusters.length > 0 ? (
+          (() => {
+            const longtail = clusters.filter(c => c.totalOccurrences === 1 && c.bucketKind === 'uncategorized');
+            const main = clusters.filter(c => !(c.totalOccurrences === 1 && c.bucketKind === 'uncategorized'));
+            const renderCard = (c: KnowledgeGapClusterRow) => (
+              <button
+                key={c.bucket}
+                type="button"
+                onClick={() => setModalStack(s => [...s, {
+                  kind: 'cluster',
+                  payload: {
+                    bucket: c.bucket,
+                    bucketKind: c.bucketKind,
+                    evidence: c.sampleEvidence,
+                    gapCount: c.gapCount,
+                    deferralCount: c.deferralCount,
+                  },
+                }])}
+                aria-label={`Open cluster evidence for ${humanizeBucket(c.bucket, c.bucketKind)}`}
+                className="w-full text-left border border-gray-200 dark:border-gray-700 rounded p-3 hover:border-blue-500 hover:bg-gray-50 dark:hover:bg-gray-700/40 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+              >
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium text-gray-900 dark:text-gray-100">{humanizeKey(c.topic)}</span>
+                    <span className="font-medium text-gray-900 dark:text-gray-100">{humanizeBucket(c.bucket, c.bucketKind)}</span>
                     <span className="text-xs text-gray-500 dark:text-gray-400">total {c.totalOccurrences}</span>
+                    <span
+                      className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 whitespace-nowrap"
+                      title={`${c.repBreakdown.length} rep${c.repBreakdown.length === 1 ? '' : 's'} contributed to this bucket`}
+                    >
+                      · {c.repBreakdown.length} {c.repBreakdown.length === 1 ? 'rep' : 'reps'}
+                    </span>
                   </div>
                   <div className="flex items-center gap-1 text-xs">
                     {c.gapCount > 0 && (
@@ -654,28 +723,89 @@ export default function InsightsTab({ initialFocusRep }: Props) {
                 {!isFocusMode && c.repBreakdown.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1 text-xs">
                     {c.repBreakdown.map(rep => (
-                      <button key={rep.repId} onClick={() => setFocusRep(rep.repId)}
-                        className="px-2 py-0.5 rounded-full border border-gray-300 dark:border-gray-600 hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                      <span
+                        key={rep.repId}
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); setFocusRep(rep.repId); }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setFocusRep(rep.repId);
+                          }
+                        }}
+                        className="cursor-pointer px-2 py-0.5 rounded-full border border-gray-300 dark:border-gray-600 hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                      >
                         {rep.repName} ({rep.gapCount + rep.deferralCount})
-                      </button>
+                      </span>
                     ))}
                   </div>
                 )}
-              </div>
-            ))}
-          </div>
-        )}
+              </button>
+            );
+            return (
+              <>
+                <div className="space-y-2">
+                  {main.map(renderCard)}
+                </div>
+                {longtail.length > 0 && (
+                  <div className="mt-4">
+                    <button
+                      type="button"
+                      onClick={() => setLongtailOpen(o => !o)}
+                      aria-expanded={longtailOpen}
+                      className="text-sm text-gray-600 dark:text-gray-400 hover:underline"
+                    >
+                      {longtailOpen
+                        ? `Hide ${longtail.length} one-off${longtail.length === 1 ? '' : 's'} ▴`
+                        : `Other (${longtail.length} one-off${longtail.length === 1 ? '' : 's'}) ▾`}
+                    </button>
+                    {longtailOpen && (
+                      <div className="mt-2 space-y-2">
+                        {longtail.map(renderCard)}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            );
+          })()
+        ) : null}
       </Card>
 
-      {/* === Three-layer modal stack === */}
+      {/* === Modal stack (list | cluster | detail | transcript) === */}
       {(() => {
         const listLayer = modalStack.find((l): l is Extract<InsightsModalStackLayer, { kind: 'list' }> => l.kind === 'list');
+        const clusterLayer = modalStack.find((l): l is Extract<InsightsModalStackLayer, { kind: 'cluster' }> => l.kind === 'cluster');
         const detailLayer = modalStack.find((l): l is Extract<InsightsModalStackLayer, { kind: 'detail' }> => l.kind === 'detail');
         const transcriptLayer = modalStack.find((l): l is Extract<InsightsModalStackLayer, { kind: 'transcript' }> => l.kind === 'transcript');
         const cachedDetail = detailLayer ? detailCache.get(detailLayer.payload.evaluationId) ?? null : null;
-        const listAriaHidden = !!detailLayer || !!transcriptLayer;
-        const detailAriaHidden = !!transcriptLayer;
         const transcriptDetail = transcriptLayer ? detailCache.get(transcriptLayer.payload.evaluationId) ?? null : null;
+        const topKind = modalStack[modalStack.length - 1]?.kind;
+        const listAriaHidden = !!listLayer && topKind !== 'list';
+        const clusterAriaHidden = !!clusterLayer && topKind !== 'cluster';
+        const detailAriaHidden = !!detailLayer && topKind !== 'detail';
+
+        // Only the bottom-most modal renders the page-dimming backdrop. If every
+        // layer rendered its own bg-black/40, stacking N layers would compound to
+        // 1 - 0.6^N opacity — so each drill-in / drill-out would visibly darken
+        // or lighten the heat map underneath. Single backdrop keeps dimness flat.
+        const bottomKind = modalStack[0]?.kind;
+
+        const handleClusterSelectRow = (e: KnowledgeGapClusterEvidence) => {
+          if (!clusterLayer) return;
+          openDetailModal({
+            evaluationId: e.evaluationId,
+            bucket: clusterLayer.payload.bucket,
+            bucketKind: clusterLayer.payload.bucketKind,
+          });
+        };
+        const handleClusterSelectRep = (repId: string) => {
+          setModalStack([]);
+          setFocusRep(repId);
+        };
+
         return (
           <>
             {listLayer && (
@@ -688,6 +818,18 @@ export default function InsightsTab({ initialFocusRep }: Props) {
                   dimension: listLayer.payload.dimension ?? undefined,
                 })}
                 ariaHidden={listAriaHidden}
+                hideBackdrop={bottomKind !== 'list'}
+              />
+            )}
+            {clusterLayer && (
+              <InsightsClusterEvidenceModal
+                isOpen
+                payload={clusterLayer.payload}
+                onClose={popTopLayer}
+                onSelectRow={handleClusterSelectRow}
+                onSelectRep={handleClusterSelectRep}
+                ariaHidden={clusterAriaHidden}
+                hideBackdrop={bottomKind !== 'cluster'}
               />
             )}
             {detailLayer && (
@@ -699,10 +841,9 @@ export default function InsightsTab({ initialFocusRep }: Props) {
                 error={detailError}
                 onClose={popTopLayer}
                 onOpenTranscript={openTranscriptLayer}
-                // TODO 2026-05-11 — Insights tab has no KBSidePanel yet; KB pills
-                // are click-no-op until that infrastructure is added here.
                 onOpenKB={undefined}
                 ariaHidden={detailAriaHidden}
+                hideBackdrop={bottomKind !== 'detail'}
               />
             )}
             {transcriptLayer && transcriptDetail && (
@@ -720,6 +861,7 @@ export default function InsightsTab({ initialFocusRep }: Props) {
                 zClassName="z-[70]"
                 disableOwnEscHandler
                 onClose={popTopLayer}
+                hideBackdrop={bottomKind !== 'transcript'}
               />
             )}
           </>

@@ -33,6 +33,10 @@ interface Props {
   /** Tailwind class for outer fixed wrapper. Default 'z-50'. Override (e.g. 'z-[70]')
    *  when stacked above other modals. */
   zClassName?: string;
+  /** When true, render the wrapper without a black backdrop tint. Used when this
+   *  modal is layered above another one that already owns the page-dimming
+   *  backdrop — prevents cumulative opacity flashes between drill levels. */
+  hideBackdrop?: boolean;
 }
 
 export const TranscriptModal = forwardRef<TranscriptModalHandle, Props>(function TranscriptModal(
@@ -51,6 +55,7 @@ export const TranscriptModal = forwardRef<TranscriptModalHandle, Props>(function
     initialUtteranceIndex,
     disableOwnEscHandler,
     zClassName,
+    hideBackdrop,
   },
   ref,
 ) {
@@ -83,7 +88,7 @@ export const TranscriptModal = forwardRef<TranscriptModalHandle, Props>(function
 
   return (
     <div
-      className={`fixed inset-0 ${zClassName ?? 'z-50'} bg-black/40 flex md:items-center md:justify-center`}
+      className={`fixed inset-0 ${zClassName ?? 'z-50'} ${hideBackdrop ? '' : 'bg-black/40'} flex md:items-center md:justify-center`}
       onClick={onClose}
     >
       <div

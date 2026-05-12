@@ -298,14 +298,31 @@ export interface DimensionHeatmapResult {
   sparklines: RepFocusTrendComparison[] | null;
 }
 
+export interface KnowledgeGapClusterEvidence {
+  evaluationId: string;
+  repId: string;
+  repName: string;
+  kind: 'gap' | 'deferral';
+  text: string;
+  callStartedAt: string | null;
+  citations: Array<{
+    utterance_index?: number;
+    kb_source?: { doc_id: string; chunk_id: string; doc_title: string; drive_url: string };
+  }>;
+  expectedSource?: string;
+  kbCoverage?: 'covered' | 'partial' | 'missing';
+}
+
 export interface KnowledgeGapClusterRow {
-  topic: string;
+  bucket: string;
+  bucketKind: 'kb_path' | 'kb_topic' | 'uncategorized';
   totalOccurrences: number;
   gapCount: number;
   deferralCount: number;
   deferralByCoverage: { covered: number; partial: number; missing: number };
   repBreakdown: Array<{ repId: string; repName: string; gapCount: number; deferralCount: number }>;
   sampleEvalIds: string[];
+  sampleEvidence: KnowledgeGapClusterEvidence[];
 }
 
 export interface InsightsPod {
@@ -331,7 +348,8 @@ export interface InsightsRep {
 export type InsightsModalStackLayer =
   | { kind: 'list';       payload: EvalListModalPayload }
   | { kind: 'detail';     payload: EvalDetailDrillPayload }
-  | { kind: 'transcript'; payload: TranscriptDrillPayload };
+  | { kind: 'transcript'; payload: TranscriptDrillPayload }
+  | { kind: 'cluster';    payload: ClusterEvidenceModalPayload };
 
 export interface EvalListModalPayload {
   role: string;
@@ -342,10 +360,20 @@ export interface EvalListModalPayload {
   focusRep: string | null;
 }
 
+export interface ClusterEvidenceModalPayload {
+  bucket: string;
+  bucketKind: 'kb_path' | 'kb_topic' | 'uncategorized';
+  evidence: KnowledgeGapClusterEvidence[];
+  gapCount: number;
+  deferralCount: number;
+}
+
 export interface EvalDetailDrillPayload {
   evaluationId: string;
   dimension?: string;
   topic?: string;
+  bucket?: string;
+  bucketKind?: 'kb_path' | 'kb_topic' | 'uncategorized';
 }
 
 export interface TranscriptDrillPayload {

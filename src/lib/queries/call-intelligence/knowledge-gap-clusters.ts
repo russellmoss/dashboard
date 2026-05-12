@@ -1,5 +1,4 @@
 import { getCoachingPool } from '@/lib/coachingDb';
-import { KB_VOCAB_SYNONYMS } from './kb-vocab-synonyms';
 import type {
   KnowledgeGapClusterRow,
   InsightsDateRange,
@@ -14,6 +13,7 @@ interface ClusterArgs {
   repIds: string[];
   sourceFilter: InsightsSourceFilter;
   visibleRepIds: string[];
+  mode?: 'team' | 'rep_focus';
 }
 
 function dateBoundsParam(range: InsightsDateRange): { start: string; end: string } {
@@ -25,7 +25,7 @@ function dateBoundsParam(range: InsightsDateRange): { start: string; end: string
 }
 
 export async function getKnowledgeGapClusters(args: ClusterArgs): Promise<KnowledgeGapClusterRow[]> {
-  const { dateRange, role, podIds, repIds, sourceFilter, visibleRepIds } = args;
+  const { dateRange, role, podIds, repIds, sourceFilter, visibleRepIds, mode = 'team' } = args;
 
   if (visibleRepIds.length === 0) return [];
 
@@ -48,34 +48,15 @@ export async function getKnowledgeGapClusters(args: ClusterArgs): Promise<Knowle
   const roleParam = role === 'both' ? null : role;
   const podIdsParam = podIds.length > 0 ? podIds : null;
 
-  // params (ALL parameterized — no SQL injection surface):
-  //  $1 = effectiveRepIds (uuid[])
-  //  $2 = start (date), $3 = end (date)
-  //  $4 = role ('SGA'|'SGM'|null)
-  //  $5 = podIds (uuid[]|null)
-  //  $6 = includeGaps (bool)
-  //  $7 = includeDeferrals (bool)
-  //  $8 = coverageFilter ('missing'|'covered'|null)
-  //  $9 = synonyms map (jsonb)
-  const synonymsJson = JSON.stringify(KB_VOCAB_SYNONYMS);
+  const sliceCap = mode === 'rep_focus' ? 200 : 5;
+
   const params: unknown[] = [
     effectiveRepIds, start, end, roleParam, podIdsParam,
     includeGaps, includeDeferrals, coverageFilter,
-    synonymsJson,
   ];
 
   const sql = `
-    WITH topics AS (
-      SELECT
-        v.value AS topic,
-        COALESCE(
-          NULLIF(ARRAY(SELECT jsonb_array_elements_text($9::jsonb -> v.value)), ARRAY[]::text[]),
-          ARRAY[LOWER(REPLACE(v.value, '_', ' '))]
-        ) AS synonyms
-        FROM kb_vocab_topics v
-       WHERE v.deprecated = false
-    ),
-    scoped_reps AS (
+    WITH scoped_reps AS (
       SELECT DISTINCT r.id
         FROM reps r
         LEFT JOIN coaching_team_members tm ON tm.rep_id = r.id
@@ -88,10 +69,30 @@ export async function getKnowledgeGapClusters(args: ClusterArgs): Promise<Knowle
     ),
     gap_hits AS (
       SELECT
-        topics.topic,
+        CASE
+          WHEN kg.item->>'expected_source' IS NULL
+            OR kg.item->>'expected_source' = ''
+            OR position('/' IN kg.item->>'expected_source') = 0
+            THEN 'Uncategorized'
+          ELSE
+            split_part(kg.item->>'expected_source','/',1) || '/' ||
+            split_part(kg.item->>'expected_source','/',2)
+        END AS bucket,
+        CASE
+          WHEN kg.item->>'expected_source' IS NULL
+            OR kg.item->>'expected_source' = ''
+            OR position('/' IN kg.item->>'expected_source') = 0
+            THEN 'uncategorized'
+          ELSE 'kb_path'
+        END AS bucket_kind,
         e.rep_id,
         r.full_name AS rep_name,
         e.id AS evaluation_id,
+        cn.call_started_at AS call_started_at,
+        kg.item->>'text'             AS evidence_text,
+        kg.item->'citations'         AS citations,
+        kg.item->>'expected_source'  AS expected_source_full,
+        'gap'::text AS kind,
         1 AS gap_count,
         0 AS deferral_count,
         NULL::text AS kb_coverage
@@ -100,22 +101,35 @@ export async function getKnowledgeGapClusters(args: ClusterArgs): Promise<Knowle
       JOIN reps r ON r.id = e.rep_id
       JOIN call_notes cn ON cn.id = e.call_note_id
       CROSS JOIN jsonb_array_elements(e.knowledge_gaps) AS kg(item)
-      CROSS JOIN topics
       WHERE $6::bool = true
         AND (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')
         AND e.created_at >= $2::date
         AND e.created_at <  $3::date
-        AND EXISTS (
-          SELECT 1 FROM unnest(topics.synonyms) AS syn
-           WHERE LOWER(kg.item->>'text') LIKE ('%' || syn || '%')
-        )
     ),
     deferral_hits AS (
+      -- Single-bucket-per-deferral assignment via ORDER BY chunk_index, id LIMIT 1.
+      -- Deterministic; no count inflation. Alternative (fan-out across topics) would
+      -- inflate totals and break acceptance criterion (a).
       SELECT
-        topics.topic,
+        COALESCE(
+          (SELECT t FROM unnest(kbc.topics) AS t LIMIT 1),
+          'Uncategorized: ' || d.topic
+        ) AS bucket,
+        CASE
+          WHEN kbc.topics IS NULL OR array_length(kbc.topics, 1) IS NULL
+            THEN 'uncategorized'
+          ELSE 'kb_topic'
+        END AS bucket_kind,
         d.rep_id,
         r.full_name AS rep_name,
         d.evaluation_id,
+        cn.call_started_at AS call_started_at,
+        d.deferral_text AS evidence_text,
+        jsonb_build_array(
+          jsonb_build_object('utterance_index', d.utterance_index)
+        ) AS citations,
+        NULL::text AS expected_source_full,
+        'deferral'::text AS kind,
         0 AS gap_count,
         1 AS deferral_count,
         d.kb_coverage
@@ -124,25 +138,48 @@ export async function getKnowledgeGapClusters(args: ClusterArgs): Promise<Knowle
       JOIN reps r ON r.id = d.rep_id
       JOIN evaluations e ON e.id = d.evaluation_id
       JOIN call_notes cn ON cn.id = e.call_note_id
-      CROSS JOIN topics
+      LEFT JOIN LATERAL (
+        SELECT topics FROM knowledge_base_chunks
+         WHERE id = ANY(d.kb_chunk_ids)
+           AND is_active = true
+           AND topics IS NOT NULL
+           AND array_length(topics, 1) > 0
+         ORDER BY chunk_index, id
+         LIMIT 1
+      ) kbc ON TRUE
       WHERE $7::bool = true
         AND d.is_synthetic_test_data = false
         AND (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')
         AND d.created_at >= $2::date
         AND d.created_at <  $3::date
-        AND EXISTS (
-          SELECT 1 FROM unnest(topics.synonyms) AS syn
-           WHERE LOWER(d.topic) LIKE ('%' || syn || '%')
-        )
         AND ($8::text IS NULL OR d.kb_coverage = $8)
     ),
     all_hits AS (
       SELECT * FROM gap_hits
       UNION ALL
       SELECT * FROM deferral_hits
+    ),
+    -- ROW_NUMBER() ranks rows within each bucket, then a single FILTER-gated
+    -- jsonb_agg produces the capped evidence sample. Slice cap literal is
+    -- constrained at the TS layer to 5 | 200 (no injection surface).
+    ranked AS (
+      SELECT
+        ah.*,
+        ROW_NUMBER() OVER (
+          PARTITION BY bucket
+          ORDER BY call_started_at DESC NULLS LAST, evaluation_id, kind
+        ) AS rn
+      FROM all_hits ah
     )
     SELECT
-      topic,
+      bucket,
+      (array_agg(bucket_kind ORDER BY
+        CASE bucket_kind
+          WHEN 'kb_path' THEN 1
+          WHEN 'kb_topic' THEN 2
+          ELSE 3
+        END
+      ))[1] AS bucket_kind,
       SUM(gap_count + deferral_count) AS total_occurrences,
       SUM(gap_count) AS gap_count,
       SUM(deferral_count) AS deferral_count,
@@ -151,17 +188,34 @@ export async function getKnowledgeGapClusters(args: ClusterArgs): Promise<Knowle
       COALESCE(SUM(deferral_count) FILTER (WHERE kb_coverage = 'missing'), 0) AS deferral_missing,
       json_agg(DISTINCT jsonb_build_object('repId', rep_id, 'repName', rep_name)
                ORDER BY jsonb_build_object('repId', rep_id, 'repName', rep_name)) AS reps_arr,
-      (array_agg(DISTINCT evaluation_id ORDER BY evaluation_id))[1:5] AS sample_eval_ids,
+      (array_agg(DISTINCT evaluation_id ORDER BY evaluation_id) FILTER (WHERE rn <= ${sliceCap})) AS sample_eval_ids,
+      COALESCE(
+        jsonb_agg(
+          jsonb_build_object(
+            'evaluationId',   evaluation_id,
+            'repId',          rep_id,
+            'repName',        rep_name,
+            'kind',           kind,
+            'text',           evidence_text,
+            'callStartedAt',  call_started_at,
+            'citations',      citations,
+            'expectedSource', expected_source_full,
+            'kbCoverage',     kb_coverage
+          ) ORDER BY rn
+        ) FILTER (WHERE rn <= ${sliceCap}),
+        '[]'::jsonb
+      ) AS sample_evidence,
       json_object_agg(rep_id || '|gap', gap_count ORDER BY rep_id || '|gap') FILTER (WHERE gap_count > 0) AS rep_gap_map,
       json_object_agg(rep_id || '|def', deferral_count ORDER BY rep_id || '|def') FILTER (WHERE deferral_count > 0) AS rep_def_map
-    FROM all_hits
-    GROUP BY topic
+    FROM ranked
+    GROUP BY bucket
     HAVING SUM(gap_count + deferral_count) > 0
-    ORDER BY total_occurrences DESC, topic ASC
+    ORDER BY total_occurrences DESC, bucket ASC
   `;
 
   type RawRow = {
-    topic: string;
+    bucket: string;
+    bucket_kind: 'kb_path' | 'kb_topic' | 'uncategorized';
     total_occurrences: string;
     gap_count: string;
     deferral_count: string;
@@ -170,6 +224,20 @@ export async function getKnowledgeGapClusters(args: ClusterArgs): Promise<Knowle
     deferral_missing: string;
     reps_arr: Array<{ repId: string; repName: string | null }> | null;
     sample_eval_ids: string[] | null;
+    sample_evidence: Array<{
+      evaluationId: string;
+      repId: string;
+      repName: string | null;
+      kind: 'gap' | 'deferral';
+      text: string | null;
+      callStartedAt: string | null;
+      citations: Array<{
+        utterance_index?: number | null;
+        kb_source?: { doc_id?: string; chunk_id?: string; doc_title?: string; drive_url?: string };
+      }> | null;
+      expectedSource: string | null;
+      kbCoverage: 'covered' | 'partial' | 'missing' | null;
+    }> | null;
     rep_gap_map: Record<string, number> | null;
     rep_def_map: Record<string, number> | null;
   };
@@ -184,8 +252,42 @@ export async function getKnowledgeGapClusters(args: ClusterArgs): Promise<Knowle
       gapCount: Number(r.rep_gap_map?.[`${rep.repId}|gap`] ?? 0),
       deferralCount: Number(r.rep_def_map?.[`${rep.repId}|def`] ?? 0),
     }));
+    const sampleEvidence = (r.sample_evidence ?? []).map(e => {
+      const cit = Array.isArray(e.citations) ? e.citations : [];
+      return {
+        evaluationId: e.evaluationId,
+        repId: e.repId,
+        repName: e.repName ?? '(unknown)',
+        kind: e.kind,
+        text: e.text ?? '',
+        callStartedAt: e.callStartedAt,
+        citations: cit
+          .map(c => {
+            const hasUtterance = typeof c.utterance_index === 'number';
+            const hasKbSource = !!(c.kb_source && c.kb_source.chunk_id && c.kb_source.doc_id);
+            if (!hasUtterance && !hasKbSource) return null;
+            return {
+              ...(hasUtterance ? { utterance_index: c.utterance_index as number } : {}),
+              ...(hasKbSource
+                ? {
+                    kb_source: {
+                      doc_id: c.kb_source!.doc_id!,
+                      chunk_id: c.kb_source!.chunk_id!,
+                      doc_title: c.kb_source!.doc_title ?? '',
+                      drive_url: c.kb_source!.drive_url ?? '',
+                    },
+                  }
+                : {}),
+            };
+          })
+          .filter((c): c is NonNullable<typeof c> => c !== null),
+        ...(e.expectedSource ? { expectedSource: e.expectedSource } : {}),
+        ...(e.kbCoverage ? { kbCoverage: e.kbCoverage } : {}),
+      };
+    });
     return {
-      topic: r.topic,
+      bucket: r.bucket,
+      bucketKind: r.bucket_kind,
       totalOccurrences: Number(r.total_occurrences),
       gapCount: Number(r.gap_count),
       deferralCount: Number(r.deferral_count),
@@ -196,6 +298,7 @@ export async function getKnowledgeGapClusters(args: ClusterArgs): Promise<Knowle
       },
       repBreakdown: breakdown,
       sampleEvalIds: r.sample_eval_ids ?? [],
+      sampleEvidence,
     };
   });
 }

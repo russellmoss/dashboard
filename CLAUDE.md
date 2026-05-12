@@ -80,6 +80,23 @@ See `packages/analyst-bot/savvy_analyst_bot.md` for: env vars, secrets, log comm
 - Use Unix/bash commands: `grep`, `ls`, `head`, `wc -l`, `find` all work
 - Do NOT use PowerShell-only commands: `Get-Content`, `Test-Path`, `Get-ChildItem`, `Select-String`, `$env:VAR`
 
+## Neon Postgres Schema Context — Doc + MCP
+
+The Dashboard app is backed by **two Neon Postgres projects**, both reachable via the Neon MCP (`mcp__Neon__*`):
+
+| Project | Project ID | Role | Curated doc |
+|---|---|---|---|
+| `savvy-dashboard-db` | `lingering-grass-54841964` | Prisma-managed dashboard backend (users, requests, forecast, GC Hub, agentic reports, games) + 5 raw-SQL analyst-bot tables | `.claude/neon-savvy-dashboard.md` |
+| `sales_coaching` | `falling-hall-15641609` | Sales-coaching DB (evaluations, KB, call notes/transcripts, Neon Auth). Dashboard accesses **read-side via direct `pg`** (`src/lib/coachingDb.ts`) and **write-side via bridge HTTP** (`src/lib/sales-coaching-client/`) | `.claude/neon-sales-coaching.md` |
+
+> **HARD GATE — Neon SQL:** Before writing any SQL against either Neon DB OR modifying a Dashboard query that touches one, you MUST:
+> 1. Call `mcp__Neon__describe_table_schema` for the live column list (no guessing names — most are snake_case or PascalCase; getting it wrong wastes a tool call), AND
+> 2. Consult the matching `.claude/neon-<db>.md` doc for business purpose, grain, JSONB shape, dormant tables, and known traps.
+>
+> No exceptions. The curated docs cover what the schema CANNOT tell you — Prisma vs raw-SQL boundaries, dormant tables, JSONB shapes (especially `evaluations.dimension_scores` and `notification_outbox.payload`), the direct-pg vs bridge split for sales_coaching, and trap-list memory cross-references like [[feedback-coaching-db-schema-traps]]. Live `describe_table_schema` covers what the doc CANNOT tell you — current columns, types, FKs, indexes. **You need both.**
+>
+> If you catch yourself about to write Neon SQL without having consulted both this turn, STOP and consult them first. To refresh either doc when schema drifts, run `/document-neon-schema <savvy-dashboard|sales-coaching>`.
+
 ## BigQuery Schema Context — MCP-First
 
 When writing, reviewing, or validating SQL against BigQuery views:
@@ -280,3 +297,4 @@ This project uses `@mossrussell/context-ledger` to record the "why" behind archi
 - Import convention: merge imports, never add a second import from the same module
 - Construction sites: new required fields must be added to every construction site
 - API routes in `src/app/api/dashboard/` are pass-through — rarely need changes
+- URL-keyed fetch effects: `useEffect(() => void fetchData(), [searchParams.toString(), ...scalar deps])` — NOT `[fetchData]` or `[searchParams]`. In Next.js 14, `useSearchParams()` returns a new reference whenever the URL changes for any reason (including hash-only `window.history.pushState`), so keying on derived useMemo/useCallback values refires fetches on every modal hash sync. See `feedback_searchparams_pushstate.md` in memory.

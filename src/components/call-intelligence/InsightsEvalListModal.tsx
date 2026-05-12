@@ -14,6 +14,9 @@ interface Props {
   onRowClick: (evaluationId: string) => void;
   /** When true, this modal is below a deeper modal — set aria-hidden + suppress focus. */
   ariaHidden?: boolean;
+  /** When true, render no black backdrop. Used when this modal is layered above
+   *  another that already owns the dimming backdrop, so opacity doesn't compound. */
+  hideBackdrop?: boolean;
 }
 
 function humanizeKey(key: string): string {
@@ -33,6 +36,7 @@ export default function InsightsEvalListModal({
   onClose,
   onRowClick,
   ariaHidden,
+  hideBackdrop,
 }: Props) {
   const [rows, setRows] = useState<InsightsEvalListRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -81,7 +85,7 @@ export default function InsightsEvalListModal({
   // Focus-on-open (C4).
   useEffect(() => {
     if (isOpen && !ariaHidden) {
-      const t = setTimeout(() => closeButtonRef.current?.focus(), 0);
+      const t = setTimeout(() => closeButtonRef.current?.focus({ preventScroll: true }), 0);
       return () => clearTimeout(t);
     }
   }, [isOpen, ariaHidden]);
@@ -96,7 +100,7 @@ export default function InsightsEvalListModal({
       aria-labelledby="insights-eval-list-title"
       aria-hidden={ariaHidden}
     >
-      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
+      <div className={`fixed inset-0 ${hideBackdrop ? '' : 'bg-black/40'}`} onClick={onClose} />
       <div className="relative bg-white dark:bg-gray-800 shadow-xl flex flex-col overflow-hidden w-full h-full md:h-auto md:max-w-4xl md:mx-4 md:max-h-[90vh] md:rounded-lg">
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
           <div>
