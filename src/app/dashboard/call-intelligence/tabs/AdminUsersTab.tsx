@@ -255,8 +255,10 @@ export default function AdminUsersTab() {
 
       {showAddForm && (
         <AddUserForm
+          rows={rows}
           managers={managers}
           teams={teams}
+          onReloadTeams={reload}
           onCancel={() => setShowAddForm(false)}
           onCreated={async () => { setShowAddForm(false); await reload(); }}
         />
@@ -372,13 +374,16 @@ export default function AdminUsersTab() {
 // ─── Add form ─────────────────────────────────────────────────────────────────
 
 interface AddUserFormProps {
+  rows: CoachingRep[];
   managers: ManagerSummaryT[];
   teams: CoachingTeamSummaryT[];
+  onReloadTeams: () => Promise<void>;
   onCancel: () => void;
   onCreated: () => Promise<void>;
 }
 
-function AddUserForm({ managers, teams, onCancel, onCreated }: AddUserFormProps) {
+function AddUserForm({ rows, managers, teams, onReloadTeams, onCancel, onCreated }: AddUserFormProps) {
+  const [showCreatePod, setShowCreatePod] = useState(false);
   const [form, setForm] = useState<UserFormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
@@ -574,18 +579,27 @@ function AddUserForm({ managers, teams, onCancel, onCreated }: AddUserFormProps)
           label="Pod / director (optional)"
           help="Analytics + coaching overlay. Orthogonal to canonical manager — valid for any role."
         >
-          <select
-            value={form.pod_team_id ?? ''}
-            onChange={(e) => setForm({ ...form, pod_team_id: e.target.value || null })}
-            className="block w-full rounded border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 shadow-sm text-sm"
-          >
-            <option value="">— No pod —</option>
-            {teams.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name} — led by {t.lead_full_name ?? 'no lead'}
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-2">
+            <select
+              value={form.pod_team_id ?? ''}
+              onChange={(e) => setForm({ ...form, pod_team_id: e.target.value || null })}
+              className="flex-1 min-w-0 rounded border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 shadow-sm text-sm"
+            >
+              <option value="">— No pod —</option>
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} — led by {t.lead_full_name ?? 'no lead'}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => setShowCreatePod(true)}
+              className="px-2 py-1 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100 rounded whitespace-nowrap"
+            >
+              + New pod
+            </button>
+          </div>
         </FormField>
 
         <FormField label="Slack member ID (optional)" error={fieldErrors.slack_user_id}>
@@ -636,7 +650,145 @@ function AddUserForm({ managers, teams, onCancel, onCreated }: AddUserFormProps)
           Cancel
         </button>
       </div>
+
+      {showCreatePod && (
+        <CreatePodModal
+          rows={rows}
+          onClose={() => setShowCreatePod(false)}
+          onCreated={async (newTeamId) => {
+            await onReloadTeams();
+            setForm((f) => ({ ...f, pod_team_id: newTeamId }));
+            setShowCreatePod(false);
+          }}
+        />
+      )}
     </form>
+  );
+}
+
+// ─── Inline pod-create modal ──────────────────────────────────────────────────
+
+interface CreatePodModalProps {
+  rows: CoachingRep[];
+  onClose: () => void;
+  onCreated: (newTeamId: string) => Promise<void>;
+}
+
+function CreatePodModal({ rows, onClose, onCreated }: CreatePodModalProps) {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [leadRepId, setLeadRepId] = useState<string>('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Pod lead candidates: active reps with role IN ('manager','admin'). The
+  // bridge enforces this — pod-director admins like GinaRose Galli are valid
+  // leads even though listManagers() excludes them. We source from the broader
+  // rep list to include both.
+  const leadCandidates = useMemo(
+    () => rows.filter((r) => r.is_active && (r.role === 'manager' || r.role === 'admin')),
+    [rows],
+  );
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!name.trim()) { setError('Name is required'); return; }
+    if (name.length > 200) { setError('Name exceeds 200 chars'); return; }
+    if (description.length > 1000) { setError('Description exceeds 1000 chars'); return; }
+
+    setSubmitting(true);
+    try {
+      // Description: server contract is min(1) when present. Empty string would
+      // 400 with a confusing Zod error; omit the field instead so the optional
+      // path applies.
+      const body: Record<string, unknown> = { name: name.trim() };
+      const trimmedDesc = description.trim();
+      if (trimmedDesc) body.description = trimmedDesc;
+      if (leadRepId) body.lead_rep_id = leadRepId;
+
+      const res = await fetch('/api/call-intelligence/coaching-teams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error ?? `Create failed (${res.status})`);
+        return;
+      }
+      const newId: string | undefined = json?.team?.id;
+      if (!newId) { setError('Pod created but id missing in response.'); return; }
+      await onCreated(newId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Create failed');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      role="dialog" aria-modal="true" aria-labelledby="create-pod-title"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <form onSubmit={handleSubmit} className="w-full max-w-md bg-white dark:bg-gray-900 rounded-lg shadow-xl p-5 space-y-3">
+        <div className="flex items-start justify-between">
+          <h3 id="create-pod-title" className="text-base font-semibold text-gray-900 dark:text-white">Create coaching pod</h3>
+          <button type="button" onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 text-xl leading-none">×</button>
+        </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Analytics + coaching overlay. Pod lead can be any active manager or admin (incl. pod-director admins like GinaRose).
+        </p>
+
+        <FormField label="Pod name" required>
+          <input
+            type="text" required value={name} maxLength={200}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Nick's SGM Pod"
+            className="block w-full rounded border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 shadow-sm text-sm"
+          />
+        </FormField>
+
+        <FormField label="Description (optional)">
+          <textarea
+            value={description} maxLength={1000} rows={2}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What this pod is for"
+            className="block w-full rounded border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 shadow-sm text-sm"
+          />
+        </FormField>
+
+        <FormField label="Pod lead (optional)" help="Manager or admin. Can be set later.">
+          <select
+            value={leadRepId}
+            onChange={(e) => setLeadRepId(e.target.value)}
+            className="block w-full rounded border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 shadow-sm text-sm"
+          >
+            <option value="">— No lead yet —</option>
+            {leadCandidates.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.full_name} ({ROLE_LABELS[r.role] ?? r.role})
+              </option>
+            ))}
+          </select>
+        </FormField>
+
+        {error && <div className="text-xs text-red-600 dark:text-red-400">{error}</div>}
+
+        <div className="flex items-center gap-2 justify-end pt-2">
+          <button type="button" onClick={onClose}
+            className="px-3 py-1 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100 rounded">
+            Cancel
+          </button>
+          <button type="submit" disabled={submitting}
+            className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded">
+            {submitting ? 'Creating…' : 'Create pod'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
