@@ -217,6 +217,18 @@ export type CallIntelligenceTab =
   | 'insights'
   | 'cost-analysis';
 
+export interface NeedsLinkingRow {
+  callNoteId: string;
+  callDate: string;
+  source: string;
+  advisorHint: string;
+  repName: string;
+  managerName: string | null;
+  linkageStrategy: string;
+  confidenceTier: string | null;
+  daysSinceCall: number;
+}
+
 /** Rubrics tab listing row. Source: getRubricsForList (LEFT JOIN reps for creator name). */
 export interface RubricListRow {
   id: string;

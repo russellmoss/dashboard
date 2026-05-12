@@ -9,7 +9,7 @@ import SettingsTab from './tabs/SettingsTab';
 import AdminUsersTab from './tabs/AdminUsersTab';
 import AdminRefinementsTab from './tabs/AdminRefinementsTab';
 import { RubricsTab } from './tabs/RubricsTab';
-import { CoachingUsageClient } from './tabs/CoachingUsageTab';
+import CoachingUsageWrapper from './tabs/CoachingUsageWrapper';
 import InsightsTab from './tabs/InsightsTab';
 import CostAnalysisTab from './tabs/CostAnalysisTab';
 
@@ -69,7 +69,7 @@ export default function CallIntelligenceClient({ role, initialTab, initialFocusR
               <Sliders className="w-4 h-4" /> Rubrics
             </TabButton>
           )}
-          {isRevopsAdmin && (
+          {(isRevopsAdmin || isManagerOrAdmin || role === 'sgm') && (
             <TabButton active={activeTab === 'coaching-usage'} onClick={() => setActiveTab('coaching-usage')}>
               <PhoneCall className="w-4 h-4" /> Coaching Usage
             </TabButton>
@@ -92,7 +92,7 @@ export default function CallIntelligenceClient({ role, initialTab, initialFocusR
       {isAdmin && activeTab === 'admin-users' && <AdminUsersTab />}
       {isAdmin && activeTab === 'admin-refinements' && <AdminRefinementsTab />}
       {isManagerOrAdmin && activeTab === 'rubrics' && <RubricsTab />}
-      {isRevopsAdmin && activeTab === 'coaching-usage' && <CoachingUsageClient />}
+      {(isRevopsAdmin || isManagerOrAdmin || role === 'sgm') && activeTab === 'coaching-usage' && <CoachingUsageWrapper role={role} />}
       {isManagerOrAdmin && activeTab === 'insights' && (
         <InsightsTab initialFocusRep={initialFocusRep} />
       )}

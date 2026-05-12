@@ -2220,7 +2220,7 @@ The Call Intelligence page (`/dashboard/call-intelligence`, page ID 20) hosts AI
 | `admin-users` | Admin: Users | revops_admin, admin only | — |
 | `admin-refinements` | Admin: Content Refinements | revops_admin, admin only | — |
 | `rubrics` | Rubrics | revops_admin, admin, manager (centralized via `canEditRubrics()` in `src/lib/permissions.ts`) | — |
-| `coaching-usage` | Coaching Usage | revops_admin only | — |
+| `coaching-usage` | Coaching Usage | revops_admin, admin, manager, sgm (widened for Needs Linking sub-tab) | — |
 | `insights` | Insights | revops_admin, admin, manager (same allowlist as Rubrics — `canEditRubrics()` covers it) | — |
 
 The Queue heading is "My Evaluations" for SGM/SGA (coachee view, scoped by own `rep_id`) and "Review Queue" for manager (scoped by `assigned_manager_id_snapshot`) and admin (unscoped). A History toggle (Pending / Revealed / All) controls the row filter.
@@ -2228,6 +2228,8 @@ The Queue heading is "My Evaluations" for SGM/SGA (coachee view, scoped by own `
 **Advisor-call filter** (added 2026-05-10, refined same-day): `getEvaluationsForManager` filters to `(cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')` — the advisor-facing rule from §Coaching Usage. Every Kixie call counts (outbound dialer = prospect-facing by definition; Kixie is never AI-classified, so `likely_call_type IS NULL` for all Kixie rows). Granola calls require the manager-monitor classifier to have tagged them `advisor_call`; `internal_collaboration` (all-hands, training, comp-plan walkthroughs), `vendor_call`, `unknown`, and unclassified (NULL) Granola rows are excluded from the queue regardless of role. Direct-link to a specific eval still works — the filter only hides rows from the listing query, not `getEvaluationDetail`. If a real Granola recruiting call is mis-classified as `internal_collaboration` it won't surface; the classifier is the upstream truth source.
 
 **Client-side sort + filters on the queue** (added 2026-05-10, Phase A): every column header in `QueueTab` cycles asc/desc on click. Fuzzy multi-token name search on Rep + Advisor, mirroring CoachingUsage's helper. Rep role filter (any/SGA/SGM) renders for admin/manager only (SGM/SGA already see only their own evals). All operate over the already-fetched rows — no extra round-trips. `rep_role` was added to `EvaluationQueueRow` (sourced from `sga.role` in the existing SELECT — no new join). Funnel filters (SQL'd / SQO'd / Stages / Closed Lost / Pushed-to-SFDC) are Phase B and require backend BQ + SFDC enrichment per row.
+
+**Needs Linking sub-tab** (added 2026-05-12): The Coaching Usage tab now contains two sub-tabs managed by `CoachingUsageWrapper.tsx` — "Overview" (the original `CoachingUsageClient`, revops_admin only) and "Needs Linking" (all coaching-usage roles). Needs Linking surfaces `call_notes` with `status='pending'` that haven't been attached to a Salesforce record. API at `/api/call-intelligence/needs-linking` (GET, `force-dynamic`, no caching). RBAC via `getRepIdsVisibleToActor()` + actor self-union. Query: `src/lib/queries/call-intelligence/needs-linking.ts`. Component: `NeedsLinkingTab.tsx`. Default filter: last 14 days. Each row links to the existing NoteReviewClient for SFDC search.
 
 ### Data Flow
 

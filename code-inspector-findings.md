@@ -1,398 +1,313 @@
-# Code Inspector Findings — Knowledge Gap Clusters Rewrite
+# Code Inspector Findings -- Needs Linking Sub-Tab for Coaching Usage
 
-Investigated: 2026-05-12  |  Agent: code-inspector (claude-sonnet-4-6)
-
----
-
-## A. Current state of the query helper
-
-**File:** src/lib/queries/call-intelligence/knowledge-gap-clusters.ts
-
-### Function signature (lines 27-201)
-
-    export async function getKnowledgeGapClusters(args: ClusterArgs): Promise<KnowledgeGapClusterRow[]>
-
-ClusterArgs (lines 11-17): dateRange, role, podIds, repIds, sourceFilter, visibleRepIds.
-The spec adds mode: team | rep_focus to ClusterArgs. There is NO mode arg today.
-
-### Parameter positions (lines 51-65)
-
-| Position | Value | Type |
-|---|---|---|
-| $1 | effectiveRepIds | uuid[] |
-| $2 | start (date bound) | date |
-| $3 | end (date bound) | date |
-| $4 | roleParam (SGA/SGM/null) | text |
-| $5 | podIdsParam (uuid[]/null) | uuid[] |
-| $6 | includeGaps | bool |
-| $7 | includeDeferrals | bool |
-| $8 | coverageFilter (missing/covered/null) | text |
-| $9 | synonymsJson — GOES AWAY in rewrite | jsonb |
-
-The spec is correct: $2/$3 are date bounds, $6/$7 are gap/deferral flags, $8 is coverage filter, $9 synonyms JSONB is being removed.
-### Gap CTE SELECT columns (lines 89-112)
-
-Current: topics.topic, e.rep_id, r.full_name AS rep_name, e.id AS evaluation_id,
-1 AS gap_count, 0 AS deferral_count, NULL::text AS kb_coverage.
-Missing in rewrite: evidence_text, citations, expected_source_full, bucket_kind.
-
-Matching mechanism: CROSS JOIN topics (vocab CTE) + EXISTS substring ILIKE against topics.synonyms.
-This is the bottleneck dropping 66% of gaps.
-
-### Deferral CTE SELECT columns (lines 113-138)
-
-Current: topics.topic, d.rep_id, r.full_name AS rep_name, d.evaluation_id,
-0 AS gap_count, 1 AS deferral_count, d.kb_coverage.
-Missing: evidence_text (deferral_text), citations, raw_topic, bucket_kind.
-Same CROSS JOIN topics + EXISTS ILIKE mechanism. Drops 84% of deferrals.
-
-### Final SELECT aggregation (lines 144-161)
-
-sample_eval_ids: (array_agg(DISTINCT evaluation_id ORDER BY evaluation_id))[1:5]
-Hard-coded [1:5] at line 154. Spec wants [1:5] in team mode, [1:200] in rep-focus mode.
-There is NO sample_evidence aggregation today. Must be added from scratch.
-
-### JS post-processing (lines 179-200)
-
-Result mapping is entirely in JS. RawRow type (lines 163-175) defines what postgres returns.
-The .map() at line 179 constructs KnowledgeGapClusterRow[].
-Numeric columns arrive as strings; coerced via Number(r.total_occurrences) etc.
-The rewrite sampleEvidence will come back from postgres as a JSON array and should
-be passed through in the mapping step with light coercion.
-
-### KB_VOCAB_SYNONYMS wiring
-
-- Import at line 2: import { KB_VOCAB_SYNONYMS } from ./kb-vocab-synonyms
-- Bound as params[8] (0-indexed): becomes $9::jsonb in SQL
-- Used at lines 71-76: $9::jsonb -> v.value for synonym lookup per vocab topic
-- After rewrite: remove import and param binding. kb-vocab-synonyms.ts file stays.
+Feature: Add Needs Linking sub-tab to /dashboard/call-intelligence
+Date: 2026-05-12
 
 ---
 
-## B. Current type definition
+## CRITICAL SCHEMA FINDING -- confidence_tier is NOT a call_notes column
 
-**File:** src/types/call-intelligence.ts, lines 301-309
+The feature spec references confidence_tier IN (possible, unlikely) and
+linkage_strategy IN (calendar_title, lead_contact_name, summary_name, manual_entry).
+Three problems with this definition:
 
-    export interface KnowledgeGapClusterRow {
-      topic: string;
-      totalOccurrences: number;
-      gapCount: number;
-      deferralCount: number;
-      deferralByCoverage: { covered: number; partial: number; missing: number };
-      repBreakdown: Array<{ repId: string; repName: string; gapCount: number; deferralCount: number }>;
-      sampleEvalIds: string[];
-    }
+Problem 1 -- confidence_tier does not exist on call_notes.
+It only exists inside slack_review_messages.sfdc_suggestion JSONB
+as a per-candidate field on the waterfall candidates array.
+Source A: sales-coaching/src/lib/db/types.ts -- no confidence_tier on CallNote interface.
+Source B: src/lib/sales-coaching-client/schemas.ts:828 -- confidence_tier is on
+BridgeSfdcCandidateSchema inside the suggestion JSONB, not on call_notes.
 
-Fields after rewrite per spec:
-- topic renamed to bucket: string
-- Add bucketKind: kb_path | kb_topic | uncategorized
-- Add sampleEvidence array: evaluationId, repId, repName, kind, text, citations, expectedSource?, kbCoverage?
-- All other existing fields retained
+Problem 2 -- lead_contact_name and summary_name are not valid linkage_strategy values.
+Valid enum: crd_prefix | attendee_email | calendar_title | manual_entry | kixie_task_link.
+Source: migrations/001_initial_schema.sql:133-134 and 009_extend_call_notes_for_kixie.sql:106-113.
 
-### Cascading rename impact
+Problem 3 -- manual_entry rows ARE already resolved. They must be EXCLUDED.
+linkage_strategy=manual_entry means the rep manually selected an SFDC record.
+sfdc_record_id is always set in that write (setCallNoteSfdcLink DAL).
+Source: sales-coaching/src/lib/db/call-notes.ts:1304-1342 (setCallNoteSfdcLink).
+Source: src/app/dashboard/call-intelligence/review/[callNoteId]/NoteReviewClient.tsx:200
+confirms Dashboard writes linkage_strategy=manual_entry on rep pick.
 
-Two places in InsightsTab.tsx read .topic off a KnowledgeGapClusterRow:
-- Line 631: key={c.topic}  ->  key={c.bucket}
-- Line 634: humanizeKey(c.topic)  ->  humanizeBucket(c.bucket)  (new helper needed, see section E)
-No other files reference .topic on a KnowledgeGapClusterRow.
+Corrected orphan predicate (schema-accurate):
 
-### Partial scaffolding — modal stack types already present (lines 329-356)
+    WHERE cn.source_deleted_at IS NULL
+      AND cn.status = pending
+      AND cn.linkage_strategy IN (crd_prefix, attendee_email, calendar_title)
 
-- InsightsModalStackLayer (line 331): discriminated union list | detail | transcript
-- EvalListModalPayload (line 336): role, rubricVersion, podId, dimension, dateRange, focusRep
-- EvalDetailDrillPayload (line 345): evaluationId, dimension?, topic?
-- TranscriptDrillPayload (line 350): evaluationId, initialUtteranceIndex
-
-EvalListModalPayload has dimension: string | null but no bucket/bucketKind.
-A new ClusterEvidenceModalPayload type will be needed for the cluster-card drill (section 6c).
-
-### Other types referencing topic — no collision risk
-
-RepDeferral (line 129) has topic: string — separate type, unrelated to cluster rename.
-EvalDetailDrillPayload.topic at line 146 filters rep_deferrals — unrelated field, stays as-is.
----
-
-## C. Construction sites for KnowledgeGapClusterRow
-
-| File | Lines | Role | What it does |
-|---|---|---|---|
-| src/lib/queries/call-intelligence/knowledge-gap-clusters.ts | 179-199 | Producer | .map(r => ({ topic: r.topic, ... })) PRIMARY site |
-| src/lib/queries/call-intelligence/__tests__/knowledge-gap-clusters.test.ts | 12-56 | Test | Does NOT construct a row. Asserts params array. Lines 45-56 assert params[8] is synonyms JSON. BREAKS after $9 removed. |
-| src/app/api/call-intelligence/insights/clusters/route.ts | 101-110 | Consumer | Calls helper, passes to NextResponse.json({ clusters }). No field access. Transparent to rename at runtime. |
-| src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx | 193, 631, 634 | Consumer + renderer | State type + two render reads of .topic. Both must switch to .bucket. |
-
-Files reading .topic that must switch to .bucket:
-- InsightsTab.tsx line 631: key={c.topic}  ->  key={c.bucket}
-- InsightsTab.tsx line 634: humanizeKey(c.topic)  ->  humanizeBucket(c.bucket)
-
-Export/CSV: no ExportMenu or MetricDrillDownModal references to KnowledgeGapClusterRow found.
-Cluster data is not CSV-exported. No export surface changes needed.
+kixie_task_link and manual_entry are excluded by the IN clause.
+If confidence_tier filtering is required, query must LEFT JOIN slack_review_messages
+and extract candidates[0].confidence_tier from JSONB -- non-trivial, requires SME input.
 
 ---
 
-## D. Section 5 Modal Infrastructure Status
+## Pre-Existing Code Discrepancy (not introduced by this feature)
 
-### What IS shipped
+File: C:/Users/russe/Documents/Dashboard/src/app/dashboard/call-intelligence/page.tsx:12
 
-MODAL STACK in InsightsTab.tsx (lines 207-258): FULLY SHIPPED.
-- useState<InsightsModalStackLayer[]>([]) at line 208
-- openListModal, openDetailModal, openTranscriptLayer, popTopLayer, closeAll callbacks at lines 215-245
-- Unified Esc handler (lines 248-258), browser hash sync (lines 261-280), popstate (lines 282-290)
-- Heat-map cell click trigger at line 517
+page.tsx VALID_TABS is missing cost-analysis:
+  [queue, settings, admin-users, admin-refinements, rubrics, coaching-usage, insights]
 
-LAYER 1 — InsightsEvalListModal: SHIPPED.
-File: src/components/call-intelligence/InsightsEvalListModal.tsx
-Fetches /api/call-intelligence/insights/evals. Whole-row click targets. onRowClick(evaluationId).
-Props: isOpen, payload: EvalListModalPayload|null, onClose, onRowClick, ariaHidden.
-Gap for section 6c: payload has dimension field but no bucket/bucketKind. A cluster-evidence variant needed.
-
-LAYER 2 — InsightsEvalDetailModal: SHIPPED.
-File: src/components/call-intelligence/InsightsEvalDetailModal.tsx
-Props: isOpen, payload: EvalDetailDrillPayload|null, detail: EvaluationDetail|null,
-loading, error, onClose, onOpenTranscript, onOpenKB?, ariaHidden.
-Dimension drill: lines 135-266 (dimension_scores body + citations).
-Topic (deferral) drill: lines 269-300 — ALREADY SCAFFOLDED, comment says reserved for cluster ship.
-  Filters rep_deferrals by d.topic === payload.topic. Works for deferral clusters.
-  Does NOT work for gap clusters — see Surprising Finding 1.
-Guard at line 124: returns null if neither payload.dimension nor payload.topic is set.
-
-LAYER 2 data source: InsightsTab.tsx line 232 fetches /api/call-intelligence/evaluations/
-The proposed slim /insights/eval-detail route was NEVER CREATED.
-The full-eval route returns everything needed and is the current working solution.
-
-LAYER 3 — TranscriptModal: SHIPPED.
-File: src/components/call-intelligence/TranscriptModal.tsx
-Props: isOpen, onClose, transcript, evaluationId, comments, currentUserId, isAdmin,
-canComposeComments, repFullName, advisorName?, onCommentChanged,
-initialUtteranceIndex?: number|null (line 28), disableOwnEscHandler?, zClassName?
-
-IMPORTANT: The prop is initialUtteranceIndex (integer), NOT initialUtteranceId (UUID).
-Spec section 5 narrative says initialUtteranceId — this is a SPEC LANGUAGE ERROR.
-All callers in InsightsTab already use the correct name.
-
-CitationPill: SHIPPED. src/components/call-intelligence/CitationPill.tsx
-Props: citation: Citation, chunkLookup, onScrollToUtterance?, onOpenKB?, utteranceTextForTooltip?, disabled?
-
-Modal stack types: SHIPPED in call-intelligence.ts lines 329-356.
-/api/call-intelligence/insights/eval-detail/route.ts: NOT CREATED (full-eval route used instead).
-/dashboard/call-intelligence/insights/evals/ page: DELETED (Glob finds no files).
-/api/call-intelligence/insights/evals/route.ts: ALIVE — serving InsightsEvalListModal.
-
-### Section 5 GO / NO-GO for section 6c
-
-GO for Part 3. Modal stack fully operational for heat-map cell drill-downs.
-
-What section 6c must add:
-1. New ClusterEvidenceModalPayload type and cluster-evidence modal component.
-2. Cluster card click handler in InsightsTab pushing a cluster layer onto the stack.
-3. New gap-evidence render section in InsightsEvalDetailModal (topic-drill covers only
-   rep_deferrals, not knowledge_gaps — see Surprising Finding 1).
----
-
-## E. Cluster card render in InsightsTab.tsx
-
-Cluster list section: lines 619-668.
-
-### Current rendering
-
-Cluster cards are <div> elements with NO onClick — not clickable today.
-Only repBreakdown chip buttons are interactive (setFocusRep(rep.repId)).
-The card shows: humanizeKey(c.topic) as label, c.totalOccurrences as count,
-gap/deferral badge counts with coverage sub-chips, rep breakdown chips (team mode only).
-
-### focus_rep URL param
-
-focusRep = searchParams.get(focus_rep) at line 188. isFocusMode = !!focusRep.
-In focus mode: rep breakdown buttons hidden by !isFocusMode guard at line 654.
-Cluster data scoped to one rep via API (route passes [focusRep] as repIds).
-
-### humanizeKey limitation for KB paths
-
-humanizeKey (InsightsTab.tsx line 54) only splits on underscore.
-Bucket profile/ideal-candidate-profile renders as Profile/ideal-candidate-profile.
-New humanizeBucket() helper needed: replace / with >, replace _ with space, title-case words.
-
-### Longtail Other (N one-offs) collapse slot
-
-No longtail collapse exists today. Natural insert: after clusters.map() loop (after line 666).
-Split clusters in useMemo: main (totalOccurrences > 1 OR bucketKind !== uncategorized)
-vs longtail (totalOccurrences === 1 AND bucketKind === uncategorized).
-Longtail renders as <details> expander at bottom. Each row still has working drill-down.
-
-### Cluster card click handler slot
-
-Convert <div key={c.topic} at line 631 to a <button> and add:
-  onClick={(e) => openClusterModal({ bucket: c.bucket, bucketKind: c.bucketKind, sampleEvidence: c.sampleEvidence }, e.currentTarget)}
-
-A new openClusterModal helper (parallel to openListModal) needed in InsightsTab.
+But CallIntelligenceClient.tsx:22 has 8 tabs including cost-analysis, and
+call-intelligence.ts:210-218 defines 8 variants in CallIntelligenceTab.
+Deep-linking to ?tab=cost-analysis silently falls back to queue.
+Fix both arrays together when adding needs-linking.
 
 ---
 
-## F. API route — clusters
+## 1. TypeScript Types That Need Changes
 
-**File:** src/app/api/call-intelligence/insights/clusters/route.ts
+### 1a. CallIntelligenceTab union
 
-### Auth gate (lines 50-62)
+File: C:/Users/russe/Documents/Dashboard/src/types/call-intelligence.ts:210-218
+Add: | needs-linking
 
-1. allowedPages.includes(20) — page-level gate
-2. [manager, admin, revops_admin].includes(permissions.role) — role gate
-3. getRepIdByEmail for non-privileged users; 403 if not found
-4. focusRep validated against visibleRepIds (lines 93-95)
-Same auth shape as /insights/evals/route.ts and /insights/heatmap/route.ts.
+Construction sites and consumers (exhaustive):
 
-### Existing query params
+  src/types/call-intelligence.ts:210
+    -- Type definition, add needs-linking variant
 
-range, start/end (custom), role, source, pods, reps, focus_rep. No limit or mode param today.
+  src/app/dashboard/call-intelligence/CallIntelligenceClient.tsx:22
+    -- VALID_TABS array, add needs-linking
 
-### Where limit=full / mode=rep_focus slots in
+  src/app/dashboard/call-intelligence/page.tsx:12
+    -- VALID_TABS array, add cost-analysis (bug fix) AND needs-linking
 
-Detect focusRep and pass mode: rep_focus to getKnowledgeGapClusters — a one-liner change.
-Optionally also read ?limit=full as an explicit opt-in.
+### 1b. New NeedsLinkingRow interface (net-new; no existing construction sites)
 
-### topic->bucket rename impact on the route
+Define in src/types/call-intelligence.ts or in the new query file.
 
-Route line 110: NextResponse.json({ clusters }) — raw pass-through, no field mapping.
-JSON response key changes automatically. No intermediate layer hides the rename.
-Client receives bucket instead of topic once type and render are updated together.
+Required fields:
+  callNoteId: string
+  callDate: string
+  source: granola | kixie
+  advisorHint: string | null  -- best-available: attendees JSONB / invitee_emails / title
+  repName: string | null
+  managerName: string | null
+  linkageStrategy: string  -- the call_notes.linkage_strategy column value
+  daysSinceCall: number  -- floor(EXTRACT(EPOCH FROM NOW() - call_started_at) / 86400)
+  confidenceTier?: string | null  -- OPTIONAL; requires JSONB extraction if included
 
----
-
-## G. KB_VOCAB_SYNONYMS consumers
-
-**File:** src/lib/queries/call-intelligence/kb-vocab-synonyms.ts
-
-Grep confirmed exactly 2 files import from kb-vocab-synonyms.ts:
-
-| File | Import | Load-bearing? |
-|---|---|---|
-| src/lib/queries/call-intelligence/knowledge-gap-clusters.ts | KB_VOCAB_SYNONYMS | YES — remove in rewrite |
-| (self) | getSynonymsForTopic export | Not imported elsewhere |
-
-Only one external consumer. After removing the import from knowledge-gap-clusters.ts,
-kb-vocab-synonyms.ts becomes a dead export but breaks nothing. Safe to keep as theming data.
+No existing construction sites. Net-new interface.
 
 ---
 
-## H. Standing instructions
+## 2. New Query Function Needed
 
-### Comment for single-bucket-per-deferral trade-off
+New file: C:/Users/russe/Documents/Dashboard/src/lib/queries/call-intelligence/needs-linking.ts
 
-Place in the deferral_hits CTE, directly above the LATERAL JOIN clause:
+Pattern: direct-pg from src/app/api/admin/coaching-usage/route.ts
++ RBAC scoping from src/lib/queries/call-intelligence/dimension-heatmap.ts.
 
-    -- Single-bucket-per-deferral: ORDER BY chunk_index LIMIT 1 gives deterministic
-    -- bucket assignment. Alternative is fan-out (one deferral counted in N buckets
-    -- across topics[]), which inflates total_occurrences and breaks the SUM=ceiling
-    -- acceptance criterion in section 6d(a). Revisit if managers report missing
-    -- cross-topic visibility.
-    LEFT JOIN LATERAL (
-      SELECT topics FROM knowledge_base_chunks
-       WHERE id = ANY(d.kb_chunk_ids)
-         AND is_active = true
-         AND topics IS NOT NULL
-         AND array_length(topics, 1) > 0
-       ORDER BY chunk_index
-       LIMIT 1
-    ) kbc ON true
+Key design:
+  - Uses getCoachingPool() from src/lib/coachingDb.ts
+  - Joins: call_notes cn, reps sga ON cn.rep_id, reps mgr ON sga.manager_id
+  - LEFT JOIN slack_review_messages srm ON srm.call_note_id=cn.id AND srm.surface=dm
+    (only if confidence_tier extraction is needed)
+  - Date filter: parameterized (14d default; no lower bound for all)
+  - RBAC: WHERE cn.rep_id = ANY($N::uuid[]) with repIds from getRepIdsVisibleToActor()
+  - Sort: call_started_at DESC
+  - No BigQuery round-trip -- advisor hint uses local columns only
 
-### Postgres vs BigQuery parameterization
+Advisor hint cascade (direct call_notes columns only):
+  1. cn.attendees JSONB {name,email} -- first non-savvy name
+  2. cn.invitee_emails TEXT[] -- first non-savvy email
+  3. cn.calendar_title TEXT
+  4. cn.title TEXT
 
-CONFIRMED: This query hits the Neon Postgres coaching DB via getCoachingPool().
-The @paramName convention in CLAUDE.md is BigQuery-specific and does NOT apply here.
-All coaching DB helpers use $N positional parameters (verified in knowledge-gap-clusters.ts
-and insights-evals-list.ts). Spec SQL sketches correctly use $2::date, $6::bool, etc.
-
-### Coaching DB schema traps — confirmed
-
-- knowledge_base_chunks PK is id (not chunk_id): confirmed — spec LATERAL uses WHERE id = ANY(d.kb_chunk_ids).
-- evaluations.knowledge_gaps is JSONB: confirmed — jsonb_array_elements(e.knowledge_gaps) at line 102.
-- rep_deferrals.kb_chunk_ids: referenced in spec new deferral CTE but NOT read in the current query.
-  VERIFY the column exists and its type (uuid[]) before writing the LATERAL join.
-  A live probe against the coaching DB is recommended before merge.
----
-
-## Construction Site Inventory
-
-| File | Lines | What touches KnowledgeGapClusterRow | Change needed |
-|---|---|---|---|
-| src/lib/queries/call-intelligence/knowledge-gap-clusters.ts | 179-199 | Primary constructor | Rename topic->bucket. Add bucketKind, sampleEvidence. Remove $9. Add mode arg. Rewrite both CTEs. Update RawRow type. |
-| src/types/call-intelligence.ts | 301-309 | Interface definition | Rename topic->bucket. Add bucketKind, sampleEvidence fields. |
-| src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx | 193, 631, 634 | State type + two render reads of .topic | c.topic->c.bucket at lines 631/634. Add cluster card click handler. Add longtail collapse. Add humanizeBucket() helper. |
-| src/app/api/call-intelligence/insights/clusters/route.ts | 101-110 | Calls helper, passes through | Pass mode: focusRep ? rep_focus : team. Optionally parse ?limit=full. No field-rename changes. |
-| src/lib/queries/call-intelligence/__tests__/knowledge-gap-clusters.test.ts | 45-56 | Tests $9 synonyms param | Delete synonyms test. Update param-index assertions for new param count. |
+Savvy-internal filter: @savvywealth.com, @savvyadvisors.com
+(same as isSavvyInternal in coaching-usage/route.ts:33-37).
 
 ---
 
-## Section 5 Modal Infrastructure Status — Explicit GO/NO-GO
+## 3. New API Route Needed
 
-SHIPPED. GO for Part 3 (cluster modal chain).
+New file: C:/Users/russe/Documents/Dashboard/src/app/api/call-intelligence/needs-linking/route.ts
 
-| Component | Status |
-|---|---|
-| Modal stack helper (useState) in InsightsTab | SHIPPED — lines 207-258 |
-| Layer 1 InsightsEvalListModal | SHIPPED — src/components/call-intelligence/InsightsEvalListModal.tsx |
-| Layer 2 InsightsEvalDetailModal | SHIPPED — src/components/call-intelligence/InsightsEvalDetailModal.tsx |
-| Layer 3 TranscriptModal | SHIPPED — src/components/call-intelligence/TranscriptModal.tsx |
-| CitationPill | SHIPPED — src/components/call-intelligence/CitationPill.tsx |
-| /api/call-intelligence/insights/evals/route.ts | SHIPPED (list data source for Layer 1) |
-| /api/call-intelligence/insights/eval-detail/route.ts | NOT CREATED — full-eval route used instead |
-| /dashboard/call-intelligence/insights/evals/ page | DELETED |
-| Modal stack types in call-intelligence.ts | SHIPPED — lines 329-356 |
+NOT under src/app/api/admin/ -- SGMs access it.
+
+  GET /api/call-intelligence/needs-linking?range=14d|all
+
+Auth pattern mirrors src/app/api/call-intelligence/insights/heatmap/route.ts:37-110:
+
+  1. getServerSession + getSessionPermissions
+  2. allowedPages.includes(20) gate
+  3. Role gate: [manager, admin, revops_admin, sgm]
+     (widens from revops_admin-only coaching-usage route)
+  4. getRepIdByEmail(session.user.email) -> actorRepId (fail-open for privileged)
+  5. getRepIdsVisibleToActor({repId, role, email}) -> visibleRepIds
+  6. Call needs-linking query with visibleRepIds
+
+Caching: Do NOT reuse CACHE_TAGS.COACHING_USAGE.
+Coaching-usage cache entries are revops_admin-only; mixing exposes cross-role data.
+Either no caching or a new CACHE_TAGS.NEEDS_LINKING tag in src/lib/cache.ts.
 
 ---
 
-## Surprising Findings (not anticipated by spec)
+## 4. New Components Needed
 
-### 1. InsightsEvalDetailModal topic-drill section is deferral-only — gaps have no render path
+### NeedsLinkingTab
 
-InsightsEvalDetailModal.tsx line 146:
-  topicDeferrals = detail.rep_deferrals.filter(d => d.topic === payload.topic)
+New file: C:/Users/russe/Documents/Dashboard/src/app/dashboard/call-intelligence/tabs/NeedsLinkingTab.tsx
 
-For a knowledge-gap cluster drill, rep_deferrals will have no matches because knowledge gaps
-live in evaluations.knowledge_gaps (JSONB), not in rep_deferrals.
-The modal shows No deferrals captured for this topic — empty.
-Gap evidence requires a separate render section reading detail.knowledge_gaps filtered by
-expected_source or gap text. This section does NOT exist today.
-Must be added to InsightsEvalDetailModal as part of section 6c.
-This is a missing implementation requirement not explicitly called out in the spec.
+Pattern: CoachingUsageTab.tsx (range toggle, fetch effect, table render).
 
-### 2. Test file hard-asserts the $9 synonyms param
+Differences from CoachingUsageTab:
+  - No KPI strip
+  - No complex filter set (no tri-state controls, no stage filter)
+  - Table: call date, source, advisor hint, rep, manager, linkage_strategy, days since call, action
+  - Row action: router.push to /dashboard/call-intelligence/review/[callNoteId]
+  - Default range: 14d (not 30d)
+  - No advisorEmailExtras complexity -- hint only
+  - No sort dropdown -- fixed call_started_at DESC from server
 
-knowledge-gap-clusters.test.ts lines 45-56 asserts params[8] is synonyms JSON and validates
-parsed.annuity. After the rewrite removes $9, this test fails at assertion.
-Must be deleted and replaced with tests for the new CTE behavior.
+Fetches from: /api/call-intelligence/needs-linking?range=14d|all
 
-### 3. humanizeKey cannot handle KB path separators
+### No changes to CallDetailModal.tsx
 
-Existing humanizeKey (InsightsTab.tsx line 54) only splits on underscore.
-Bucket profile/ideal-candidate-profile renders as Profile/ideal-candidate-profile.
-New humanizeBucket() helper needed for cluster card labels.
+CallDetailRowSummary at src/components/call-intelligence/CallDetailModal.tsx:13-33
+does NOT need changes. Needs Linking rows navigate to review page, not the modal.
 
-### 4. InsightsEvalDetailModal will show empty content for gap cluster drills
+---
 
-The guard at line 124 passes when payload.topic is set. But the topic-drill section (lines 269-300)
-filters rep_deferrals which will be empty for gap evidence.
-A new knowledge-gap render section reading detail.knowledge_gaps is required.
+## 5. Changes to CallIntelligenceClient.tsx
 
-### 5. No useModalStack abstraction — inline useState in InsightsTab
+File: C:/Users/russe/Documents/Dashboard/src/app/dashboard/call-intelligence/CallIntelligenceClient.tsx
 
-Spec suggested useModalStack as a possible extraction. Actual implementation uses inline
-useState<InsightsModalStackLayer[]> in InsightsTab. No reusable hook exists to import.
-The cluster-evidence modal shares the same stack in InsightsTab.
+  1. Add import NeedsLinkingTab from ./tabs/NeedsLinkingTab
+  2. Line 22: add needs-linking to VALID_TABS
+  3. Add tab button -- visibility: isManagerOrAdmin || role === sgm
+  4. Add render branch:
+     {(isManagerOrAdmin || role===sgm) && activeTab===needs-linking && <NeedsLinkingTab/>}
+  5. safeInitial fallback (lines 28-33): no changes -- falls back gracefully
 
-### 6. TranscriptModal prop is initialUtteranceIndex (integer) not initialUtteranceId (UUID)
+Suggested icon: Link from lucide-react.
 
-Spec section 5 narrative says initialUtteranceId. Actual prop at TranscriptModal.tsx line 28 is
-initialUtteranceIndex: number | null. All callers in InsightsTab already use the correct name.
-Spec language error only. Implementation guide should use initialUtteranceIndex.
+---
 
-### 7. rep_deferrals.kb_chunk_ids is not currently read anywhere in the cluster query
+## 6. Changes to page.tsx
 
-The new deferral CTE joins knowledge_base_chunks via d.kb_chunk_ids. The current query
-never reads this column. Before writing the LATERAL join, verify:
-(a) column exists on rep_deferrals, (b) type is uuid[], (c) populated on recent rows.
-A live probe against the coaching DB is recommended before merge.
+File: C:/Users/russe/Documents/Dashboard/src/app/dashboard/call-intelligence/page.tsx:12
 
-### 8. Cluster cards use c.topic as React key — must change to c.bucket
+Replace (current -- missing cost-analysis):
+  [queue,settings,admin-users,admin-refinements,rubrics,coaching-usage,insights]
 
-InsightsTab.tsx line 631: key={c.topic}. After rename must become key={c.bucket}.
-KB path values with slashes are valid React keys; unique since bucket is the SQL GROUP BY key.
+With (fix bug + add needs-linking):
+  [queue,settings,admin-users,admin-refinements,rubrics,
+   coaching-usage,insights,cost-analysis,needs-linking]
+
+---
+
+## 7. Existing Coaching Usage View -- ZERO CHANGES
+
+Must remain byte-for-byte unchanged:
+  C:/Users/russe/Documents/Dashboard/src/app/api/admin/coaching-usage/route.ts
+  C:/Users/russe/Documents/Dashboard/src/app/dashboard/call-intelligence/tabs/CoachingUsageTab.tsx
+
+New tab is fully independent. CoachingUsageClient render guarded by
+isRevopsAdmin && activeTab===coaching-usage. Adding a new branch does not touch it.
+
+---
+
+## 8. Export Paths -- No Changes Required
+
+ExportButton (src/components/dashboard/ExportButton.tsx): Object.keys() -- not applicable.
+ExportMenu (src/components/dashboard/ExportMenu.tsx): Explicit columns -- not applicable.
+MetricDrillDownModal (src/components/sga-hub/MetricDrillDownModal.tsx): Not applicable.
+
+Needs Linking is an action queue, not an export surface. No export path changes needed.
+
+---
+
+## 9. RBAC Summary
+
+| Role         | Access | Scope                                    |
+|--------------|--------|------------------------------------------|
+| revops_admin | Yes    | All reps                                 |
+| admin        | Yes    | All reps                                 |
+| manager      | Yes    | Direct reports + pod members + observers |
+| sgm          | Yes    | Direct reports + pod members             |
+| sga          | No     | Tab reviews others calls                 |
+| viewer       | No     | No page 20 access                        |
+
+getRepIdsVisibleToActor() at src/lib/queries/call-intelligence/visible-reps.ts
+handles all cases. No changes to that function needed.
+
+RBAC pattern to copy from src/app/api/call-intelligence/insights/heatmap/route.ts:54-93:
+
+  const isPrivileged = permissions.role===admin || permissions.role===revops_admin;
+  const rep = await getRepIdByEmail(session.user.email);
+  if (!rep && !isPrivileged) return 403;
+  const actorRepId = rep?.id ?? empty-string;
+  const visibleRepIds = await getRepIdsVisibleToActor({repId:actorRepId, role:permissions.role, email});
+  // SQL: WHERE cn.rep_id = ANY($N::uuid[])
+
+---
+
+## 10. Full File Change List
+
+MODIFY:
+  src/types/call-intelligence.ts
+    -- Add needs-linking to CallIntelligenceTab; add NeedsLinkingRow interface
+  src/app/dashboard/call-intelligence/CallIntelligenceClient.tsx
+    -- Import, VALID_TABS, tab button, render branch
+  src/app/dashboard/call-intelligence/page.tsx
+    -- Add cost-analysis (pre-existing bug fix) + needs-linking to VALID_TABS
+
+CREATE:
+  src/app/dashboard/call-intelligence/tabs/NeedsLinkingTab.tsx
+  src/app/api/call-intelligence/needs-linking/route.ts
+  src/lib/queries/call-intelligence/needs-linking.ts
+
+NOT changed:
+  src/app/api/admin/coaching-usage/route.ts
+  src/app/dashboard/call-intelligence/tabs/CoachingUsageTab.tsx
+  src/lib/coachingDb.ts
+  src/lib/cache.ts  (add NEEDS_LINKING tag only if caching is wanted)
+  src/components/call-intelligence/CallDetailModal.tsx
+  src/lib/queries/call-intelligence/visible-reps.ts
+  src/lib/permissions.ts
+
+---
+
+## 11. Advisor Hint -- Available call_notes Columns
+
+All are direct call_notes columns (no BigQuery resolution needed):
+  cn.attendees JSONB      -- {name,email} array, extract first non-savvy name
+  cn.invitee_emails TEXT[] -- first non-savvy email fallback
+  cn.calendar_title TEXT  -- event title, may contain advisor name
+  cn.title TEXT           -- Granola note title
+
+Savvy-internal filter: @savvywealth.com and @savvyadvisors.com
+(same as isSavvyInternal in coaching-usage/route.ts:33-37).
+
+---
+
+## 12. manual_entry Validation -- Confirmed: EXCLUDE
+
+Per sales-coaching/src/lib/db/call-notes.ts:1304-1342 (setCallNoteSfdcLink):
+manual_entry always sets sfdc_record_id (required non-null argument). Confirmed-linked.
+
+Per NoteReviewClient.tsx:200: Dashboard writes linkage_strategy=manual_entry on rep pick.
+
+Conclusion: manual_entry rows are resolved, not orphaned.
+The spec inclusion of manual_entry in the predicate is incorrect.
+
+---
+
+## 13. Open Questions for Implementation Team
+
+Q1. Is confidence_tier extraction required?
+    If yes: LEFT JOIN slack_review_messages + extract candidates[0].confidence_tier from JSONB.
+    If no: use simpler linkage_strategy-only predicate.
+
+Q2. Kixie edge cases.
+    kixie_task_link excluded by IN clause. If a Kixie call has crd_prefix or
+    attendee_email as linkage_strategy (edge case), it correctly appears.
+    Confirm intended behavior with SME.
+
+Q3. SGM access to /dashboard/call-intelligence/review/[callNoteId].
+    NoteReviewPage calls salesCoachingClient.getCallNoteReview(email, callNoteId)
+    which has RBAC inside the bridge. Verify bridge allows SGM-role users to access
+    call notes in their visible-rep set (not only their own calls).
+    If not, Open SFDC search will 404 for SGMs accessing a coachee call.

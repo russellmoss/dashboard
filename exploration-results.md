@@ -1,159 +1,231 @@
-# Exploration Results — Knowledge Gap Clusters Rewrite (§6)
+# Exploration Results — Needs Linking Sub-Tab
 
 **Generated:** 2026-05-12
-**Feature:** Rewrite the Knowledge Gap Clusters surface on the Insights tab. Part 1 = bucketing rewrite (drop synonym map; use `expected_source` paths for gaps and `knowledge_base_chunks.topics[]` lateral for deferrals). Part 2 = ranking + longtail-collapse. Part 3 = drill-down modal chain reusing §5's stack.
-**Scope:** Dashboard-only. No upstream sales-coaching changes. No Neon backfill required (data already populated).
+**Feature:** Add a "Needs Linking" sub-tab to the Coaching Usage view at `/dashboard/call-intelligence`. Surfaces `call_notes` not confidently attached to a Salesforce record.
+**Scope:** Dashboard-only. No upstream sales-coaching schema changes needed.
 
 ## Pre-Flight Summary
 
-Three exploration agents finished without blockers. The rewrite is buildable in one PR. Live Neon probes confirm spec field shapes and bucket numbers (with minor decay since the spec was written: 765 gap items / 169 deferrals in 90d, vs spec's 422 / 147). §5's modal stack — `InsightsEvalListModal` (z-50), `InsightsEvalDetailModal` (z-[60]), `TranscriptModal` (z-[70]) plus `CitationPill` — is fully shipped, so Part 3 (modal-chain drill-down) is GO. One unanticipated gap: the existing `InsightsEvalDetailModal` topic-drill section is deferral-only (lines 269–300, commented "reserved for cluster ship"); a gap-evidence render path needs to be added there as part of §6c. The `humanizeKey` UI helper can't render `/`-path bucket labels — a small new display helper is required. The new SQL pattern (LATERAL JOIN to `knowledge_base_chunks` + `unnest(topics)`) is new to the call-intelligence directory but has a verbatim precedent in `src/lib/queries/record-notes.ts:256` (LEFT JOIN LATERAL ... ON TRUE).
+The feature adds a "Needs Linking" sub-tab to the Coaching Usage view at `/dashboard/call-intelligence`. Three critical spec corrections emerged: (1) `confidence_tier` is **not** a scalar column on `call_notes` — it lives inside `slack_review_messages.sfdc_suggestion` JSONB; (2) `lead_contact_name` and `summary_name` are not valid `linkage_strategy` enum values — only `crd_prefix`, `attendee_email`, `calendar_title`, `manual_entry`, and `kixie_task_link` exist; (3) `manual_entry` rows are already SGM-resolved (rep selected an SFDC record) and must be **excluded**. The recommended v1 orphan predicate simplifies to `status='pending'` as the sole filter — this yields 224 all-time rows (67 in last 14 days). No schema migrations are needed. The feature requires 3 new files (query, API route, component) and modifications to 3 existing files (types, client orchestrator, server page). An RBAC gap exists: SGMs currently have zero coachee linkage in the coaching DB, so `getRepIdsVisibleToActor()` returns an empty set for SGMs today — this is a data-setup issue, not a code bug.
 
-## Postgres (Neon) Data Layer Status
+---
 
-All required tables and columns exist with the types the spec assumes.
+## 1. Schema Status — sales-coaching Neon
 
-| Table | Verified columns | Notes |
+### Confirmed Columns on `call_notes` (585 non-deleted rows)
+
+| Column | Exists | Type | Population | Notes |
+|---|---|---|---|---|
+| `call_started_at` | ✅ | timestamptz NOT NULL | 100% | |
+| `source` | ✅ | text NOT NULL | 100% | `granola` (503) or `kixie` (82) |
+| `title` | ✅ | text NOT NULL | 100% | Max 78 chars |
+| `invitee_emails` | ✅ | text[] NOT NULL | 100% (36 empty arrays) | Google Calendar resource accounts must be filtered |
+| `attendees` | ✅ | jsonb NOT NULL | 100% (1 empty array) | Shape: `[{name, email}]` |
+| `rep_id` | ✅ | uuid NOT NULL | 100% | FK to `reps.id` |
+| `linkage_strategy` | ✅ | text NOT NULL | 100% | 3 values in live data (see below) |
+| `status` | ✅ | text NOT NULL | 100% | 4 values (see below) |
+| **`confidence_tier`** | ❌ | — | — | **Does not exist as a column.** Lives in `slack_review_messages.sfdc_suggestion` JSONB |
+
+### Value Distributions
+
+**`linkage_strategy`** (only 3 values exist in live data):
+| Value | Count | % |
 |---|---|---|
-| `evaluations` | `knowledge_gaps` JSONB array, `dimension_scores` JSONB, `rep_id`, `call_note_id`, `created_at`, `rubric_version` | 765 gap items in 90d; `knowledge_gaps[].text` 100% populated, `expected_source` 90.4% populated (vs spec's 92%), `citations` 100% populated |
-| `rep_deferrals` | `kb_chunk_ids` uuid[] NOT NULL, `utterance_index` int NULLABLE (schema-level), `deferral_text` text NOT NULL 100% populated, `kb_coverage` text (NOT enum), `is_synthetic_test_data` bool NOT NULL, `call_note_id`, `topic`, `created_at` | 169 advisor-eligible rows in 90d; 100% have at least one active chunk with topics — lateral coverage is 100% |
-| `knowledge_base_chunks` | `id` UUID PK, `topics` text[] NOT NULL, `is_active` bool NOT NULL, `chunk_index` int NOT NULL, `body_text`, `chunk_role`, `call_stages`, `rubric_dimensions`, `doc_id`, `drive_file_id` | 31 distinct curated topics across 176 active chunks (within spec's "~10–30" guidance) |
-| `call_notes` | `id`, `source`, `likely_call_type` | Advisor-eligible filter `(source='kixie' OR likely_call_type='advisor_call')` is the verbatim repo idiom |
-| `reps` | `id`, `full_name`, `is_system`, `is_active`, `role` | Joined via `scoped_reps` CTE |
+| `manual_entry` | 502 | 85.8% |
+| `kixie_task_link` | 82 | 14.0% |
+| `crd_prefix` | 1 | 0.2% |
 
-**Live probe results (90-day window):**
+`calendar_title`, `attendee_email` exist in the CHECK constraint but have zero rows. `lead_contact_name` and `summary_name` are NOT valid enum values — they are `source_signal` labels in `sfdc_suggestion` JSONB.
 
-- **Top bucket:** `profile/ideal-candidate-profile` = **143 gaps, 13 reps** (spec said 132/13 — minor decay, criterion (c) needs to be loosened to "rep count ≈ 13")
-- **`expected_source` 2-segment bucket distribution:** 20 distinct buckets, top 5 = `profile/ideal-candidate-profile` (143), `playbook/sga-discovery` (103), `facts/process` (32), `playbook/sgm-intro` (26), `playbook/handoff`/`playbook/platform-review` (21 each)
-- **Uncategorized gap bucket:** 43/450 advisor-eligible rows = 9.6% (well-bounded)
-- **`knowledge_base_chunks.topics` distribution:** top 5 = `sgm_handoff` (46), `discovery_call_structure` (34), `move_mindset` (32), `candidate_persona` (31), `aum_qualification` (27)
-- **Lateral deferral-coverage rate:** 169/169 = **100%** — the `'Uncategorized: ' || d.topic` fallback hits zero rows today. Spec assumed >70%; reality is full coverage. **Keep the fallback in SQL** for future-proofing, but don't build dedicated UI logic around it.
-- **Unfiltered ceiling (acceptance criterion (a)):** 450 advisor-eligible gaps + 169 advisor-eligible deferrals = 619 rows the rewrite must surface.
+**`status`:**
+| Value | Count | % |
+|---|---|---|
+| `rejected` | 283 | 48.4% |
+| `pending` | 224 | 38.3% |
+| `approved` | 51 | 8.7% |
+| `sent_to_sfdc` | 27 | 4.6% |
 
-**Data quality risks — all probed and clean:**
+### `manual_entry` Resolution Status
 
-- 0 rows with leading slashes or backslashes in `expected_source`
-- 0 rows with NULL/empty `kb_chunk_ids` (column is NOT NULL)
-- 0 chunks with duplicate topics
-- 0 deferrals with NULL/empty `d.topic` in 90d
-- `NULLIF(split_part('','/',1) || '/' || split_part('','/',2), '/')` returns NULL — COALESCE → 'Uncategorized' works
+| status | Count | has sfdc_record_id | Conclusion |
+|---|---|---|---|
+| `rejected` | 282 | 0 | SGM-resolved (declined) — **exclude** |
+| `pending` | 192 | 0 | Unresolved — **include** |
+| `sent_to_sfdc` | 26 | 10 | Resolved — **exclude** |
+| `approved` | 2 | 0 | Resolved — **exclude** |
 
-**Surprise — `kb_source.chunk_id` field name:** In `knowledge_gaps[].citations`, the `kb_source` sub-object uses the field name `chunk_id` (not `id`). This maps to `knowledge_base_chunks.id` via aliasing in `call-intelligence-evaluations.ts:465`. The Citation type in the new `sampleEvidence` array must match: `kb_source?: { doc_id, chunk_id, doc_title, drive_url }`.
+### JSONB Shapes
 
-## Files to Modify
+**`attendees`:** `[{"name": "Lena Allouche", "email": "lena.allouche@savvywealth.com"}]`. Kixie: 2 elements (rep + prospect). Granola: variable count. Filter out `@savvywealth.com`, `@savvyadvisors.com`, `resource.calendar.google.com`.
 
-| File | Type of change |
+**`invitee_emails`:** `text[]`. 36 empty arrays. Email strings only, no names. Same domain filtering needed.
+
+### Advisor Hint Extraction Priority
+1. First non-internal attendee's `name` field from `attendees` JSONB
+2. First non-internal email from `invitee_emails` array
+3. Fallback: `title` (always populated)
+
+---
+
+## 2. Corrected Orphan Definition
+
+The spec's filter criteria have three errors. Corrected predicate:
+
+**v1 (recommended — simple, no JOIN needed for filtering):**
+```sql
+WHERE cn.source_deleted_at IS NULL
+  AND cn.status = 'pending'
+```
+Volume: 224 all-time, 67 in last 14 days.
+
+**Confidence tier as display column (LEFT JOIN, not filter):**
+```sql
+LEFT JOIN slack_review_messages srm ON srm.call_note_id = cn.id AND srm.surface = 'dm'
+-- Display: srm.sfdc_suggestion->'candidates'->0->>'confidence_tier'
+-- Available for ~87/224 pending rows; NULL for the rest
+```
+
+**Rationale:**
+- `status='pending'` captures all unresolved calls regardless of linkage strategy
+- `manual_entry` = rep already selected SFDC record → exclude (non-pending are resolved)
+- `kixie_task_link` + non-pending = ingestion-resolved → exclude
+- `rejected` = SGM reviewed and declined → exclude
+- `confidence_tier` is display-only (not a filter), available via JOIN for ~87/224 pending rows
+
+---
+
+## 3. Files to Modify
+
+| File | Change |
 |---|---|
-| `src/lib/queries/call-intelligence/knowledge-gap-clusters.ts` | Full CTE rewrite — drop `topics` CTE, drop `$9::jsonb`, add LATERAL deferral join, add `evidence_text` + `citations` + `expected_source_full` columns, add `mode` arg, conditional slice-cap literal (5 vs 200) |
-| `src/types/call-intelligence.ts` | `KnowledgeGapClusterRow`: rename `topic` → `bucket`, add `bucketKind`, add `sampleEvidence[]`. Extend `InsightsModalStackLayer` union with new `kind: 'cluster'` variant + payload type. Add `KnowledgeGapClusterEvidence` type |
-| `src/app/api/call-intelligence/insights/clusters/route.ts` | Add `?mode` (or derive from `focusRep`) and `?limit=full` query params; pass `mode: focusRep ? 'rep_focus' : 'team'` to helper |
-| `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx` | Cluster card → clickable wrapper; new `humanizeBucket` display helper for `/`-path labels; longtail-collapse state + render; cluster-modal stack entry; URL hash sync entry for `#modal=cluster` |
-| `src/components/call-intelligence/InsightsEvalDetailModal.tsx` | Add gap-evidence render path next to existing topic-drill (which is deferral-only today) |
-| `src/components/call-intelligence/InsightsEvalListModal.tsx` (or new `InsightsClusterEvidenceModal.tsx`) | Layer 1 cluster-evidence variant — see Phase 5 design decision |
-| `src/lib/queries/call-intelligence/__tests__/knowledge-gap-clusters.test.ts` | Remove `params[8]` synonyms assertion; add LATERAL appearance check |
-| `src/lib/kb-vocab-synonyms.ts` | Keep file as theming data; remove the `import KB_VOCAB_SYNONYMS` from `knowledge-gap-clusters.ts` only (verified: no other consumers) |
+| `src/types/call-intelligence.ts` | Add `'needs-linking'` to `CallIntelligenceTab` union (line 210). Add `NeedsLinkingRow` interface. |
+| `src/app/dashboard/call-intelligence/CallIntelligenceClient.tsx` | Add `'needs-linking'` to `VALID_TABS` (line 22). Add tab button with expanded visibility. Add render branch for `NeedsLinkingTab`. |
+| `src/app/dashboard/call-intelligence/page.tsx` | Add `'needs-linking'` to server-side `VALID_TABS` (line 12). |
 
-## Type Changes (exact)
+## 4. Files to Create
 
-```ts
-// src/types/call-intelligence.ts
+| File | Purpose |
+|---|---|
+| `src/lib/queries/call-intelligence/needs-linking.ts` | Direct-pg query function. RBAC via `repIds: string[]` param. Returns `NeedsLinkingRow[]`. |
+| `src/app/api/call-intelligence/needs-linking/route.ts` | API route. Auth: `allowedPages(20)` + role gate `['manager', 'admin', 'revops_admin', 'sgm']`. RBAC via `getRepIdsVisibleToActor()`. No caching (actor-scoped). |
+| `src/app/dashboard/call-intelligence/tabs/NeedsLinkingTab.tsx` | Component with table, "last 14 days" / "all" toggle, ExportButton, row action linking to review page. |
 
-export interface KnowledgeGapClusterEvidence {
-  evaluationId: string;
-  repId: string;
-  repName: string;
-  kind: 'gap' | 'deferral';
-  text: string;                                  // gap text OR verbatim deferral quote
-  callStartedAt: string | null;                  // for the cluster-evidence modal columns
-  citations: Array<{
-    utterance_index?: number;
-    kb_source?: { doc_id: string; chunk_id: string; doc_title: string; drive_url: string };
-  }>;
-  expectedSource?: string;                       // gap-only, full path
-  kbCoverage?: 'covered' | 'partial' | 'missing'; // deferral-only
-}
+## 5. Files with Zero Changes (confirmed)
 
-export interface KnowledgeGapClusterRow {
-  bucket: string;                                  // renamed from `topic`
-  bucketKind: 'kb_path' | 'kb_topic' | 'uncategorized';
-  totalOccurrences: number;
-  gapCount: number;
-  deferralCount: number;
-  deferralByCoverage: { covered: number; partial: number; missing: number };
-  repBreakdown: Array<{ repId: string; repName: string; gapCount: number; deferralCount: number }>;
-  sampleEvalIds: string[];
-  sampleEvidence: KnowledgeGapClusterEvidence[];
-}
+| File | Reason |
+|---|---|
+| `src/app/api/admin/coaching-usage/route.ts` | Existing API route — byte-for-byte preserved |
+| `src/app/dashboard/call-intelligence/tabs/CoachingUsageTab.tsx` | Existing component — byte-for-byte preserved |
+| `src/lib/queries/call-intelligence/visible-reps.ts` | RBAC function — no changes needed |
+| `src/lib/permissions.ts` | Page 20 already includes SGM |
+| `src/lib/cache.ts` | No new cache tags (Needs Linking is uncached) |
 
-// Modal stack — add to existing InsightsModalStackLayer discriminated union:
-export type InsightsModalStackLayer =
-  | { kind: 'list'; payload: EvalListModalPayload }
-  | { kind: 'detail'; payload: EvalDetailDrillPayload }
-  | { kind: 'transcript'; payload: TranscriptModalPayload }
-  | { kind: 'cluster'; payload: ClusterEvidenceModalPayload }; // NEW
+## 6. Type Changes
 
-export interface ClusterEvidenceModalPayload {
-  bucket: string;
-  bucketKind: 'kb_path' | 'kb_topic' | 'uncategorized';
-  evidence: KnowledgeGapClusterEvidence[];
-  gapCount: number;
-  deferralCount: number;
+### New `NeedsLinkingRow` interface (in `src/types/call-intelligence.ts`)
+```typescript
+export interface NeedsLinkingRow {
+  callNoteId: string;
+  callDate: string;          // ISO timestamp from call_started_at
+  source: string;            // 'granola' | 'kixie'
+  advisorHint: string;       // Extracted from attendees/invitee_emails/title
+  repName: string;           // reps.full_name
+  managerName: string | null; // manager reps.full_name (nullable — 5 reps have no manager)
+  linkageStrategy: string;   // call_notes.linkage_strategy
+  confidenceTier: string | null; // from slack_review_messages JSONB (nullable — only 87/224 have it)
+  daysSinceCall: number;     // Computed SQL-side
 }
 ```
 
-## Construction Site Inventory
+### `CallIntelligenceTab` union extension
+```typescript
+export type CallIntelligenceTab = 'queue' | 'record-notes' | 'coaching-usage' | 'insights' | 'settings' | 'usage-analytics' | 'cost-analysis' | 'needs-linking';
+```
 
-| File:Line | What it touches | Required change |
+## 7. Construction Site Inventory
+
+Since `NeedsLinkingRow` is a **new type** (not extending existing types), there is only **one construction site**: the query function in `src/lib/queries/call-intelligence/needs-linking.ts` where raw pg rows are mapped to `NeedsLinkingRow[]`.
+
+No existing code constructs `NeedsLinkingRow` objects.
+
+## 8. Recommended Phase Order
+
+1. **Phase 1 — Types**: Add `NeedsLinkingRow` interface and extend `CallIntelligenceTab` union
+2. **Phase 2 — Query Layer**: Create `needs-linking.ts` query function with direct-pg, RBAC, advisor hint extraction
+3. **Phase 3 — API Route**: Create `/api/call-intelligence/needs-linking/route.ts` with auth, role gate, RBAC
+4. **Phase 4 — Component**: Create `NeedsLinkingTab.tsx` with table, toggle, export, row action
+5. **Phase 5 — Integration**: Wire into `CallIntelligenceClient.tsx` and `page.tsx` with tab navigation
+6. **Phase 6 — Return Navigation Fix**: Fix `NoteReviewClient.tsx` hardcoded return URL to support `?returnTab=needs-linking`
+7. **Phase 7 — Documentation sync**
+
+## 9. Risks and Blockers
+
+### Critical — Spec Corrections Required
+1. **`confidence_tier` not a column** — Include as display-only column via LEFT JOIN to `slack_review_messages`. Do NOT use as filter criteria. Will be NULL for ~61% of pending rows.
+2. **`manual_entry` exclusion** — Spec says include; data says these are resolved. Must exclude non-pending ones; `status='pending'` handles this.
+3. **Invalid linkage_strategy values** — `lead_contact_name`, `summary_name` don't exist as enum values. Predicate simplified to `status='pending'`.
+
+### RBAC Data Gap
+SGMs currently have zero coachee linkage in `coaching_teams`/`coaching_observers`/`reps.manager_id`. `getRepIdsVisibleToActor()` returns empty array for SGMs. The code is correct but the data hasn't been set up. This is a data-setup task, not a code change. The tab will work correctly once SGM→SGA relationships are populated.
+
+### NoteReviewClient Return Navigation
+`NoteReviewClient.tsx` hardcodes return to `?tab=queue`. SGMs arriving from Needs Linking will be dropped at the wrong tab. Fix: use `searchParams` to read `returnTab` and construct the correct return URL.
+
+### No `14d` in AllowedRange
+`src/lib/coachingDb.ts` `AllowedRange` type is `'7d' | '30d' | '90d' | 'all'`. Needs Linking wants 14-day default. Recommendation: use independent `showAll: boolean` parameter instead of shared range enum.
+
+### Cache Isolation
+Do NOT reuse `CACHE_TAGS.COACHING_USAGE` — it's keyed for revops_admin-only data. Needs Linking is actor-scoped (per-user visible rep set). Use `export const dynamic = 'force-dynamic'` with no caching.
+
+### `VALID_TABS` Server/Client Mismatch (Pre-existing)
+`page.tsx` line 12 omits `'cost-analysis'` from `VALID_TABS` but `CallIntelligenceClient.tsx` line 22 includes it. Fix when adding `'needs-linking'` to both.
+
+## 10. SQL Query (Reference)
+
+```sql
+SELECT
+  cn.id AS call_note_id,
+  cn.call_started_at,
+  cn.source,
+  cn.linkage_strategy,
+  COALESCE(
+    (SELECT a->>'name'
+       FROM jsonb_array_elements(cn.attendees) AS a
+      WHERE NULLIF(TRIM(a->>'name'), '') IS NOT NULL
+        AND LOWER(COALESCE(a->>'email','')) NOT LIKE '%@savvywealth.com'
+        AND LOWER(COALESCE(a->>'email','')) NOT LIKE '%@savvyadvisors.com'
+        AND LOWER(COALESCE(a->>'email','')) NOT LIKE '%@resource.calendar.google.com'
+      LIMIT 1),
+    (SELECT eml FROM unnest(cn.invitee_emails) AS eml
+      WHERE LOWER(eml) NOT LIKE '%@savvywealth.com'
+        AND LOWER(eml) NOT LIKE '%@savvyadvisors.com'
+        AND LOWER(eml) NOT LIKE '%@resource.calendar.google.com'
+      LIMIT 1),
+    cn.title
+  ) AS advisor_hint,
+  sga.full_name AS rep_name,
+  sgm.full_name AS manager_name,
+  srm.sfdc_suggestion->'candidates'->0->>'confidence_tier' AS top_confidence_tier,
+  FLOOR(EXTRACT(EPOCH FROM (now() - cn.call_started_at)) / 86400)::int AS days_since_call
+FROM call_notes cn
+LEFT JOIN reps sga ON sga.id = cn.rep_id AND sga.is_system = false
+LEFT JOIN reps sgm ON sgm.id = sga.manager_id AND sgm.is_system = false
+LEFT JOIN slack_review_messages srm ON srm.call_note_id = cn.id AND srm.surface = 'dm'
+WHERE cn.source_deleted_at IS NULL
+  AND cn.status = 'pending'
+  AND cn.rep_id = ANY($1::uuid[])
+  AND ($2::boolean OR cn.call_started_at >= date_trunc('day', now()) - interval '14 days')
+ORDER BY cn.call_started_at DESC NULLS LAST
+```
+
+## 11. Key Patterns to Follow
+
+| Pattern | Source File | Convention |
 |---|---|---|
-| `src/lib/queries/call-intelligence/knowledge-gap-clusters.ts:179-200` | `.map(r => ({ topic: r.topic, ... }))` | Rewrite full mapper: `bucket`, `bucketKind`, `sampleEvidence` |
-| `src/types/call-intelligence.ts:301-309` | `KnowledgeGapClusterRow` definition | Rename + add fields |
-| `src/types/call-intelligence.ts:329-356` | `InsightsModalStackLayer` union | Add `cluster` variant |
-| `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx:631` | `key={c.topic}` | → `key={c.bucket}` |
-| `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx:634` | `humanizeKey(c.topic)` | → new `humanizeBucket(c.bucket, c.bucketKind)` |
-| `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx:193` | Type import | No code change, but the import resolves to a different shape after the rename — verify build |
-| `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx:208` | `modalStack` state | Already typed via union — extending union adds new variant cleanly |
-| `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx:261-280` | URL hash sync block | Add `#modal=cluster&bucket=...` case |
-| `src/app/api/call-intelligence/insights/clusters/route.ts:101-110` | `getKnowledgeGapClusters({...})` call | Add `mode`, accept `?limit=full` (informational — `mode` already implies cap) |
-| `src/lib/queries/call-intelligence/__tests__/knowledge-gap-clusters.test.ts:45-56` | `expect(params[8]).toBe(synonymsJson)` | Delete; replace with LATERAL-present assertion |
-
-## §5 Modal Infrastructure Status — GO
-
-All §5 prerequisites are shipped:
-
-| Component | Location | Status |
-|---|---|---|
-| Modal stack helper (state) | `InsightsTab.tsx:207-258` | shipped |
-| Layer 1 — eval-list | `src/components/call-intelligence/InsightsEvalListModal.tsx` | shipped |
-| Layer 2 — eval-detail | `src/components/call-intelligence/InsightsEvalDetailModal.tsx` | shipped; topic-drill section deferral-only (gap path needs adding for §6c) |
-| Layer 3 — transcript | `src/components/call-intelligence/TranscriptModal.tsx` | shipped; prop is `initialUtteranceIndex` (int), NOT `initialUtteranceId` (spec was loose on the name) |
-| Citation pill | `src/components/call-intelligence/CitationPill.tsx` | shipped |
-| Eval-detail API route | `/api/call-intelligence/evaluations/[id]` | used (the spec's proposed `/insights/eval-detail` was never created — current implementation reuses the full-eval route) |
-| Old page-nav drilldown | `/dashboard/call-intelligence/insights/evals/page.tsx` | deleted |
-| URL hash sync for back-button | `InsightsTab.tsx:261-290` | shipped — new `cluster` case slots into the existing block |
-
-## Recommended Phase Order
-
-1. **Pre-Flight** — `npm run build` baseline; capture current bucket totals via SQL probe (sanity baseline for acceptance criterion (a))
-2. **Phase 1 — Types** (`src/types/call-intelligence.ts`): add `KnowledgeGapClusterEvidence`, reshape `KnowledgeGapClusterRow`, extend `InsightsModalStackLayer`. **This intentionally breaks the build** — TypeScript errors become the checklist of remaining construction sites.
-3. **Phase 2 — Query rewrite** (`knowledge-gap-clusters.ts`): drop `topics` CTE + `$9`, rewrite `gap_hits` and `deferral_hits` CTEs with new bucket logic + evidence columns, add `mode` arg with conditional slice-cap literal, update `.map()` constructor, update RawRow type, remove `KB_VOCAB_SYNONYMS` import
-4. **Phase 3 — API route** (`clusters/route.ts`): pass `mode` derived from `focusRep`, accept `?limit=full` validator
-5. **Phase 4 — Modal extension** (`InsightsEvalDetailModal.tsx`): add gap-evidence render path (the existing topic-drill is deferral-only)
-6. **Phase 5 — Cluster-evidence modal** (Layer 1 variant): extend `InsightsEvalListModal` with a `mode: 'evalList' | 'clusterEvidence'` prop, OR create `InsightsClusterEvidenceModal.tsx` as a sibling. Recommend the latter for clarity — they have different column sets and different row click semantics. Council can adjudicate.
-7. **Phase 6 — UI wiring** (`InsightsTab.tsx`): new `humanizeBucket` helper, cluster card click handler that pushes `{ kind: 'cluster', payload }`, longtail-collapse state + render, URL hash sync entry, dispatcher for the new modal variant
-8. **Phase 7 — Tests** (`__tests__/knowledge-gap-clusters.test.ts`): remove `$9` assertion, add LATERAL check, optionally add a row-construction snapshot
-9. **Phase 7.5 — Doc sync** (`npx agent-guard sync` per CLAUDE.md standing rule)
-10. **Phase 8 — Live probes + browser validation** (the three spec probes + manual click-through)
-
-## Risks and Blockers
-
-| Risk | Severity | Mitigation |
-|---|---|---|
-| **Spec acceptance criterion (c) is decayed** (was 132 gaps / 13 reps; now 143/13) | Low | Loosen criterion to "≈13 reps, ≥130 gaps" or convert to label-only ("top bucket is `profile/ideal-candidate-profile`") |
-| **`InsightsEvalDetailModal.tsx` topic-drill is deferral-only** — gap drill path absent | Medium | Add a parallel gap-evidence render section in §6c work. Council should flag the exact slot to insert. |
-| **`humanizeKey` can't render `/`-path bucket labels** | Low | Ship a small `humanizeBucket(bucket, kind)` helper that splits on `/` and capitalizes each segment, joining with ` › ` (or similar). Keep `humanizeKey` for non-cluster usage. |
-| **Slice-cap literal injection** (5 vs 200) — Postgres rejects bound params for array-slice bounds | Low | Build two SQL variants in TS (or one with a string-substituted literal). Single source of truth for the value (don't hardcode `5` in multiple places). |
-| **`utterance_index` is nullable at schema level** | Low | Modal must guard `null` before scrolling. 0 of 169 deferrals are null today, but column allows it. |
-| **`kb_source.chunk_id` (gap citations) vs `knowledge_base_chunks.id` (chunks table)** — naming mismatch | Low | Already aliased in existing code at `call-intelligence-evaluations.ts:465`. Document inline. |
-| **`InsightsClusterEvidenceModal` — new component vs extending Layer 1?** | Medium | Phase 5 design call. Recommend sibling component (different columns, different click target for "enter rep-focus mode"). Council can adjudicate. |
-| **Test file `params[8]` assertion** | Low | One-line removal + replacement. |
-| **Lateral coverage is 100% — fallback bucket label "Uncategorized: \<topic\>" never hits** | Informational | Keep the SQL fallback for safety; don't introduce dedicated UI for it. |
-| **Deferral `sampleEvidence` aggregation cap of 5 may suppress diversity** in team mode | Low | Document the trade-off in a code comment. Rep-focus mode (200) is the high-fidelity path. |
+| Date coercion (Neon) | coaching-usage route.ts:373 | `instanceof Date ? .toISOString() : String(x)` |
+| RBAC scope | insights/reps/route.ts | `getRepIdsVisibleToActor()` with `isPrivileged` shortcut |
+| Role gate | insights/heatmap/route.ts:54-93 | `if (!['manager','admin','revops_admin','sgm'].includes(role))` |
+| No caching | — | `export const dynamic = 'force-dynamic'` (actor-scoped data) |
+| Export | ExportButton + export-csv.ts | Pre-map to human-friendly keys, pass to `<ExportButton>` |
+| Direct-pg query | coachingDb.ts | `getCoachingPool()` → `pool.query<T>()` |
+| Days-since-call | — | Compute SQL-side: `FLOOR(EXTRACT(EPOCH FROM (now() - ts)) / 86400)::int` |

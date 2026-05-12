@@ -1,1052 +1,857 @@
-# Agentic Implementation Guide — Knowledge Gap Clusters Rewrite (§6)
+# Agentic Implementation Guide — Needs Linking Sub-Tab
 
-> **Read first:** `insights-refinements.md` §6 (the spec), then `exploration-results.md` (the synthesis), then `code-inspector-findings.md` / `data-verifier-findings.md` / `pattern-finder-findings.md` for the deep dives. All five files are in the project root.
+## Reference Documents
+All decisions in this guide are based on the completed exploration files:
+- `exploration-results.md` — synthesized findings (primary)
+- `code-inspector-findings.md` — types, construction sites, file dependencies
+- `data-verifier-findings.md` — schema verification, data quality, value distributions
+- `pattern-finder-findings.md` — established patterns, data flow architecture
 
-> **§5 prerequisite is shipped.** GO for Part 3.
+## Feature Summary
 
----
+| Capability | Source | Notes |
+|---|---|---|
+| Needs Linking queue table | `call_notes` (sales-coaching Neon, direct pg) | `status='pending'` filter — spec's `confidence_tier` column doesn't exist as scalar |
+| Advisor hint extraction | `call_notes.attendees` JSONB + `invitee_emails` text[] + `title` | Cascade: first non-internal attendee name → first non-internal email → title |
+| Rep + Manager names | `reps` table self-join on `manager_id` | 5 reps lack `manager_id` — managerName nullable |
+| Confidence tier display | `slack_review_messages.sfdc_suggestion` JSONB | LEFT JOIN, display-only column, NULL for ~61% of rows |
+| Days since call | SQL-computed `FLOOR(EXTRACT(EPOCH FROM (now() - call_started_at)) / 86400)::int` | Integer, no client date math |
+| RBAC scoping | `getRepIdsVisibleToActor()` + actor self-union | admins=global, SGMs=own + coachees. SGM data linkage gap exists (data-setup, not code) |
+| Row action | Link to `/dashboard/call-intelligence/review/[callNoteId]` | Existing NoteReviewClient SFDC search flow |
 
-## Pre-Flight
+## Architecture Rules
+- All queries use parameterized `$N` syntax — never string interpolation
+- Direct-pg via `getCoachingPool()` from `src/lib/coachingDb.ts`
+- Date coercion: `instanceof Date ? .toISOString() : String(x)`
+- No caching — actor-scoped data (`export const dynamic = 'force-dynamic'`)
+- Import merges — never add a second import from the same module
+- Neon `pg` driver returns TIMESTAMPTZ as JS Date, BIGINT as string (cast `::text` or `::int`)
 
-**Goal:** establish a clean baseline.
+## Pre-Flight Checklist
 
-1. Confirm working tree is clean except for the five exploration `.md` files and this guide:
-   ```bash
-   git status --short
-   ```
-2. `npm run build` baseline — must pass before touching any code:
-   ```bash
-   npm run build
-   ```
-3. Probe for an `evaluations`-level synthetic flag (council S5 — symmetry with the deferral filter):
-   ```bash
-   node -e "require('dotenv').config(); const {Pool}=require('pg'); const p=new Pool({connectionString:process.env.SALES_COACHING_DATABASE_URL}); p.query(\`SELECT column_name FROM information_schema.columns WHERE table_name='evaluations' AND (column_name ILIKE '%synthetic%' OR column_name ILIKE '%test%' OR column_name ILIKE '%seed%')\`).then(r=>{console.log('EVAL_SYNTHETIC_FLAGS',r.rows);p.end();})"
-   ```
-   If a column comes back, ADD it as a filter to BOTH the gap_ceiling probe in step 4 AND the helper's `gap_hits` CTE in Phase 2E (mirroring the deferral side). If no column comes back, both gap and deferral sides are symmetric (deferrals filter via `is_synthetic_test_data`, gaps have no equivalent), and the ceiling probe is valid as-is.
-
-4. Capture pre-change baseline numbers (will be compared in Phase 8 acceptance criterion (a)):
-   ```bash
-   node -e "require('dotenv').config(); const {Pool}=require('pg'); const p=new Pool({connectionString:process.env.SALES_COACHING_DATABASE_URL}); p.query(\`SELECT (SELECT SUM(jsonb_array_length(e.knowledge_gaps)) FROM evaluations e JOIN call_notes cn ON cn.id=e.call_note_id WHERE (cn.source='kixie' OR cn.likely_call_type='advisor_call') AND e.created_at >= NOW() - INTERVAL '90 days') AS gap_ceiling, (SELECT COUNT(*) FROM rep_deferrals d JOIN evaluations e ON e.id=d.evaluation_id JOIN call_notes cn ON cn.id=e.call_note_id WHERE d.is_synthetic_test_data=false AND (cn.source='kixie' OR cn.likely_call_type='advisor_call') AND d.created_at >= NOW() - INTERVAL '90 days') AS def_ceiling\`).then(r=>{console.log('CEILINGS',r.rows[0]);p.end();}).catch(e=>{console.error(e);process.exit(1);});"
-   ```
-   Expected as of 2026-05-12: `gap_ceiling=450, def_ceiling=169`. Record what the probe returns.
-
-5. **Cross-functional impact check** (council C7 — already closed in Phase 3, included here for traceability): confirm the Slack analyst bot and MCP server don't depend on the old bucketing. Should return nothing:
-   ```bash
-   grep -rE "knowledge_gaps|rep_deferrals|knowledge_base_chunks|kb_vocab_topics|KB_VOCAB_SYNONYMS" packages/analyst-bot mcp-server 2>/dev/null
-   ```
-   If this returns matches, STOP and re-evaluate scope. (At triage time this returned zero matches.)
-
-**Validation gate:** `npm run build` exits 0. Baseline ceiling numbers recorded. Step-3 probe result recorded. Step-5 grep returned no matches.
-
-**STOP AND REPORT.** Numbers + build status before proceeding to Phase 1.
-
----
-
-## Phase 1 — Types (intentional build break)
-
-**Goal:** reshape `KnowledgeGapClusterRow` and extend the modal stack union. Build WILL break — the TypeScript errors are the checklist of remaining work.
-
-**File:** `src/types/call-intelligence.ts`
-
-Two edits in this file.
-
-### 1A. Add `KnowledgeGapClusterEvidence` and reshape `KnowledgeGapClusterRow`
-
-Replace the current block at lines 301–309 with:
-
-```ts
-export interface KnowledgeGapClusterEvidence {
-  evaluationId: string;
-  repId: string;
-  repName: string;
-  /** 'gap' = item from evaluations.knowledge_gaps[]; 'deferral' = row from rep_deferrals. */
-  kind: 'gap' | 'deferral';
-  /** Gap text OR verbatim deferral quote. */
-  text: string;
-  callStartedAt: string | null;
-  citations: Array<{
-    utterance_index?: number;
-    kb_source?: { doc_id: string; chunk_id: string; doc_title: string; drive_url: string };
-  }>;
-  /** Full expected_source path — gap only (undefined for deferrals). */
-  expectedSource?: string;
-  /** Coverage classification — deferral only (undefined for gaps). */
-  kbCoverage?: 'covered' | 'partial' | 'missing';
-}
-
-export interface KnowledgeGapClusterRow {
-  bucket: string;
-  bucketKind: 'kb_path' | 'kb_topic' | 'uncategorized';
-  totalOccurrences: number;
-  gapCount: number;
-  deferralCount: number;
-  deferralByCoverage: { covered: number; partial: number; missing: number };
-  repBreakdown: Array<{ repId: string; repName: string; gapCount: number; deferralCount: number }>;
-  sampleEvalIds: string[];
-  sampleEvidence: KnowledgeGapClusterEvidence[];
-}
-```
-
-### 1B. Extend `InsightsModalStackLayer` (lines 329–354)
-
-```ts
-export type InsightsModalStackLayer =
-  | { kind: 'list';       payload: EvalListModalPayload }
-  | { kind: 'detail';     payload: EvalDetailDrillPayload }
-  | { kind: 'transcript'; payload: TranscriptDrillPayload }
-  | { kind: 'cluster';    payload: ClusterEvidenceModalPayload };
-
-export interface ClusterEvidenceModalPayload {
-  bucket: string;
-  bucketKind: 'kb_path' | 'kb_topic' | 'uncategorized';
-  evidence: KnowledgeGapClusterEvidence[];
-  gapCount: number;
-  deferralCount: number;
-}
-```
-
-Also extend `EvalDetailDrillPayload` so a Layer-2 opened from a cluster row carries the bucket context:
-
-```ts
-export interface EvalDetailDrillPayload {
-  evaluationId: string;
-  dimension?: string;
-  topic?: string;
-  bucket?: string;
-  bucketKind?: 'kb_path' | 'kb_topic' | 'uncategorized';
-}
-```
-
-**Validation gate (intentional break):**
 ```bash
-npm run build 2>&1 | grep -E "(error TS|Property 'topic'|Property 'bucket'|sampleEvidence)" | head -30
+npm run build 2>&1 | head -50
 ```
-Expected errors:
-- `InsightsTab.tsx:631` — `Property 'topic' does not exist on type 'KnowledgeGapClusterRow'`
-- `InsightsTab.tsx:634` — same
-- `knowledge-gap-clusters.ts:188` — `Property 'topic' does not exist on type 'KnowledgeGapClusterRow'` (the `.map()` constructor doesn't emit `bucket`/`bucketKind`/`sampleEvidence`)
 
-Save the error list as the construction-site checklist for the following phases.
-
-**STOP AND REPORT.** List of TS errors + count.
+If pre-existing errors, stop and report. Do not proceed with a broken baseline.
 
 ---
 
-## Phase 2 — Query rewrite
+# PHASE 1: Type Definitions
 
-**Goal:** rewrite `getKnowledgeGapClusters` to produce the new bucket logic, drop the synonyms map, surface richer evidence rows, and accept a `mode` arg.
+## Context
+Define the new `NeedsLinkingRow` interface. Do NOT extend `CallIntelligenceTab` — Needs Linking is a sub-tab inside Coaching Usage, not a top-level tab. The sub-tab state is managed locally inside the Coaching Usage wrapper component (Phase 5).
 
-**File:** `src/lib/queries/call-intelligence/knowledge-gap-clusters.ts`
+## Step 1.1: Add `NeedsLinkingRow` interface
 
-### 2A. Imports
+**File**: `src/types/call-intelligence.ts` (after the existing interfaces)
 
-Remove the `KB_VOCAB_SYNONYMS` import on line 2:
-```ts
-// DELETE:
-import { KB_VOCAB_SYNONYMS } from './kb-vocab-synonyms';
-```
-
-### 2B. Args type
-
-Extend `ClusterArgs` (lines 10–17) with `mode`:
-```ts
-interface ClusterArgs {
-  dateRange: InsightsDateRange;
-  role: InsightsRoleFilter;
-  podIds: string[];
-  repIds: string[];
-  sourceFilter: InsightsSourceFilter;
-  visibleRepIds: string[];
-  /** 'team' caps sampleEvalIds / sampleEvidence at 5 each; 'rep_focus' lifts to 200. */
-  mode?: 'team' | 'rep_focus';
+```typescript
+export interface NeedsLinkingRow {
+  callNoteId: string;
+  callDate: string;
+  source: string;
+  advisorHint: string;
+  repName: string;
+  managerName: string | null;
+  linkageStrategy: string;
+  confidenceTier: string | null;
+  daysSinceCall: number;
 }
 ```
-Default to `'team'` in the destructure on line 28:
-```ts
-const { dateRange, role, podIds, repIds, sourceFilter, visibleRepIds, mode = 'team' } = args;
+
+## PHASE 1 — VALIDATION GATE
+
+```bash
+npx tsc --noEmit 2>&1 | head -20
 ```
 
-### 2C. Slice cap literal
+**Expected**: Zero new errors. `NeedsLinkingRow` is net-new with no consumers yet.
 
-Add right above the SQL string construction:
-```ts
-const sliceCap = mode === 'rep_focus' ? 200 : 5;
-```
-Postgres does not accept bound params for array slice bounds, so the literal must be interpolated into the SQL string. The value is constrained to `5 | 200` — no injection surface.
+**STOP AND REPORT**:
+- "Added `NeedsLinkingRow` interface and extended `CallIntelligenceTab` union in `src/types/call-intelligence.ts`"
+- "Zero build errors expected — net-new type with no consumers"
+- "Ready to proceed to Phase 2 (Query Layer)?"
 
-### 2D. Param block
+---
 
-Remove the `$9` synonyms param. Update the comment block and `params` array (lines 51–65):
+# PHASE 2: Query Layer
 
-```ts
-// params (ALL parameterized — no SQL injection surface):
-//  $1 = effectiveRepIds (uuid[])
-//  $2 = start (date), $3 = end (date)
-//  $4 = role ('SGA'|'SGM'|null)
-//  $5 = podIds (uuid[]|null)
-//  $6 = includeGaps (bool)
-//  $7 = includeDeferrals (bool)
-//  $8 = coverageFilter ('missing'|'covered'|null)
-const params: unknown[] = [
-  effectiveRepIds, start, end, roleParam, podIdsParam,
-  includeGaps, includeDeferrals, coverageFilter,
-];
-```
+## Context
+Create the direct-pg query function that fetches needs-linking rows from the sales-coaching Neon DB. Uses `getCoachingPool()`, RBAC via `repIds` parameter, and the corrected orphan predicate (`status='pending'`).
 
-### 2E. SQL rewrite
+## Step 2.1: Create query function
 
-Replace the entire `sql` template (lines 67–161) with:
+**File**: `src/lib/queries/call-intelligence/needs-linking.ts` (NEW)
 
-```ts
-const sql = `
-  WITH scoped_reps AS (
-    SELECT DISTINCT r.id
-      FROM reps r
-      LEFT JOIN coaching_team_members tm ON tm.rep_id = r.id
-      LEFT JOIN coaching_teams t          ON t.id = tm.team_id AND t.is_active = true
-     WHERE r.is_active = true
-       AND r.is_system = false
-       AND r.id = ANY($1::uuid[])
-       AND ($4::text IS NULL OR r.role = $4)
-       AND ($5::uuid[] IS NULL OR t.id = ANY($5::uuid[]) OR t.id IS NULL)
-  ),
-  gap_hits AS (
-    SELECT
-      -- Council C3 fix: COALESCE/NULLIF on `split_part||/||split_part` mislabels
-      -- single-segment values (e.g., 'profile' becomes 'profile/' not 'Uncategorized').
-      -- Use CASE to explicitly require at least two slash-segments.
-      CASE
-        WHEN kg.item->>'expected_source' IS NULL
-          OR kg.item->>'expected_source' = ''
-          OR position('/' IN kg.item->>'expected_source') = 0
-          THEN 'Uncategorized'
-        ELSE
-          split_part(kg.item->>'expected_source','/',1) || '/' ||
-          split_part(kg.item->>'expected_source','/',2)
-      END AS bucket,
-      CASE
-        WHEN kg.item->>'expected_source' IS NULL
-          OR kg.item->>'expected_source' = ''
-          OR position('/' IN kg.item->>'expected_source') = 0
-          THEN 'uncategorized'
-        ELSE 'kb_path'
-      END AS bucket_kind,
-      e.rep_id,
-      r.full_name AS rep_name,
-      e.id AS evaluation_id,
-      cn.call_started_at AS call_started_at,
-      kg.item->>'text'             AS evidence_text,
-      kg.item->'citations'         AS citations,
-      kg.item->>'expected_source'  AS expected_source_full,
-      'gap'::text AS kind,
-      1 AS gap_count,
-      0 AS deferral_count,
-      NULL::text AS kb_coverage
-    FROM evaluations e
-    JOIN scoped_reps sr ON sr.id = e.rep_id
-    JOIN reps r ON r.id = e.rep_id
-    JOIN call_notes cn ON cn.id = e.call_note_id
-    CROSS JOIN jsonb_array_elements(e.knowledge_gaps) AS kg(item)
-    WHERE $6::bool = true
-      AND (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')
-      AND e.created_at >= $2::date
-      AND e.created_at <  $3::date
-  ),
-  deferral_hits AS (
-    -- TRADE-OFF: single-bucket-per-deferral assignment via ORDER BY chunk_index LIMIT 1.
-    -- Deterministic; no count inflation. Alternative would be to fan out across
-    -- topics (one deferral counted N times), which would inflate totals and break
-    -- acceptance criterion (a). Revisit if managers report missing cross-topic visibility.
-    SELECT
+```typescript
+import { getCoachingPool } from '@/lib/coachingDb';
+import type { NeedsLinkingRow } from '@/types/call-intelligence';
+
+interface NeedsLinkingQueryRow {
+  call_note_id: string;
+  call_started_at: Date;
+  source: string;
+  linkage_strategy: string;
+  advisor_hint: string | null;
+  rep_name: string;
+  manager_name: string | null;
+  top_confidence_tier: string | null;
+  days_since_call: number;
+}
+
+export async function getNeedsLinkingRows(
+  repIds: string[],
+  showAll: boolean
+): Promise<NeedsLinkingRow[]> {
+  if (repIds.length === 0) return [];
+
+  const pool = getCoachingPool();
+
+  const { rows } = await pool.query<NeedsLinkingQueryRow>(
+    `SELECT
+      cn.id AS call_note_id,
+      cn.call_started_at,
+      cn.source,
+      cn.linkage_strategy,
       COALESCE(
-        (SELECT t FROM unnest(kbc.topics) AS t LIMIT 1),
-        'Uncategorized: ' || d.topic
-      ) AS bucket,
-      CASE
-        WHEN kbc.topics IS NULL OR array_length(kbc.topics, 1) IS NULL
-          THEN 'uncategorized'
-        ELSE 'kb_topic'
-      END AS bucket_kind,
-      d.rep_id,
-      r.full_name AS rep_name,
-      d.evaluation_id,
-      cn.call_started_at AS call_started_at,
-      d.deferral_text AS evidence_text,
-      jsonb_build_array(
-        jsonb_build_object('utterance_index', d.utterance_index)
-      ) AS citations,
-      NULL::text AS expected_source_full,
-      'deferral'::text AS kind,
-      0 AS gap_count,
-      1 AS deferral_count,
-      d.kb_coverage
-    FROM rep_deferrals d
-    JOIN scoped_reps sr ON sr.id = d.rep_id
-    JOIN reps r ON r.id = d.rep_id
-    JOIN evaluations e ON e.id = d.evaluation_id
-    JOIN call_notes cn ON cn.id = e.call_note_id
+        (SELECT a->>'name'
+           FROM jsonb_array_elements(
+             CASE WHEN jsonb_typeof(cn.attendees) = 'array' THEN cn.attendees ELSE '[]'::jsonb END
+           ) AS a
+          WHERE NULLIF(TRIM(a->>'name'), '') IS NOT NULL
+            AND LOWER(COALESCE(a->>'email', '')) NOT LIKE '%@savvywealth.com'
+            AND LOWER(COALESCE(a->>'email', '')) NOT LIKE '%@savvyadvisors.com'
+            AND LOWER(COALESCE(a->>'email', '')) NOT LIKE '%resource.calendar.google.com'
+            AND LOWER(COALESCE(a->>'email', '')) NOT LIKE 'noreply@%'
+            AND LOWER(COALESCE(a->>'email', '')) NOT LIKE 'reply@%'
+            AND LOWER(COALESCE(a->>'email', '')) NOT LIKE 'invites@%'
+          LIMIT 1),
+        (SELECT eml FROM unnest(cn.invitee_emails) AS eml
+          WHERE LOWER(eml) NOT LIKE '%@savvywealth.com'
+            AND LOWER(eml) NOT LIKE '%@savvyadvisors.com'
+            AND LOWER(eml) NOT LIKE '%resource.calendar.google.com'
+            AND LOWER(eml) NOT LIKE 'noreply@%'
+            AND LOWER(eml) NOT LIKE 'reply@%'
+          LIMIT 1),
+        cn.title
+      ) AS advisor_hint,
+      sga.full_name AS rep_name,
+      sgm.full_name AS manager_name,
+      lat_srm.top_confidence_tier,
+      FLOOR(EXTRACT(EPOCH FROM (now() - cn.call_started_at)) / 86400)::int AS days_since_call
+    FROM call_notes cn
+    LEFT JOIN reps sga ON sga.id = cn.rep_id AND sga.is_system = false
+    LEFT JOIN reps sgm ON sgm.id = sga.manager_id AND sgm.is_system = false
     LEFT JOIN LATERAL (
-      SELECT topics FROM knowledge_base_chunks
-       WHERE id = ANY(d.kb_chunk_ids)
-         AND is_active = true
-         AND topics IS NOT NULL
-         AND array_length(topics, 1) > 0
-       -- Council C4 fix: chunk_index can have ties. Add `id` as tie-breaker
-       -- so the bucket is deterministic across runs.
-       ORDER BY chunk_index, id
-       LIMIT 1
-    ) kbc ON TRUE
-    WHERE $7::bool = true
-      AND d.is_synthetic_test_data = false
+      SELECT srm.sfdc_suggestion->'candidates'->0->>'confidence_tier' AS top_confidence_tier
+      FROM slack_review_messages srm
+      WHERE srm.call_note_id = cn.id AND srm.surface = 'dm'
+      ORDER BY srm.created_at DESC
+      LIMIT 1
+    ) lat_srm ON true
+    WHERE cn.source_deleted_at IS NULL
+      AND cn.status = 'pending'
       AND (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')
-      AND d.created_at >= $2::date
-      AND d.created_at <  $3::date
-      AND ($8::text IS NULL OR d.kb_coverage = $8)
-  ),
-  all_hits AS (
-    SELECT * FROM gap_hits
-    UNION ALL
-    SELECT * FROM deferral_hits
-  ),
-  -- Council C5 rewrite: window-function ranking inside the row set, then a single
-  -- FILTER-gated jsonb_agg per group at the final SELECT. Replaces a per-bucket
-  -- correlated subquery (20+ subqueries → 1 sort + 1 aggregation pass).
-  ranked AS (
-    SELECT
-      ah.*,
-      ROW_NUMBER() OVER (
-        PARTITION BY bucket
-        -- Stable, deterministic ordering for the evidence sample:
-        -- newest evidence first when call_started_at is available, then by evaluation_id.
-        ORDER BY call_started_at DESC NULLS LAST, evaluation_id, kind
-      ) AS rn
-    FROM all_hits ah
-  )
-  SELECT
-    bucket,
-    -- bucket_kind reduction: prefer the most informative kind within a bucket.
-    -- 'kb_path' (gap-derived) wins over 'kb_topic' (deferral-derived) wins over 'uncategorized'.
-    (array_agg(bucket_kind ORDER BY
-      CASE bucket_kind
-        WHEN 'kb_path' THEN 1
-        WHEN 'kb_topic' THEN 2
-        ELSE 3
-      END
-    ))[1] AS bucket_kind,
-    SUM(gap_count + deferral_count) AS total_occurrences,
-    SUM(gap_count) AS gap_count,
-    SUM(deferral_count) AS deferral_count,
-    COALESCE(SUM(deferral_count) FILTER (WHERE kb_coverage = 'covered'), 0) AS deferral_covered,
-    COALESCE(SUM(deferral_count) FILTER (WHERE kb_coverage = 'partial'), 0) AS deferral_partial,
-    COALESCE(SUM(deferral_count) FILTER (WHERE kb_coverage = 'missing'), 0) AS deferral_missing,
-    json_agg(DISTINCT jsonb_build_object('repId', rep_id, 'repName', rep_name)
-             ORDER BY jsonb_build_object('repId', rep_id, 'repName', rep_name)) AS reps_arr,
-    (array_agg(DISTINCT evaluation_id ORDER BY evaluation_id) FILTER (WHERE rn <= ${sliceCap})) AS sample_eval_ids,
-    COALESCE(
-      jsonb_agg(
-        jsonb_build_object(
-          'evaluationId',   evaluation_id,
-          'repId',          rep_id,
-          'repName',        rep_name,
-          'kind',           kind,
-          'text',           evidence_text,
-          'callStartedAt',  call_started_at,
-          'citations',      citations,
-          'expectedSource', expected_source_full,
-          'kbCoverage',     kb_coverage
-        ) ORDER BY rn
-      ) FILTER (WHERE rn <= ${sliceCap}),
-      '[]'::jsonb
-    ) AS sample_evidence,
-    json_object_agg(rep_id || '|gap', gap_count ORDER BY rep_id || '|gap') FILTER (WHERE gap_count > 0) AS rep_gap_map,
-    json_object_agg(rep_id || '|def', deferral_count ORDER BY rep_id || '|def') FILTER (WHERE deferral_count > 0) AS rep_def_map
-  FROM ranked
-  GROUP BY bucket
-  HAVING SUM(gap_count + deferral_count) > 0
-  ORDER BY total_occurrences DESC, bucket ASC
-`;
+      AND cn.rep_id = ANY($1::uuid[])
+      AND ($2::boolean OR cn.call_started_at >= date_trunc('day', now()) - interval '14 days')
+    ORDER BY cn.call_started_at DESC NULLS LAST`,
+    [repIds, showAll]
+  );
+
+  return rows.map((r) => ({
+    callNoteId: r.call_note_id,
+    callDate: r.call_started_at instanceof Date ? r.call_started_at.toISOString() : String(r.call_started_at),
+    source: r.source,
+    advisorHint: r.advisor_hint ?? r.source,
+    repName: r.rep_name,
+    managerName: r.manager_name,
+    linkageStrategy: r.linkage_strategy,
+    confidenceTier: r.top_confidence_tier,
+    daysSinceCall: r.days_since_call,
+  }));
+}
 ```
 
-> **Note on the evidence aggregation idiom:** `ROW_NUMBER()` ranks rows within each bucket, then a single `FILTER (WHERE rn <= ${sliceCap})` gate inside `jsonb_agg` produces the capped sample. One pass through the data; the planner can usually do this with a single sort. The slice cap literal (`5` or `200`) is the only string-interpolated value and is constrained at the TS layer to those two integers (no injection surface).
+Key design decisions:
+- `status='pending'` is the sole orphan filter (corrected from spec)
+- Advisor-call filter: `cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call'` (matches coaching-usage scope)
+- Confidence tier is display-only via LATERAL subquery to `slack_review_messages` (prevents row duplication)
+- JSONB safety: `jsonb_typeof` guard on `cn.attendees` before `jsonb_array_elements`
+- Advisor hint cascade: attendee name → invitee email → title
+- Domain filtering: `@savvywealth.com`, `@savvyadvisors.com`, `resource.calendar.google.com`, `noreply@`, `reply@`, `invites@`
+- `showAll=false` → last 14 days; `showAll=true` → no date limit
+- `repIds` parameter enables RBAC without duplicating the visibility logic
 
-### 2F. RawRow type + `.map()` constructor (lines 163–200)
+## PHASE 2 — VALIDATION GATE
 
-Replace with:
+```bash
+npx tsc --noEmit 2>&1 | head -20
+```
 
-```ts
-type RawRow = {
-  bucket: string;
-  bucket_kind: 'kb_path' | 'kb_topic' | 'uncategorized';
-  total_occurrences: string;
-  gap_count: string;
-  deferral_count: string;
-  deferral_covered: string;
-  deferral_partial: string;
-  deferral_missing: string;
-  reps_arr: Array<{ repId: string; repName: string | null }> | null;
-  sample_eval_ids: string[] | null;
-  sample_evidence: Array<{
-    evaluationId: string;
-    repId: string;
-    repName: string | null;
-    kind: 'gap' | 'deferral';
-    text: string | null;
-    callStartedAt: string | null;
-    citations: Array<{
-      utterance_index?: number | null;
-      kb_source?: { doc_id?: string; chunk_id?: string; doc_title?: string; drive_url?: string };
-    }> | null;
-    expectedSource: string | null;
-    kbCoverage: 'covered' | 'partial' | 'missing' | null;
-  }> | null;
-  rep_gap_map: Record<string, number> | null;
-  rep_def_map: Record<string, number> | null;
+**Expected**: Zero new errors. The query function imports `NeedsLinkingRow` from Phase 1 and `getCoachingPool` from existing code.
+
+Verify the file exists and imports resolve:
+```bash
+grep -n "import.*getCoachingPool" src/lib/queries/call-intelligence/needs-linking.ts
+grep -n "import.*NeedsLinkingRow" src/lib/queries/call-intelligence/needs-linking.ts
+```
+
+**STOP AND REPORT**:
+- "Created `src/lib/queries/call-intelligence/needs-linking.ts` with `getNeedsLinkingRows()` function"
+- "Corrected orphan predicate: `status='pending'` only (spec's `confidence_tier` column doesn't exist as scalar)"
+- "Ready to proceed to Phase 3 (API Route)?"
+
+---
+
+# PHASE 3: API Route
+
+## Context
+Create the API route at `/api/call-intelligence/needs-linking`. Placed under `call-intelligence/` (NOT `admin/`) because SGMs need access. Auth follows the insights/heatmap pattern. No caching — results are actor-scoped.
+
+## Step 3.1: Create API route
+
+**File**: `src/app/api/call-intelligence/needs-linking/route.ts` (NEW)
+
+Follow auth pattern from `src/app/api/call-intelligence/insights/heatmap/route.ts`.
+
+```typescript
+import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { getSessionPermissions } from '@/lib/permissions';
+import { getRepIdByEmail } from '@/lib/queries/call-intelligence/visible-reps';
+import { getRepIdsVisibleToActor } from '@/lib/queries/call-intelligence/visible-reps';
+import { getNeedsLinkingRows } from '@/lib/queries/call-intelligence/needs-linking';
+
+export const dynamic = 'force-dynamic';
+
+const ALLOWED_ROLES = ['manager', 'admin', 'revops_admin', 'sgm'] as const;
+
+export async function GET(request: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const permissions = await getSessionPermissions(session);
+  if (!permissions.allowedPages.includes(20)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  if (!(ALLOWED_ROLES as readonly string[]).includes(permissions.role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  const isPrivileged = permissions.role === 'admin' || permissions.role === 'revops_admin';
+  const rep = await getRepIdByEmail(session.user.email);
+
+  if (!rep && !isPrivileged) {
+    return NextResponse.json({ error: 'Rep not found' }, { status: 403 });
+  }
+
+  const actorRepId = rep?.id ?? '';
+  const visibleRepIds = await getRepIdsVisibleToActor({
+    repId: actorRepId,
+    role: permissions.role,
+    email: session.user.email,
+  });
+
+  // Union actor's own rep ID so SGMs see their own pending notes
+  const allRepIds = actorRepId && !visibleRepIds.includes(actorRepId)
+    ? [actorRepId, ...visibleRepIds]
+    : visibleRepIds;
+
+  const { searchParams } = new URL(request.url);
+  const showAll = searchParams.get('showAll') === 'true';
+
+  const rows = await getNeedsLinkingRows(allRepIds, showAll);
+
+  return NextResponse.json({ rows, total: rows.length });
+}
+```
+
+**Important**: Verify that `getRepIdByEmail` and `getRepIdsVisibleToActor` are both exported from `visible-reps.ts`. If `getRepIdByEmail` is not exported from there, find where it's exported from and adjust the import. The heatmap route uses it — match that pattern exactly.
+
+## PHASE 3 — VALIDATION GATE
+
+```bash
+npx tsc --noEmit 2>&1 | head -20
+```
+
+**Expected**: Zero new errors. All imports reference existing exports.
+
+Verify route structure:
+```bash
+ls src/app/api/call-intelligence/needs-linking/route.ts
+```
+
+Verify imports resolve:
+```bash
+grep -n "getRepIdByEmail\|getRepIdsVisibleToActor" src/app/api/call-intelligence/needs-linking/route.ts
+```
+
+**STOP AND REPORT**:
+- "Created `/api/call-intelligence/needs-linking` route with auth, role gate, and RBAC"
+- "Auth: page 20 + role in [manager, admin, revops_admin, sgm]"
+- "No caching — actor-scoped data"
+- "Ready to proceed to Phase 4 (Component)?"
+
+---
+
+# PHASE 4: Component — NeedsLinkingTab
+
+## Context
+Create the tab component with a data table, "last 14 days" / "all" toggle, ExportButton, and per-row "Review" action that links to the existing NoteReviewClient. No sub-tab wrapper needed — this is a top-level tab in CallIntelligenceClient, not a sub-tab of Coaching Usage.
+
+## Step 4.1: Create the component
+
+**File**: `src/app/dashboard/call-intelligence/tabs/NeedsLinkingTab.tsx` (NEW)
+
+Follow the pattern of existing tabs in the same directory. Use Tremor React components (`Table`, `TableHead`, `TableRow`, `TableHeaderCell`, `TableBody`, `TableCell`, `Badge`, `Button`) consistent with the existing Call Intelligence UI.
+
+Key requirements:
+- Fetch from `/api/call-intelligence/needs-linking?showAll=false|true`
+- Default state: `showAll = false` (last 14 days)
+- Toggle button to switch between "Last 14 Days" and "All"
+- Columns: Call Date, Source, Advisor Hint, Rep, Manager, Strategy, Confidence, Days
+- "Review" link per row → `/dashboard/call-intelligence/review/${row.callNoteId}?returnTab=coaching-usage`
+- ExportButton for CSV export with human-friendly column headers
+- Loading state and empty state
+- Sort: server-side `call_started_at DESC` (no client sorting needed)
+
+```typescript
+'use client';
+
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import {
+  Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell,
+  Badge, Button, Text,
+} from '@tremor/react';
+import ExportButton from '@/components/dashboard/ExportButton';
+import type { NeedsLinkingRow } from '@/types/call-intelligence';
+
+const STRATEGY_LABELS: Record<string, string> = {
+  manual_entry: 'Manual Entry',
+  kixie_task_link: 'Kixie Task',
+  crd_prefix: 'CRD Match',
+  calendar_title: 'Calendar Title',
+  attendee_email: 'Attendee Email',
 };
 
-const { rows } = await pool.query<RawRow>(sql, params);
+function strategyLabel(raw: string): string {
+  return STRATEGY_LABELS[raw] ?? raw;
+}
 
-return rows.map(r => {
-  const reps = r.reps_arr ?? [];
-  const breakdown = reps.map(rep => ({
-    repId: rep.repId,
-    repName: rep.repName ?? '(unknown)',
-    gapCount: Number(r.rep_gap_map?.[`${rep.repId}|gap`] ?? 0),
-    deferralCount: Number(r.rep_def_map?.[`${rep.repId}|def`] ?? 0),
+export default function NeedsLinkingTab() {
+  const [rows, setRows] = useState<NeedsLinkingRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [showAll, setShowAll] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/call-intelligence/needs-linking?showAll=${showAll}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled) {
+          setRows(data.rows ?? []);
+          setTotal(data.total ?? 0);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [showAll]);
+
+  const exportData = rows.map((r) => ({
+    'Call Date': new Date(r.callDate).toLocaleDateString(),
+    'Source': r.source,
+    'Advisor Hint': r.advisorHint,
+    'Rep': r.repName,
+    'Manager': r.managerName ?? '',
+    'Linkage Strategy': strategyLabel(r.linkageStrategy),
+    'Confidence Tier': r.confidenceTier ?? '',
+    'Days Since Call': r.daysSinceCall,
   }));
-  const sampleEvidence = (r.sample_evidence ?? []).map(e => {
-    const cit = Array.isArray(e.citations) ? e.citations : [];
-    return {
-      evaluationId: e.evaluationId,
-      repId: e.repId,
-      repName: e.repName ?? '(unknown)',
-      kind: e.kind,
-      text: e.text ?? '',
-      callStartedAt: e.callStartedAt,
-      citations: cit
-        .map(c => {
-          const hasUtterance = typeof c.utterance_index === 'number';
-          const hasKbSource = !!(c.kb_source && c.kb_source.chunk_id && c.kb_source.doc_id);
-          if (!hasUtterance && !hasKbSource) return null;
-          return {
-            ...(hasUtterance ? { utterance_index: c.utterance_index as number } : {}),
-            ...(hasKbSource
-              ? {
-                  kb_source: {
-                    doc_id: c.kb_source!.doc_id!,
-                    chunk_id: c.kb_source!.chunk_id!,
-                    doc_title: c.kb_source!.doc_title ?? '',
-                    drive_url: c.kb_source!.drive_url ?? '',
-                  },
-                }
-              : {}),
-          };
-        })
-        .filter((c): c is NonNullable<typeof c> => c !== null),
-      // Council S1 fix: dropping the citation entirely when neither side is valid
-      // prevents empty {} objects from leaking into the array.
-      ...(e.expectedSource ? { expectedSource: e.expectedSource } : {}),
-      ...(e.kbCoverage ? { kbCoverage: e.kbCoverage } : {}),
-    };
-  });
-  return {
-    bucket: r.bucket,
-    bucketKind: r.bucket_kind,
-    totalOccurrences: Number(r.total_occurrences),
-    gapCount: Number(r.gap_count),
-    deferralCount: Number(r.deferral_count),
-    deferralByCoverage: {
-      covered: Number(r.deferral_covered),
-      partial: Number(r.deferral_partial),
-      missing: Number(r.deferral_missing),
-    },
-    repBreakdown: breakdown,
-    sampleEvalIds: r.sample_eval_ids ?? [],
-    sampleEvidence,
-  };
-});
-```
 
-### 2G. Probe-validate the SQL before moving on
-
-Run the new query end-to-end against Neon, verifying acceptance criterion (a) — total occurrences match the ceiling.
-
-Write a temp probe script (do NOT commit):
-```bash
-mkdir -p scripts/_tmp
-cat > scripts/_tmp/probe-cluster-rewrite.js <<'EOF'
-// One-off probe — delete after running.
-require('dotenv').config();
-const { Pool } = require('pg');
-const p = new Pool({ connectionString: process.env.SALES_COACHING_DATABASE_URL });
-(async () => {
-  // Pull a visible-rep set for the smoke test:
-  const { rows: reps } = await p.query("SELECT id FROM reps WHERE is_active=true AND is_system=false LIMIT 100");
-  const allRepIds = reps.map(r => r.id);
-  // Paste your rewritten SQL string here, or import the helper:
-  // For the simplest check, just sum totals:
-  const sql = require('fs').readFileSync('scripts/_tmp/cluster.sql', 'utf8');
-  const { rows } = await p.query(sql, [
-    allRepIds,
-    '2026-02-11', '2026-05-12',
-    null, null, true, true, null,
-  ]);
-  const total = rows.reduce((s, r) => s + Number(r.total_occurrences), 0);
-  console.log({ totalRows: rows.length, totalOccurrences: total });
-  await p.end();
-})().catch(e => { console.error(e); process.exit(1); });
-EOF
-# Paste the SQL from §2E into scripts/_tmp/cluster.sql then:
-node scripts/_tmp/probe-cluster-rewrite.js
-rm -rf scripts/_tmp
-```
-
-**Validation gate:**
-```bash
-npm run build 2>&1 | grep -E "error TS"
-```
-The build errors should now be limited to the UI side (`InsightsTab.tsx`) — the helper's signature and constructor should typecheck.
-
-Live SQL check: `SUM(total_occurrences)` should equal `gap_ceiling + def_ceiling` from Pre-Flight when `$6=true`, `$7=true`, `$8=NULL`.
-
-**STOP AND REPORT.** TS errors remaining + sum-vs-ceiling result.
-
----
-
-## Phase 3 — API route
-
-**Goal:** pass `mode` through to the helper, accept `?limit=full` validator.
-
-**File:** `src/app/api/call-intelligence/insights/clusters/route.ts`
-
-Insert near the existing query-param parsing (around line 87, after the `focusRep` validation), then pass to the helper (line 101).
-
-```ts
-const limitRaw = sp.get('limit');
-if (limitRaw && limitRaw !== 'full') {
-  return NextResponse.json({ error: 'invalid limit' }, { status: 400 });
-}
-const mode: 'team' | 'rep_focus' = (focusRep || limitRaw === 'full') ? 'rep_focus' : 'team';
-```
-
-Then in the helper call at line 101:
-```ts
-const clusters = await getKnowledgeGapClusters({
-  dateRange,
-  role,
-  podIds,
-  repIds: effectiveRepIds,
-  sourceFilter: sourceRaw,
-  visibleRepIds,
-  mode,
-});
-```
-
-**Validation gate:**
-```bash
-npm run build 2>&1 | grep -E "error TS.*clusters/route\.ts"
-```
-Empty.
-
-**STOP AND REPORT.** Build status for the route file.
-
----
-
-## Phase 4 — Eval-detail modal: add gap-evidence render path
-
-**Goal:** `InsightsEvalDetailModal.tsx` currently has a deferral-only topic-drill section. When the user clicks a gap-evidence row in the new cluster modal, the existing section returns empty. Add a parallel gap render.
-
-**File:** `src/components/call-intelligence/InsightsEvalDetailModal.tsx`
-
-Read lines 1–300 to understand current structure first. The existing topic-drill section is around lines 269–300 (per exploration).
-
-### 4A. Widen the modal's render guard (council C1 — REQUIRED)
-
-The modal currently early-returns around line 124 with:
-```ts
-if (!payload.dimension && !payload.topic) return null;
-```
-This will hide the modal entirely when entering from a cluster row (where only `payload.bucket` is set). Update the guard to:
-```ts
-if (!payload.dimension && !payload.topic && !payload.bucket) return null;
-```
-Then route the three drill modes through the existing if/else (dimension → existing dimension-drill section; topic → existing deferral-only topic section; bucket → the new gap+deferral section below).
-
-### Decision: filter-on-client (recommended) vs filter-on-server
-
-- **Filter-on-client (recommended):** the modal already fetches the full eval via `/api/call-intelligence/evaluations/[id]`. When `payload.bucket` is set, render ALL `knowledge_gaps[]` and ALL `rep_deferrals` on the eval, but highlight the matched ones with a lighter background and a "ⓘ matched bucket" chip. User sees the wider context (other gaps/deferrals on the same call), which is often useful.
-- **Filter-on-server:** Add `?bucket=` and `?bucketKind=` query params to `/api/call-intelligence/evaluations/[id]`; helper filters server-side; modal shows only the matched items. Tighter result but loses context.
-
-Ship the filter-on-client variant first. If managers find the unfiltered context confusing, switch to server-side in a follow-up.
-
-### Implementation outline
-
-Per Q13 (user decision 2026-05-12): **the new gap-evidence section renders ONLY when `payload.bucket` is set.** When entering from a heat-map cell (`payload.dimension` set, no `bucket`), the dimension-drill section stays as-is and the new gap section does NOT appear. This keeps the mental model tight per drill entry point.
-
-In `InsightsEvalDetailModal.tsx`:
-
-1. Read `payload.bucket` and `payload.bucketKind` from props.
-2. After the existing dimension-drill and topic-drill render sections, ADD a new "Knowledge gaps" section. Gate the render on `payload.bucket !== undefined` (Q13). Inside the section:
-   - Show ALL `evaluations.knowledge_gaps[]` for the eval (Q2 user decision: filter-on-client with highlight, not server-side scope).
-   - Sort the matching items first (matches the cluster bucket).
-   - Apply a highlight CSS class (e.g., a subtle accent bar on the left + slightly different bg) to the matched items, plus a "ⓘ matched bucket" chip.
-3. For each gap item: render the `text` and `expected_source` path. Render citation pills (existing `CitationPill.tsx`) for each entry in `item.citations`.
-4. Matching logic:
-   ```ts
-   function isMatch(gap, payload) {
-     if (!payload.bucket || payload.bucketKind !== 'kb_path') return false;
-     const src = gap.expected_source ?? '';
-     // Match the same CASE bucket logic from the SQL (council C3 fix):
-     // single-segment values bucket to 'Uncategorized'.
-     if (!src || !src.includes('/')) {
-       return payload.bucket === 'Uncategorized';
-     }
-     const twoSeg = src.split('/').slice(0, 2).join('/');
-     return twoSeg === payload.bucket;
-   }
-   ```
-5. For deferrals, the existing topic-drill section handles `payload.topic` paths. When `payload.bucket` is set with `bucketKind === 'kb_topic'`, the modal would need to know which chunks' `topics[]` contain the bucket label. Simplest path: don't filter deferrals when entering from a cluster — show them all. The cluster modal at Layer 1 already showed the user which deferral they clicked into. Apply the same "ⓘ matched bucket" highlight chip to any deferral whose `kb_chunk_ids` resolve to a chunk topic equal to `payload.bucket` (this requires the eval-detail API to return `kb_chunk_ids` on each deferral — verify when reading the route file).
-
-**Validation gate:**
-- `npm run build` exits 0.
-- Manual sanity check: open the eval-detail modal from a heat-map cell (existing §5 path) — the dimension-drill render must be unchanged.
-
-**STOP AND REPORT.** Confirm existing §5 drills still work; describe the new gap-render layout.
-
----
-
-## Phase 5 — Cluster-evidence Layer 1 modal
-
-**Goal:** ship a Layer 1 modal that renders the bucket's `sampleEvidence[]`. The spec says "the cluster-evidence Layer 1 modal IS the same scaffold as §5's eval-list modal — just a different data source."
-
-### Design decision: extend `InsightsEvalListModal` vs. sibling component
-
-The two modals have different columns and different click semantics:
-
-| | `InsightsEvalListModal` | `InsightsClusterEvidenceModal` |
-|---|---|---|
-| Data source | List of evals matching (dim, role, version, pod, dateRange) | `KnowledgeGapClusterEvidence[]` |
-| Columns | rep, call_date, dimension_score, call_title | rep, call_date, kind chip (gap/deferral+coverage), text preview |
-| Row click | Push detail with `{ evaluationId, dimension }` | Push detail with `{ evaluationId, bucket, bucketKind }` |
-| Rep cell click | (no special handler today) | Enter rep-focus mode (new) |
-
-**Decision:** create a sibling `InsightsClusterEvidenceModal.tsx` rather than overloading the existing eval-list modal. Cleaner. Avoids a `mode: 'evalList' | 'clusterEvidence'` prop on the shared component.
-
-### New file: `src/components/call-intelligence/InsightsClusterEvidenceModal.tsx`
-
-Copy `InsightsEvalListModal.tsx` as the scaffold (z-50, same aria-modal, same focus pattern, same close-button ref, same `aria-hidden` prop). Replace the table body with the cluster-evidence rows.
-
-Props:
-```ts
-interface Props {
-  payload: ClusterEvidenceModalPayload;
-  onClose: () => void;
-  onSelectRow: (e: KnowledgeGapClusterEvidence) => void;
-  onSelectRep: (repId: string) => void;
-  ariaHidden?: boolean;
-}
-```
-
-Columns:
-1. Rep (clickable, opens rep-focus mode — `onSelectRep`)
-2. Call date (`new Date(e.callStartedAt).toLocaleDateString()`, `'—'` for null)
-3. Kind chip:
-   - `gap` → small chip "Gap"
-   - `deferral` + `kbCoverage='covered'` → "Deferral · Covered" (green)
-   - `deferral` + `kbCoverage='partial'` → "Deferral · Partial" (yellow)
-   - `deferral` + `kbCoverage='missing'` → "Deferral · Missing" (red)
-   - `deferral` + no coverage → "Deferral"
-4. Text preview — truncate to first ~120 chars, ellipsis
-
-Whole row is the click target (`onSelectRow(e)`). Cell-level click on the rep cell calls `e.stopPropagation()` then `onSelectRep(repId)`.
-
-`min-h-[44px]` row height for touch parity (matching `InsightsEvalListModal`).
-
-**Validation gate:** `npm run build` exits 0.
-
-**STOP AND REPORT.** New file path + line count.
-
----
-
-## Phase 6 — UI wiring
-
-**Goal:** make cluster cards clickable, add longtail collapse, add `humanizeBucket` helper, dispatch the new modal variant.
-
-**File:** `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx`
-
-### 6A. New display helper
-
-Near the existing `humanizeKey` declaration in the file:
-```ts
-function humanizeBucket(bucket: string, kind: 'kb_path' | 'kb_topic' | 'uncategorized'): string {
-  // Council S3 fix: 'Uncategorized: <topic>' deferral fallback labels stay as-written
-  // (the raw deferral topic is the most useful surface label).
-  if (bucket === 'Uncategorized' || bucket.startsWith('Uncategorized: ')) return bucket;
-  if (kind === 'kb_path') {
-    return bucket.split('/').map(seg =>
-      seg.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-    ).join(' › ');
+  if (loading) {
+    return <Text className="p-4">Loading needs-linking queue...</Text>;
   }
-  // kb_topic — single tag like 'sgm_handoff'
-  return bucket.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Text className="font-medium">
+            {total} call{total !== 1 ? 's' : ''} need linking
+          </Text>
+          <Button
+            size="xs"
+            variant={showAll ? 'secondary' : 'primary'}
+            onClick={() => setShowAll(false)}
+          >
+            Last 14 Days
+          </Button>
+          <Button
+            size="xs"
+            variant={showAll ? 'primary' : 'secondary'}
+            onClick={() => setShowAll(true)}
+          >
+            All
+          </Button>
+        </div>
+        {rows.length > 0 && (
+          <ExportButton data={exportData} filename="needs-linking" />
+        )}
+      </div>
+
+      {rows.length === 0 ? (
+        <Text className="p-4 text-center text-gray-500">
+          No calls need linking{showAll ? '' : ' in the last 14 days'}.
+        </Text>
+      ) : (
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableHeaderCell>Call Date</TableHeaderCell>
+              <TableHeaderCell>Source</TableHeaderCell>
+              <TableHeaderCell>Advisor Hint</TableHeaderCell>
+              <TableHeaderCell>Rep</TableHeaderCell>
+              <TableHeaderCell>Manager</TableHeaderCell>
+              <TableHeaderCell>Strategy</TableHeaderCell>
+              <TableHeaderCell>Confidence</TableHeaderCell>
+              <TableHeaderCell>Days</TableHeaderCell>
+              <TableHeaderCell>Action</TableHeaderCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {rows.map((r) => (
+              <TableRow key={r.callNoteId}>
+                <TableCell>{new Date(r.callDate).toLocaleDateString()}</TableCell>
+                <TableCell>
+                  <Badge color={r.source === 'granola' ? 'blue' : 'amber'} size="xs">
+                    {r.source}
+                  </Badge>
+                </TableCell>
+                <TableCell className="max-w-[200px] truncate">{r.advisorHint}</TableCell>
+                <TableCell>{r.repName}</TableCell>
+                <TableCell>{r.managerName ?? '—'}</TableCell>
+                <TableCell>
+                  <Badge color="gray" size="xs">{strategyLabel(r.linkageStrategy)}</Badge>
+                </TableCell>
+                <TableCell>
+                  {r.confidenceTier ? (
+                    <Badge
+                      color={r.confidenceTier === 'unlikely' ? 'red' : r.confidenceTier === 'possible' ? 'yellow' : 'green'}
+                      size="xs"
+                    >
+                      {r.confidenceTier}
+                    </Badge>
+                  ) : (
+                    <span className="text-gray-400">—</span>
+                  )}
+                </TableCell>
+                <TableCell>{r.daysSinceCall}d</TableCell>
+                <TableCell>
+                  <Link
+                    href={`/dashboard/call-intelligence/review/${r.callNoteId}?returnTab=coaching-usage`}
+                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                  >
+                    Review
+                  </Link>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </div>
+  );
 }
 ```
 
-### 6B. Cluster card → clickable
+**Adaptation note**: The executing agent should check the exact Tremor component import paths and prop APIs used by existing tabs in the same directory (`CoachingUsageTab.tsx`, `InsightsTab.tsx`, etc.) and match them. If `ExportButton` uses a different API, adjust accordingly.
 
-At lines 631–634, wrap each cluster card in a clickable element. Match the existing dashboard pattern for clickable cards (probably `<button type="button">` or `<div role="button" tabIndex={0}>` with keyboard handlers).
+## PHASE 4 — VALIDATION GATE
 
-```tsx
-<button
-  key={c.bucket}
-  type="button"
-  onClick={() => setModalStack(s => [...s, {
-    kind: 'cluster',
-    payload: {
-      bucket: c.bucket,
-      bucketKind: c.bucketKind,
-      evidence: c.sampleEvidence,
-      gapCount: c.gapCount,
-      deferralCount: c.deferralCount,
-    },
-  }])}
-  className={/* preserve existing card styling */}
->
-  <div className="flex items-baseline justify-between gap-2">
-    <span>{humanizeBucket(c.bucket, c.bucketKind)}</span>
-    {/* Q6 user decision: unique-rep badge as a secondary signal alongside occurrences */}
-    <span
-      className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 whitespace-nowrap"
-      title={`${c.repBreakdown.length} rep${c.repBreakdown.length === 1 ? '' : 's'} contributed to this bucket`}
-    >
-      {c.repBreakdown.length} {c.repBreakdown.length === 1 ? 'rep' : 'reps'}
-    </span>
-  </div>
-  {/* ... rest of card body unchanged (counts, etc.) ... */}
-</button>
+```bash
+npx tsc --noEmit 2>&1 | head -20
 ```
 
-### 6B.5. Empty state (Q7 user decision)
+**Expected**: Zero new errors. Component imports `NeedsLinkingRow` from Phase 1, uses standard Tremor components.
 
-When `clusters.length === 0` (no advisor-eligible data in the window), render an empty-state message in place of the cluster grid. Copy:
-
-> **No advisor calls in this window.** Adjust the date range or filters above.
-
-Implementation:
-```tsx
-{clusters.length === 0 ? (
-  <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-700 p-8 text-center">
-    <p className="text-sm text-gray-600 dark:text-gray-400">
-      <strong className="block text-gray-900 dark:text-gray-100 mb-1">No advisor calls in this window.</strong>
-      Adjust the date range or filters above.
-    </p>
-  </div>
-) : (
-  <>
-    {/* main + longtail cluster render */}
-  </>
-)}
+Verify component structure:
+```bash
+grep -n "export default function NeedsLinkingTab" src/app/dashboard/call-intelligence/tabs/NeedsLinkingTab.tsx
+grep -n "returnTab=coaching-usage" src/app/dashboard/call-intelligence/tabs/NeedsLinkingTab.tsx
 ```
 
-Wrap the entire cluster section (main + longtail) in this conditional. Loading state stays as-is (don't show the empty-state during the initial fetch).
+**STOP AND REPORT**:
+- "Created `NeedsLinkingTab.tsx` with table, 14-day/all toggle, CSV export, and review links"
+- "Review links include `?returnTab=coaching-usage` for proper return navigation"
+- "Ready to proceed to Phase 5 (Integration)?"
 
-### 6C. Longtail collapse
+---
 
-After computing the cluster list (where it's currently destructured from the SWR/fetch result), split into main and longtail:
-```tsx
-const longtail = clusters.filter(c => c.totalOccurrences === 1 && c.bucketKind === 'uncategorized');
-const main = clusters.filter(c => !(c.totalOccurrences === 1 && c.bucketKind === 'uncategorized'));
-const [longtailOpen, setLongtailOpen] = useState(false);
-```
-Render `main` as the primary list. Below it, if `longtail.length > 0`:
-```tsx
-<div className="mt-4">
-  <button
-    type="button"
-    onClick={() => setLongtailOpen(o => !o)}
-    aria-expanded={longtailOpen}
-    className="text-sm text-gray-600 dark:text-gray-400 hover:underline"
-  >
-    {longtailOpen ? `Hide ${longtail.length} one-offs ▴` : `Other (${longtail.length} one-offs) ▾`}
-  </button>
-  {longtailOpen && (
-    <div className="mt-2 grid ...">
-      {longtail.map(c => /* same clickable card render as main */)}
+# PHASE 5: Integration — Sub-Tab Inside Coaching Usage
+
+## Context
+Wire Needs Linking as a sub-tab inside the Coaching Usage view. This requires:
+1. Creating a wrapper component that manages sub-tab state (Overview vs Needs Linking)
+2. Widening the Coaching Usage tab visibility to include SGMs and managers
+3. The existing `CoachingUsageTab.tsx` (now the "Overview" sub-tab) remains byte-for-byte unchanged
+
+**Important**: Do NOT add `'needs-linking'` to `CallIntelligenceTab`, `VALID_TABS`, or `page.tsx`. This is an internal sub-tab, not a top-level tab.
+
+## Step 5.1: Create the Coaching Usage wrapper component
+
+**File**: `src/app/dashboard/call-intelligence/tabs/CoachingUsageWrapper.tsx` (NEW)
+
+This wrapper renders either the existing `CoachingUsageTab` (Overview) or `NeedsLinkingTab` based on local state. Only the Overview sub-tab is gated to `revops_admin`; Needs Linking is accessible to `manager`, `admin`, `revops_admin`, and `sgm`.
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+import { Button } from '@tremor/react';
+import CoachingUsageTab from './CoachingUsageTab';
+import NeedsLinkingTab from './NeedsLinkingTab';
+
+type CoachingSubTab = 'overview' | 'needs-linking';
+
+interface CoachingUsageWrapperProps {
+  role: string;
+}
+
+export default function CoachingUsageWrapper({ role }: CoachingUsageWrapperProps) {
+  const isRevopsAdmin = role === 'revops_admin';
+  const defaultTab: CoachingSubTab = isRevopsAdmin ? 'overview' : 'needs-linking';
+  const [subTab, setSubTab] = useState<CoachingSubTab>(defaultTab);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2 border-b border-gray-200 pb-2">
+        {isRevopsAdmin && (
+          <Button
+            size="xs"
+            variant={subTab === 'overview' ? 'primary' : 'secondary'}
+            onClick={() => setSubTab('overview')}
+          >
+            Overview
+          </Button>
+        )}
+        <Button
+          size="xs"
+          variant={subTab === 'needs-linking' ? 'primary' : 'secondary'}
+          onClick={() => setSubTab('needs-linking')}
+        >
+          Needs Linking
+        </Button>
+      </div>
+
+      {subTab === 'overview' && isRevopsAdmin && <CoachingUsageTab />}
+      {subTab === 'needs-linking' && <NeedsLinkingTab />}
     </div>
-  )}
-</div>
+  );
+}
 ```
 
-### 6D. Modal dispatcher — switch + ariaHidden bookkeeping (council C2)
+**Key design**: Non-revops_admin users (SGM, manager) only see the "Needs Linking" sub-tab button — no "Overview" button, no access to coaching analytics. `revops_admin` users see both sub-tabs and default to Overview. `CoachingUsageTab` is never modified — it renders inside the wrapper unchanged.
 
-The existing dispatcher uses `find(...)` + `if/else` to render each `kind`, with `listAriaHidden` / `detailAriaHidden` booleans. Both must be updated when the new variant is added:
+## Step 5.2: Update CallIntelligenceClient.tsx
 
-1. **Find every `find(l => l.kind === ...)` call** in `InsightsTab.tsx` and add the corresponding `clusterLayer`:
-   ```ts
-   const listLayer       = modalStack.find(l => l.kind === 'list');
-   const detailLayer     = modalStack.find(l => l.kind === 'detail');
-   const transcriptLayer = modalStack.find(l => l.kind === 'transcript');
-   const clusterLayer    = modalStack.find(l => l.kind === 'cluster');
+**File**: `src/app/dashboard/call-intelligence/CallIntelligenceClient.tsx`
+
+1. Replace the `CoachingUsageTab` import with `CoachingUsageWrapper`:
+   ```typescript
+   // REMOVE: import CoachingUsageTab from './tabs/CoachingUsageTab';
+   // ADD:
+   import CoachingUsageWrapper from './tabs/CoachingUsageWrapper';
    ```
 
-2. **Update the `ariaHidden` derivations** so any topmost layer correctly hides all lower layers. The new logic should be expressed off the stack's TOP layer kind:
-   ```ts
-   const topKind = modalStack[modalStack.length - 1]?.kind;
-   const listAriaHidden       = topKind && topKind !== 'list';
-   const clusterAriaHidden    = topKind && topKind !== 'cluster';
-   const detailAriaHidden     = topKind === 'transcript';
-   // transcript is always topmost when present
+2. Widen the Coaching Usage tab button visibility. Find the condition that gates the "Coaching Usage" tab button (currently `isRevopsAdmin`) and change it to:
+   ```typescript
+   {(isRevopsAdmin || isManagerOrAdmin || role === 'sgm') && (
+     // tab button for coaching-usage
+   )}
+   ```
+   Read the file to find the exact condition pattern — it may use a different variable structure.
+
+3. Replace the Coaching Usage render branch:
+   ```typescript
+   // REMOVE: {isRevopsAdmin && activeTab === 'coaching-usage' && <CoachingUsageTab />}
+   // ADD:
+   {activeTab === 'coaching-usage' && <CoachingUsageWrapper role={role} />}
    ```
 
-3. **Refactor the render block to an explicit switch with an exhaustiveness check** so TypeScript fails the build if a future variant is added without a render branch:
-   ```tsx
-   {modalStack.map((layer, i) => {
-     const isTop = i === modalStack.length - 1;
-     switch (layer.kind) {
-       case 'list':
-         return (
-           <InsightsEvalListModal
-             key={`list-${i}`}
-             payload={layer.payload}
-             ariaHidden={!isTop}
-             onClose={() => setModalStack(s => s.slice(0, -1))}
-             onSelectRow={/* unchanged from existing */}
-           />
-         );
-       case 'cluster':
-         return (
-           <InsightsClusterEvidenceModal
-             key={`cluster-${i}`}
-             payload={layer.payload}
-             ariaHidden={!isTop}
-             onClose={() => setModalStack(s => s.slice(0, -1))}
-             onSelectRow={(e) => setModalStack(s => [...s, {
-               kind: 'detail',
-               payload: {
-                 evaluationId: e.evaluationId,
-                 bucket: layer.payload.bucket,
-                 bucketKind: layer.payload.bucketKind,
-               },
-             }])}
-             onSelectRep={(repId) => {
-               setModalStack([]);
-               updateUrl({ focus_rep: repId });
-             }}
-           />
-         );
-       case 'detail':
-         return (/* existing detail render */);
-       case 'transcript':
-         return (/* existing transcript render */);
-       default: {
-         // TS exhaustiveness guard — adding a new InsightsModalStackLayer variant
-         // without a render branch will fail at compile time here.
-         const _exhaustive: never = layer;
-         return _exhaustive;
-       }
-     }
-   })}
-   ```
+   The render branch no longer needs a role gate because the tab button is already gated. The wrapper handles sub-tab visibility internally.
 
-Don't forget to import `InsightsClusterEvidenceModal` at the top of the file.
+**Do NOT**: Modify `VALID_TABS`, add `'needs-linking'` to any array, or change `page.tsx`.
 
-### 6E. URL hash sync
+## Step 5.3: Fix pre-existing VALID_TABS mismatch (optional)
 
-In the existing `pushState`/`popstate` block (lines 261–290), add a new case for `'cluster'`. Example addition inside the switch:
-```ts
-case 'cluster':
-  hash = `modal=cluster&bucket=${encodeURIComponent(top.payload.bucket)}`;
-  break;
-```
+**File**: `src/app/dashboard/call-intelligence/page.tsx` (line 12)
 
-The `popstate` handler already does `setModalStack(s => s.slice(0, -1))` — no change needed.
+Add `'cost-analysis'` to the server-side `VALID_TABS` array to fix the pre-existing mismatch with the client. This is a separate bug fix, not related to Needs Linking.
 
-**Validation gate:**
-```bash
-npm run build
-```
-Must exit 0. All TS errors from Phase 1 should now be resolved.
+## PHASE 5 — VALIDATION GATE
 
 ```bash
-npm run lint -- --max-warnings=0 src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx 2>&1 | tail -20
+npx tsc --noEmit 2>&1 | head -20
+npm run build 2>&1 | tail -20
 ```
-No new warnings.
 
-**STOP AND REPORT.** Build status. Lint status.
+**Expected**: Zero errors. Build succeeds.
+
+Verify integration:
+```bash
+grep -n "CoachingUsageWrapper" src/app/dashboard/call-intelligence/CallIntelligenceClient.tsx
+grep -rn "CoachingUsageTab" src/app/dashboard/call-intelligence/tabs/CoachingUsageWrapper.tsx
+```
+
+**Expected**: `CoachingUsageWrapper` imported and rendered in client. Wrapper imports `CoachingUsageTab` (unchanged) and `NeedsLinkingTab`.
+
+**STOP AND REPORT**:
+- "Created `CoachingUsageWrapper` with Overview/Needs Linking sub-tabs"
+- "Widened Coaching Usage tab visibility to include SGMs and managers"
+- "Existing `CoachingUsageTab.tsx` remains byte-for-byte unchanged (rendered inside wrapper)"
+- "Build passes with zero errors"
+- "Ready to proceed to Phase 6 (Return Navigation Fix)?"
 
 ---
 
-## Phase 7 — Tests
+# PHASE 6: Return Navigation Fix
 
-### 7A. SQL-string assertions
+## Context
+`NoteReviewClient.tsx` hardcodes return navigation to `?tab=queue` after submit/reject. SGMs arriving from the Needs Linking tab will be deposited at the wrong tab. Fix: read `returnTab` from search params and use it for return navigation.
 
-**File:** `src/lib/queries/call-intelligence/__tests__/knowledge-gap-clusters.test.ts`
+## Step 6.1: Fix NoteReviewClient return URL
 
-Read the file first (the agent exploration found assertions at lines 45–56). Update assertions:
+**File**: `src/app/dashboard/call-intelligence/review/[callNoteId]/NoteReviewClient.tsx`
 
-1. Delete the existing `params[8]` synonyms assertion.
-2. Add: `expect(sql).toMatch(/LEFT JOIN LATERAL/);`
-3. Add: `expect(sql).toContain("split_part(kg.item->>'expected_source','/',1)");`
-4. Add: `expect(sql).not.toContain('kb_vocab_topics');`
-5. Add (council C3 guard): `expect(sql).toContain("position('/' IN kg.item->>'expected_source') = 0");`
-6. Add (council C4 guard): `expect(sql).toContain('ORDER BY chunk_index, id');`
-7. Add (council C5 guard): `expect(sql).toContain('ROW_NUMBER() OVER');`
-8. If the existing tests call `getKnowledgeGapClusters({...})` directly with a stubbed pool, add a `mode: 'rep_focus'` case verifying the SQL contains `rn <= 200` instead of `rn <= 5`.
+Read the file first to find the exact return-navigation code. The code-inspector found:
+- `handleSubmit` and `handleReject` both push to `/dashboard/call-intelligence?tab=queue`
+- `NoteReviewPage` (server component) reads `searchParams.returnTab` but doesn't use it
 
-### 7B. Component-level tests (council S4 — REQUIRED)
+Update the return navigation to respect the `returnTab` parameter:
 
-Add the following:
+1. In the client component, use `useSearchParams()` from `next/navigation` to read `returnTab`.
+2. Replace the hardcoded `?tab=queue` with `?tab=${returnTab || 'queue'}`.
+3. Both `handleSubmit` and `handleReject` should use the same return URL.
 
-1. **Cluster card → modal push** — file `src/app/dashboard/call-intelligence/tabs/__tests__/InsightsTab.cluster-click.test.tsx` (or add to an existing test file in that dir). Render the `InsightsTab` with a fixture `clusters` list and a mocked SWR. Click a cluster card. Assert that the modal stack now contains `{ kind: 'cluster', payload: { bucket: <card.bucket>, ... } }`.
+**Pattern**:
+```typescript
+const VALID_RETURN_TABS = ['queue', 'record-notes', 'coaching-usage', 'insights', 'settings', 'usage-analytics', 'cost-analysis'];
 
-2. **Detail modal — bucket-only payload renders** — file `src/components/call-intelligence/__tests__/InsightsEvalDetailModal.test.tsx`. Render the modal with `payload = { evaluationId: '<uuid>', bucket: 'profile/ideal-candidate-profile', bucketKind: 'kb_path' }` (no `dimension`, no `topic`). Assert that the modal's root `div` is rendered (i.e., the guard does not early-return null) and the new gap-evidence section appears.
-
-3. **Optional but recommended:** snapshot test of the SQL string for `mode: 'team'` and `mode: 'rep_focus'` — catches accidental slice-cap regressions.
-
-**Validation gate:**
-```bash
-npm test -- knowledge-gap-clusters InsightsTab.cluster-click InsightsEvalDetailModal 2>&1 | tail -30
+const searchParams = useSearchParams();
+const rawReturnTab = searchParams.get('returnTab');
+const returnTab = rawReturnTab && VALID_RETURN_TABS.includes(rawReturnTab) ? rawReturnTab : 'queue';
+// ... in handleSubmit/handleReject:
+router.push(`/dashboard/call-intelligence?tab=${returnTab}`);
 ```
-All tests pass.
 
-**STOP AND REPORT.** Test count + pass/fail.
+**Important**: Only modify the return URL construction — do not change any other behavior of `handleSubmit` or `handleReject`. The `VALID_RETURN_TABS` allowlist prevents invalid tab values from breaking navigation.
+
+## PHASE 6 — VALIDATION GATE
+
+```bash
+npx tsc --noEmit 2>&1 | head -20
+```
+
+Verify the fix:
+```bash
+grep -n "returnTab" src/app/dashboard/call-intelligence/review/[callNoteId]/NoteReviewClient.tsx
+```
+
+**Expected**: `returnTab` appears in both the searchParams read and the router.push calls.
+
+```bash
+npm run build 2>&1 | tail -20
+```
+
+**Expected**: Build passes.
+
+**STOP AND REPORT**:
+- "Fixed NoteReviewClient return navigation to respect `returnTab` search param"
+- "SGMs arriving from Needs Linking tab will return to the correct tab after review"
+- "Build passes"
+- "Ready to proceed to Phase 7 (Documentation Sync)?"
 
 ---
 
-## Phase 7.5 — Doc sync (standing CLAUDE.md rule)
+# PHASE 7: Documentation Sync
 
-### 7.5A. Auto-generated inventory sync
+## Step 7.1: Run generators
 
 ```bash
-npx agent-guard sync
-git status --short
+npm run gen:api-routes
 ```
 
-If `docs/_generated/*` files change, stage them.
+This regenerates `docs/_generated/api-routes.md` to include the new `/api/call-intelligence/needs-linking` route.
 
-### 7.5B. Narrative doc — `docs/ARCHITECTURE.md` (council Improvement 3)
+## Step 7.2: Update ARCHITECTURE.md
 
-`docs/ARCHITECTURE.md` references `kb_vocab_topics` and the 32-value vocab map. Find that section (Grep for `kb_vocab_topics` or `KB_VOCAB_SYNONYMS`), and update the call-intelligence module description to note:
+Read `docs/ARCHITECTURE.md` and find the Call Intelligence section. Add a brief mention of the Needs Linking tab and its API route. Match the existing format.
 
-- The cluster surface no longer buckets via `kb_vocab_topics` substring matching.
-- Gaps now bucket on the first two path segments of `knowledge_gaps[].expected_source`.
-- Deferrals now bucket on the first topic of the first active chunk in `kb_chunk_ids` (deterministic via `ORDER BY chunk_index, id LIMIT 1`).
-- `src/lib/queries/call-intelligence/kb-vocab-synonyms.ts` remains in the codebase as theming data (badge colors) but is no longer load-bearing for filtering.
+## Step 7.3: Write session context
 
-Note the path correction: the file is `src/lib/queries/call-intelligence/kb-vocab-synonyms.ts`, not `src/lib/kb-vocab-synonyms.ts` (the exploration synthesis had it wrong; verified during triage grep).
+Write `.ai-session-context.md` (required before git commit per project protocol):
 
-**STOP AND REPORT.** Doc deltas + ARCHITECTURE.md snippet updated.
+```markdown
+### Session Summary
+Added "Needs Linking" sub-tab to the Call Intelligence page, surfacing call_notes not confidently attached to a Salesforce record.
+
+### Business Context
+SGMs and managers need visibility into unlinked coaching calls so they can manually attach them to Salesforce records via the existing NoteReviewClient search flow.
+
+### Technical Approach
+Direct-pg query against sales-coaching Neon DB using status='pending' as the orphan filter. RBAC via getRepIdsVisibleToActor(). New API route at /api/call-intelligence/needs-linking (not under /api/admin/ — SGMs need access). No schema migrations needed.
+
+### What Changed
+- New type: NeedsLinkingRow in call-intelligence.ts
+- New query: needs-linking.ts with advisor hint extraction from JSONB
+- New API route: /api/call-intelligence/needs-linking (with actor self-union for SGMs)
+- New component: NeedsLinkingTab.tsx with 14-day/all toggle and export
+- New component: CoachingUsageWrapper.tsx (sub-tab orchestration for Overview/Needs Linking)
+- Modified: CallIntelligenceClient.tsx (widened Coaching Usage visibility, replaced CoachingUsageTab with CoachingUsageWrapper)
+- Fixed: NoteReviewClient return navigation to respect returnTab param
+
+### Verification
+TypeScript build passes. API route has auth + role gate + RBAC.
+```
+
+## PHASE 7 — VALIDATION GATE
+
+```bash
+npm run build 2>&1 | tail -10
+```
+
+**Expected**: Clean build. All generators ran without errors.
+
+**STOP AND REPORT**:
+- "Documentation synced — API route inventory regenerated, ARCHITECTURE.md updated"
+- "Session context written for Wrike integration"
+- "Ready to proceed to Phase 8 (UI Validation)?"
 
 ---
 
-## Phase 8 — Live probes + browser validation
+# PHASE 8: UI/UX Validation (Requires Human)
 
-### Live probes (run against Neon via `node -e ...` with `SALES_COACHING_DATABASE_URL`)
+## Test Group 1: Tab Visibility and Sub-Tab Navigation
 
-**Probe 1 — chunks.topics distribution still healthy:**
+1. Log in as `revops_admin` → navigate to `/dashboard/call-intelligence`
+2. Click "Coaching Usage" tab → verify two sub-tab buttons: "Overview" and "Needs Linking"
+3. Verify "Overview" is selected by default for revops_admin
+4. Click "Needs Linking" → verify sub-tab switches to the Needs Linking table
+5. Click "Overview" → verify the original Coaching Usage analytics view (KPI strip + table) appears unchanged
+6. Log in as `sgm` → navigate to `/dashboard/call-intelligence`
+7. Click "Coaching Usage" tab → verify only "Needs Linking" sub-tab button appears (no "Overview")
+8. Verify the Needs Linking table loads directly
+9. Log in as `sga` → verify "Coaching Usage" tab is NOT visible
+
+## Test Group 2: Needs Linking Table
+
+1. Click "Needs Linking" tab
+2. Verify table loads with columns: Call Date, Source, Advisor Hint, Rep, Manager, Strategy, Confidence, Days, Action
+3. Verify default shows "Last 14 Days" data
+4. Click "All" toggle → verify more rows appear (if applicable)
+5. Click "Last 14 Days" toggle → verify filters back to 14-day window
+6. Verify rows are sorted by call date descending (newest first)
+
+## Test Group 3: Advisor Hint Quality
+
+1. Spot-check several rows:
+   - Granola rows should show external attendee names (not Savvy employees)
+   - Kixie rows should show prospect name or email
+   - If both attendees and invitee_emails are internal-only, title should appear
+
+## Test Group 4: Review Action
+
+1. Click "Review" link on any row
+2. Verify navigation to `/dashboard/call-intelligence/review/[callNoteId]`
+3. Verify the NoteReviewClient SFDC search interface loads
+4. Click back or submit/reject → verify return to `?tab=coaching-usage` (not `?tab=queue`)
+
+## Test Group 5: CSV Export
+
+1. Click the export/download button
+2. Verify CSV downloads with correct columns and data
+3. Verify no data corruption (advisor hints with commas, special characters)
+
+## Test Group 6: Coaching Usage Preservation
+
+1. Navigate to Coaching Usage tab (as revops_admin)
+2. Verify KPI strip and main table are completely unchanged
+3. Verify data loads correctly — no regressions
+
+---
+
+# Troubleshooting Appendix
+
+## Common Issues
+
+### `getRepIdByEmail` returns null for admin users
+Expected behavior. The `isPrivileged` check handles this — admins get all reps without needing a coaching DB rep record.
+
+### SGM sees empty Needs Linking table
+Most likely cause: SGM has no coachee linkage in `reps.manager_id` or `coaching_teams`. This is a data-setup issue. Verify with:
 ```sql
-SELECT unnest(topics) AS t, COUNT(*)
-  FROM knowledge_base_chunks
- WHERE is_active = true AND topics IS NOT NULL
- GROUP BY t ORDER BY COUNT(*) DESC LIMIT 50;
+SELECT id, full_name, manager_id FROM reps WHERE is_active = true AND role = 'SGA';
 ```
-Expect ~10–30 distinct curated tags. (Was 31 at exploration time.)
+If no SGAs have `manager_id` pointing to the SGM's rep record, the visibility function returns an empty set.
 
-**Probe 2 — deferral lateral coverage:**
-```sql
-SELECT
-  COUNT(*) FILTER (WHERE EXISTS (
-    SELECT 1 FROM knowledge_base_chunks kbc
-     WHERE kbc.id = ANY(d.kb_chunk_ids)
-       AND kbc.is_active
-       AND array_length(kbc.topics, 1) > 0
-  )) AS would_bucket,
-  COUNT(*) AS total
-FROM rep_deferrals d
-JOIN evaluations e ON e.id = d.evaluation_id
-JOIN call_notes cn ON cn.id = e.call_note_id
-WHERE d.is_synthetic_test_data = false
-  AND (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')
-  AND d.created_at >= NOW() - INTERVAL '90 days';
-```
-Expect `would_bucket / total > 0.70` per spec; at exploration time, 169/169 = 100%.
+### Confidence tier shows "—" for most rows
+Expected. Only ~87/224 pending call_notes have a corresponding `slack_review_messages` row with waterfall candidates. The confidence_tier column is display-only and NULL for rows without waterfall data.
 
-**Probe 3 — bucket totals == unfiltered ceiling (acceptance criterion (a)):**
+### `invitee_emails` shows email instead of name
+Expected fallback. When no non-internal attendee name is available, the cascade falls through to the email from `invitee_emails`, then to `title`. This is by design.
 
-Hit `/api/call-intelligence/insights/clusters?range=90d&role=both&source=all` while signed in as an admin. Sum the returned `clusters[].totalOccurrences`. Compare to Pre-Flight `gap_ceiling + def_ceiling`. Must match exactly.
+### Return navigation goes to queue tab
+The `NoteReviewClient` fix (Phase 6) reads `returnTab` from search params. If the review link doesn't include `?returnTab=coaching-usage`, the fix won't help. Verify the link in `NeedsLinkingTab.tsx` includes the query param.
 
-### Browser validation
+## Known Limitations
 
-Spin up the dev server:
-```bash
-npm run dev
-```
-Open the Insights tab. Verify:
+1. **SGM RBAC data gap**: SGMs have zero coachee linkage in the coaching DB today. The code is correct but will show an empty table until `reps.manager_id` or `coaching_observers` rows are populated for SGMs.
 
-| Criterion | How to check |
-|---|---|
-| (a) Bucket totals match ceiling | Probe 3 above |
-| (b) "Uncategorized" bucket exists | Cluster list includes the bucket when any row has no `expected_source` (gaps) or no tagged chunks (deferrals). `bucketKind` = `'uncategorized'`. |
-| (c) Top bucket = `profile/ideal-candidate-profile` | Read top cluster card label after `humanizeBucket`: should display "Profile › Ideal Candidate Profile" with `gapCount ≈ 143` and `repBreakdown.length ≈ 13`. **Note: spec said 132 gaps — at 2026-05-12, live = 143. Treat criterion (c) as label + rep count ≈ 13.** |
-| (d) Modal chain works | Cluster card click → Layer 1 opens. Row click → Layer 2 opens. Citation pill (utterance) → Layer 3 opens at right utterance. Esc closes one layer at a time. Click-outside on Layer 1 closes all. |
-| (e) Rep-focus mode lists all buckets | Click a rep name in Layer 1 → focus_rep set in URL → cluster list shows every bucket the rep contributed to (1× included). Order: most-deferred first. |
-| (f) Single-bucket-per-deferral is deterministic | Verify the SQL comment is present in `deferral_hits` CTE. |
-| (g) `is_active = true` filter on chunks join | Verify the LATERAL clause contains `AND is_active = true`. |
+2. **Confidence tier coverage**: Only ~39% of pending rows have confidence_tier data (via `slack_review_messages` JOIN). The rest show "—". This is a data coverage issue in the waterfall pipeline, not a query bug.
 
-Plus:
-- Longtail collapse — "Other (N one-offs)" expand/collapse works. Each longtail card still has working drill-down.
-- Dark-mode parity on the new modal.
-- Keyboard: Tab traps inside the topmost modal. Esc closes one layer at a time.
+3. **No real-time updates**: After an SGM reviews a call (submit/reject), the row remains in the Needs Linking list until the next fetch. No WebSocket or polling. The user must manually refresh or toggle the date filter.
 
-**Validation gate:** All eight checks pass.
-
-**STOP AND REPORT.** Acceptance matrix (criterion → pass/fail/notes).
+4. **`linkage_strategy` values are sparse**: Currently only 3 values exist in production (`manual_entry`, `kixie_task_link`, `crd_prefix`). `calendar_title` and `attendee_email` exist in the DB CHECK constraint but have zero rows. As the ingestion pipeline matures, more strategies may appear.
 
 ---
 
-## Refinement Log
+# Refinement Log
 
-Updated 2026-05-12 from council review (Codex + Gemini) and self-cross-checks.
+## Bucket 1 — Applied Autonomously
 
-### Bucket 1 — applied autonomously (concrete fixes from council)
-
-| # | Source | Change applied | Where |
+| # | Change | Reviewer | Rationale |
 |---|---|---|---|
-| 1 | Codex Critical 1 (C1) | Phase 4 now explicitly widens the `InsightsEvalDetailModal` early-return guard to allow `payload.bucket` alone to trigger render | Phase 4, new 4A section |
-| 2 | Codex Critical 2 (C2) | Phase 6D rewritten with explicit `switch (layer.kind)` + TS `never` exhaustiveness guard; `ariaHidden` derivations now driven off top-of-stack kind including `'cluster'` | Phase 6D |
-| 3 | Codex Critical 3 (C3) | Phase 2E gap_hits bucket logic switched from `COALESCE/NULLIF` to `CASE` with explicit `position('/' IN ...) = 0` single-segment guard. `bucket_kind` derivation aligned | Phase 2E gap_hits CTE |
-| 4 | Codex Critical 4 (C4) | Phase 2E deferral LATERAL gained `, id` tie-breaker → fully deterministic single-bucket assignment | Phase 2E deferral_hits CTE |
-| 5 | Gemini Critical 2 (C5) | Phase 2E evidence aggregation rewritten from correlated-subquery-per-bucket to a single window-function rank (`ROW_NUMBER() OVER (PARTITION BY bucket ...)`) + `FILTER (WHERE rn <= sliceCap)` | Phase 2E final SELECT |
-| 6 | Gemini Critical 4 (C7) | Verified: `grep -rE "knowledge_gaps\|rep_deferrals\|knowledge_base_chunks\|kb_vocab_topics" packages/analyst-bot mcp-server` returned ZERO matches. No cross-functional impact. Documented in Pre-Flight step 5 | Pre-Flight |
-| 7 | Codex Should-Fix 1 (S1) | Phase 2F `.map()` citation transformer rewritten to drop the entire citation entry when neither `utterance_index` nor a fully-populated `kb_source` is present (instead of emitting `{}`) | Phase 2F constructor |
-| 8 | Codex Should-Fix 4 (S3) | Phase 6A `humanizeBucket` now explicitly returns the raw bucket label when it equals `'Uncategorized'` or starts with `'Uncategorized: '` | Phase 6A |
-| 9 | Codex Should-Fix 5 (S4) | Phase 7 split into 7A (SQL assertions) and 7B (component-level tests). 7B mandates a `cluster-click → modal push` test and a `detail-modal renders with bucket-only payload` test | Phase 7 |
-| 10 | Codex Should-Fix 6 (S5) | Pre-Flight gained a probe (step 3) for any `evaluations`-level synthetic flag, mirroring the `rep_deferrals.is_synthetic_test_data` filter | Pre-Flight |
-| 11 | Gemini Improvement 3 | Phase 7.5 expanded with 7.5B — explicit `docs/ARCHITECTURE.md` narrative update for the deprecated vocab-map path | Phase 7.5 |
-| 12 | Self cross-check | Corrected `kb-vocab-synonyms.ts` path: lives at `src/lib/queries/call-intelligence/kb-vocab-synonyms.ts`, not `src/lib/kb-vocab-synonyms.ts` (exploration synthesis was wrong) | Phase 7.5B |
-| 13 | Codex Should-Fix 2 (S2) | Removed the misleading "LATERAL guarantees ORDER BY + LIMIT" comment (it was a correlated subquery, not a LATERAL); replaced with an accurate note about the window-function rewrite | Phase 2E note block |
+| C1 | Replaced LEFT JOIN slack_review_messages with LATERAL subquery + LIMIT 1 | Gemini | Prevents row duplication if multiple slack_review_messages exist per call_note |
+| C2 | Added `CASE WHEN jsonb_typeof(cn.attendees) = 'array'` guard around `jsonb_array_elements` | Gemini | Prevents fatal PG error if attendees JSONB is not an array |
+| S1 | Added `AND (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')` to WHERE clause | Codex | Matches coaching-usage scope — prevents internal/practice calls from appearing |
+| S2 | Added `VALID_RETURN_TABS` allowlist for returnTab validation in NoteReviewClient | Codex | Prevents broken navigation from invalid search param values |
+| S4 | Added `noreply@`, `reply@`, `invites@` prefix exclusions to advisor hint extraction | Gemini | Prevents calendar tool artifacts from appearing as advisor hints |
+| S5 | Added `STRATEGY_LABELS` mapping and `strategyLabel()` helper in component | Gemini | Human-friendly labels in table and CSV export (e.g., "Kixie Task" instead of "kixie_task_link") |
 
-### Bucket 2 — resolved by user 2026-05-12
+## Human Decisions Applied
 
-| # | Question | User decision | Guide change applied |
+| # | Question | Decision | Rationale |
 |---|---|---|---|
-| Q1 | Bucket-namespace collision (gap kb_path vs deferral kb_topic) | Keep single `bucket` + `bucketKind`; `kb_path` precedence | No change (matches spec / Phase 2E) |
-| Q2 | Detail-modal scope on cluster drill | Show all + highlight matched (filter-on-client) | No change (matches Phase 4 design decision) |
-| Q3 | `chunk_index` semantic vs DB-order | Treat as DB-order; document trade-off | No change (existing SQL comment in Phase 2E deferral_hits already documents) |
-| Q4 | `Uncategorized: <topic>` label format | Keep raw | No change |
-| Q5 | Longtail collapse rule | Current spec — only `totalOccurrences=1 AND bucketKind='uncategorized'` | No change |
-| Q6 | Sort by occurrences vs unique reps | Sort by occurrences + ADD unique-rep badge to card | **Applied** — Phase 6B card render now shows `{N} rep(s)` badge in the card header |
-| Q7 | Empty-state copy | "No advisor calls in this window. Adjust the date range or filters above." | **Applied** — new Phase 6B.5 section |
-| Q8 | `expected_source` path normalization | No normalization; trust upstream AI | No change |
-| Q9 | Rep-focus payload size | Eager 200 cap | No change (matches spec / Phase 2C) |
-| Q10 | Modal stack preservation on rep-name click | Close all modals + URL hop | No change (matches Phase 6D) |
-| Q11 | Triage filters inside Layer 1 cluster modal | NO — defer to follow-up | No change (Bucket 3) |
-| Q12 | Deferral fallback when chunks lack `topics[]` | Dynamic `'Uncategorized: ' || d.topic` | No change (matches Phase 2E deferral_hits) |
-| Q13 | Detail modal gap-render when no `bucket` payload | Render only when `bucket` is set | **Applied** — Phase 4 implementation outline rewritten to gate the new gap section on `payload.bucket !== undefined`; matching helper rewritten to align with the Phase 2E SQL CASE logic |
+| Q1 | Sub-tab vs top-level tab | **Sub-tab of Coaching Usage** | Created CoachingUsageWrapper with Overview/Needs Linking sub-tabs. Widened Coaching Usage visibility to SGMs/managers. CoachingUsageTab unchanged. |
+| Q2 | SGM self-inclusion | **Yes, include self** | Union actor's own rep ID in API route. SGMs see both their own and coachees' unlinked calls. |
+| Q3 | Advisor-call filter | **Advisor calls only** | Matches Coaching Usage scope. Already applied in S1. |
 
-### Bucket 3 — noted but not applied
+## Bucket 3 — Noted, Not Applied
 
-| # | Source | Why deferred |
-|---|---|---|
-| 1 | Gemini Improvement 1 — Triage filters inside Layer 1 cluster modal | Scope expansion. Worth a follow-up after manager feedback on the initial ship. |
-| 2 | Gemini Improvement 2 — "Show all" pagination | Scope; depends on Q9 outcome (if Q9 picks lazy-load, the pagination falls out of that endpoint). |
-| 3 | Codex Suggestion 4 — Split schema into `gapBucket`/`deferralBucket` | Pre-emptive de-collision. Defer pending Q1 resolution. |
+| # | Item | Reviewer | Reason Deferred |
+|---|---|---|---|
+| I2 | Centralize VALID_TABS in shared constant | Codex | Good idea but scope expansion — fix in a separate cleanup PR |
+| I3 | Business days vs calendar days for days_since_call | Gemini | Calendar days match existing patterns; business days add complexity for v1 |
+| S3 | NoteReviewPage error fallback also hardcodes queue | Codex | Edge case (page load failure) — address in follow-up |
+| G1 | Exclude manual_entry from query | Gemini | DISMISSED — data verifier confirms manual_entry+pending rows (192) are genuinely unresolved (sfdc_record_id=0) |

@@ -1,333 +1,313 @@
-# Data Verifier Findings: Knowledge Gap Clusters Rewrite (Section 6)
-
+# Data Verifier Findings -- Needs Linking Sub-Tab
+Feature: Needs Linking sub-tab in Call Intelligence / Coaching Usage view
+Database scope: neon_sales_coaching (project falling-hall-15641609)
 Date: 2026-05-12
-DB: Neon Postgres (sales-coaching), live queries via pg driver
-Spec: insights-refinements.md section 6
-All live probes confirmed against live data, not inferred from code.
 
 ---
 
-## A. Existing Helper Analysis
+## 1. Column Existence Check -- call_notes
 
-File: src/lib/queries/call-intelligence/knowledge-gap-clusters.ts
+Table has 90 columns confirmed. Feature-required columns:
 
-### A1. Current gap_hits CTE -- columns selected
+Column            | Exists | Type        | Nullable | Notes
+---               | ---    | ---         | ---      | ---
+id                | YES    | uuid        | NO       | PK FK target
+call_started_at   | YES    | timestamptz | NO       | 100pct populated
+source            | YES    | text        | NO       | granola or kixie only
+title             | YES    | text        | NO       | max 78 chars
+invitee_emails    | YES    | text[]      | NO       | 36 empty arrays 549 with 1+ email
+attendees         | YES    | jsonb       | NO       | 1 empty array 584 non-empty
+rep_id            | YES    | uuid        | NO       | FK to reps.id
+linkage_strategy  | YES    | text        | NO       | 100pct populated
+status            | YES    | text        | NO       | 100pct populated
+confidence_tier   | NO BLOCKER | n/a     | n/a      | Does not exist on call_notes
 
-  topics.topic (kb_vocab_topics canonical vocab value; becomes bucket in rewrite)
-  e.rep_id
-  r.full_name AS rep_name
-  e.id AS evaluation_id
-  1 AS gap_count
-  0 AS deferral_count
-  NULL::text AS kb_coverage
-
-NOT selected today but required by rewrite:
-  kg.item->>text AS evidence_text
-  kg.item->citations AS citations (jsonb)
-  kg.item->>expected_source AS expected_source_full
-
-Column name mapping for rewrite:
-  topics.topic       -> bucket              (rename + semantic: vocab-match to path-segment)
-  evaluation_id      -> evaluation_id       (no change)
-  gap_count/deferral_count/kb_coverage -> unchanged
-  [absent]           -> evidence_text, citations, expected_source_full (new)
-
-### A2. Current deferral_hits CTE
-
-Selected: topics.topic, d.rep_id, r.full_name AS rep_name, d.evaluation_id,
-0 AS gap_count, 1 AS deferral_count, d.kb_coverage.
-
-Does NOT join via kb_chunk_ids to knowledge_base_chunks.topics. Uses CROSS JOIN
-topics (the kb_vocab_topics CTE) with EXISTS LIKE match against d.topic text.
-
-Filters is_synthetic_test_data = false: YES (line 129 of current helper).
-
-Missing for rewrite:
-  d.deferral_text AS evidence_text (field exists in DB but not selected)
-  d.utterance_index (not selected)
-  The LATERAL join to knowledge_base_chunks via kb_chunk_ids is entirely absent
-
-### A3. Is the topics CTE present?
-
-YES. First CTE, lines 68-77. Reads from kb_vocab_topics table and builds synonyms
-array from KB_VOCAB_SYNONYMS. Rewrite removes this CTE and the ::jsonb param.
-KB_VOCAB_SYNONYMS stays as theming data.
-
-### A4. LATERAL + unnest(topics) patterns against knowledge_base_chunks
-
-Only two files in src/ reference knowledge_base_chunks:
-  src/lib/queries/call-intelligence/knowledge-gap-clusters.ts (no LATERAL)
-  src/lib/queries/call-intelligence-evaluations.ts (simple WHERE id = ANY, no LATERAL)
-
-The LATERAL pattern is novel in this codebase. No existing code to copy from.
+Soft-delete: source_deleted_at. All queries: WHERE source_deleted_at IS NULL
 
 ---
 
-## B. knowledge_base_chunks Column Inventory (LIVE)
+## 2. Population Rates (non-soft-deleted rows N=585)
 
-Full results from information_schema.columns (22 columns):
+All 8 target columns: 100% populated. No NULL-handling needed at query time.
 
-  id                   uuid                      NOT NULL
-  drive_file_id        text                      NOT NULL
-  chunk_role           text                      NOT NULL
-  chunk_index          integer                   NOT NULL
-  doc_id               text                      NOT NULL
-  chunk_type           text                      NOT NULL
-  topics               ARRAY (text[])            NOT NULL
-  call_stages          ARRAY (text[])            NOT NULL
-  rubric_dimensions    ARRAY (text[])            NOT NULL
-  objection_type       text                      NULLABLE
-  owner                text                      NOT NULL
-  last_verified        date                      NOT NULL
-  body_text            text                      NOT NULL
-  embedding            USER-DEFINED (vector)     NOT NULL
-  drive_revision_id    text                      NOT NULL
-  is_active            boolean                   NOT NULL
-  deleted_at           timestamp with time zone  NULLABLE
-  deleted_reason       text                      NULLABLE
-  path_changed_at      timestamp with time zone  NULLABLE
-  synced_at            timestamp with time zone  NULLABLE
-  created_at           timestamp with time zone  NOT NULL
-  updated_at           timestamp with time zone  NOT NULL
-
-Spec confirmations:
-  id: uuid, NOT NULL, PK. CONFIRMED. No chunk_id column exists.
-  topics: ARRAY (text[]), NOT NULL. CONFIRMED.
-  is_active: boolean, NOT NULL. CONFIRMED.
-  chunk_index: integer, NOT NULL. CONFIRMED. Used in LATERAL ORDER BY chunk_index.
-
-Additional columns not in spec (ignore for rewrite, available for future sub-filters):
-  chunk_type, doc_id, drive_file_id, owner, embedding (vector), call_stages, rubric_dimensions.
-
----
-## C. knowledge_gaps JSONB Item Shape (LIVE)
-
-### C1. Key distribution, last 90 days, all evaluations
-
-  citations        765/765   100%
-  text             765/765   100%
-  expected_source  642/765   83.9%
-
-No other keys present. No kb_source, confidence, severity at item level.
-Structure exactly matches three keys the spec expects.
-
-765 items spans all evaluations (no advisor filter). Advisor-eligible = 450 (see E3).
-
-### C2. Sample items
-
-Citations can contain BOTH utterance_index AND kb_source entries in the same item:
-  citations: [
-    { utterance_index: 225 },
-    { utterance_index: 236 },
-    { kb_source: { doc_id, chunk_id, doc_title, drive_url } }
-  ]
-
-Spec type Array<{ utterance_index?: number; kb_source?: {...} }> is correct.
-
-kb_source uses field name chunk_id (not id). Maps to knowledge_base_chunks.id.
-Confirmed by comment at call-intelligence-evaluations.ts:465.
+Column                  | Rate
+---                     | ---
+linkage_strategy        | 100%
+status                  | 100%
+call_started_at         | 100%
+source                  | 100%
+title (non-empty)       | 100%
+invitee_emails (present)| 100%
+attendees               | 100%
+rep_id                  | 100%
 
 ---
 
-## D. rep_deferrals Column Inventory (LIVE)
+## 3. Value Distributions
 
-Full results from information_schema.columns (12 columns):
+### linkage_strategy -- only 3 distinct values; spec names 6
 
-  id                      uuid                      NOT NULL
-  evaluation_id           uuid                      NOT NULL
-  call_note_id            uuid                      NOT NULL
-  rep_id                  uuid                      NOT NULL
-  topic                   text                      NOT NULL
-  deferral_text           text                      NOT NULL
-  utterance_index         integer                   NULLABLE
-  kb_coverage             text                      NOT NULL
-  kb_max_similarity       numeric                   NULLABLE
-  kb_chunk_ids            ARRAY (uuid[])            NOT NULL
-  is_synthetic_test_data  boolean                   NOT NULL
-  created_at              timestamp with time zone  NOT NULL
+Value           | Count | %
+---             | ---   | ---
+manual_entry    | 502   | 85.81%
+kixie_task_link | 82    | 14.02%
+crd_prefix      | 1     | 0.17%
 
-Spec confirmations:
-  kb_chunk_ids: ARRAY (uuid[]), NOT NULL. CONFIRMED.
-  utterance_index: integer, NULLABLE. Spec uses utterance_index? (optional). CONFIRMED.
-  deferral_text: text, NOT NULL. CONFIRMED.
-  kb_coverage: plain text (NOT a Postgres enum). Values covered/partial/missing are app-level.
-  is_synthetic_test_data: boolean, NOT NULL. CONFIRMED.
+SPEC MISMATCH: calendar_title, lead_contact_name, summary_name do not exist in live DB.
+These are aspirational/stale strategy names.
+The predicate linkage_strategy IN (calendar_title, lead_contact_name, summary_name, manual_entry)
+currently matches only manual_entry rows.
 
-Not in spec: call_note_id (direct FK), kb_max_similarity (numeric similarity score).
+### status
 
-deferral_text population (last 90 days): 201/201 = 100%. Fully populated. Currently unused by any query.
+Value        | Count | %
+---          | ---   | ---
+rejected     | 283   | 48.38%
+pending      | 224   | 38.29%
+approved     | 51    | 8.72%
+sent_to_sfdc | 27    | 4.62%
 
----
+### source
 
-## E. Live Spec Probes
-
-### E1. Chunk topics distribution (is_active = true, 176 active chunks)
-
-31 distinct curated tags:
-
-  sgm_handoff: 46              discovery_call_structure: 34   move_mindset: 32
-  candidate_persona: 31        aum_qualification: 27          meeting_sequencing: 21
-  tech_platform: 20            operations_support: 20         objection_handling: 18
-  comp_modeling: 15            marketing_program: 15          revenue_split: 14
-  qualification_decision: 10   client_origin: 10              investment_management: 9
-  transition_timeline: 8       culture_fit: 8                 equity_structure: 8
-  tech_partners: 7             pers: 6                        firm_types: 5
-  kickers: 5                   compliance: 5                  firm_specific_risk: 5
-  client_onboarding: 4         disclosures: 4                 legal_protocol: 2
-  client_data_portability: 2   affiliation_model: 2           garden_leave: 1
-  book_ownership: 1
-
-Spec anticipated ~10-30 distinct tags. 31 is at the upper bound but reasonable.
-All tags are snake_case, no anomalies.
-
-### E2. Deferral lateral coverage rate (last 90 days, advisor-eligible, non-synthetic)
-
-  would_bucket: 169 / total: 169 = 100%
-
-Every advisor-eligible non-synthetic deferral has at least one active KB chunk with
-topics populated linked via kb_chunk_ids. Spec anticipated >70%. Actual: 100%.
-The fallback Uncategorized: || d.topic currently hits 0 rows.
-
-### E3. Unfiltered ceiling (data preservation check)
-
-  gap_ceiling:      450  (advisor-eligible knowledge gaps, last 90 days)
-  deferral_ceiling: 169  (non-synthetic, advisor-eligible deferrals, last 90 days)
-  Combined ceiling: 619  rows the rewrite must surface without dropping any.
-
-SPEC DECAY: Spec states 422 gaps, 147 deferrals. Live: 450 (+28), 169 (+22).
-Data grew since spec was written. Normal growth, not a data integrity issue.
-
-### E4. expected_source population rate (advisor-eligible, last 90 days)
-
-  populated:               407 / 450 = 90.4%
-  distinct_2seg_buckets:   20
-  null/empty (Uncategorized): 43 rows (9.6%)
-
-Spec cited 92% (388/422). Current 90.4% within tolerance as data grew. 20 buckets confirmed.
-
-### E5. Top bucket distribution (advisor-eligible, last 90 days)
-
-  profile/ideal-candidate-profile    143 gaps   13 reps
-  playbook/sga-discovery             103 gaps   18 reps
-  (null -- Uncategorized)             43 gaps    9 reps
-  facts/process                       32 gaps   10 reps
-  playbook/sgm-intro                  26 gaps    7 reps
-  playbook/handoff                    21 gaps    5 reps
-  playbook/platform-review            21 gaps    5 reps
-  facts/compensation                  15 gaps    7 reps
-  playbook/operations-overview        13 gaps    2 reps
-  playbook/comp-discussion             9 gaps    3 reps
-  playbook/offer-presentation          7 gaps    3 reps
-  facts/company                        4 gaps    3 reps
-  playbook/marketing-discussion        4 gaps    3 reps
-  facts/platform                       2 gaps    2 reps
-  playbook/operations                  1 gap     1 rep
-  playbook/legal                       1 gap     1 rep
-  playbook/compliance                  1 gap     1 rep
-  facts/marketing                      1 gap     1 rep
-  facts/equity                         1 gap     1 rep
-  facts/competitive                    1 gap     1 rep
-
-SPEC DECAY: Spec states top bucket at 132 gaps, 13 reps. Live: 143 gaps (+11), 13 reps.
-Acceptance criterion (c) should be updated or made label-only (drop hardcoded count).
-
-The NULL bucket row (43 gaps) from NULLIF correctly maps to Uncategorized via COALESCE.
+Value   | Count | %
+---     | ---   | ---
+granola | 503   | 85.98%
+kixie   | 82    | 14.02%
 
 ---
 
-## F. Data Quality Risks
+## 4. manual_entry Deep Dive: SGM-Resolved vs Unresolved
 
-### F1. expected_source path anomalies
+Cross-tab: manual_entry rows by status (N=502):
 
-Leading slashes: 0 rows.
-Backslash characters: 0 rows (confirmed via chr(92) probe -- initial position() probe
-returned 642 as false positive due to Postgres escape-string semantics).
-All sampled values are clean forward-slash-separated lowercase kebab strings.
-No non-ASCII, no spaces. split_part truncation to 2 segments is safe.
+status       | Count | has sfdc_record_id | has approved_by
+---          | ---   | ---                | ---
+rejected     | 282   | 0                  | 20
+pending      | 192   | 0                  | 0
+sent_to_sfdc | 26    | 10                 | 26
+approved     | 2     | 0                  | 2
 
-### F2. rep_deferrals.kb_chunk_ids null vs empty (last 90 days, 201 rows)
+Interpretation:
+- sent_to_sfdc (26): Reviewed and pushed to SFDC. RESOLVED. approved_by always set. EXCLUDE.
+- approved (2): Human confirmed linkage, not yet pushed. approved_by set. EXCLUDE.
+- rejected (282): SGM reviewed and declined. RESOLVED. Including these re-queues already-reviewed calls. EXCLUDE.
+- pending (192): No sfdc_record_id, no approved_by. GENUINELY UNRESOLVED. INCLUDE.
 
-  NULL kb_chunk_ids: 0
-  Empty array:       0
+Recommendation: Restrict manual_entry rows to status=pending only.
+The spec confidence_tier filter intended to flag low-confidence rows;
+status=pending achieves the same intent -- pending means the waterfall did not
+confidently resolve the SFDC record and the SGM has not reviewed it.
 
-Column is NOT NULL at schema level. All rows have at least one UUID.
-
-### F3. knowledge_base_chunks.topics null vs empty (active chunks, 176 rows)
-
-  NULL topics:  0  (column is NOT NULL)
-  Empty array:  0
-
-All active chunks have at least one topic. LATERAL guard clauses ARE NOT NULL AND
-array_length(topics, 1) > 0 are defensive but currently unnecessary.
-
-### F4. Duplicate topics within a single chunk
-
-0 chunks have duplicate topics. No deduplication needed.
-
-### F5. Empty expected_source NULLIF check
-
-NULLIF(split_part('','/',1) || '/' || split_part('','/',2), '/') returns NULL.
-Confirmed: empty input produces '/' which NULLIF converts to NULL,
-then COALESCE maps to Uncategorized. The logic is correct.
-
-### F6. rep_deferrals.topic null/empty rate (last 90 days)
-
-  NULL or empty: 0 / 201
-
-Uncategorized fallback via d.topic is safe -- d.topic is always populated.
+kixie_task_link + pending (32 rows): Most have sfdc_record_id set per sample.
+These represent Kixie pipeline ingestion-in-progress, not SFDC orphans. EXCLUDE from queue.
 
 ---
 
-## Summary Table -- Spec vs Live Numbers
+## 5. BLOCKER: confidence_tier Column Does Not Exist
 
-  Metric                                 Spec says    Live 2026-05-12    Status
-  Gap ceiling (advisor-eligible, 90d)    422          450                DECAYED (data grew)
-  Deferral ceiling (non-synthetic, 90d)  147          169                DECAYED (data grew)
-  expected_source population rate        92%          90.4%              Within tolerance
-  Distinct 2-segment buckets             20           20                 CONFIRMED
-  Top bucket gap count                   132          143                DECAYED (data grew)
-  Top bucket rep count                   13           13                 CONFIRMED
-  Top bucket label                       profile/...  profile/...        CONFIRMED
-  Deferral lateral coverage              >70%         100%               EXCEEDS SPEC
-  Distinct chunk topic tags              ~10-30       31                 AT UPPER BOUND
-  deferral_text population               (not stated) 100%               SAFE
-  kb_chunk_ids null/empty                (not stated) 0%                 SAFE
-  Backslash in expected_source           (risk)       0                  SAFE
+call_notes.confidence_tier does not exist as a scalar column.
+Full search for columns with name containing confidence returned:
+
+Table            | Column                        | Type
+---              | ---                           | ---
+call_notes       | likely_call_type_confidence   | text
+call_notes       | speaker_mapping_confidence    | double precision
+call_notes       | transcript_confidence         | double precision
+kb_corrections_log | diagnosis_confidence        | numeric
+
+confidence_tier DOES exist inside slack_review_messages.sfdc_suggestion JSONB
+as a per-candidate field. Values: likely, possible, unlikely.
+
+Distribution in slack_review_messages.sfdc_suggestion.candidates (dm surface):
+
+confidence_tier | Count (candidate entries)
+---             | ---
+null            | 2307
+unlikely        | 254
+likely          | 75
+possible        | 38
+
+Of 224 pending call_notes rows, only 87 have a slack_review_messages row.
+The remaining 137 have no waterfall data; confidence_tier = null even via JOIN.
+
+Options:
+Option 1 (RECOMMENDED for v1): Use status=pending as sole criterion. 224 all-time, 67 last 14 days.
+  No schema change. Achieves spec intent.
+Option 2: LEFT JOIN slack_review_messages (surface=dm), read candidates[0].confidence_tier.
+  Covers only 87/224 pending rows; rest appear as null tier. Adds complexity.
+Option 3: Add confidence_tier scalar column to call_notes via migration in sales-coaching repo.
+  Flag as blocker if scalar filter is a hard requirement.
 
 ---
 
-## Key Flags for the Implementing Agent
+## 6. reps Table Schema
 
-1. STALE ACCEPTANCE CRITERION.
-   Spec criterion (c): top bucket = profile/ideal-candidate-profile (132 gaps, 13 reps).
-   Live: 143 gaps, 13 reps as of 2026-05-12. Update or make label-only.
+Column         | Type    | Nullable | Notes
+---            | ---     | ---      | ---
+id             | uuid    | NO       | PK
+full_name      | text    | NO       | Use for rep name display
+role           | text    | NO       | SGA SGM manager admin (uppercase SGA/SGM in this DB)
+manager_id     | uuid    | YES      | Self-FK to reps.id
+is_active      | boolean | NO       | Always filter is_active=true
+is_system      | boolean | NO       | Always filter is_system=false
+email          | text    | NO       | Available if needed
+coaching_scope | text    | YES      | Values: SGA SGM both null
 
-2. kb_vocab_topics TABLE NOT IN SPEC.
-   The topics CTE reads from kb_vocab_topics, a table not in the spec data model.
-   Verify it still exists before the rewrite removes it. Confirm no other query depends on it.
+Manager name via self-join: LEFT JOIN reps mgr ON mgr.id = rep.manager_id.
+27 of 33 active non-system reps have manager_id set (81.8%). 5 have no manager.
 
-3. utterance_index IS NULLABLE AT COLUMN LEVEL.
-   jsonb_build_object with null utterance_index emits {utterance_index: null}.
-   Modal layer must guard against null before scrolling transcript.
-   Currently 0/201 rows null in 90-day window, but schema allows it.
+Role enum boundary: reps.role uses coaching enum (SGA SGM manager admin) with uppercase.
+Do not conflate with the Dashboard role enum (lowercase sga/sgm).
 
-4. kb_coverage IS PLAIN TEXT, NOT ENUM.
-   No cast issues. ::text binding is already correct.
+---
 
-5. deferral_text IS 100% POPULATED AND CURRENTLY UNUSED.
-   Rewrite is the first query to surface it. No backfill or migration needed.
+## 7. JSONB Shapes for Advisor Hint Extraction
 
-6. DEFERRAL LATERAL COVERAGE IS 100% TODAY.
-   Uncategorized fallback hits 0 rows. Keep in SQL for future-proofing (chunk retirement)
-   but do not build UI optimizations around it in the initial ship.
+### attendees (jsonb, 100% array type)
 
-7. expected_source CAN HAVE 3+ PATH SEGMENTS.
-   Example: playbook/sga-discovery/open-with-three-pillars.
-   split_part truncation to 2 segments is intentional and works correctly.
-   Confirmed by 20 distinct 2-segment buckets.
+All 585 rows are arrays. 584 non-empty, 1 empty.
 
-8. LATERAL PATTERN IS NOVEL IN THIS CODEBASE.
-   No other query uses LATERAL with knowledge_base_chunks.
-   Closest existing pattern: getKbChunksByIds() in
-   src/lib/queries/call-intelligence-evaluations.ts (simple WHERE id = ANY lookup).
+Observed element shape (consistent across all sampled rows, both sources):
+  { name: Lena Allouche, email: lena.allouche@savvywealth.com }
 
+- Kixie: 2-element array (1 internal rep + 1 external prospect).
+- Granola: variable count, mix of internal and external participants.
+
+### invitee_emails (text[])
+
+36 rows are empty arrays. Max array length 37. Mix of internal and external emails.
+Google Calendar resource accounts (c_...@resource.calendar.google.com) must be excluded.
+
+Advisor hint extraction priority:
+1. Filter attendees where email not in @savvywealth.com / @savvyadvisors.com /
+   resource.calendar.google.com. Take first match name field.
+2. Filter invitee_emails to first non-internal email (email only, no name).
+3. Last resort: title (always populated, max 78 chars).
+
+---
+
+## 8. Needs Linking Filter Volume Estimates
+
+Using status=pending (RECOMMENDED):
+
+Time window  | Row count
+---          | ---
+Last 14 days | 67
+Last 30 days | 108
+Last 90 days | 194
+All time     | 224
+
+Oldest pending row: 2025-10-15 (7 months ago). 14-day default with all toggle is appropriate.
+
+Using spec combined filter (status=pending OR linkage_strategy IN list) without confidence_tier:
+
+Time window  | Row count
+---          | ---
+Last 14 days | 147
+All time     | 534
+
+The 534 all-time count is inflated by 282 manual_entry+rejected already-reviewed rows.
+
+---
+
+## 9. RBAC: getRepIdsVisibleToActor Compatibility
+
+Source: src/lib/queries/call-intelligence/visible-reps.ts
+
+Existing function handles:
+- admin / revops_admin: all active non-system reps (correct for global queue)
+- manager_id hierarchy: direct reports
+- coaching_team_members via coaching_teams.lead_rep_id: pod overlay
+- coaching_observers scope all_sgm / all_sga
+
+RBAC gap -- SGM coachee visibility:
+- Zero coaching_teams rows have a SGM as lead_rep_id.
+- Zero manager_id relationships link any SGM to any SGA in live data.
+- Active coaching_observers (4 rows): 2 admins, 2 managers. Zero SGM-scoped rows.
+- An SGM calling getRepIdsVisibleToActor today receives zero visible rep IDs.
+
+Resolution paths (implementation team must choose):
+(a) Create coaching_observers rows with scope=all_sga for each SGM.
+(b) Add a new branch to getRepIdsVisibleToActor for role=SGM mapping to SGAs.
+(c) Role-based shortcut: any active SGM sees all active SGAs.
+
+This RBAC wiring is required before the tab can enforce SGM-scoped visibility.
+
+Live RBAC table counts:
+- coaching_teams (active): 2
+- coaching_team_members: 7
+- coaching_observers (active): 4 (2 admins, 2 managers; no SGMs)
+- Active reps: 17 SGA, 8 SGM, 5 admin, 3 manager
+
+---
+
+## 10. Review Route and NoteReviewClient
+
+Both confirmed to exist:
+- src/app/dashboard/call-intelligence/review/[callNoteId]/page.tsx
+- src/app/dashboard/call-intelligence/review/[callNoteId]/NoteReviewClient.tsx
+
+The Open SFDC search action routing to /dashboard/call-intelligence/review/[callNoteId]
+points at an existing route. No new routes are needed for this action.
+
+---
+
+## 11. Text Field Max Lengths
+
+Field            | Max Length
+---              | ---
+title            | 78 chars
+linkage_strategy | 15 chars (kixie_task_link)
+status           | 12 chars (sent_to_sfdc)
+source           | 7 chars (granola)
+
+No truncation risk for any field in table column display.
+
+---
+
+## 12. Edge Cases
+
+Check                       | Result
+---                         | ---
+Empty title                 | 0 rows
+Whitespace-only title       | 0 rows
+title with newlines         | 0 rows
+title over 200 chars        | 0 rows
+Empty invitee_emails array  | 36 rows (6.2%) -- fallback needed
+Empty attendees array       | 1 row (0.17%)
+attendees not an array      | 0 rows
+call_started_at NULL        | 0 rows
+days since call formula     | EXTRACT(DAY FROM NOW() - call_started_at)::int confirmed working
+
+---
+
+## 13. Schema Migration Requirements
+
+Requirement                                    | Status                              | Blocking?
+---                                            | ---                                 | ---
+Add confidence_tier scalar to call_notes       | NOT required with status=pending    | Only blocks if scalar filter is hard req
+New API route for needs-linking data           | Implementation task (no existing endpoint) | Not a schema migration
+reps, coaching_teams, team_members, observers  | No column changes needed            | No schema blocker
+
+---
+
+## Summary of Key Blockers and Flags
+
+1. BLOCKER (spec mismatch): confidence_tier is not a column on call_notes.
+   It lives inside slack_review_messages.sfdc_suggestion JSONB as a per-candidate field.
+   Cannot be used as a scalar WHERE clause.
+   Recommendation: simplify orphan definition to status=pending for v1.
+
+2. SPEC MISMATCH: linkage_strategy values calendar_title, lead_contact_name, summary_name
+   do not exist in live DB. Only manual_entry (86%), kixie_task_link (14%), crd_prefix (<1%).
+   The spec strategy list is aspirational or stale.
+
+3. RBAC gap: SGMs have no coachee linkage in current data.
+   No coaching_observers rows for SGMs. No manager_id or coaching_team links SGMs to SGAs.
+   SGM-scoped visibility must be explicitly wired before the tab can enforce it.
+
+4. manual_entry + rejected rows (282) must be excluded.
+   status=pending naturally excludes them. Do not include rejected or sent_to_sfdc rows.
+
+5. Advisor hint requires JSONB parsing with internal domain filtering.
+   Exclude @savvywealth.com, @savvyadvisors.com, resource.calendar.google.com accounts.
