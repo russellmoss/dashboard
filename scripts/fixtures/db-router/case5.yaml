@@ -1,0 +1,31 @@
+```yaml
+feature: "Show SGM time-in-stage breach alongside their coaching usage heatmap"
+databases:
+  bigquery:
+    in_scope: true
+    reason: "SGM time-in-stage is opportunity stage progression data in vw_funnel_master / vw_funnel_audit on BigQuery."
+  neon_savvy_dashboard:
+    in_scope: false
+    reason: "No Dashboard-owned Prisma tables (Goal/Forecast/etc.) are read or written for this view."
+  neon_sales_coaching:
+    in_scope: true
+    reason: "Coaching usage heatmap is computed from evaluations + call_notes in sales_coaching, read by Dashboard via direct pg."
+preread_paths:
+  bigquery:
+    - .claude/bq-views.md
+    - .claude/bq-field-dictionary.md
+    - .claude/bq-patterns.md
+    - .claude/bq-activity-layer.md
+    - .claude/bq-salesforce-mapping.md
+  neon_sales_coaching:
+    - .claude/neon-sales-coaching.md
+mcp_tools:
+  bigquery:
+    - schema-context.describe_view
+    - schema-context.get_rule
+    - schema-context.get_metric
+    - schema-context.resolve_term
+    - schema-context.lint_query
+  neon_sales_coaching:
+    - mcp__Neon__describe_table_schema
+```

@@ -1,0 +1,19 @@
+```yaml
+feature: "Allow users to favorite and share saved Explore reports"
+databases:
+  bigquery:
+    in_scope: false
+    reason: "No analytics data is queried; this is a persistence-layer feature on saved-report metadata."
+  neon_savvy_dashboard:
+    in_scope: true
+    reason: "Saved reports and share edges are Dashboard Prisma tables (SavedReport, ReportShare in the Agentic Reports domain)."
+  neon_sales_coaching:
+    in_scope: false
+    reason: "No coaching tables are involved."
+preread_paths:
+  neon_savvy_dashboard:
+    - .claude/neon-savvy-dashboard.md
+mcp_tools:
+  neon_savvy_dashboard:
+    - mcp__Neon__describe_table_schema
+```

@@ -40,7 +40,7 @@ Use the **pooled** host (`-pooler` suffix) for serverless / per-request connecti
 |---|---|---|
 | **Auth & Identity** | Dashboard users, password reset, MCP API keys | `User`, `PasswordResetToken`, `mcp_api_keys` |
 | **Dashboard Requests** | Feature requests + data-error tickets (Wrike-synced) | `DashboardRequest`, `RequestAttachment`, `RequestComment`, `RequestEditHistory`, `RequestNotification` |
-| **Forecast — Active** | Current Monte-Carlo forecasting + quarterly targets + exports | `ForecastScenario`, `ForecastQuarterTarget`, `forecast_exports` |
+| **Forecast — Active** | User-saved Monte-Carlo scenarios + per-quarter targets + Sheets export audit. **NOT the analytics source for forecast accuracy / predicted-vs-actual** — that lives in BigQuery (`vw_daily_forecast`, `vw_forecast_p2`, `q4_2025_forecast`). These Neon tables hold user working state only. | `ForecastScenario`, `ForecastQuarterTarget`, `forecast_exports` |
 | **Forecast — Legacy (DORMANT)** | Original deterministic forecasting model — superseded but not deleted | `Forecast`, `ForecastAssumption`, `ForecastLineItem`, `ForecastOverride`, `ForecastRateItem`, `ForecastSource`, `ForecastTarget` |
 | **Goals** | Per-user activity + revenue targets (weekly/quarterly/manager/SGM) | `WeeklyGoal`, `QuarterlyGoal`, `SGMQuarterlyGoal`, `manager_quarterly_goals` |
 | **Growth Capital (GC Hub)** | Per-advisor monthly revenue/AUM from Orion + manual overrides | `GcAdvisorMapping`, `GcAdvisorPeriodData`, `GcSyncLog` |
@@ -119,6 +119,8 @@ For each table: **purpose**, **grain**, key consumers, and any traps. Column lis
 ---
 
 ### Forecast — Active
+
+**Source-of-truth split — TRAP:** These tables (`ForecastScenario`, `ForecastQuarterTarget`, `forecast_exports`) hold **user-saved working state** for the forecasting tool — scenario authoring, target editing, export audit. They are **NOT** the analytics-of-record for forecast accuracy, backtest, or predicted-vs-actual reporting. That data lives in BigQuery (`vw_daily_forecast`, `vw_forecast_p2`, `q4_2025_forecast`). Route scenario-authoring and target-editing features here; route accuracy/backtest/predicted-vs-actual features to BigQuery only.
 
 **Active Forecast vs Legacy Forecast — TRAP:** The dashboard uses three actively-consumed forecast tables: `ForecastScenario` (Monte Carlo), `ForecastQuarterTarget` (AUM goals), and `forecast_exports` (Google Sheets audit log). The seven-table legacy `Forecast*` family (one-to-many `Forecast → ForecastLineItem / ForecastRateItem / …`) is **DORMANT** — zero application consumers. Schema is preserved but writes go to the active family only. **When writing forecast code, do NOT touch the legacy family unless you know you're working on a restore/migration path.**
 

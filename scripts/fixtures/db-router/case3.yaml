@@ -1,0 +1,19 @@
+```yaml
+feature: "Add admin UI for issuing and revoking MCP API keys"
+databases:
+  bigquery:
+    in_scope: false
+    reason: "No funnel, activity, or analytics data is involved."
+  neon_savvy_dashboard:
+    in_scope: true
+    reason: "mcp_api_keys is a Dashboard-owned Prisma table; issuing/revoking touches that table directly."
+  neon_sales_coaching:
+    in_scope: false
+    reason: "No sales-coaching tables are involved."
+preread_paths:
+  neon_savvy_dashboard:
+    - .claude/neon-savvy-dashboard.md
+mcp_tools:
+  neon_savvy_dashboard:
+    - mcp__Neon__describe_table_schema
+```

@@ -112,12 +112,17 @@ mcp_tools:
 `;
 
   const fullPrompt = `${sysPrompt}\n\n${userPrompt}`;
-  const result = spawnSync('claude', ['-p', fullPrompt], {
+  // Pipe prompt via stdin, not argv: Windows CreateProcessW caps the command
+  // line at ~32K UTF-16 chars, and the doc-head payload exceeds that.
+  const result = spawnSync('claude', ['-p'], {
+    input: fullPrompt,
     encoding: 'utf8',
     maxBuffer: 10 * 1024 * 1024,
   });
-  if (result.status !== 0) {
-    fail(`claude -p failed (exit ${result.status}): ${result.stderr || result.stdout}`);
+  if (result.error || result.status !== 0) {
+    const code = result.error?.code ? ` [${result.error.code}]` : '';
+    const errMsg = result.error?.message || result.stderr || result.stdout || '(no output)';
+    fail(`claude -p failed (exit ${result.status})${code}: ${errMsg}`);
   }
   return result.stdout.trim();
 }

@@ -1,0 +1,131 @@
+=== db-router-decision.md ===
+```yaml
+feature: "Add a needs-linking inbox filter to Coaching Usage tab showing call_notes with linkage_strategy='manual_entry'"
+databases:
+  bigquery:
+    in_scope: false
+    reason: "BigQuery funnel views are not involved; the feature filters sales-coaching call_notes rows."
+  neon_savvy_dashboard:
+    in_scope: false
+    reason: "No Dashboard-owned Prisma tables (forecast, requests, users, etc.) are touched."
+  neon_sales_coaching:
+    in_scope: true
+    reason: "call_notes lives in sales_coaching; linkage_strategy is a column on that table that Dashboard reads via direct pg."
+preread_paths:
+  neon_sales_coaching:
+    - .claude/neon-sales-coaching.md
+mcp_tools:
+  neon_sales_coaching:
+    - mcp__Neon__describe_table_schema
+```
+
+=== code-inspector prompt ===
+## DB Context (from Phase 0.5 router)
+
+```yaml
+feature: "Add a needs-linking inbox filter to Coaching Usage tab showing call_notes with linkage_strategy='manual_entry'"
+databases:
+  bigquery:
+    in_scope: false
+    reason: "BigQuery funnel views are not involved; the feature filters sales-coaching call_notes rows."
+  neon_savvy_dashboard:
+    in_scope: false
+    reason: "No Dashboard-owned Prisma tables (forecast, requests, users, etc.) are touched."
+  neon_sales_coaching:
+    in_scope: true
+    reason: "call_notes lives in sales_coaching; linkage_strategy is a column on that table that Dashboard reads via direct pg."
+preread_paths:
+  neon_sales_coaching:
+    - .claude/neon-sales-coaching.md
+```
+
+Pre-read these files before investigating: .claude/neon-sales-coaching.md. Do not default to other context sources unless none are listed.
+
+## Task
+
+Investigate the codebase for the following feature: Add a needs-linking inbox filter to Coaching Usage tab showing call_notes with linkage_strategy='manual_entry'
+
+Find:
+- Every TypeScript type/interface that needs new fields
+- Every file that CONSTRUCTS objects of those types (construction sites)
+- Every query function, API route, and component that needs changes
+- Both export paths: ExportButton (auto via Object.keys) and ExportMenu/MetricDrillDownModal (explicit column mappings)
+- Any components that manually construct typed records from raw data (e.g., ExploreResults.tsx drilldown handler)
+
+If what you find in the code contradicts the pre-read docs (when applicable), trust the code, proceed with what the code shows, and note the discrepancy in your findings.
+
+Save findings to `code-inspector-findings.md` in the project root.
+
+=== data-verifier prompt ===
+## DB Context (from Phase 0.5 router)
+
+```yaml
+feature: "Add a needs-linking inbox filter to Coaching Usage tab showing call_notes with linkage_strategy='manual_entry'"
+databases:
+  bigquery:
+    in_scope: false
+    reason: "BigQuery funnel views are not involved; the feature filters sales-coaching call_notes rows."
+  neon_savvy_dashboard:
+    in_scope: false
+    reason: "No Dashboard-owned Prisma tables (forecast, requests, users, etc.) are touched."
+  neon_sales_coaching:
+    in_scope: true
+    reason: "call_notes lives in sales_coaching; linkage_strategy is a column on that table that Dashboard reads via direct pg."
+preread_paths:
+  neon_sales_coaching:
+    - .claude/neon-sales-coaching.md
+mcp_tools:
+  neon_sales_coaching:
+    - mcp__Neon__describe_table_schema
+```
+
+Use these MCP tools as primary schema context: mcp__Neon__describe_table_schema. Fall back to these pre-read paths if MCP is unavailable or incomplete: .claude/neon-sales-coaching.md. Do not use any MCP tool or context source that is not listed above for the database investigation portion of this task.
+
+## Task
+
+Verify the data layer for the following feature: Add a needs-linking inbox filter to Coaching Usage tab showing call_notes with linkage_strategy='manual_entry'
+
+For every in-scope database listed in the DB Context block, do the following work using the listed MCP tools as primary:
+- Confirm source fields, tables, or columns exist in the relevant views or schemas.
+- Run appropriate data-quality checks against in-scope sources: existence, population rate (`COUNTIF(field IS NOT NULL) / COUNT(*)` style or equivalent), value distribution, max-length on text fields, and edge cases (NULLs, empty strings, newlines, special characters). Sample JSONB shapes when the in-scope schema exposes them.
+- Always use parameterized queries — never string interpolation.
+- If a schema modification or migration is needed in any in-scope source, document exactly what needs to change and flag it as a blocker.
+
+Do NOT investigate or query databases that are out of scope per the DB Context block.
+
+Save findings to `data-verifier-findings.md` in the project root.
+
+=== pattern-finder prompt ===
+## DB Context (from Phase 0.5 router)
+
+```yaml
+feature: "Add a needs-linking inbox filter to Coaching Usage tab showing call_notes with linkage_strategy='manual_entry'"
+databases:
+  bigquery:
+    in_scope: false
+    reason: "BigQuery funnel views are not involved; the feature filters sales-coaching call_notes rows."
+  neon_savvy_dashboard:
+    in_scope: false
+    reason: "No Dashboard-owned Prisma tables (forecast, requests, users, etc.) are touched."
+  neon_sales_coaching:
+    in_scope: true
+    reason: "call_notes lives in sales_coaching; linkage_strategy is a column on that table that Dashboard reads via direct pg."
+preread_paths:
+  neon_sales_coaching:
+    - .claude/neon-sales-coaching.md
+```
+
+Pre-read these files before investigating: .claude/neon-sales-coaching.md. Do not default to other context sources unless none are listed.
+
+## Task
+
+Find implementation patterns for the following feature: Add a needs-linking inbox filter to Coaching Usage tab showing call_notes with linkage_strategy='manual_entry'
+
+Trace how existing similar fields flow end-to-end, for the in-scope data source(s) only:
+- Data source (per DB Context block) → query function SELECT → transform → return type → API route → component → export/CSV
+- Document date handling patterns: `extractDate()` vs `extractDateValue()` — which files use which
+- Document NULL handling and type coercion patterns for the in-scope data sources (e.g., the wrapper helpers used to coerce raw query output to typed records)
+- Document CSV export column mapping patterns for both export paths
+- Flag any inconsistencies between files that should follow the same pattern
+
+Save findings to `pattern-finder-findings.md` in the project root.

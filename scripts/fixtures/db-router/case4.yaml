@@ -1,0 +1,19 @@
+```yaml
+feature: "Surface a Risk Signals strip on the call detail page with badges linking to the cited utterance"
+databases:
+  bigquery:
+    in_scope: false
+    reason: "No funnel or activity data is involved; risk signals + utterances are sales-coaching domain."
+  neon_savvy_dashboard:
+    in_scope: false
+    reason: "No Dashboard Prisma tables are touched."
+  neon_sales_coaching:
+    in_scope: true
+    reason: "Call detail page reads call_notes and call_transcripts (utterances) directly via pg; a new risk_signals table would also live here."
+preread_paths:
+  neon_sales_coaching:
+    - .claude/neon-sales-coaching.md
+mcp_tools:
+  neon_sales_coaching:
+    - mcp__Neon__describe_table_schema
+```

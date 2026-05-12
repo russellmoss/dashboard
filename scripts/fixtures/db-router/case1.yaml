@@ -1,0 +1,19 @@
+```yaml
+feature: "Add a needs-linking inbox filter to Coaching Usage tab showing call_notes with linkage_strategy='manual_entry'"
+databases:
+  bigquery:
+    in_scope: false
+    reason: "BigQuery funnel views are not involved; the feature filters sales-coaching call_notes rows."
+  neon_savvy_dashboard:
+    in_scope: false
+    reason: "No Dashboard-owned Prisma tables (forecast, requests, users, etc.) are touched."
+  neon_sales_coaching:
+    in_scope: true
+    reason: "call_notes lives in sales_coaching; linkage_strategy is a column on that table that Dashboard reads via direct pg."
+preread_paths:
+  neon_sales_coaching:
+    - .claude/neon-sales-coaching.md
+mcp_tools:
+  neon_sales_coaching:
+    - mcp__Neon__describe_table_schema
+```
