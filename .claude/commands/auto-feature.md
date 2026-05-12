@@ -4,6 +4,11 @@ You are an orchestrator. Your job is to take a feature request, run a full explo
 
 **Feature request:** $ARGUMENTS
 
+**Flags:**
+- `--router-only` — Run Phase 0.5 (DB Router) only. Write `db-router-decision.md`, print it plus the three constructed Phase 1 teammate prompts to console, then STOP. Do not spawn Phase 1 agents. Used by `scripts/test-db-router.mjs` for harness verification.
+
+To detect `--router-only`, scan `$ARGUMENTS` for the literal token. If present, strip it before deriving the feature description, and set `ROUTER_ONLY=true`.
+
 ---
 
 ## RULES
@@ -16,13 +21,129 @@ You are an orchestrator. Your job is to take a feature request, run a full explo
 
 ---
 
+## PHASE 0.5: DB ROUTER
+
+Goal: detect which database(s) this feature touches and write a decision file that Phase 1 reads to dynamically construct teammate prompts. Agents stay DB-agnostic; the router decides what context they get.
+
+### Step A — Read the doc heads only
+
+Read the **first 150 lines** of each of these three context docs. Do not read the rest — heads contain "At a Glance" + "Domain Map" + table-of-contents, which is enough to classify.
+
+- `.claude/bq-views.md`
+- `.claude/neon-savvy-dashboard.md`
+- `.claude/neon-sales-coaching.md`
+
+### Step B — Classify each DB independently
+
+For each of `bigquery`, `neon_savvy_dashboard`, `neon_sales_coaching`, decide `in_scope: true | false` against `$ARGUMENTS` using the doc heads as ground truth. A feature may touch zero, one, two, or all three. Do not keyword-match blindly — reason about the domain.
+
+Reasoning examples (do not memorize — use the docs):
+- "Pipeline forecast accuracy report aggregated from SQO to Joined" → BigQuery only (funnel data lives in `vw_funnel_master`).
+- "Needs-linking filter on Coaching Usage tab" → sales_coaching only (`call_notes.linkage_strategy` lives there; Dashboard reads via direct `pg`).
+- "Issue new MCP API keys from admin UI" → savvy_dashboard only (`mcp_api_keys` table).
+- "Risk signals strip on the call detail page" → sales_coaching only (new `risk_signals` table; Dashboard reads via direct `pg`).
+- "Forecast scenario sharing feature" → savvy_dashboard only (`ForecastScenario` family).
+
+### Step C — Write `db-router-decision.md`
+
+Write the file to the project root with this exact YAML shape (three backticks, yaml language tag):
+
+````
+```yaml
+feature: "<verbatim $ARGUMENTS with --router-only stripped>"
+databases:
+  bigquery:
+    in_scope: true | false
+    reason: "<one-sentence justification grounded in the doc heads>"
+  neon_savvy_dashboard:
+    in_scope: true | false
+    reason: "<one-sentence justification grounded in the doc heads>"
+  neon_sales_coaching:
+    in_scope: true | false
+    reason: "<one-sentence justification grounded in the doc heads>"
+preread_paths:
+  bigquery:
+    - .claude/bq-views.md
+    - .claude/bq-field-dictionary.md
+    - .claude/bq-patterns.md
+    - .claude/bq-activity-layer.md
+    - .claude/bq-salesforce-mapping.md
+  neon_savvy_dashboard:
+    - .claude/neon-savvy-dashboard.md
+  neon_sales_coaching:
+    - .claude/neon-sales-coaching.md
+mcp_tools:
+  bigquery:
+    - schema-context.describe_view
+    - schema-context.get_rule
+    - schema-context.get_metric
+    - schema-context.resolve_term
+    - schema-context.lint_query
+  neon_savvy_dashboard:
+    - mcp__Neon__describe_table_schema
+  neon_sales_coaching:
+    - mcp__Neon__describe_table_schema
+```
+````
+
+**Emission rules:**
+- Only emit `preread_paths` and `mcp_tools` entries for DBs where `in_scope: true`. Omit (do not include with empty list) out-of-scope DBs from those two blocks.
+- Always emit all three DBs under `databases:` regardless of in-scope status.
+- If zero DBs are in scope: still write the file. `databases:` block lists all three with `in_scope: false`. `preread_paths:` and `mcp_tools:` blocks present but empty (e.g., `preread_paths: {}`).
+
+Print the YAML to console after writing it.
+
+### Step D — Router-only short-circuit
+
+If `ROUTER_ONLY=true`, after writing the decision file:
+1. Construct the three Phase 1 teammate prompts as described in Phase 1 (below).
+2. Print each constructed prompt to console under a clearly-labeled header (e.g., `=== code-inspector prompt ===`).
+3. STOP. Do not proceed to Phase 1.
+
+Otherwise, proceed to Phase 1.
+
+---
+
 ## PHASE 1: EXPLORATION
 
-Spawn an agent team with 3 teammates to investigate in parallel:
+Phase 1 dynamically constructs each teammate's prompt from `db-router-decision.md`. The three agents stay DB-agnostic — the router decides what database context (pre-read paths + MCP tools) each agent gets.
 
-### Teammate 1: Code Inspector (agent: code-inspector)
+### Step 1.0 — Load the router decision
 
-Task: "First, read `.claude/bq-views.md` for the view→consumer mapping. Also read `.claude/docs/LLD.md` for the current module index and construction site inventory, and `.claude/docs/CONSTRAINTS.md` for blocked areas and data contracts — use these as a starting point. If what you find in the code contradicts these docs, trust the code, proceed with what the code shows, and note the discrepancy in your findings. Then investigate the codebase for the following feature: $ARGUMENTS
+Read `db-router-decision.md` from project root. Parse it. Compute:
+- `all_preread_paths` = union of `preread_paths.<db>` for every `db` with `in_scope: true`.
+- `all_mcp_tools` = union of `mcp_tools.<db>` for every `db` with `in_scope: true`.
+- `decision_yaml_text` = the verbatim YAML block (including fences) read from the file.
+
+### Step 1.1 — Construct per-teammate DB-context blocks
+
+For each teammate, prepend a **DB Context block** to the teammate's task prompt. The block has two parts in order:
+
+1. The inlined decision YAML — but **redacted for agents without MCP access**.
+   - **data-verifier** (HAS `mcp__*`): sees the FULL `decision_yaml_text` (including the `mcp_tools:` section).
+   - **code-inspector** and **pattern-finder** (NO MCP): see a **redacted YAML** with the entire `mcp_tools:` section stripped. Tool names like `mcp__Neon__describe_table_schema` and `schema-context.describe_view` must never appear in their prompts.
+2. Per-agent instruction line:
+
+   **code-inspector** and **pattern-finder** (NO MCP — do NOT name any MCP tool):
+   - If `all_preread_paths` is non-empty: "Pre-read these files before investigating: `<paths joined by comma>`. Do not default to other context sources unless none are listed."
+   - If `all_preread_paths` is empty (zero DBs in scope): "No database context required for this feature."
+
+   **data-verifier** (HAS `mcp__*`):
+   - If `all_preread_paths` is non-empty OR `all_mcp_tools` is non-empty:
+     "Use these MCP tools as primary schema context: `<all_mcp_tools joined by comma>`. Fall back to these pre-read paths if MCP is unavailable or incomplete: `<all_preread_paths joined by comma>`. Do not use any MCP tool or context source that is not listed above for the database investigation portion of this task."
+   - If both lists are empty: "No database context required for this feature."
+
+   **Critical no-leakage rule for data-verifier:** The instruction line must NOT name out-of-scope DBs or their tools (e.g., do not write "Do NOT default to BigQuery `schema-context`" — that itself leaks the BQ tool name). Use the generic "do not use anything not listed above" formulation instead. The `databases:` block already encodes scope; the instruction line should only enumerate IN-SCOPE resources.
+
+### Step 1.2 — Spawn the three teammates in parallel
+
+Each prompt is constructed as: `<DB Context block>` + `<teammate-specific investigation questions below>`.
+
+#### Teammate 1: Code Inspector (agent: code-inspector)
+
+Investigation questions (unchanged regardless of DB scope):
+
+"Investigate the codebase for the following feature: $ARGUMENTS
 
 Find:
 - Every TypeScript type/interface that needs new fields
@@ -31,29 +152,36 @@ Find:
 - Both export paths: ExportButton (auto via Object.keys) and ExportMenu/MetricDrillDownModal (explicit column mappings)
 - Any components that manually construct typed records from raw data (e.g., ExploreResults.tsx drilldown handler)
 
+If what you find in the code contradicts the pre-read docs (when applicable), trust the code, proceed with what the code shows, and note the discrepancy in your findings.
+
 Save findings to `code-inspector-findings.md` in the project root."
 
-### Teammate 2: Data Verifier (agent: data-verifier)
+#### Teammate 2: Data Verifier (agent: data-verifier)
 
-Task: "First, use `schema-context` MCP tools (`describe_view`, `get_rule`, `get_metric`, `resolve_term`) as the primary schema context source. Fall back to `.claude/bq-*.md` files if MCP is unavailable or incomplete. Then verify the data layer for the following feature: $ARGUMENTS
+Investigation questions (DB-agnostic — the DB Context block determines scope):
 
-Using MCP access to BigQuery:
-- Confirm source fields exist in the relevant views. Start with the schema docs, then query BQ only for things not already documented (new fields, population rates for specific date ranges).
-- Run population rate checks: `SELECT COUNTIF(field IS NOT NULL) / COUNT(*) as rate`
-- Run value distribution checks for each field
-- Check for edge cases: NULLs, empty strings, newlines, special characters, max lengths
-- If a BigQuery view modification is needed, document exactly what needs to change and flag it as a blocker
+"Verify the data layer for the following feature: $ARGUMENTS
+
+For every in-scope database listed in the DB Context block, do the following work using the listed MCP tools as primary:
+- Confirm source fields, tables, or columns exist in the relevant views or schemas.
+- Run appropriate data-quality checks against in-scope sources: existence, population rate (`COUNTIF(field IS NOT NULL) / COUNT(*)` style or equivalent), value distribution, max-length on text fields, and edge cases (NULLs, empty strings, newlines, special characters). Sample JSONB shapes when the in-scope schema exposes them.
+- Always use parameterized queries — never string interpolation.
+- If a schema modification or migration is needed in any in-scope source, document exactly what needs to change and flag it as a blocker.
+
+Do NOT investigate or query databases that are out of scope per the DB Context block.
 
 Save findings to `data-verifier-findings.md` in the project root."
 
-### Teammate 3: Pattern Finder (agent: pattern-finder)
+#### Teammate 3: Pattern Finder (agent: pattern-finder)
 
-Task: "First, read `.claude/bq-patterns.md` for established query patterns. Then find implementation patterns for the following feature: $ARGUMENTS
+Investigation questions (DB-agnostic — the DB Context block determines scope):
 
-Trace how existing similar fields flow end-to-end:
-- BigQuery view → query function SELECT → transform → return type → API route → component → export/CSV
+"Find implementation patterns for the following feature: $ARGUMENTS
+
+Trace how existing similar fields flow end-to-end, for the in-scope data source(s) only:
+- Data source (per DB Context block) → query function SELECT → transform → return type → API route → component → export/CSV
 - Document date handling patterns: `extractDate()` vs `extractDateValue()` — which files use which
-- Document NULL handling and type coercion patterns: `toString()`, `toNumber()` from bigquery-raw.ts
+- Document NULL handling and type coercion patterns for the in-scope data sources (e.g., the wrapper helpers used to coerce raw query output to typed records)
 - Document CSV export column mapping patterns for both export paths
 - Flag any inconsistencies between files that should follow the same pattern
 
@@ -283,6 +411,7 @@ The guide is ready for execution. Recommended next steps:
 
 | File | Phase | Purpose |
 |------|-------|---------|
+| `db-router-decision.md` | 0.5 | Which DB(s) the feature touches + per-DB pre-read paths and MCP tools |
 | `code-inspector-findings.md` | 1 | Types, construction sites, file dependencies |
 | `data-verifier-findings.md` | 1 | BigQuery schema, field existence, data quality |
 | `pattern-finder-findings.md` | 1 | Established patterns for transforms, exports, dates |
