@@ -1,271 +1,159 @@
-# Exploration Results — Per-Dimension AI Narrative ("body" field)
+# Exploration Results — Knowledge Gap Clusters Rewrite (§6)
 
-**Generated:** 2026-05-11
-**Feature:** Add a 2–3 sentence AI rationale per dimension score in evaluations, with inline citation pills, rendered as the primary content of the Insights drill-down modal.
-**Scope:** Cross-repo (sales-coaching upstream + Dashboard downstream) + Neon backfill of 406 existing evaluations.
+**Generated:** 2026-05-12
+**Feature:** Rewrite the Knowledge Gap Clusters surface on the Insights tab. Part 1 = bucketing rewrite (drop synonym map; use `expected_source` paths for gaps and `knowledge_base_chunks.topics[]` lateral for deferrals). Part 2 = ranking + longtail-collapse. Part 3 = drill-down modal chain reusing §5's stack.
+**Scope:** Dashboard-only. No upstream sales-coaching changes. No Neon backfill required (data already populated).
 
-Source documents:
-- `code-inspector-findings.md`
-- `data-verifier-findings.md`
-- `pattern-finder-findings.md`
+## Pre-Flight Summary
 
----
+Three exploration agents finished without blockers. The rewrite is buildable in one PR. Live Neon probes confirm spec field shapes and bucket numbers (with minor decay since the spec was written: 765 gap items / 169 deferrals in 90d, vs spec's 422 / 147). §5's modal stack — `InsightsEvalListModal` (z-50), `InsightsEvalDetailModal` (z-[60]), `TranscriptModal` (z-[70]) plus `CitationPill` — is fully shipped, so Part 3 (modal-chain drill-down) is GO. One unanticipated gap: the existing `InsightsEvalDetailModal` topic-drill section is deferral-only (lines 269–300, commented "reserved for cluster ship"); a gap-evidence render path needs to be added there as part of §6c. The `humanizeKey` UI helper can't render `/`-path bucket labels — a small new display helper is required. The new SQL pattern (LATERAL JOIN to `knowledge_base_chunks` + `unnest(topics)`) is new to the call-intelligence directory but has a verbatim precedent in `src/lib/queries/record-notes.ts:256` (LEFT JOIN LATERAL ... ON TRUE).
 
-## 1. Current State (verified)
+## Postgres (Neon) Data Layer Status
 
-### Data layer
-- 407 evaluations in Neon. 406 have non-empty `dimension_scores`. **100% lack a `body` field on any dimension** — clean slate, no partial backfill.
-- `dimension_scores[dim]` is JSONB with exactly two keys today: `score` + `citations`. Same shape in `ai_original.dimensionScores`.
-- `ai_original_schema_version` is a dedicated INTEGER column. Distribution: v4 = 319 (78.4%), v5 = 77 (18.9%), v3 = 6, v2 = 5.
-- All evals are on `rubric_version = 1`.
-- Citations are mixed `{ utterance_index }` or `{ kb_source }` entries.
-- Avg ~8.58 dimensions per eval, max 15. Avg transcript ~63K chars.
+All required tables and columns exist with the types the spec assumes.
 
-### Bridge contract
-- `src/lib/sales-coaching-client/schemas.ts:349-354` — `DimensionScoreDashSchema` uses **`.strict()`**, which will reject unknown keys at runtime. **Adding `body` server-side without an atomic mirror update breaks every PATCH edit.**
-- Sync workflow: `/sync-bridge-schema` skill or `gh api repos/russellmoss/sales-coaching/contents/...`. Drift detected by `scripts/check-schema-mirror.cjs` (byte-equality).
-- ⚠️ **Branch discrepancy**: the CI script line 26 says `BRANCH = 'master'` while CLAUDE.md and the skill say `main`. Reconcile before sync.
-
-### Code consumers
-Six construction sites of the dimension-score shape — every one must be updated, or `body` is silently dropped:
-
-1. `src/types/call-intelligence.ts:91` — shared TS type for `EvaluationDetail.dimension_scores`. Add `body?: string`.
-2. `src/lib/sales-coaching-client/schemas.ts:349-354` — bridge Zod. Add `body: z.string().optional()`. **Must sync atomically with upstream.**
-3. `EvalDetailClient.tsx:95-99` — local `DimensionScoreEntry` interface. Add `body?: string`.
-4. `EvalDetailClient.tsx:101-117` — `readDimensionScores()` (reads `ai_original.dimensionScores`) drops `body` silently. Add `body: val.body`.
-5. `EvalDetailClient.tsx:450-455` — `canonicalDimensionScores` map drops `body`. Add `body: v.body` to the map output.
-6. **`EvalDetailClient.tsx:641-661` — `InlineEditDimensionScore.onSave` reconstruction loop.** Rebuilds the entire `dimension_scores` map on every manager score edit and does not include `body`. **THIS IS A DATA-LOSS BUG: once body exists, every manager score edit silently nukes body across all dimensions.** Fix: spread `body` into each entry and widen the `base` type annotation.
-
-### Re-eval / re-evaluation
-- **No re-eval invocation exists anywhere in the repo.** All evaluation work is upstream. The Dashboard only calls `editEvaluation` via the bridge.
-- Closest pattern: `salesCoachingClient.editEvaluation` at `index.ts:313-325` — `PATCH /api/dashboard/evaluations/:id/edit` with OCC via `expected_edit_version`. Auth: session + `permissions.allowedPages.includes(20)`.
-- New endpoint needed in sales-coaching: `POST /api/dashboard/evaluations/:id/re-evaluate`.
-
-### Citation rendering
-- **No shared `CitedText` component.** Two private impls have already diverged:
-  - `EvalDetailClient.tsx:163-197` — `CitedTextLine` (editable contexts)
-  - `InsightsEvalDetailModal.tsx:106-139` — `CitedText` (read-only)
-- Both render prose + a **trailing chip row of pills**. Neither splices pills mid-sentence.
-- The spec asks for `"...stated the AUM minimum accurately at [💬 109]..."` — inline-in-prose pills. **No infrastructure exists for that pattern.** Either:
-  - (a) Accept the existing append-after-prose convention (renderable today), or
-  - (b) Build new infrastructure: AI emits `<<cite:109>>` tokens in body text, renderer splits the string on tokens and interpolates pills. Cleaner UX but new work.
-
-### Version gating
-`citation-helpers.ts:36-45` already discriminates v3/v4/v5 fields:
-```ts
-if (field === 'coachingNudge') return version >= 3;
-if (field === 'additionalObservations') return version >= 4;
-if (field === 'repDeferrals') return version >= 5;
-```
-**Add v6: `if (field === 'body') return version >= 6;`**. Bump `ai_original_schema_version` to 6 on new evals.
-
-### Admin permission gate
-Canonical pattern: `const isAdmin = role === 'admin' || role === 'revops_admin'` (CallIntelligenceClient.tsx:24, EvalDetailClient.tsx:251).
-
-- `InsightsEvalDetailModal` has **no `role` prop today**. To add an admin "Re-evaluate" button, plumb `role` from `InsightsTab` → modal.
-- API route gate: mirror `edit/route.ts` plus an explicit `if (role !== 'admin' && role !== 'revops_admin') return 403;` check.
-
-### Backfill script conventions
-- New convention (use this): `scripts/backfill-coaching-what-id.cjs` — `.cjs`, **default dry run**, `--commit` to write, idempotency via SQL guard (`WHERE col IS NULL`).
-- Closest AI-batch precedent: `scripts/sms-reclassify-step2-classify.js` — `@anthropic-ai/sdk`, `sleep(200)` between batches, `sleep(30000)` + retry on 429.
-- No backfill audit table exists. The 0-row `eval_correction_*` tables could be repurposed, but a dedicated table is cleaner.
-
-### Cost (Sonnet 4.6 default, Opus 4.7 explicit upgrade)
-| Model | Low | High |
+| Table | Verified columns | Notes |
 |---|---|---|
-| Sonnet 4.6 | $27.29 | $31.08 |
-| Opus 4.7 | $136.46 | $155.40 |
+| `evaluations` | `knowledge_gaps` JSONB array, `dimension_scores` JSONB, `rep_id`, `call_note_id`, `created_at`, `rubric_version` | 765 gap items in 90d; `knowledge_gaps[].text` 100% populated, `expected_source` 90.4% populated (vs spec's 92%), `citations` 100% populated |
+| `rep_deferrals` | `kb_chunk_ids` uuid[] NOT NULL, `utterance_index` int NULLABLE (schema-level), `deferral_text` text NOT NULL 100% populated, `kb_coverage` text (NOT enum), `is_synthetic_test_data` bool NOT NULL, `call_note_id`, `topic`, `created_at` | 169 advisor-eligible rows in 90d; 100% have at least one active chunk with topics — lateral coverage is 100% |
+| `knowledge_base_chunks` | `id` UUID PK, `topics` text[] NOT NULL, `is_active` bool NOT NULL, `chunk_index` int NOT NULL, `body_text`, `chunk_role`, `call_stages`, `rubric_dimensions`, `doc_id`, `drive_file_id` | 31 distinct curated topics across 176 active chunks (within spec's "~10–30" guidance) |
+| `call_notes` | `id`, `source`, `likely_call_type` | Advisor-eligible filter `(source='kixie' OR likely_call_type='advisor_call')` is the verbatim repo idiom |
+| `reps` | `id`, `full_name`, `is_system`, `is_active`, `role` | Joined via `scoped_reps` CTE |
 
-Sonnet 4.6 fits the eval rationale task — recommend default unless we find quality issues in pilot.
+**Live probe results (90-day window):**
 
----
+- **Top bucket:** `profile/ideal-candidate-profile` = **143 gaps, 13 reps** (spec said 132/13 — minor decay, criterion (c) needs to be loosened to "rep count ≈ 13")
+- **`expected_source` 2-segment bucket distribution:** 20 distinct buckets, top 5 = `profile/ideal-candidate-profile` (143), `playbook/sga-discovery` (103), `facts/process` (32), `playbook/sgm-intro` (26), `playbook/handoff`/`playbook/platform-review` (21 each)
+- **Uncategorized gap bucket:** 43/450 advisor-eligible rows = 9.6% (well-bounded)
+- **`knowledge_base_chunks.topics` distribution:** top 5 = `sgm_handoff` (46), `discovery_call_structure` (34), `move_mindset` (32), `candidate_persona` (31), `aum_qualification` (27)
+- **Lateral deferral-coverage rate:** 169/169 = **100%** — the `'Uncategorized: ' || d.topic` fallback hits zero rows today. Spec assumed >70%; reality is full coverage. **Keep the fallback in SQL** for future-proofing, but don't build dedicated UI logic around it.
+- **Unfiltered ceiling (acceptance criterion (a)):** 450 advisor-eligible gaps + 169 advisor-eligible deferrals = 619 rows the rewrite must surface.
 
-## 2. Target shape
+**Data quality risks — all probed and clean:**
 
-**Per-dimension entry in `dimension_scores[dim]`:**
+- 0 rows with leading slashes or backslashes in `expected_source`
+- 0 rows with NULL/empty `kb_chunk_ids` (column is NOT NULL)
+- 0 chunks with duplicate topics
+- 0 deferrals with NULL/empty `d.topic` in 90d
+- `NULLIF(split_part('','/',1) || '/' || split_part('','/',2), '/')` returns NULL — COALESCE → 'Uncategorized' works
+
+**Surprise — `kb_source.chunk_id` field name:** In `knowledge_gaps[].citations`, the `kb_source` sub-object uses the field name `chunk_id` (not `id`). This maps to `knowledge_base_chunks.id` via aliasing in `call-intelligence-evaluations.ts:465`. The Citation type in the new `sampleEvidence` array must match: `kb_source?: { doc_id, chunk_id, doc_title, drive_url }`.
+
+## Files to Modify
+
+| File | Type of change |
+|---|---|
+| `src/lib/queries/call-intelligence/knowledge-gap-clusters.ts` | Full CTE rewrite — drop `topics` CTE, drop `$9::jsonb`, add LATERAL deferral join, add `evidence_text` + `citations` + `expected_source_full` columns, add `mode` arg, conditional slice-cap literal (5 vs 200) |
+| `src/types/call-intelligence.ts` | `KnowledgeGapClusterRow`: rename `topic` → `bucket`, add `bucketKind`, add `sampleEvidence[]`. Extend `InsightsModalStackLayer` union with new `kind: 'cluster'` variant + payload type. Add `KnowledgeGapClusterEvidence` type |
+| `src/app/api/call-intelligence/insights/clusters/route.ts` | Add `?mode` (or derive from `focusRep`) and `?limit=full` query params; pass `mode: focusRep ? 'rep_focus' : 'team'` to helper |
+| `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx` | Cluster card → clickable wrapper; new `humanizeBucket` display helper for `/`-path labels; longtail-collapse state + render; cluster-modal stack entry; URL hash sync entry for `#modal=cluster` |
+| `src/components/call-intelligence/InsightsEvalDetailModal.tsx` | Add gap-evidence render path next to existing topic-drill (which is deferral-only today) |
+| `src/components/call-intelligence/InsightsEvalListModal.tsx` (or new `InsightsClusterEvidenceModal.tsx`) | Layer 1 cluster-evidence variant — see Phase 5 design decision |
+| `src/lib/queries/call-intelligence/__tests__/knowledge-gap-clusters.test.ts` | Remove `params[8]` synonyms assertion; add LATERAL appearance check |
+| `src/lib/kb-vocab-synonyms.ts` | Keep file as theming data; remove the `import KB_VOCAB_SYNONYMS` from `knowledge-gap-clusters.ts` only (verified: no other consumers) |
+
+## Type Changes (exact)
+
 ```ts
-{
-  score: number,
-  citations: Citation[],
-  body?: string  // NEW — 2-3 sentence rationale, ~150-300 chars
+// src/types/call-intelligence.ts
+
+export interface KnowledgeGapClusterEvidence {
+  evaluationId: string;
+  repId: string;
+  repName: string;
+  kind: 'gap' | 'deferral';
+  text: string;                                  // gap text OR verbatim deferral quote
+  callStartedAt: string | null;                  // for the cluster-evidence modal columns
+  citations: Array<{
+    utterance_index?: number;
+    kb_source?: { doc_id: string; chunk_id: string; doc_title: string; drive_url: string };
+  }>;
+  expectedSource?: string;                       // gap-only, full path
+  kbCoverage?: 'covered' | 'partial' | 'missing'; // deferral-only
+}
+
+export interface KnowledgeGapClusterRow {
+  bucket: string;                                  // renamed from `topic`
+  bucketKind: 'kb_path' | 'kb_topic' | 'uncategorized';
+  totalOccurrences: number;
+  gapCount: number;
+  deferralCount: number;
+  deferralByCoverage: { covered: number; partial: number; missing: number };
+  repBreakdown: Array<{ repId: string; repName: string; gapCount: number; deferralCount: number }>;
+  sampleEvalIds: string[];
+  sampleEvidence: KnowledgeGapClusterEvidence[];
+}
+
+// Modal stack — add to existing InsightsModalStackLayer discriminated union:
+export type InsightsModalStackLayer =
+  | { kind: 'list'; payload: EvalListModalPayload }
+  | { kind: 'detail'; payload: EvalDetailDrillPayload }
+  | { kind: 'transcript'; payload: TranscriptModalPayload }
+  | { kind: 'cluster'; payload: ClusterEvidenceModalPayload }; // NEW
+
+export interface ClusterEvidenceModalPayload {
+  bucket: string;
+  bucketKind: 'kb_path' | 'kb_topic' | 'uncategorized';
+  evidence: KnowledgeGapClusterEvidence[];
+  gapCount: number;
+  deferralCount: number;
 }
 ```
 
-**Re-eval endpoint contract (NEW):**
-```
-POST /api/call-intelligence/evaluations/[id]/re-evaluate
-auth: session + role in ['admin', 'revops_admin']
-body: { confirm: true }
-returns: { ok: true, evaluation_id: uuid, schema_version_after: 6 }
-```
+## Construction Site Inventory
 
-**Backfill audit table (NEW migration in sales-coaching):**
-```sql
-CREATE TABLE eval_body_backfill_audit (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  evaluation_id uuid NOT NULL REFERENCES evaluations(id) ON DELETE CASCADE,
-  attempt_number integer NOT NULL DEFAULT 1,
-  status text NOT NULL CHECK (status IN ('pending','success','failure','skipped')),
-  error_message text,
-  input_tokens integer,
-  output_tokens integer,
-  schema_version_before integer NOT NULL,
-  schema_version_after integer,
-  score_drift_detected boolean DEFAULT false,
-  started_at timestamptz NOT NULL DEFAULT now(),
-  completed_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX idx_eval_body_backfill_eval_attempt ON eval_body_backfill_audit(evaluation_id, attempt_number);
-```
+| File:Line | What it touches | Required change |
+|---|---|---|
+| `src/lib/queries/call-intelligence/knowledge-gap-clusters.ts:179-200` | `.map(r => ({ topic: r.topic, ... }))` | Rewrite full mapper: `bucket`, `bucketKind`, `sampleEvidence` |
+| `src/types/call-intelligence.ts:301-309` | `KnowledgeGapClusterRow` definition | Rename + add fields |
+| `src/types/call-intelligence.ts:329-356` | `InsightsModalStackLayer` union | Add `cluster` variant |
+| `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx:631` | `key={c.topic}` | → `key={c.bucket}` |
+| `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx:634` | `humanizeKey(c.topic)` | → new `humanizeBucket(c.bucket, c.bucketKind)` |
+| `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx:193` | Type import | No code change, but the import resolves to a different shape after the rename — verify build |
+| `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx:208` | `modalStack` state | Already typed via union — extending union adds new variant cleanly |
+| `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx:261-280` | URL hash sync block | Add `#modal=cluster&bucket=...` case |
+| `src/app/api/call-intelligence/insights/clusters/route.ts:101-110` | `getKnowledgeGapClusters({...})` call | Add `mode`, accept `?limit=full` (informational — `mode` already implies cap) |
+| `src/lib/queries/call-intelligence/__tests__/knowledge-gap-clusters.test.ts:45-56` | `expect(params[8]).toBe(synonymsJson)` | Delete; replace with LATERAL-present assertion |
 
----
+## §5 Modal Infrastructure Status — GO
 
-## 3. Recommended phase order
+All §5 prerequisites are shipped:
 
-(Cross-repo. Each phase blocks the next.)
+| Component | Location | Status |
+|---|---|---|
+| Modal stack helper (state) | `InsightsTab.tsx:207-258` | shipped |
+| Layer 1 — eval-list | `src/components/call-intelligence/InsightsEvalListModal.tsx` | shipped |
+| Layer 2 — eval-detail | `src/components/call-intelligence/InsightsEvalDetailModal.tsx` | shipped; topic-drill section deferral-only (gap path needs adding for §6c) |
+| Layer 3 — transcript | `src/components/call-intelligence/TranscriptModal.tsx` | shipped; prop is `initialUtteranceIndex` (int), NOT `initialUtteranceId` (spec was loose on the name) |
+| Citation pill | `src/components/call-intelligence/CitationPill.tsx` | shipped |
+| Eval-detail API route | `/api/call-intelligence/evaluations/[id]` | used (the spec's proposed `/insights/eval-detail` was never created — current implementation reuses the full-eval route) |
+| Old page-nav drilldown | `/dashboard/call-intelligence/insights/evals/page.tsx` | deleted |
+| URL hash sync for back-button | `InsightsTab.tsx:261-290` | shipped — new `cluster` case slots into the existing block |
 
-### Phase A — sales-coaching (upstream) PR #1: schema + audit table
-A.1 Add `body: z.string().optional()` to `DimensionScore` in `src/lib/dashboard-api/schemas.ts`. Keep `.strict()`.
-A.2 Add corresponding shape change to `src/lib/db/types.ts`.
-A.3 Migration: `eval_body_backfill_audit` table.
-A.4 Bump `AI_ORIGINAL_SCHEMA_VERSION` constant from 5 → 6.
-A.5 New endpoint: `POST /api/dashboard/evaluations/:id/re-evaluate` — auth gate (session, role in admin/revops_admin), idempotent if a re-eval is in-flight, returns updated eval.
-A.6 New tests: schema parse, endpoint auth, end-to-end round-trip with the new `body` field.
-A.7 **CRITICAL**: schema must roll out before any code emits the new field.
+## Recommended Phase Order
 
-### Phase B — sales-coaching PR #2: AI prompt change (gated on PR #1 merging)
-B.1 Update the evaluator system prompt to emit `body` per dimension.
-B.2 Body format spec:
-   - 2–3 sentences, ~150–300 chars
-   - paragraph prose, NOT bullets
-   - cites at least one utterance_index that appears in this dimension's `citations` array
-   - explains WHY the score, mapping rep behavior to rubric criteria
-   - **decision pending council**: inline `<<cite:N>>` tokens or no inline markers
-B.3 Manual QA: run the v6 prompt against 5–10 sample transcripts (varied scores, varied dims, varied lengths). Eyeball quality.
-B.4 Unit test: schema round-trip with `body` populated.
-B.5 Deploy upstream service to prod with `body` emission active. New evals from this moment forward have `body`.
+1. **Pre-Flight** — `npm run build` baseline; capture current bucket totals via SQL probe (sanity baseline for acceptance criterion (a))
+2. **Phase 1 — Types** (`src/types/call-intelligence.ts`): add `KnowledgeGapClusterEvidence`, reshape `KnowledgeGapClusterRow`, extend `InsightsModalStackLayer`. **This intentionally breaks the build** — TypeScript errors become the checklist of remaining construction sites.
+3. **Phase 2 — Query rewrite** (`knowledge-gap-clusters.ts`): drop `topics` CTE + `$9`, rewrite `gap_hits` and `deferral_hits` CTEs with new bucket logic + evidence columns, add `mode` arg with conditional slice-cap literal, update `.map()` constructor, update RawRow type, remove `KB_VOCAB_SYNONYMS` import
+4. **Phase 3 — API route** (`clusters/route.ts`): pass `mode` derived from `focusRep`, accept `?limit=full` validator
+5. **Phase 4 — Modal extension** (`InsightsEvalDetailModal.tsx`): add gap-evidence render path (the existing topic-drill is deferral-only)
+6. **Phase 5 — Cluster-evidence modal** (Layer 1 variant): extend `InsightsEvalListModal` with a `mode: 'evalList' | 'clusterEvidence'` prop, OR create `InsightsClusterEvidenceModal.tsx` as a sibling. Recommend the latter for clarity — they have different column sets and different row click semantics. Council can adjudicate.
+7. **Phase 6 — UI wiring** (`InsightsTab.tsx`): new `humanizeBucket` helper, cluster card click handler that pushes `{ kind: 'cluster', payload }`, longtail-collapse state + render, URL hash sync entry, dispatcher for the new modal variant
+8. **Phase 7 — Tests** (`__tests__/knowledge-gap-clusters.test.ts`): remove `$9` assertion, add LATERAL check, optionally add a row-construction snapshot
+9. **Phase 7.5 — Doc sync** (`npx agent-guard sync` per CLAUDE.md standing rule)
+10. **Phase 8 — Live probes + browser validation** (the three spec probes + manual click-through)
 
-### Phase C — Dashboard PR: mirror + UI + admin re-eval button (gated on B.5)
-C.1 `/sync-bridge-schema` to mirror Zod change.
-C.2 Run `npm run check:schema-mirror` — must pass byte-equality.
-C.3 Update `src/types/call-intelligence.ts:91`.
-C.4 Update all 4 EvalDetailClient.tsx construction sites (95-99, 101-117, 450-455, **641-661 with the body spread fix**).
-C.5 Update `src/lib/coaching-notes-markdown.ts:57-65` to include `body` in markdown export.
-C.6 Restructure `InsightsEvalDetailModal.tsx`:
-   - Remove sections: narrative, strengths, weaknesses, knowledge_gaps, compliance_flags, additional_observations, rep_deferrals (from the modal — they stay on /evaluations/[id]).
-   - Keep: dimension banner (score badge), topic-drill panel (independent path).
-   - Add: body paragraph + inline-or-trailing citation pills, sourced from `detail.dimension_scores[dim].body`.
-   - Add: fallback "(no per-dimension rationale on file — admin can re-run AI eval)" when `body` is undefined/empty.
-   - Plumb `role` prop from `InsightsTab` and render admin-only "Re-evaluate" button.
-C.7 New Dashboard API route: `POST /api/call-intelligence/evaluations/[id]/re-evaluate` — gates on admin role, calls `salesCoachingClient.triggerReEvaluation()` (new bridge method).
-C.8 New bridge method: `salesCoachingClient.triggerReEvaluation(id)`.
-C.9 Update `citation-helpers.ts:36-45` to add `if (field === 'body') return version >= 6;`.
-C.10 Build + lint clean.
+## Risks and Blockers
 
-### Phase D — Backfill (gated on C deploy)
-D.1 Create `scripts/backfill-dimension-bodies.cjs`:
-   - default dry run; `--commit` to write
-   - resume-from-checkpoint via `eval_body_backfill_audit` (skip evals with `status='success'`)
-   - rate limit: `sleep(200)` between calls; `sleep(30000)` + retry on 429
-   - per row: SELECT transcript + rubric → POST to re-evaluate endpoint → write audit row
-   - **decision pending council**: score-pinning policy
-D.2 Sample run: dry run on all 406 → log token counts, expected cost.
-D.3 Pilot: run `--commit` on 5 evals across different schema_versions (v2, v3, v4, v5). Manual review.
-D.4 Full backfill: 406 evals minus 5 pilot.
-D.5 Verification SQL: count evals where ALL dimensions have non-empty body.
-
----
-
-## 4. Open questions (route to council)
-
-### Q1 — Backfill model selection
-Sonnet 4.6 ($27–31) vs Opus 4.7 ($136–155). Quality vs cost. **Default: Sonnet.** Council to confirm if eval rationale is "soft reasoning" Sonnet handles cleanly, or if it warrants Opus.
-
-### Q2 — Score-pinning policy on re-evaluation
-When the backfill re-runs the v6 prompt against an existing eval's transcript, the new model run will produce both `body` AND a fresh `score`. Options:
-- **(a) Pin score**: write only `body`; keep existing `score` even if new run disagrees. Avoids retroactively changing manager-reviewed scores. Risk: body explains a score the model wouldn't give today.
-- **(b) Re-score**: overwrite `score` with the v6 output. Cleaner narrative-to-score consistency. Risk: invalidates prior manager review.
-- **(c) Pin, but flag drift**: pin the score, log `score_drift_detected=true` in audit when |old-new| ≥ 1.0 so we can manually review high-drift evals.
-
-### Q3 — Body shape: plain string with separate citations, or inline-cite tokens
-- **(a) Plain string + append-after pills** (matches existing CitedText). Easy, ships today.
-- **(b) `<<cite:N>>` tokens inline + splicing renderer**. Better UX. Costs: AI prompt complexity, new renderer, edge cases.
-
-### Q4 — Partial-rollout strategy for the `.strict()` schema gate
-`DimensionScoreDashSchema` rejects unknown keys. If upstream PR #2 deploys before Dashboard PR (the mirror update), every PATCH /edit by a manager fails 400 Zod.
-
-Options:
-- **(a) Atomic deploy**: ship upstream + Dashboard in the same deploy window.
-- **(b) Two-PR upstream**: PR #1 schema-only with `body` optional + still-emitted-only-on-flag (default off in prod). Dashboard PR mirrors. Then upstream PR #2 flips the flag.
-- **(c) Temporary `.passthrough()`** on `DimensionScoreDashSchema` for the rollout window, revert to `.strict()` after both sides are in sync.
-
-### Q5 — Mid-prose splicing infrastructure ownership
-If Q3 lands on (b), where does the splicer live? Shared component extracted from the two existing private `CitedText` impls? New `src/components/call-intelligence/CitedProse.tsx`?
-
----
-
-## 5. Risk register
-
-| ID | Risk | Severity | Mitigation |
-|---|---|---|---|
-| R1 | Inline-edit loop drops `body` on every save | **CRITICAL** | Fix `EvalDetailClient.tsx:641-661` BEFORE first `body` data is written |
-| R2 | `.strict()` schema rejects body if deploy order wrong | High | See Q4 — atomic deploy or staged mirror first |
-| R3 | Score drift after re-eval invalidates manager review | High | See Q2 — pin-with-drift-flag is the safe default |
-| R4 | Branch drift (`main` vs `master`) in CI sync check | Medium | Reconcile in same PR — set `BRANCH = 'main'` in `scripts/check-schema-mirror.cjs` |
-| R5 | KB pills no-op in modal — `onOpenKB` not wired | Medium | Plumb `onOpenKB` from InsightsTab through detail modal during C.6 |
-| R6 | Legacy v2/v3 evals (11 total) may produce malformed body | Low | Sample-review pilot run includes them |
-| R7 | `coaching-notes-markdown.ts` omits body from exports | Low | C.5 fix; no data loss, just missing from notes |
-| R8 | No re-eval endpoint exists upstream — full build | High | Phase A.5 owns it |
-| R9 | Backfill could blow Anthropic budget on retry storms | Medium | Default dry run, `sleep + 429 backoff`, per-row audit row |
-
----
-
-## 6. Files touched (final count)
-
-**sales-coaching repo (upstream):**
-- `src/lib/dashboard-api/schemas.ts` — add `body` to DimensionScore
-- `src/lib/db/types.ts` — match the change
-- new migration: `eval_body_backfill_audit` table
-- new route: `POST /api/dashboard/evaluations/:id/re-evaluate`
-- AI prompt file (location TBD)
-- `AI_ORIGINAL_SCHEMA_VERSION` constant → 6
-
-**Dashboard repo:**
-- `src/lib/sales-coaching-client/schemas.ts` — mirror sync
-- `src/types/call-intelligence.ts` — add `body?: string`
-- `src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx` — 4 sites (including the data-loss-fix)
-- `src/components/call-intelligence/InsightsEvalDetailModal.tsx` — restructure to lead with body
-- `src/components/call-intelligence/citation-helpers.ts` — add v6 gate
-- `src/lib/coaching-notes-markdown.ts` — include body in exports
-- `src/app/api/call-intelligence/evaluations/[id]/re-evaluate/route.ts` (NEW)
-- `src/lib/sales-coaching-client/index.ts` — add `triggerReEvaluation` method
-- `scripts/check-schema-mirror.cjs` — reconcile branch name
-- `scripts/backfill-dimension-bodies.cjs` (NEW)
-- `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx` — plumb `role` to modal
-
-Count: ~11 files in Dashboard, ~5 files + 1 migration upstream, 1 new backfill script.
-
----
-
-## 7. Acceptance criteria
-
-- (a) Manager drills heat-map cell → Layer 2 modal opens → dimension name + score badge + 2–3 sentence body + citation pills.
-- (b) Click utterance citation in body → Layer 3 transcript modal jumps to that utterance.
-- (c) Click KB citation → renders the KB chunk inline (existing `chunk_lookup` pattern).
-- (d) Historic eval pre-backfill → fallback "no rationale on file" message + admin-only "Re-evaluate" button.
-- (e) Admin clicks Re-evaluate → endpoint fires → body populates → button hides.
-- (f) `npm run check:schema-mirror` passes byte-for-byte.
-- (g) Manager edits a dimension score → body for THAT and OTHER dimensions is preserved (data-loss-fix verified).
-- (h) After backfill, no eval has `body IS NULL` on any dimension (verification SQL clean).
-- (i) Backfill audit table records one row per eval with `status='success'` and no `score_drift_detected=true` unless intentionally re-scored.
-
----
-
-## 8. Out of scope (separate ships)
-
-- Editing the dimension body via inline edit (read-only for this ship).
-- Telemetry on re-eval button click count (basic console.warn only).
-- A11y polish on the modal beyond what the original modal-stack work shipped.
-- Re-evaluating un-evaluated transcripts (143 exist; covered by a different feature).
-- Updating the analyst bot or MCP server with awareness of the new body field.
+| Risk | Severity | Mitigation |
+|---|---|---|
+| **Spec acceptance criterion (c) is decayed** (was 132 gaps / 13 reps; now 143/13) | Low | Loosen criterion to "≈13 reps, ≥130 gaps" or convert to label-only ("top bucket is `profile/ideal-candidate-profile`") |
+| **`InsightsEvalDetailModal.tsx` topic-drill is deferral-only** — gap drill path absent | Medium | Add a parallel gap-evidence render section in §6c work. Council should flag the exact slot to insert. |
+| **`humanizeKey` can't render `/`-path bucket labels** | Low | Ship a small `humanizeBucket(bucket, kind)` helper that splits on `/` and capitalizes each segment, joining with ` › ` (or similar). Keep `humanizeKey` for non-cluster usage. |
+| **Slice-cap literal injection** (5 vs 200) — Postgres rejects bound params for array-slice bounds | Low | Build two SQL variants in TS (or one with a string-substituted literal). Single source of truth for the value (don't hardcode `5` in multiple places). |
+| **`utterance_index` is nullable at schema level** | Low | Modal must guard `null` before scrolling. 0 of 169 deferrals are null today, but column allows it. |
+| **`kb_source.chunk_id` (gap citations) vs `knowledge_base_chunks.id` (chunks table)** — naming mismatch | Low | Already aliased in existing code at `call-intelligence-evaluations.ts:465`. Document inline. |
+| **`InsightsClusterEvidenceModal` — new component vs extending Layer 1?** | Medium | Phase 5 design call. Recommend sibling component (different columns, different click target for "enter rep-focus mode"). Council can adjudicate. |
+| **Test file `params[8]` assertion** | Low | One-line removal + replacement. |
+| **Lateral coverage is 100% — fallback bucket label "Uncategorized: \<topic\>" never hits** | Informational | Keep the SQL fallback for safety; don't introduce dedicated UI for it. |
+| **Deferral `sampleEvidence` aggregation cap of 5 may suppress diversity** in team mode | Low | Document the trade-off in a code comment. Rep-focus mode (200) is the high-fidelity path. |

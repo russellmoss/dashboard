@@ -1,1014 +1,1052 @@
-# Agentic Implementation Guide — Per-Dimension AI Narrative ("body" field)
+# Agentic Implementation Guide — Knowledge Gap Clusters Rewrite (§6)
 
-**Feature:** Add a 2-3 sentence AI rationale per dimension score in evaluations, with citation pills, rendered as the primary content of the Insights drill-down modal. Backfill 406 historic evaluations via an offline body-only generation script.
+> **Read first:** `insights-refinements.md` §6 (the spec), then `exploration-results.md` (the synthesis), then `code-inspector-findings.md` / `data-verifier-findings.md` / `pattern-finder-findings.md` for the deep dives. All five files are in the project root.
 
-**Architecture decision (council + user approved):** No application-layer re-eval endpoint. No admin "Re-evaluate" button. No new Dashboard API route or bridge method for re-eval. A single offline `scripts/backfill-dimension-bodies.cjs` calls Anthropic directly, takes existing scores + citations as **locked inputs**, generates only `body` per dimension.
-
-**Approved decisions:**
-- Model: Sonnet 4.6 (~$27-31 total)
-- Score pinning: pure pin (body-only prompt produces no new score, so drift is moot)
-- Body shape: plain string + trailing citation pills (no inline tokens)
-- Rollout: schema mirror first → upstream prompt flip behind env flag → offline backfill
-- Splicing infra: extract shared `CitedProse` from the two diverged private impls
-- Drift handling: strict — drop orphan citations, skip invalid dims
-
-**Cross-repo scope:**
-- Upstream (`russellmoss/sales-coaching`): schema + audit migration + version bump + prompt flag
-- Downstream (this repo, `russellmoss/Dashboard`): mirror sync + UI restructure + data-loss-fix + extracted CitedProse + doc sync
-- Backfill: standalone offline script in this repo
-
-**Execution mode:** Phase-by-phase, end-to-end. Stop at each validation gate. Phase A is upstream-only (sales-coaching sibling repo at `C:\Users\russe\Documents\sales-coaching`). Phase B and onward run in this Dashboard repo. Verify each phase's gate passes before proceeding.
+> **§5 prerequisite is shipped.** GO for Part 3.
 
 ---
 
-## Pre-Flight Checklist
+## Pre-Flight
 
-Before starting:
+**Goal:** establish a clean baseline.
 
-```bash
-# 1. Confirm sales-coaching sibling repo exists for cross-repo work
-ls C:/Users/russe/Documents/sales-coaching/
+1. Confirm working tree is clean except for the five exploration `.md` files and this guide:
+   ```bash
+   git status --short
+   ```
+2. `npm run build` baseline — must pass before touching any code:
+   ```bash
+   npm run build
+   ```
+3. Probe for an `evaluations`-level synthetic flag (council S5 — symmetry with the deferral filter):
+   ```bash
+   node -e "require('dotenv').config(); const {Pool}=require('pg'); const p=new Pool({connectionString:process.env.SALES_COACHING_DATABASE_URL}); p.query(\`SELECT column_name FROM information_schema.columns WHERE table_name='evaluations' AND (column_name ILIKE '%synthetic%' OR column_name ILIKE '%test%' OR column_name ILIKE '%seed%')\`).then(r=>{console.log('EVAL_SYNTHETIC_FLAGS',r.rows);p.end();})"
+   ```
+   If a column comes back, ADD it as a filter to BOTH the gap_ceiling probe in step 4 AND the helper's `gap_hits` CTE in Phase 2E (mirroring the deferral side). If no column comes back, both gap and deferral sides are symmetric (deferrals filter via `is_synthetic_test_data`, gaps have no equivalent), and the ceiling probe is valid as-is.
 
-# 2. Confirm env vars exist in both repos
-grep -c SALES_COACHING_DATABASE_URL .env       # Dashboard repo, should be >=1
-grep -c DATABASE_URL C:/Users/russe/Documents/sales-coaching/.env  # upstream, should be >=1
-grep -c ANTHROPIC_API_KEY .env                  # Dashboard repo, for backfill script
+4. Capture pre-change baseline numbers (will be compared in Phase 8 acceptance criterion (a)):
+   ```bash
+   node -e "require('dotenv').config(); const {Pool}=require('pg'); const p=new Pool({connectionString:process.env.SALES_COACHING_DATABASE_URL}); p.query(\`SELECT (SELECT SUM(jsonb_array_length(e.knowledge_gaps)) FROM evaluations e JOIN call_notes cn ON cn.id=e.call_note_id WHERE (cn.source='kixie' OR cn.likely_call_type='advisor_call') AND e.created_at >= NOW() - INTERVAL '90 days') AS gap_ceiling, (SELECT COUNT(*) FROM rep_deferrals d JOIN evaluations e ON e.id=d.evaluation_id JOIN call_notes cn ON cn.id=e.call_note_id WHERE d.is_synthetic_test_data=false AND (cn.source='kixie' OR cn.likely_call_type='advisor_call') AND d.created_at >= NOW() - INTERVAL '90 days') AS def_ceiling\`).then(r=>{console.log('CEILINGS',r.rows[0]);p.end();}).catch(e=>{console.error(e);process.exit(1);});"
+   ```
+   Expected as of 2026-05-12: `gap_ceiling=450, def_ceiling=169`. Record what the probe returns.
 
-# 3. Working tree clean check
-git status
-# If dirty, stash or commit first.
+5. **Cross-functional impact check** (council C7 — already closed in Phase 3, included here for traceability): confirm the Slack analyst bot and MCP server don't depend on the old bucketing. Should return nothing:
+   ```bash
+   grep -rE "knowledge_gaps|rep_deferrals|knowledge_base_chunks|kb_vocab_topics|KB_VOCAB_SYNONYMS" packages/analyst-bot mcp-server 2>/dev/null
+   ```
+   If this returns matches, STOP and re-evaluate scope. (At triage time this returned zero matches.)
 
-# 4. Schema mirror is currently in sync
-npm run check:schema-mirror
-# Expect: PASS. If it fails, fix drift before starting.
+**Validation gate:** `npm run build` exits 0. Baseline ceiling numbers recorded. Step-3 probe result recorded. Step-5 grep returned no matches.
 
-# 5. Confirm Neon DB connectivity from this repo
-node -e "const{Pool}=require('pg');new Pool({connectionString:process.env.SALES_COACHING_DATABASE_URL,ssl:{rejectUnauthorized:false}}).query('SELECT 1').then(r=>{console.log('OK');process.exit(0)}).catch(e=>{console.error(e);process.exit(1)})"
-# Expect: OK.
-```
-
-If any of the above fail, **STOP** and resolve before starting Phase A.
-
----
-
-## Phase A — Upstream (sales-coaching) PR
-
-Work in `C:\Users\russe\Documents\sales-coaching`. The Dashboard repo stays untouched in this phase.
-
-### A.1 — Update DimensionScore Zod schema
-
-File: `C:/Users/russe/Documents/sales-coaching/src/lib/dashboard-api/schemas.ts`
-
-Find `DimensionScore` schema (search for `score: z.number()` near a dimension shape). It currently looks like:
-
-```ts
-const DimensionScore = z.object({
-  score: z.number(),
-  citations: z.array(Citation),
-}).strict();
-```
-
-Change to:
-
-```ts
-const DimensionScore = z.object({
-  score: z.number(),
-  citations: z.array(Citation),
-  body: z.string().optional(),
-}).strict();
-```
-
-Keep `.strict()` — the `optional()` lets the field be omitted but rejects other unknown keys.
-
-### A.2 — Update DB types
-
-File: `C:/Users/russe/Documents/sales-coaching/src/lib/db/types.ts`
-
-Find the corresponding `DimensionScore` type or `dimension_scores` field. Add `body?: string` to the per-dim shape. Match the Zod change byte-for-byte where the shape is mirrored.
-
-### A.3 — Migration: backfill audit table
-
-Create new migration file (next sequential number — check existing `migrations/` directory):
-
-```sql
--- migrations/NNN_eval_body_backfill_audit.sql
-CREATE TABLE eval_body_backfill_audit (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  evaluation_id uuid NOT NULL REFERENCES evaluations(id) ON DELETE CASCADE,
-  attempt_number integer NOT NULL DEFAULT 1,
-  status text NOT NULL CHECK (status IN ('pending','success','failure','skipped')),
-  error_message text,
-  input_tokens integer,
-  output_tokens integer,
-  schema_version_before integer NOT NULL,
-  schema_version_after integer,
-  model_id text NOT NULL,
-  prompt_version text NOT NULL,
-  dropped_orphan_citations integer DEFAULT 0,
-  skipped_dims integer DEFAULT 0,
-  started_at timestamptz NOT NULL DEFAULT now(),
-  completed_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX idx_eval_body_backfill_eval_attempt
-  ON eval_body_backfill_audit(evaluation_id, attempt_number);
-CREATE INDEX idx_eval_body_backfill_status
-  ON eval_body_backfill_audit(status, started_at DESC);
-```
-
-### A.4 — Bump schema version constant
-
-Find the constant `AI_ORIGINAL_SCHEMA_VERSION` (likely in `src/lib/ai/...` or a constants file). Bump from `5` → `6`.
-
-### A.5 — Add prompt emission flag
-
-In the evaluator prompt build path, gate the new `body` instruction behind an env flag:
-
-```ts
-const EMIT_DIMENSION_BODY = process.env.EMIT_DIMENSION_BODY === 'true';
-// In prompt assembly:
-if (EMIT_DIMENSION_BODY) {
-  prompt += `\nFor each dimension, ALSO include a "body" field: a 2-3 sentence rationale (150-300 chars, paragraph prose, no bullets) explaining WHY this score, citing at least one utterance_index from this dimension's citations array. Map the rep's behavior to the rubric criteria.`;
-}
-```
-
-**Default is OFF in prod.** The flag stays off until Dashboard mirror is deployed.
-
-### A.6 — Tests
-
-Add tests in upstream test suite:
-- Zod schema parse with `body` present + absent — both pass
-- Zod schema parse with extra key — fails (.strict() still works)
-- Insert + select round-trip preserving body in JSONB
-
-### A.7 — Phase A validation gate
-
-```bash
-cd C:/Users/russe/Documents/sales-coaching
-npm run build
-npm test
-```
-
-Both must pass. **Stop and report.** The user reviews + merges + deploys the upstream PR with `EMIT_DIMENSION_BODY=false` in prod env.
-
-### A.8 — Phase A ship checklist (user-side)
-
-After PR merges and CI passes:
-
-#### A.8.1 — Migration
-
-The sales-coaching service does NOT auto-migrate on deploy. Run the new migration manually against staging Neon **before** the Cloud Run redeploy, since the deploy reads schema-aware code:
-
-```bash
-# From sales-coaching repo root (C:/Users/russe/Documents/sales-coaching)
-# Use whatever the repo's migrate script is — check package.json scripts.
-# Typical pattern:
-npm run migrate:up   # or psql -f migrations/NNN_eval_body_backfill_audit.sql against $DATABASE_URL
-```
-
-Verify the table exists:
-
-```sql
-SELECT column_name FROM information_schema.columns
-WHERE table_name = 'eval_body_backfill_audit'
-ORDER BY ordinal_position;
-```
-
-Expected: 14 columns matching A.3's CREATE TABLE.
-
-#### A.8.2 — Set EMIT_DIMENSION_BODY=false in env config
-
-The sales-coaching service reads non-secret config from `.env-vars-staging.yaml` at the repo root. Add the new variable:
-
-```yaml
-# .env-vars-staging.yaml
-# ... existing keys ...
-EMIT_DIMENSION_BODY: "false"
-```
-
-**Do NOT** put it in Secret Manager — it's non-secret toggle config. Commit this change as part of the Phase A PR.
-
-#### A.8.3 — Redeploy sales-coaching to Cloud Run
-
-Service runs at `https://sales-coaching-154995667624.us-east1.run.app` in GCP project `savvy-gtm-analytics`, region `us-east1`. Buildpacks-from-source (no Dockerfile).
-
-**Exact command** (must run from sales-coaching repo root — `.gcloudignore` and `.env-vars-staging.yaml` must be in CWD):
-
-```powershell
-# From C:/Users/russe/Documents/sales-coaching
-gcloud run deploy sales-coaching `
-  --source . `
-  --region us-east1 `
-  --project savvy-gtm-analytics `
-  --env-vars-file=.env-vars-staging.yaml
-```
-
-Notes:
-- Do NOT pass `--set-env-vars` or `--set-secrets` on the command line — Secret Manager bindings are configured on the service and `--env-vars-file` carries the rest. Adding flags overwrites the service config.
-- Last known-good baseline revision (for rollback reference): `sales-coaching-00110-th2`, 2026-05-10.
-- Cloud Scheduler jobs (5 sales-coaching-* jobs in `us-east1`) are managed separately and are NOT affected by a code deploy.
-- There is currently no `sales-coaching-prod` service. Staging is the deployable target (Phase 9 in upstream's roadmap stands up prod separately).
-
-Build typically takes 3-6 minutes. Watch for the new revision number in the output.
-
-#### A.8.4 — Smoke test
-
-Verify the deploy is live and the flag is still off:
-
-```bash
-# Health check
-curl -sS https://sales-coaching-154995667624.us-east1.run.app/api/health
-# Expect: 200, healthy payload
-
-# Confirm flag from a Cloud Run revision env dump (gcloud)
-gcloud run services describe sales-coaching \
-  --region us-east1 --project savvy-gtm-analytics \
-  --format='value(spec.template.spec.containers[0].env[].name,spec.template.spec.containers[0].env[].value)' \
-  | grep EMIT_DIMENSION_BODY
-# Expect: EMIT_DIMENSION_BODY false
-```
-
-Then wait for a fresh eval to be created organically (or trigger one if you have a manual path):
-
-```sql
--- Confirm no body field on the most recent eval — flag still off, prompt not emitting body
-SELECT id, created_at, jsonb_pretty(dimension_scores)
-FROM evaluations
-ORDER BY created_at DESC
-LIMIT 1;
-```
-
-The newest row's `dimension_scores` entries must still have exactly `{ score, citations }` per dim. If `body` appears, the flag is NOT being respected — STOP and investigate the prompt gate at A.5.
-
-Once verified clean, Phase A is done and Phase B can begin.
+**STOP AND REPORT.** Numbers + build status before proceeding to Phase 1.
 
 ---
 
-## Phase B — Dashboard PR
+## Phase 1 — Types (intentional build break)
 
-Now work in `C:\Users\russe\Documents\Dashboard`. Gated on Phase A being merged + deployed.
+**Goal:** reshape `KnowledgeGapClusterRow` and extend the modal stack union. Build WILL break — the TypeScript errors are the checklist of remaining work.
 
-### B.1 — Sync bridge schema mirror
+**File:** `src/types/call-intelligence.ts`
 
-```bash
-# Use the skill — it pulls upstream and overwrites the mirror
-# /sync-bridge-schema
-# Or manually:
-gh api repos/russellmoss/sales-coaching/contents/src/lib/dashboard-api/schemas.ts \
-  -H 'Accept: application/vnd.github.raw' --ref main \
-  > src/lib/sales-coaching-client/schemas.ts
-```
+Two edits in this file.
 
-Then:
+### 1A. Add `KnowledgeGapClusterEvidence` and reshape `KnowledgeGapClusterRow`
 
-```bash
-npm run check:schema-mirror
-# Expected: byte-equal PASS
-```
-
-If fail: investigate drift. Likely cause: upstream PR not yet merged, or `BRANCH = 'master'` vs `main` discrepancy (see B.9 below — fix in same PR).
-
-### B.2 — Reconcile schema-mirror check branch
-
-File: `scripts/check-schema-mirror.cjs` line 26
-
-```js
-// Current:
-const BRANCH = 'master';
-// Change to:
-const BRANCH = 'main';
-```
-
-Re-run `npm run check:schema-mirror` to confirm.
-
-### B.3 — Fix the data-loss bug FIRST (R1)
-
-**This must merge before any backfill writes body data.**
-
-File: `src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx` lines 641-661
-
-Find the inline-edit reconstruction loop. Current:
+Replace the current block at lines 301–309 with:
 
 ```ts
-const base: Record<string, { score: number; citations: Citation[] }> = {};
-for (const [name, v] of Object.entries(canonicalDimensionScores)) {
-  base[name] = {
-    score: v.score,
-    citations: (v.citations ?? []) as Citation[],
-  };
-}
-```
-
-Change to:
-
-```ts
-const base: Record<string, { score: number; citations: Citation[]; body?: string }> = {};
-for (const [name, v] of Object.entries(canonicalDimensionScores)) {
-  base[name] = {
-    score: v.score,
-    citations: (v.citations ?? []) as Citation[],
-    ...(v.body !== undefined && v.body !== '' && { body: v.body }),
-  };
-}
-```
-
-Spread is conditional so undefined body doesn't pollute the JSONB with `{ body: undefined }`.
-
-### B.4 — Update shared type
-
-File: `src/types/call-intelligence.ts` line 91
-
-Find the `EvaluationDetail` interface, locate `dimension_scores`:
-
-```ts
-// Current:
-dimension_scores: Record<string, { score: number; citations?: Citation[] }> | null;
-// Change to:
-dimension_scores: Record<string, { score: number; citations?: Citation[]; body?: string }> | null;
-```
-
-### B.5 — Update local `DimensionScoreEntry` interface
-
-File: `src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx` lines 95-99
-
-```ts
-// Current:
-interface DimensionScoreEntry {
-  name: string;
-  score: number;
-  citations?: Citation[];
-}
-// Change to:
-interface DimensionScoreEntry {
-  name: string;
-  score: number;
-  citations?: Citation[];
-  body?: string;
-}
-```
-
-### B.6 — Update `readDimensionScores()` to read body from ai_original
-
-File: `src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx` lines 101-117
-
-Find the loop that maps `ai_original.dimensionScores` entries to `DimensionScoreEntry`. Add `body: val.body` to the returned object:
-
-```ts
-return Object.entries(dimScores).map(([name, val]: [string, any]) => ({
-  name,
-  score: Number(val.score),
-  citations: Array.isArray(val.citations) ? val.citations : [],
-  body: typeof val.body === 'string' ? val.body : undefined,
-}));
-```
-
-### B.7 — Update `canonicalDimensionScores` map
-
-File: `src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx` lines 450-455
-
-Find the map that builds canonical dimension entries from `detail.dimension_scores`. Add `body`:
-
-```ts
-const canonicalDimensionScores = Object.entries(detail.dimension_scores ?? {}).map(
-  ([name, v]: [string, any]) => ({
-    name,
-    score: Number(v.score),
-    citations: Array.isArray(v.citations) ? v.citations : [],
-    body: typeof v.body === 'string' ? v.body : undefined,
-  })
-);
-```
-
-### B.8 — Extract shared `CitedProse` component
-
-Create new file: `src/components/call-intelligence/CitedProse.tsx`
-
-```tsx
-'use client';
-
-import { CitationPill } from './CitationPill';
-import type { Citation } from '@/types/call-intelligence';
-
-interface CitedProseProps {
+export interface KnowledgeGapClusterEvidence {
+  evaluationId: string;
+  repId: string;
+  repName: string;
+  /** 'gap' = item from evaluations.knowledge_gaps[]; 'deferral' = row from rep_deferrals. */
+  kind: 'gap' | 'deferral';
+  /** Gap text OR verbatim deferral quote. */
   text: string;
-  citations: Citation[];
-  chunkLookup: Record<string, { owner: string; chunk_text: string }>;
-  onScrollToUtterance?: (idx: number) => void;
-  onOpenKB?: (kb: NonNullable<Citation['kb_source']>) => void;
-  className?: string;
+  callStartedAt: string | null;
+  citations: Array<{
+    utterance_index?: number;
+    kb_source?: { doc_id: string; chunk_id: string; doc_title: string; drive_url: string };
+  }>;
+  /** Full expected_source path — gap only (undefined for deferrals). */
+  expectedSource?: string;
+  /** Coverage classification — deferral only (undefined for gaps). */
+  kbCoverage?: 'covered' | 'partial' | 'missing';
 }
 
-/**
- * Renders prose followed by a trailing wrapped row of citation pills.
- * Replaces the two private CitedText / CitedTextLine impls in
- * InsightsEvalDetailModal.tsx and EvalDetailClient.tsx.
- */
-export function CitedProse({
-  text,
-  citations,
-  chunkLookup,
-  onScrollToUtterance,
-  onOpenKB,
-  className,
-}: CitedProseProps) {
-  if (!text) return null;
-  return (
-    <div className={className ?? 'text-sm text-gray-800'}>
-      <p className="whitespace-pre-wrap leading-relaxed">{text}</p>
-      {citations.length > 0 && (
-        <div className="mt-1.5 inline-flex flex-wrap items-center gap-1">
-          {citations.map((c, i) => (
-            <CitationPill
-              key={`${c.utterance_index ?? c.kb_source?.chunk_id ?? i}-${i}`}
-              citation={c}
-              chunkLookup={chunkLookup}
-              onScrollToUtterance={onScrollToUtterance}
-              onOpenKB={onOpenKB}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
+export interface KnowledgeGapClusterRow {
+  bucket: string;
+  bucketKind: 'kb_path' | 'kb_topic' | 'uncategorized';
+  totalOccurrences: number;
+  gapCount: number;
+  deferralCount: number;
+  deferralByCoverage: { covered: number; partial: number; missing: number };
+  repBreakdown: Array<{ repId: string; repName: string; gapCount: number; deferralCount: number }>;
+  sampleEvalIds: string[];
+  sampleEvidence: KnowledgeGapClusterEvidence[];
 }
 ```
 
-Then refactor the two private impls to use it:
-
-**File: `src/components/call-intelligence/InsightsEvalDetailModal.tsx`**
-
-Delete the file-local `CitedText` component at lines 106-139. Replace usages of `<CitedText ...>` with `<CitedProse ...>`. Update prop names (`detail` and `onOpenTranscript` → `chunkLookup` and `onScrollToUtterance`).
-
-**File: `src/app/dashboard/call-intelligence/evaluations/[id]/EvalDetailClient.tsx`**
-
-Replace the file-local `CitedTextLine` at lines 163-197 with usages of `<CitedProse ...>`. Note: `CitedTextLine` has an editable mode (disabled prop). If editability is needed for body in EvalDetailClient.tsx later, that's a follow-up — for this ship, body is read-only.
-
-### B.9 — Restructure `InsightsEvalDetailModal.tsx` to lead with body
-
-File: `src/components/call-intelligence/InsightsEvalDetailModal.tsx`
-
-**Remove sections from the dimension-drill panel (lines ~274-309):**
-- Narrative
-- Strengths
-- Weaknesses
-- Knowledge gaps
-- Compliance flags
-- Additional observations
-- Rep deferrals
-
-**Keep:**
-- Dimension banner (name + score badge)
-- Topic-drill panel (lines ~313-349, fully independent)
-
-**Add per-dimension body section** at the top of the dimension drill (after the score badge, before the topic panel):
-
-```tsx
-{payload.dimension && (() => {
-  const entry = detail.dimension_scores?.[payload.dimension];
-  if (!entry) return null;
-  const { score, citations = [], body } = entry;
-  return (
-    <section className="mb-4">
-      <div className="flex items-baseline gap-2 mb-2">
-        <h3 className="text-lg font-semibold">{payload.dimension}</h3>
-        <span className={`px-2 py-0.5 rounded text-sm font-medium ${scoreColor(score)}`}>
-          {score.toFixed(1)} / 4
-        </span>
-      </div>
-      {body && body.trim().length > 0 ? (
-        <CitedProse
-          text={body}
-          citations={citations}
-          chunkLookup={chunkLookup}
-          onScrollToUtterance={onScrollToUtterance}
-          onOpenKB={onOpenKB}
-        />
-      ) : (
-        <p className="text-sm text-gray-500 italic">
-          No per-dimension rationale on file. Admin can re-run AI eval via CLI backfill script.
-        </p>
-      )}
-    </section>
-  );
-})()}
-```
-
-(Use the existing `scoreColor` helper — likely already imported. Add if needed.)
-
-### B.10 — Plumb `onOpenKB` prop
-
-File: `src/components/call-intelligence/InsightsEvalDetailModal.tsx`
-
-Add `onOpenKB` to the props interface. Pass through from `InsightsTab.tsx` (the modal's parent).
-
-File: `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx`
-
-Find where `InsightsEvalDetailModal` is rendered. Add `onOpenKB={(kb) => { /* handler */ }}`. If `KBSidePanel` already exists and is used elsewhere in this tab, reuse its handler. If not for this ship, pass a no-op and TODO comment for follow-up.
-
-### B.11 — Update version gate
-
-File: `src/components/call-intelligence/citation-helpers.ts` lines 36-45
+### 1B. Extend `InsightsModalStackLayer` (lines 329–354)
 
 ```ts
-// Current (last line of the function):
-if (field === 'repDeferrals') return version >= 5;
-return true;
+export type InsightsModalStackLayer =
+  | { kind: 'list';       payload: EvalListModalPayload }
+  | { kind: 'detail';     payload: EvalDetailDrillPayload }
+  | { kind: 'transcript'; payload: TranscriptDrillPayload }
+  | { kind: 'cluster';    payload: ClusterEvidenceModalPayload };
 
-// Change to:
-if (field === 'repDeferrals') return version >= 5;
-if (field === 'body') return version >= 6;
-return true;
-```
-
-Also update the TypeScript union type `field` parameter to include `'body'`.
-
-### B.12 — Update coaching notes markdown export
-
-File: `src/lib/coaching-notes-markdown.ts` lines 17 and 57-65
-
-Find the dimensionScores render block. Currently outputs `score` only. Add body:
-
-```ts
-for (const [name, entry] of Object.entries(dimensionScores)) {
-  const score = typeof entry.score === 'number' ? entry.score : Number(entry.score);
-  md += `**${name}**: ${score.toFixed(1)}/4\n`;
-  const body = (entry as { body?: string }).body;
-  if (body && body.trim().length > 0) {
-    md += `${body}\n`;
-  }
-  md += `\n`;
+export interface ClusterEvidenceModalPayload {
+  bucket: string;
+  bucketKind: 'kb_path' | 'kb_topic' | 'uncategorized';
+  evidence: KnowledgeGapClusterEvidence[];
+  gapCount: number;
+  deferralCount: number;
 }
 ```
 
-Also widen `AiOriginalSnapshot.dimensionScores` at line 17:
+Also extend `EvalDetailDrillPayload` so a Layer-2 opened from a cluster row carries the bucket context:
 
 ```ts
-dimensionScores: Record<string, { score?: unknown; body?: unknown }>;
+export interface EvalDetailDrillPayload {
+  evaluationId: string;
+  dimension?: string;
+  topic?: string;
+  bucket?: string;
+  bucketKind?: 'kb_path' | 'kb_topic' | 'uncategorized';
+}
 ```
 
-### B.13 — TypeScript build gate
-
+**Validation gate (intentional break):**
 ```bash
-rm -rf .next
-npm run build 2>&1 | tail -30
+npm run build 2>&1 | grep -E "(error TS|Property 'topic'|Property 'bucket'|sampleEvidence)" | head -30
 ```
+Expected errors:
+- `InsightsTab.tsx:631` — `Property 'topic' does not exist on type 'KnowledgeGapClusterRow'`
+- `InsightsTab.tsx:634` — same
+- `knowledge-gap-clusters.ts:188` — `Property 'topic' does not exist on type 'KnowledgeGapClusterRow'` (the `.map()` constructor doesn't emit `bucket`/`bucketKind`/`sampleEvidence`)
 
-Expected: `Compiled successfully`. Any TS errors point to missed construction sites — go back and add `body` where it's been dropped.
+Save the error list as the construction-site checklist for the following phases.
 
-### B.14 — Lint gate
-
-```bash
-npm run lint 2>&1 | tail -10
-```
-
-Expected: zero errors.
-
-### B.15 — Schema mirror byte-equality gate
-
-```bash
-npm run check:schema-mirror
-```
-
-Expected: PASS.
-
-### B.16 — Agent-guard doc sync
-
-```bash
-npx agent-guard sync
-```
-
-This regenerates `docs/_generated/*.md` and prompts updates to `docs/ARCHITECTURE.md`. Read the diff to ARCHITECTURE.md before committing.
-
-### B.17 — Stop-and-report
-
-Report to user:
-- All TS errors resolved
-- Schema mirror PASS
-- Lint clean
-- agent-guard sync ran
-- List of files changed
-- Suggest manual smoke test: open Insights tab → drill into eval cell → verify modal renders without body section showing the fallback message
-
-User reviews and merges Phase B PR. Deploys to Vercel.
+**STOP AND REPORT.** List of TS errors + count.
 
 ---
 
-## Phase C — Upstream prompt flip
+## Phase 2 — Query rewrite
 
-Gated on Phase B being deployed to Vercel prod.
+**Goal:** rewrite `getKnowledgeGapClusters` to produce the new bucket logic, drop the synonyms map, surface richer evidence rows, and accept a `mode` arg.
 
-### C.1 — Flip the env flag in sales-coaching
+**File:** `src/lib/queries/call-intelligence/knowledge-gap-clusters.ts`
 
-Same Cloud Run service as Phase A: `sales-coaching` in `savvy-gtm-analytics` / `us-east1`. The flag flip requires a new revision (Cloud Run does not hot-reload env vars on existing revisions).
+### 2A. Imports
 
-#### C.1.1 — Update the env file
-
-```yaml
-# sales-coaching/.env-vars-staging.yaml
-# ... existing keys ...
-EMIT_DIMENSION_BODY: "true"
+Remove the `KB_VOCAB_SYNONYMS` import on line 2:
+```ts
+// DELETE:
+import { KB_VOCAB_SYNONYMS } from './kb-vocab-synonyms';
 ```
 
-Commit + push this change to sales-coaching `main` (a one-line PR is fine — no code changes needed because the prompt gate was already shipped in Phase A behind the flag).
+### 2B. Args type
 
-#### C.1.2 — Redeploy
-
-```powershell
-# From C:/Users/russe/Documents/sales-coaching (repo root — required for buildpacks + .env-vars file resolution)
-gcloud run deploy sales-coaching `
-  --source . `
-  --region us-east1 `
-  --project savvy-gtm-analytics `
-  --env-vars-file=.env-vars-staging.yaml
+Extend `ClusterArgs` (lines 10–17) with `mode`:
+```ts
+interface ClusterArgs {
+  dateRange: InsightsDateRange;
+  role: InsightsRoleFilter;
+  podIds: string[];
+  repIds: string[];
+  sourceFilter: InsightsSourceFilter;
+  visibleRepIds: string[];
+  /** 'team' caps sampleEvalIds / sampleEvidence at 5 each; 'rep_focus' lifts to 200. */
+  mode?: 'team' | 'rep_focus';
+}
+```
+Default to `'team'` in the destructure on line 28:
+```ts
+const { dateRange, role, podIds, repIds, sourceFilter, visibleRepIds, mode = 'team' } = args;
 ```
 
-Same caveats as A.8.3: no `--set-env-vars` flag, no `--set-secrets` flag, no Dockerfile (buildpacks pick up Node automatically).
+### 2C. Slice cap literal
 
-#### C.1.3 — Verify the flag is live
+Add right above the SQL string construction:
+```ts
+const sliceCap = mode === 'rep_focus' ? 200 : 5;
+```
+Postgres does not accept bound params for array slice bounds, so the literal must be interpolated into the SQL string. The value is constrained to `5 | 200` — no injection surface.
 
+### 2D. Param block
+
+Remove the `$9` synonyms param. Update the comment block and `params` array (lines 51–65):
+
+```ts
+// params (ALL parameterized — no SQL injection surface):
+//  $1 = effectiveRepIds (uuid[])
+//  $2 = start (date), $3 = end (date)
+//  $4 = role ('SGA'|'SGM'|null)
+//  $5 = podIds (uuid[]|null)
+//  $6 = includeGaps (bool)
+//  $7 = includeDeferrals (bool)
+//  $8 = coverageFilter ('missing'|'covered'|null)
+const params: unknown[] = [
+  effectiveRepIds, start, end, roleParam, podIdsParam,
+  includeGaps, includeDeferrals, coverageFilter,
+];
+```
+
+### 2E. SQL rewrite
+
+Replace the entire `sql` template (lines 67–161) with:
+
+```ts
+const sql = `
+  WITH scoped_reps AS (
+    SELECT DISTINCT r.id
+      FROM reps r
+      LEFT JOIN coaching_team_members tm ON tm.rep_id = r.id
+      LEFT JOIN coaching_teams t          ON t.id = tm.team_id AND t.is_active = true
+     WHERE r.is_active = true
+       AND r.is_system = false
+       AND r.id = ANY($1::uuid[])
+       AND ($4::text IS NULL OR r.role = $4)
+       AND ($5::uuid[] IS NULL OR t.id = ANY($5::uuid[]) OR t.id IS NULL)
+  ),
+  gap_hits AS (
+    SELECT
+      -- Council C3 fix: COALESCE/NULLIF on `split_part||/||split_part` mislabels
+      -- single-segment values (e.g., 'profile' becomes 'profile/' not 'Uncategorized').
+      -- Use CASE to explicitly require at least two slash-segments.
+      CASE
+        WHEN kg.item->>'expected_source' IS NULL
+          OR kg.item->>'expected_source' = ''
+          OR position('/' IN kg.item->>'expected_source') = 0
+          THEN 'Uncategorized'
+        ELSE
+          split_part(kg.item->>'expected_source','/',1) || '/' ||
+          split_part(kg.item->>'expected_source','/',2)
+      END AS bucket,
+      CASE
+        WHEN kg.item->>'expected_source' IS NULL
+          OR kg.item->>'expected_source' = ''
+          OR position('/' IN kg.item->>'expected_source') = 0
+          THEN 'uncategorized'
+        ELSE 'kb_path'
+      END AS bucket_kind,
+      e.rep_id,
+      r.full_name AS rep_name,
+      e.id AS evaluation_id,
+      cn.call_started_at AS call_started_at,
+      kg.item->>'text'             AS evidence_text,
+      kg.item->'citations'         AS citations,
+      kg.item->>'expected_source'  AS expected_source_full,
+      'gap'::text AS kind,
+      1 AS gap_count,
+      0 AS deferral_count,
+      NULL::text AS kb_coverage
+    FROM evaluations e
+    JOIN scoped_reps sr ON sr.id = e.rep_id
+    JOIN reps r ON r.id = e.rep_id
+    JOIN call_notes cn ON cn.id = e.call_note_id
+    CROSS JOIN jsonb_array_elements(e.knowledge_gaps) AS kg(item)
+    WHERE $6::bool = true
+      AND (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')
+      AND e.created_at >= $2::date
+      AND e.created_at <  $3::date
+  ),
+  deferral_hits AS (
+    -- TRADE-OFF: single-bucket-per-deferral assignment via ORDER BY chunk_index LIMIT 1.
+    -- Deterministic; no count inflation. Alternative would be to fan out across
+    -- topics (one deferral counted N times), which would inflate totals and break
+    -- acceptance criterion (a). Revisit if managers report missing cross-topic visibility.
+    SELECT
+      COALESCE(
+        (SELECT t FROM unnest(kbc.topics) AS t LIMIT 1),
+        'Uncategorized: ' || d.topic
+      ) AS bucket,
+      CASE
+        WHEN kbc.topics IS NULL OR array_length(kbc.topics, 1) IS NULL
+          THEN 'uncategorized'
+        ELSE 'kb_topic'
+      END AS bucket_kind,
+      d.rep_id,
+      r.full_name AS rep_name,
+      d.evaluation_id,
+      cn.call_started_at AS call_started_at,
+      d.deferral_text AS evidence_text,
+      jsonb_build_array(
+        jsonb_build_object('utterance_index', d.utterance_index)
+      ) AS citations,
+      NULL::text AS expected_source_full,
+      'deferral'::text AS kind,
+      0 AS gap_count,
+      1 AS deferral_count,
+      d.kb_coverage
+    FROM rep_deferrals d
+    JOIN scoped_reps sr ON sr.id = d.rep_id
+    JOIN reps r ON r.id = d.rep_id
+    JOIN evaluations e ON e.id = d.evaluation_id
+    JOIN call_notes cn ON cn.id = e.call_note_id
+    LEFT JOIN LATERAL (
+      SELECT topics FROM knowledge_base_chunks
+       WHERE id = ANY(d.kb_chunk_ids)
+         AND is_active = true
+         AND topics IS NOT NULL
+         AND array_length(topics, 1) > 0
+       -- Council C4 fix: chunk_index can have ties. Add `id` as tie-breaker
+       -- so the bucket is deterministic across runs.
+       ORDER BY chunk_index, id
+       LIMIT 1
+    ) kbc ON TRUE
+    WHERE $7::bool = true
+      AND d.is_synthetic_test_data = false
+      AND (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')
+      AND d.created_at >= $2::date
+      AND d.created_at <  $3::date
+      AND ($8::text IS NULL OR d.kb_coverage = $8)
+  ),
+  all_hits AS (
+    SELECT * FROM gap_hits
+    UNION ALL
+    SELECT * FROM deferral_hits
+  ),
+  -- Council C5 rewrite: window-function ranking inside the row set, then a single
+  -- FILTER-gated jsonb_agg per group at the final SELECT. Replaces a per-bucket
+  -- correlated subquery (20+ subqueries → 1 sort + 1 aggregation pass).
+  ranked AS (
+    SELECT
+      ah.*,
+      ROW_NUMBER() OVER (
+        PARTITION BY bucket
+        -- Stable, deterministic ordering for the evidence sample:
+        -- newest evidence first when call_started_at is available, then by evaluation_id.
+        ORDER BY call_started_at DESC NULLS LAST, evaluation_id, kind
+      ) AS rn
+    FROM all_hits ah
+  )
+  SELECT
+    bucket,
+    -- bucket_kind reduction: prefer the most informative kind within a bucket.
+    -- 'kb_path' (gap-derived) wins over 'kb_topic' (deferral-derived) wins over 'uncategorized'.
+    (array_agg(bucket_kind ORDER BY
+      CASE bucket_kind
+        WHEN 'kb_path' THEN 1
+        WHEN 'kb_topic' THEN 2
+        ELSE 3
+      END
+    ))[1] AS bucket_kind,
+    SUM(gap_count + deferral_count) AS total_occurrences,
+    SUM(gap_count) AS gap_count,
+    SUM(deferral_count) AS deferral_count,
+    COALESCE(SUM(deferral_count) FILTER (WHERE kb_coverage = 'covered'), 0) AS deferral_covered,
+    COALESCE(SUM(deferral_count) FILTER (WHERE kb_coverage = 'partial'), 0) AS deferral_partial,
+    COALESCE(SUM(deferral_count) FILTER (WHERE kb_coverage = 'missing'), 0) AS deferral_missing,
+    json_agg(DISTINCT jsonb_build_object('repId', rep_id, 'repName', rep_name)
+             ORDER BY jsonb_build_object('repId', rep_id, 'repName', rep_name)) AS reps_arr,
+    (array_agg(DISTINCT evaluation_id ORDER BY evaluation_id) FILTER (WHERE rn <= ${sliceCap})) AS sample_eval_ids,
+    COALESCE(
+      jsonb_agg(
+        jsonb_build_object(
+          'evaluationId',   evaluation_id,
+          'repId',          rep_id,
+          'repName',        rep_name,
+          'kind',           kind,
+          'text',           evidence_text,
+          'callStartedAt',  call_started_at,
+          'citations',      citations,
+          'expectedSource', expected_source_full,
+          'kbCoverage',     kb_coverage
+        ) ORDER BY rn
+      ) FILTER (WHERE rn <= ${sliceCap}),
+      '[]'::jsonb
+    ) AS sample_evidence,
+    json_object_agg(rep_id || '|gap', gap_count ORDER BY rep_id || '|gap') FILTER (WHERE gap_count > 0) AS rep_gap_map,
+    json_object_agg(rep_id || '|def', deferral_count ORDER BY rep_id || '|def') FILTER (WHERE deferral_count > 0) AS rep_def_map
+  FROM ranked
+  GROUP BY bucket
+  HAVING SUM(gap_count + deferral_count) > 0
+  ORDER BY total_occurrences DESC, bucket ASC
+`;
+```
+
+> **Note on the evidence aggregation idiom:** `ROW_NUMBER()` ranks rows within each bucket, then a single `FILTER (WHERE rn <= ${sliceCap})` gate inside `jsonb_agg` produces the capped sample. One pass through the data; the planner can usually do this with a single sort. The slice cap literal (`5` or `200`) is the only string-interpolated value and is constrained at the TS layer to those two integers (no injection surface).
+
+### 2F. RawRow type + `.map()` constructor (lines 163–200)
+
+Replace with:
+
+```ts
+type RawRow = {
+  bucket: string;
+  bucket_kind: 'kb_path' | 'kb_topic' | 'uncategorized';
+  total_occurrences: string;
+  gap_count: string;
+  deferral_count: string;
+  deferral_covered: string;
+  deferral_partial: string;
+  deferral_missing: string;
+  reps_arr: Array<{ repId: string; repName: string | null }> | null;
+  sample_eval_ids: string[] | null;
+  sample_evidence: Array<{
+    evaluationId: string;
+    repId: string;
+    repName: string | null;
+    kind: 'gap' | 'deferral';
+    text: string | null;
+    callStartedAt: string | null;
+    citations: Array<{
+      utterance_index?: number | null;
+      kb_source?: { doc_id?: string; chunk_id?: string; doc_title?: string; drive_url?: string };
+    }> | null;
+    expectedSource: string | null;
+    kbCoverage: 'covered' | 'partial' | 'missing' | null;
+  }> | null;
+  rep_gap_map: Record<string, number> | null;
+  rep_def_map: Record<string, number> | null;
+};
+
+const { rows } = await pool.query<RawRow>(sql, params);
+
+return rows.map(r => {
+  const reps = r.reps_arr ?? [];
+  const breakdown = reps.map(rep => ({
+    repId: rep.repId,
+    repName: rep.repName ?? '(unknown)',
+    gapCount: Number(r.rep_gap_map?.[`${rep.repId}|gap`] ?? 0),
+    deferralCount: Number(r.rep_def_map?.[`${rep.repId}|def`] ?? 0),
+  }));
+  const sampleEvidence = (r.sample_evidence ?? []).map(e => {
+    const cit = Array.isArray(e.citations) ? e.citations : [];
+    return {
+      evaluationId: e.evaluationId,
+      repId: e.repId,
+      repName: e.repName ?? '(unknown)',
+      kind: e.kind,
+      text: e.text ?? '',
+      callStartedAt: e.callStartedAt,
+      citations: cit
+        .map(c => {
+          const hasUtterance = typeof c.utterance_index === 'number';
+          const hasKbSource = !!(c.kb_source && c.kb_source.chunk_id && c.kb_source.doc_id);
+          if (!hasUtterance && !hasKbSource) return null;
+          return {
+            ...(hasUtterance ? { utterance_index: c.utterance_index as number } : {}),
+            ...(hasKbSource
+              ? {
+                  kb_source: {
+                    doc_id: c.kb_source!.doc_id!,
+                    chunk_id: c.kb_source!.chunk_id!,
+                    doc_title: c.kb_source!.doc_title ?? '',
+                    drive_url: c.kb_source!.drive_url ?? '',
+                  },
+                }
+              : {}),
+          };
+        })
+        .filter((c): c is NonNullable<typeof c> => c !== null),
+      // Council S1 fix: dropping the citation entirely when neither side is valid
+      // prevents empty {} objects from leaking into the array.
+      ...(e.expectedSource ? { expectedSource: e.expectedSource } : {}),
+      ...(e.kbCoverage ? { kbCoverage: e.kbCoverage } : {}),
+    };
+  });
+  return {
+    bucket: r.bucket,
+    bucketKind: r.bucket_kind,
+    totalOccurrences: Number(r.total_occurrences),
+    gapCount: Number(r.gap_count),
+    deferralCount: Number(r.deferral_count),
+    deferralByCoverage: {
+      covered: Number(r.deferral_covered),
+      partial: Number(r.deferral_partial),
+      missing: Number(r.deferral_missing),
+    },
+    repBreakdown: breakdown,
+    sampleEvalIds: r.sample_eval_ids ?? [],
+    sampleEvidence,
+  };
+});
+```
+
+### 2G. Probe-validate the SQL before moving on
+
+Run the new query end-to-end against Neon, verifying acceptance criterion (a) — total occurrences match the ceiling.
+
+Write a temp probe script (do NOT commit):
 ```bash
-gcloud run services describe sales-coaching \
-  --region us-east1 --project savvy-gtm-analytics \
-  --format='value(spec.template.spec.containers[0].env[].name,spec.template.spec.containers[0].env[].value)' \
-  | grep EMIT_DIMENSION_BODY
-# Expect: EMIT_DIMENSION_BODY true
-```
-
-### C.2 — Smoke test
-
-Trigger a fresh evaluation (organic next-call, or manual eval-run path if sales-coaching exposes one). Verify body is now emitted:
-
-```sql
--- The most-recently created eval should have body on every dimension
-SELECT
-  id,
-  created_at,
-  ai_original_schema_version,
-  (
-    SELECT COUNT(*) FROM jsonb_each(dimension_scores) ds
-    WHERE ds.value ? 'body' AND length(ds.value->>'body') > 0
-  ) AS dims_with_body,
-  (SELECT COUNT(*) FROM jsonb_object_keys(dimension_scores)) AS total_dims
-FROM evaluations
-ORDER BY created_at DESC
-LIMIT 1;
-```
-
-Expected: `dims_with_body = total_dims` AND `ai_original_schema_version = 6`.
-
-If body is still missing, the flag isn't being read — check the deploy revision picked up the new env file, and confirm the prompt gate code at A.5 is reading `process.env.EMIT_DIMENSION_BODY` (string `'true'`, not boolean true).
-
-### C.3 — Stop-and-report
-
-Once one organic eval has body on every dimension and schema version 6, Phase C is done. User gives the go-ahead for Phase D backfill.
-
----
-
-## Phase D — Offline backfill script
-
-Build the script in this Dashboard repo. Gated on Phase C deploy + smoke test.
-
-### D.1 — Create the script
-
-File: `scripts/backfill-dimension-bodies.cjs` (new)
-
-```js
-#!/usr/bin/env node
-// Offline backfill: generate per-dimension `body` for historic evaluations.
-// Locked inputs: existing score + citations. Strict drift handling.
-// Default dry run; --commit to write.
-
+mkdir -p scripts/_tmp
+cat > scripts/_tmp/probe-cluster-rewrite.js <<'EOF'
+// One-off probe — delete after running.
 require('dotenv').config();
 const { Pool } = require('pg');
-const Anthropic = require('@anthropic-ai/sdk').default;
+const p = new Pool({ connectionString: process.env.SALES_COACHING_DATABASE_URL });
+(async () => {
+  // Pull a visible-rep set for the smoke test:
+  const { rows: reps } = await p.query("SELECT id FROM reps WHERE is_active=true AND is_system=false LIMIT 100");
+  const allRepIds = reps.map(r => r.id);
+  // Paste your rewritten SQL string here, or import the helper:
+  // For the simplest check, just sum totals:
+  const sql = require('fs').readFileSync('scripts/_tmp/cluster.sql', 'utf8');
+  const { rows } = await p.query(sql, [
+    allRepIds,
+    '2026-02-11', '2026-05-12',
+    null, null, true, true, null,
+  ]);
+  const total = rows.reduce((s, r) => s + Number(r.total_occurrences), 0);
+  console.log({ totalRows: rows.length, totalOccurrences: total });
+  await p.end();
+})().catch(e => { console.error(e); process.exit(1); });
+EOF
+# Paste the SQL from §2E into scripts/_tmp/cluster.sql then:
+node scripts/_tmp/probe-cluster-rewrite.js
+rm -rf scripts/_tmp
+```
 
-const COMMIT = process.argv.includes('--commit');
-const LIMIT = (() => {
-  const i = process.argv.indexOf('--limit');
-  return i > -1 ? parseInt(process.argv[i + 1], 10) : null;
-})();
-const MODEL_ID = 'claude-sonnet-4-6';
-const PROMPT_VERSION = 'body-only-v1';
-const SLEEP_MS = 200;
+**Validation gate:**
+```bash
+npm run build 2>&1 | grep -E "error TS"
+```
+The build errors should now be limited to the UI side (`InsightsTab.tsx`) — the helper's signature and constructor should typecheck.
 
-const pool = new Pool({
-  connectionString: process.env.SALES_COACHING_DATABASE_URL_UNPOOLED
-    ?? process.env.SALES_COACHING_DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
+Live SQL check: `SUM(total_occurrences)` should equal `gap_ceiling + def_ceiling` from Pre-Flight when `$6=true`, `$7=true`, `$8=NULL`.
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+**STOP AND REPORT.** TS errors remaining + sum-vs-ceiling result.
 
-async function fetchTargets() {
-  const { rows } = await pool.query(`
-    SELECT
-      e.id AS evaluation_id,
-      e.dimension_scores,
-      e.ai_original_schema_version,
-      ct.transcript
-    FROM evaluations e
-    LEFT JOIN call_transcripts ct ON ct.call_note_id = e.call_note_id
-    WHERE e.dimension_scores IS NOT NULL
-      AND e.dimension_scores <> '{}'::jsonb
-      AND EXISTS (
-        SELECT 1 FROM jsonb_each(e.dimension_scores) ds
-        WHERE NOT (ds.value ? 'body') OR (ds.value->>'body') = '' OR (ds.value->>'body') IS NULL
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM eval_body_backfill_audit a
-        WHERE a.evaluation_id = e.id AND a.status = 'success'
-      )
-    ORDER BY e.created_at DESC
-    ${LIMIT ? `LIMIT ${LIMIT}` : ''}
-  `);
-  return rows;
+---
+
+## Phase 3 — API route
+
+**Goal:** pass `mode` through to the helper, accept `?limit=full` validator.
+
+**File:** `src/app/api/call-intelligence/insights/clusters/route.ts`
+
+Insert near the existing query-param parsing (around line 87, after the `focusRep` validation), then pass to the helper (line 101).
+
+```ts
+const limitRaw = sp.get('limit');
+if (limitRaw && limitRaw !== 'full') {
+  return NextResponse.json({ error: 'invalid limit' }, { status: 400 });
 }
+const mode: 'team' | 'rep_focus' = (focusRep || limitRaw === 'full') ? 'rep_focus' : 'team';
+```
 
-function buildPrompt(dimensionName, score, citedUtterances) {
-  const utterancesBlock = citedUtterances
-    .map((u) => `[${u.utterance_index}] (${u.speaker_role}): ${u.text}`)
-    .join('\n');
-  return `You are writing a 2-3 sentence rationale for a SALES CALL EVALUATION dimension.
-
-Dimension: ${dimensionName}
-Score: ${score} / 4
-Cited utterances (these are LOCKED — you may only cite these utterance_index values):
-${utterancesBlock}
-
-Write a single paragraph, 150-300 characters, explaining WHY this dimension received this score, based on the cited utterances. No bullets. Reference at least one utterance_index inline using square brackets like [12]. Do not invent utterances. If the cited utterances do not justify the score, say so.
-
-Respond as JSON: { "body": "...", "cited_utterance_indexes": [12, 15] }`;
-}
-
-function getCitedUtterances(transcript, citations) {
-  if (!Array.isArray(transcript)) return [];
-  const wantedIdxs = new Set(
-    citations
-      .filter((c) => typeof c.utterance_index === 'number')
-      .map((c) => c.utterance_index)
-  );
-  return transcript.filter((u) => wantedIdxs.has(u.utterance_index));
-}
-
-async function generateBody(dimName, score, citedUtterances, citationsLocked) {
-  const resp = await anthropic.messages.create({
-    model: MODEL_ID,
-    max_tokens: 400,
-    messages: [{ role: 'user', content: buildPrompt(dimName, score, citedUtterances) }],
-  });
-  const text = resp.content[0].type === 'text' ? resp.content[0].text : '';
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error('No JSON in model response');
-  const parsed = JSON.parse(match[0]);
-  if (typeof parsed.body !== 'string') throw new Error('No body in JSON');
-  const allowedIdxs = new Set(citationsLocked.map((c) => c.utterance_index).filter((i) => typeof i === 'number'));
-  const orphanCount = (parsed.cited_utterance_indexes ?? []).filter((i) => !allowedIdxs.has(i)).length;
-  return {
-    body: parsed.body.trim(),
-    inputTokens: resp.usage?.input_tokens ?? 0,
-    outputTokens: resp.usage?.output_tokens ?? 0,
-    droppedOrphans: orphanCount,
-  };
-}
-
-async function writeBody(evaluationId, dimName, body) {
-  if (!COMMIT) return;
-  await pool.query(
-    `UPDATE evaluations
-     SET dimension_scores = jsonb_set(dimension_scores, $1::text[], $2::jsonb, false)
-     WHERE id = $3`,
-    [[dimName, 'body'], JSON.stringify(body), evaluationId]
-  );
-}
-
-async function recordAudit(evaluationId, status, opts) {
-  if (!COMMIT) return;
-  await pool.query(
-    `INSERT INTO eval_body_backfill_audit
-     (evaluation_id, status, error_message, input_tokens, output_tokens,
-      schema_version_before, model_id, prompt_version, dropped_orphan_citations,
-      skipped_dims, completed_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())`,
-    [
-      evaluationId, status, opts.error ?? null,
-      opts.inputTokens ?? null, opts.outputTokens ?? null,
-      opts.schemaVersionBefore, MODEL_ID, PROMPT_VERSION,
-      opts.droppedOrphans ?? 0, opts.skippedDims ?? 0,
-    ]
-  );
-}
-
-async function processEval(row) {
-  const { evaluation_id, dimension_scores, ai_original_schema_version, transcript } = row;
-  const dims = Object.entries(dimension_scores);
-  let totalIn = 0, totalOut = 0, totalOrphans = 0, skipped = 0;
-  for (const [dimName, entry] of dims) {
-    const existingBody = entry.body;
-    if (typeof existingBody === 'string' && existingBody.trim().length > 0) continue;
-    const citations = Array.isArray(entry.citations) ? entry.citations : [];
-    if (citations.length === 0) {
-      skipped++;
-      console.log(`  SKIP ${dimName} (no citations to anchor body)`);
-      continue;
-    }
-    const citedUtts = getCitedUtterances(transcript, citations);
-    if (citedUtts.length === 0) {
-      skipped++;
-      console.log(`  SKIP ${dimName} (citations don't match transcript utterances)`);
-      continue;
-    }
-    try {
-      const result = await generateBody(dimName, entry.score, citedUtts, citations);
-      totalIn += result.inputTokens;
-      totalOut += result.outputTokens;
-      totalOrphans += result.droppedOrphans;
-      console.log(`  ${COMMIT ? 'WRITE' : 'DRY '} ${dimName}: "${result.body.slice(0, 60)}..."`);
-      await writeBody(evaluation_id, dimName, result.body);
-      await sleep(SLEEP_MS);
-    } catch (e) {
-      if (e?.status === 429) {
-        console.warn(`  429 rate-limited; sleeping 30s`);
-        await sleep(30000);
-        // Retry once; if it fails again, hard-error
-        const result = await generateBody(dimName, entry.score, citedUtts, citations);
-        totalIn += result.inputTokens;
-        totalOut += result.outputTokens;
-        await writeBody(evaluation_id, dimName, result.body);
-      } else {
-        throw e;
-      }
-    }
-  }
-  return {
-    inputTokens: totalIn,
-    outputTokens: totalOut,
-    droppedOrphans: totalOrphans,
-    skippedDims: skipped,
-    schemaVersionBefore: ai_original_schema_version,
-  };
-}
-
-async function main() {
-  console.log(`Mode: ${COMMIT ? 'COMMIT' : 'DRY RUN'}, Model: ${MODEL_ID}`);
-  const targets = await fetchTargets();
-  console.log(`Found ${targets.length} evaluations needing body backfill\n`);
-  let successes = 0, failures = 0, totalIn = 0, totalOut = 0;
-  for (let i = 0; i < targets.length; i++) {
-    const row = targets[i];
-    console.log(`[${i + 1}/${targets.length}] eval ${row.evaluation_id} (schema v${row.ai_original_schema_version})`);
-    try {
-      const stats = await processEval(row);
-      totalIn += stats.inputTokens;
-      totalOut += stats.outputTokens;
-      await recordAudit(row.evaluation_id, 'success', stats);
-      successes++;
-    } catch (e) {
-      console.error(`  FAIL: ${e.message}`);
-      await recordAudit(row.evaluation_id, 'failure', {
-        error: e.message,
-        schemaVersionBefore: row.ai_original_schema_version,
-      });
-      failures++;
-    }
-  }
-  const inCost = (totalIn / 1_000_000) * 3.0;
-  const outCost = (totalOut / 1_000_000) * 15.0;
-  console.log(`\nDone. Success: ${successes}, Failure: ${failures}`);
-  console.log(`Tokens: in=${totalIn}, out=${totalOut}`);
-  console.log(`Estimated cost: $${(inCost + outCost).toFixed(2)} (Sonnet 4.6 pricing)`);
-  await pool.end();
-}
-
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
+Then in the helper call at line 101:
+```ts
+const clusters = await getKnowledgeGapClusters({
+  dateRange,
+  role,
+  podIds,
+  repIds: effectiveRepIds,
+  sourceFilter: sourceRaw,
+  visibleRepIds,
+  mode,
 });
 ```
 
-### D.2 — Dry run (no writes)
-
+**Validation gate:**
 ```bash
-node scripts/backfill-dimension-bodies.cjs
+npm run build 2>&1 | grep -E "error TS.*clusters/route\.ts"
 ```
+Empty.
 
-Expected output: `Found 406 evaluations...` followed by per-eval logs showing dry-run lines (`DRY <dimName>: "..."`). Final summary should show estimated cost ~$27-31.
-
-If output is suspicious (e.g. 0 found, or radically different cost), **STOP** and investigate.
-
-### D.3 — Pilot run
-
-```bash
-node scripts/backfill-dimension-bodies.cjs --limit 5 --commit
-```
-
-Verify in Neon:
-
-```sql
-SELECT id, jsonb_pretty(dimension_scores) FROM evaluations
-WHERE id IN (SELECT evaluation_id FROM eval_body_backfill_audit ORDER BY created_at DESC LIMIT 5);
-```
-
-Manually review the 5 generated bodies for quality. If quality is poor:
-- Inspect the prompt — tune wording
-- Re-run pilot with adjusted prompt (update `PROMPT_VERSION` constant for audit tracking)
-
-If quality is good, proceed.
-
-### D.4 — Full backfill
-
-```bash
-node scripts/backfill-dimension-bodies.cjs --commit
-```
-
-Monitor for 429s. Should run ~30-60 minutes (406 evals × ~9 dims × 200ms = ~12 minutes of API time + processing).
-
-### D.5 — Verification
-
-```sql
--- Every eval should now have body on every dimension
-SELECT COUNT(*) FROM evaluations
-WHERE dimension_scores IS NOT NULL
-  AND dimension_scores <> '{}'::jsonb
-  AND EXISTS (
-    SELECT 1 FROM jsonb_each(dimension_scores) ds
-    WHERE NOT (ds.value ? 'body') OR (ds.value->>'body') = '' OR (ds.value->>'body') IS NULL
-  );
--- Expected: 0 (or close to it; rows with no citations on any dim are legitimately skipped)
-
--- Audit summary
-SELECT status, COUNT(*) FROM eval_body_backfill_audit GROUP BY status;
-
--- Failures, if any
-SELECT evaluation_id, error_message FROM eval_body_backfill_audit WHERE status = 'failure';
-```
-
-If failures > 0: investigate and re-run targeted retries with `--limit` after fixing.
-
-### D.6 — UI smoke test
-
-Open Dashboard Insights tab → drill any heat-map cell → confirm:
-- Body paragraph renders at the top of Layer 2 modal
-- Citation pills are clickable
-- Utterance citations open Layer 3 jumped to the cited utterance
-- KB citations render the chunk inline
-- Score badge matches the historical score (no drift)
-
-### D.7 — Stop-and-report
-
-Report: total cost actual vs estimate, success/failure counts, any quality concerns observed in pilot.
+**STOP AND REPORT.** Build status for the route file.
 
 ---
 
-## Final acceptance criteria (verify all)
+## Phase 4 — Eval-detail modal: add gap-evidence render path
 
-- [ ] (a) Manager drills heat-map cell → Layer 2 opens → dimension name + score + 2-3 sentence body + citation pills.
-- [ ] (b) Click utterance citation in body → Layer 3 transcript modal jumps to that utterance.
-- [ ] (c) Click KB citation → renders the KB chunk inline.
-- [ ] (d) Pre-backfill eval (hypothetical edge case after pilot) → fallback "no rationale on file" message renders.
-- [ ] (e) ~~Admin clicks Re-evaluate~~ **CUT — offline script only.**
-- [ ] (f) `npm run check:schema-mirror` PASS.
-- [ ] (g) Manager edits a dimension score → body for THAT and OTHER dimensions is preserved (R1 data-loss-fix verified). **Manually test this in prod.**
-- [ ] (h) After backfill, verification SQL shows 0 evals missing body.
-- [ ] (i) Backfill audit table has one row per eval with `status='success'`.
-- [ ] (j) New evals created after Phase C have `body` per dimension natively (no backfill needed).
+**Goal:** `InsightsEvalDetailModal.tsx` currently has a deferral-only topic-drill section. When the user clicks a gap-evidence row in the new cluster modal, the existing section returns empty. Add a parallel gap render.
+
+**File:** `src/components/call-intelligence/InsightsEvalDetailModal.tsx`
+
+Read lines 1–300 to understand current structure first. The existing topic-drill section is around lines 269–300 (per exploration).
+
+### 4A. Widen the modal's render guard (council C1 — REQUIRED)
+
+The modal currently early-returns around line 124 with:
+```ts
+if (!payload.dimension && !payload.topic) return null;
+```
+This will hide the modal entirely when entering from a cluster row (where only `payload.bucket` is set). Update the guard to:
+```ts
+if (!payload.dimension && !payload.topic && !payload.bucket) return null;
+```
+Then route the three drill modes through the existing if/else (dimension → existing dimension-drill section; topic → existing deferral-only topic section; bucket → the new gap+deferral section below).
+
+### Decision: filter-on-client (recommended) vs filter-on-server
+
+- **Filter-on-client (recommended):** the modal already fetches the full eval via `/api/call-intelligence/evaluations/[id]`. When `payload.bucket` is set, render ALL `knowledge_gaps[]` and ALL `rep_deferrals` on the eval, but highlight the matched ones with a lighter background and a "ⓘ matched bucket" chip. User sees the wider context (other gaps/deferrals on the same call), which is often useful.
+- **Filter-on-server:** Add `?bucket=` and `?bucketKind=` query params to `/api/call-intelligence/evaluations/[id]`; helper filters server-side; modal shows only the matched items. Tighter result but loses context.
+
+Ship the filter-on-client variant first. If managers find the unfiltered context confusing, switch to server-side in a follow-up.
+
+### Implementation outline
+
+Per Q13 (user decision 2026-05-12): **the new gap-evidence section renders ONLY when `payload.bucket` is set.** When entering from a heat-map cell (`payload.dimension` set, no `bucket`), the dimension-drill section stays as-is and the new gap section does NOT appear. This keeps the mental model tight per drill entry point.
+
+In `InsightsEvalDetailModal.tsx`:
+
+1. Read `payload.bucket` and `payload.bucketKind` from props.
+2. After the existing dimension-drill and topic-drill render sections, ADD a new "Knowledge gaps" section. Gate the render on `payload.bucket !== undefined` (Q13). Inside the section:
+   - Show ALL `evaluations.knowledge_gaps[]` for the eval (Q2 user decision: filter-on-client with highlight, not server-side scope).
+   - Sort the matching items first (matches the cluster bucket).
+   - Apply a highlight CSS class (e.g., a subtle accent bar on the left + slightly different bg) to the matched items, plus a "ⓘ matched bucket" chip.
+3. For each gap item: render the `text` and `expected_source` path. Render citation pills (existing `CitationPill.tsx`) for each entry in `item.citations`.
+4. Matching logic:
+   ```ts
+   function isMatch(gap, payload) {
+     if (!payload.bucket || payload.bucketKind !== 'kb_path') return false;
+     const src = gap.expected_source ?? '';
+     // Match the same CASE bucket logic from the SQL (council C3 fix):
+     // single-segment values bucket to 'Uncategorized'.
+     if (!src || !src.includes('/')) {
+       return payload.bucket === 'Uncategorized';
+     }
+     const twoSeg = src.split('/').slice(0, 2).join('/');
+     return twoSeg === payload.bucket;
+   }
+   ```
+5. For deferrals, the existing topic-drill section handles `payload.topic` paths. When `payload.bucket` is set with `bucketKind === 'kb_topic'`, the modal would need to know which chunks' `topics[]` contain the bucket label. Simplest path: don't filter deferrals when entering from a cluster — show them all. The cluster modal at Layer 1 already showed the user which deferral they clicked into. Apply the same "ⓘ matched bucket" highlight chip to any deferral whose `kb_chunk_ids` resolve to a chunk topic equal to `payload.bucket` (this requires the eval-detail API to return `kb_chunk_ids` on each deferral — verify when reading the route file).
+
+**Validation gate:**
+- `npm run build` exits 0.
+- Manual sanity check: open the eval-detail modal from a heat-map cell (existing §5 path) — the dimension-drill render must be unchanged.
+
+**STOP AND REPORT.** Confirm existing §5 drills still work; describe the new gap-render layout.
 
 ---
 
-## Risk register reference
+## Phase 5 — Cluster-evidence Layer 1 modal
 
-| ID | Risk | Phase | Status |
-|---|---|---|---|
-| R1 | Inline-edit drops body | B.3 | Fixed first in Phase B |
-| R2 | Strict schema rejects body if order wrong | A.5 / C.1 | Env flag rollout |
-| R3 | Score drift | N/A | Eliminated — body-only prompt |
-| R4 | Branch drift (main vs master) | B.2 | Fixed in B |
-| R5 | KB pills no-op | B.10 | Plumbed |
-| R6 | Legacy v2/v3 evals | D.3 | Sampled in pilot |
-| R7 | Markdown export omits body | B.12 | Fixed in B |
-| R8 | No re-eval endpoint | N/A | Eliminated — offline only |
-| R9 | Anthropic rate limit | D.1 | 429 backoff |
-| R10 | Orphan citations | D.1 | Strict drop in script |
-| R11 | JSONB partial-update clobber | D.1 | `jsonb_set` not full-replace |
+**Goal:** ship a Layer 1 modal that renders the bucket's `sampleEvidence[]`. The spec says "the cluster-evidence Layer 1 modal IS the same scaffold as §5's eval-list modal — just a different data source."
+
+### Design decision: extend `InsightsEvalListModal` vs. sibling component
+
+The two modals have different columns and different click semantics:
+
+| | `InsightsEvalListModal` | `InsightsClusterEvidenceModal` |
+|---|---|---|
+| Data source | List of evals matching (dim, role, version, pod, dateRange) | `KnowledgeGapClusterEvidence[]` |
+| Columns | rep, call_date, dimension_score, call_title | rep, call_date, kind chip (gap/deferral+coverage), text preview |
+| Row click | Push detail with `{ evaluationId, dimension }` | Push detail with `{ evaluationId, bucket, bucketKind }` |
+| Rep cell click | (no special handler today) | Enter rep-focus mode (new) |
+
+**Decision:** create a sibling `InsightsClusterEvidenceModal.tsx` rather than overloading the existing eval-list modal. Cleaner. Avoids a `mode: 'evalList' | 'clusterEvidence'` prop on the shared component.
+
+### New file: `src/components/call-intelligence/InsightsClusterEvidenceModal.tsx`
+
+Copy `InsightsEvalListModal.tsx` as the scaffold (z-50, same aria-modal, same focus pattern, same close-button ref, same `aria-hidden` prop). Replace the table body with the cluster-evidence rows.
+
+Props:
+```ts
+interface Props {
+  payload: ClusterEvidenceModalPayload;
+  onClose: () => void;
+  onSelectRow: (e: KnowledgeGapClusterEvidence) => void;
+  onSelectRep: (repId: string) => void;
+  ariaHidden?: boolean;
+}
+```
+
+Columns:
+1. Rep (clickable, opens rep-focus mode — `onSelectRep`)
+2. Call date (`new Date(e.callStartedAt).toLocaleDateString()`, `'—'` for null)
+3. Kind chip:
+   - `gap` → small chip "Gap"
+   - `deferral` + `kbCoverage='covered'` → "Deferral · Covered" (green)
+   - `deferral` + `kbCoverage='partial'` → "Deferral · Partial" (yellow)
+   - `deferral` + `kbCoverage='missing'` → "Deferral · Missing" (red)
+   - `deferral` + no coverage → "Deferral"
+4. Text preview — truncate to first ~120 chars, ellipsis
+
+Whole row is the click target (`onSelectRow(e)`). Cell-level click on the rep cell calls `e.stopPropagation()` then `onSelectRep(repId)`.
+
+`min-h-[44px]` row height for touch parity (matching `InsightsEvalListModal`).
+
+**Validation gate:** `npm run build` exits 0.
+
+**STOP AND REPORT.** New file path + line count.
 
 ---
 
-## Doc sync (Phase 7.5 reminder)
+## Phase 6 — UI wiring
 
-After Phase B merges, run:
+**Goal:** make cluster cards clickable, add longtail collapse, add `humanizeBucket` helper, dispatch the new modal variant.
+
+**File:** `src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx`
+
+### 6A. New display helper
+
+Near the existing `humanizeKey` declaration in the file:
+```ts
+function humanizeBucket(bucket: string, kind: 'kb_path' | 'kb_topic' | 'uncategorized'): string {
+  // Council S3 fix: 'Uncategorized: <topic>' deferral fallback labels stay as-written
+  // (the raw deferral topic is the most useful surface label).
+  if (bucket === 'Uncategorized' || bucket.startsWith('Uncategorized: ')) return bucket;
+  if (kind === 'kb_path') {
+    return bucket.split('/').map(seg =>
+      seg.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+    ).join(' › ');
+  }
+  // kb_topic — single tag like 'sgm_handoff'
+  return bucket.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+```
+
+### 6B. Cluster card → clickable
+
+At lines 631–634, wrap each cluster card in a clickable element. Match the existing dashboard pattern for clickable cards (probably `<button type="button">` or `<div role="button" tabIndex={0}>` with keyboard handlers).
+
+```tsx
+<button
+  key={c.bucket}
+  type="button"
+  onClick={() => setModalStack(s => [...s, {
+    kind: 'cluster',
+    payload: {
+      bucket: c.bucket,
+      bucketKind: c.bucketKind,
+      evidence: c.sampleEvidence,
+      gapCount: c.gapCount,
+      deferralCount: c.deferralCount,
+    },
+  }])}
+  className={/* preserve existing card styling */}
+>
+  <div className="flex items-baseline justify-between gap-2">
+    <span>{humanizeBucket(c.bucket, c.bucketKind)}</span>
+    {/* Q6 user decision: unique-rep badge as a secondary signal alongside occurrences */}
+    <span
+      className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 whitespace-nowrap"
+      title={`${c.repBreakdown.length} rep${c.repBreakdown.length === 1 ? '' : 's'} contributed to this bucket`}
+    >
+      {c.repBreakdown.length} {c.repBreakdown.length === 1 ? 'rep' : 'reps'}
+    </span>
+  </div>
+  {/* ... rest of card body unchanged (counts, etc.) ... */}
+</button>
+```
+
+### 6B.5. Empty state (Q7 user decision)
+
+When `clusters.length === 0` (no advisor-eligible data in the window), render an empty-state message in place of the cluster grid. Copy:
+
+> **No advisor calls in this window.** Adjust the date range or filters above.
+
+Implementation:
+```tsx
+{clusters.length === 0 ? (
+  <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-700 p-8 text-center">
+    <p className="text-sm text-gray-600 dark:text-gray-400">
+      <strong className="block text-gray-900 dark:text-gray-100 mb-1">No advisor calls in this window.</strong>
+      Adjust the date range or filters above.
+    </p>
+  </div>
+) : (
+  <>
+    {/* main + longtail cluster render */}
+  </>
+)}
+```
+
+Wrap the entire cluster section (main + longtail) in this conditional. Loading state stays as-is (don't show the empty-state during the initial fetch).
+
+### 6C. Longtail collapse
+
+After computing the cluster list (where it's currently destructured from the SWR/fetch result), split into main and longtail:
+```tsx
+const longtail = clusters.filter(c => c.totalOccurrences === 1 && c.bucketKind === 'uncategorized');
+const main = clusters.filter(c => !(c.totalOccurrences === 1 && c.bucketKind === 'uncategorized'));
+const [longtailOpen, setLongtailOpen] = useState(false);
+```
+Render `main` as the primary list. Below it, if `longtail.length > 0`:
+```tsx
+<div className="mt-4">
+  <button
+    type="button"
+    onClick={() => setLongtailOpen(o => !o)}
+    aria-expanded={longtailOpen}
+    className="text-sm text-gray-600 dark:text-gray-400 hover:underline"
+  >
+    {longtailOpen ? `Hide ${longtail.length} one-offs ▴` : `Other (${longtail.length} one-offs) ▾`}
+  </button>
+  {longtailOpen && (
+    <div className="mt-2 grid ...">
+      {longtail.map(c => /* same clickable card render as main */)}
+    </div>
+  )}
+</div>
+```
+
+### 6D. Modal dispatcher — switch + ariaHidden bookkeeping (council C2)
+
+The existing dispatcher uses `find(...)` + `if/else` to render each `kind`, with `listAriaHidden` / `detailAriaHidden` booleans. Both must be updated when the new variant is added:
+
+1. **Find every `find(l => l.kind === ...)` call** in `InsightsTab.tsx` and add the corresponding `clusterLayer`:
+   ```ts
+   const listLayer       = modalStack.find(l => l.kind === 'list');
+   const detailLayer     = modalStack.find(l => l.kind === 'detail');
+   const transcriptLayer = modalStack.find(l => l.kind === 'transcript');
+   const clusterLayer    = modalStack.find(l => l.kind === 'cluster');
+   ```
+
+2. **Update the `ariaHidden` derivations** so any topmost layer correctly hides all lower layers. The new logic should be expressed off the stack's TOP layer kind:
+   ```ts
+   const topKind = modalStack[modalStack.length - 1]?.kind;
+   const listAriaHidden       = topKind && topKind !== 'list';
+   const clusterAriaHidden    = topKind && topKind !== 'cluster';
+   const detailAriaHidden     = topKind === 'transcript';
+   // transcript is always topmost when present
+   ```
+
+3. **Refactor the render block to an explicit switch with an exhaustiveness check** so TypeScript fails the build if a future variant is added without a render branch:
+   ```tsx
+   {modalStack.map((layer, i) => {
+     const isTop = i === modalStack.length - 1;
+     switch (layer.kind) {
+       case 'list':
+         return (
+           <InsightsEvalListModal
+             key={`list-${i}`}
+             payload={layer.payload}
+             ariaHidden={!isTop}
+             onClose={() => setModalStack(s => s.slice(0, -1))}
+             onSelectRow={/* unchanged from existing */}
+           />
+         );
+       case 'cluster':
+         return (
+           <InsightsClusterEvidenceModal
+             key={`cluster-${i}`}
+             payload={layer.payload}
+             ariaHidden={!isTop}
+             onClose={() => setModalStack(s => s.slice(0, -1))}
+             onSelectRow={(e) => setModalStack(s => [...s, {
+               kind: 'detail',
+               payload: {
+                 evaluationId: e.evaluationId,
+                 bucket: layer.payload.bucket,
+                 bucketKind: layer.payload.bucketKind,
+               },
+             }])}
+             onSelectRep={(repId) => {
+               setModalStack([]);
+               updateUrl({ focus_rep: repId });
+             }}
+           />
+         );
+       case 'detail':
+         return (/* existing detail render */);
+       case 'transcript':
+         return (/* existing transcript render */);
+       default: {
+         // TS exhaustiveness guard — adding a new InsightsModalStackLayer variant
+         // without a render branch will fail at compile time here.
+         const _exhaustive: never = layer;
+         return _exhaustive;
+       }
+     }
+   })}
+   ```
+
+Don't forget to import `InsightsClusterEvidenceModal` at the top of the file.
+
+### 6E. URL hash sync
+
+In the existing `pushState`/`popstate` block (lines 261–290), add a new case for `'cluster'`. Example addition inside the switch:
+```ts
+case 'cluster':
+  hash = `modal=cluster&bucket=${encodeURIComponent(top.payload.bucket)}`;
+  break;
+```
+
+The `popstate` handler already does `setModalStack(s => s.slice(0, -1))` — no change needed.
+
+**Validation gate:**
+```bash
+npm run build
+```
+Must exit 0. All TS errors from Phase 1 should now be resolved.
+
+```bash
+npm run lint -- --max-warnings=0 src/app/dashboard/call-intelligence/tabs/InsightsTab.tsx 2>&1 | tail -20
+```
+No new warnings.
+
+**STOP AND REPORT.** Build status. Lint status.
+
+---
+
+## Phase 7 — Tests
+
+### 7A. SQL-string assertions
+
+**File:** `src/lib/queries/call-intelligence/__tests__/knowledge-gap-clusters.test.ts`
+
+Read the file first (the agent exploration found assertions at lines 45–56). Update assertions:
+
+1. Delete the existing `params[8]` synonyms assertion.
+2. Add: `expect(sql).toMatch(/LEFT JOIN LATERAL/);`
+3. Add: `expect(sql).toContain("split_part(kg.item->>'expected_source','/',1)");`
+4. Add: `expect(sql).not.toContain('kb_vocab_topics');`
+5. Add (council C3 guard): `expect(sql).toContain("position('/' IN kg.item->>'expected_source') = 0");`
+6. Add (council C4 guard): `expect(sql).toContain('ORDER BY chunk_index, id');`
+7. Add (council C5 guard): `expect(sql).toContain('ROW_NUMBER() OVER');`
+8. If the existing tests call `getKnowledgeGapClusters({...})` directly with a stubbed pool, add a `mode: 'rep_focus'` case verifying the SQL contains `rn <= 200` instead of `rn <= 5`.
+
+### 7B. Component-level tests (council S4 — REQUIRED)
+
+Add the following:
+
+1. **Cluster card → modal push** — file `src/app/dashboard/call-intelligence/tabs/__tests__/InsightsTab.cluster-click.test.tsx` (or add to an existing test file in that dir). Render the `InsightsTab` with a fixture `clusters` list and a mocked SWR. Click a cluster card. Assert that the modal stack now contains `{ kind: 'cluster', payload: { bucket: <card.bucket>, ... } }`.
+
+2. **Detail modal — bucket-only payload renders** — file `src/components/call-intelligence/__tests__/InsightsEvalDetailModal.test.tsx`. Render the modal with `payload = { evaluationId: '<uuid>', bucket: 'profile/ideal-candidate-profile', bucketKind: 'kb_path' }` (no `dimension`, no `topic`). Assert that the modal's root `div` is rendered (i.e., the guard does not early-return null) and the new gap-evidence section appears.
+
+3. **Optional but recommended:** snapshot test of the SQL string for `mode: 'team'` and `mode: 'rep_focus'` — catches accidental slice-cap regressions.
+
+**Validation gate:**
+```bash
+npm test -- knowledge-gap-clusters InsightsTab.cluster-click InsightsEvalDetailModal 2>&1 | tail -30
+```
+All tests pass.
+
+**STOP AND REPORT.** Test count + pass/fail.
+
+---
+
+## Phase 7.5 — Doc sync (standing CLAUDE.md rule)
+
+### 7.5A. Auto-generated inventory sync
 
 ```bash
 npx agent-guard sync
+git status --short
 ```
 
-Update `docs/ARCHITECTURE.md` Call Intelligence section to mention the per-dimension body field and the offline backfill workflow. Update `.claude/bq-views.md` if any view annotations reference dimension_scores shape.
+If `docs/_generated/*` files change, stage them.
+
+### 7.5B. Narrative doc — `docs/ARCHITECTURE.md` (council Improvement 3)
+
+`docs/ARCHITECTURE.md` references `kb_vocab_topics` and the 32-value vocab map. Find that section (Grep for `kb_vocab_topics` or `KB_VOCAB_SYNONYMS`), and update the call-intelligence module description to note:
+
+- The cluster surface no longer buckets via `kb_vocab_topics` substring matching.
+- Gaps now bucket on the first two path segments of `knowledge_gaps[].expected_source`.
+- Deferrals now bucket on the first topic of the first active chunk in `kb_chunk_ids` (deterministic via `ORDER BY chunk_index, id LIMIT 1`).
+- `src/lib/queries/call-intelligence/kb-vocab-synonyms.ts` remains in the codebase as theming data (badge colors) but is no longer load-bearing for filtering.
+
+Note the path correction: the file is `src/lib/queries/call-intelligence/kb-vocab-synonyms.ts`, not `src/lib/kb-vocab-synonyms.ts` (the exploration synthesis had it wrong; verified during triage grep).
+
+**STOP AND REPORT.** Doc deltas + ARCHITECTURE.md snippet updated.
 
 ---
 
-## End of guide
+## Phase 8 — Live probes + browser validation
 
-Built: 2026-05-11.
-Council-reviewed (Codex + Gemini).
-User-approved scope reduction: offline script only.
-Total estimated cost: $27-31 (Sonnet 4.6).
-Total estimated wall-clock execution time: 1-2 hours for code, 30-60 min for backfill.
+### Live probes (run against Neon via `node -e ...` with `SALES_COACHING_DATABASE_URL`)
+
+**Probe 1 — chunks.topics distribution still healthy:**
+```sql
+SELECT unnest(topics) AS t, COUNT(*)
+  FROM knowledge_base_chunks
+ WHERE is_active = true AND topics IS NOT NULL
+ GROUP BY t ORDER BY COUNT(*) DESC LIMIT 50;
+```
+Expect ~10–30 distinct curated tags. (Was 31 at exploration time.)
+
+**Probe 2 — deferral lateral coverage:**
+```sql
+SELECT
+  COUNT(*) FILTER (WHERE EXISTS (
+    SELECT 1 FROM knowledge_base_chunks kbc
+     WHERE kbc.id = ANY(d.kb_chunk_ids)
+       AND kbc.is_active
+       AND array_length(kbc.topics, 1) > 0
+  )) AS would_bucket,
+  COUNT(*) AS total
+FROM rep_deferrals d
+JOIN evaluations e ON e.id = d.evaluation_id
+JOIN call_notes cn ON cn.id = e.call_note_id
+WHERE d.is_synthetic_test_data = false
+  AND (cn.source = 'kixie' OR cn.likely_call_type = 'advisor_call')
+  AND d.created_at >= NOW() - INTERVAL '90 days';
+```
+Expect `would_bucket / total > 0.70` per spec; at exploration time, 169/169 = 100%.
+
+**Probe 3 — bucket totals == unfiltered ceiling (acceptance criterion (a)):**
+
+Hit `/api/call-intelligence/insights/clusters?range=90d&role=both&source=all` while signed in as an admin. Sum the returned `clusters[].totalOccurrences`. Compare to Pre-Flight `gap_ceiling + def_ceiling`. Must match exactly.
+
+### Browser validation
+
+Spin up the dev server:
+```bash
+npm run dev
+```
+Open the Insights tab. Verify:
+
+| Criterion | How to check |
+|---|---|
+| (a) Bucket totals match ceiling | Probe 3 above |
+| (b) "Uncategorized" bucket exists | Cluster list includes the bucket when any row has no `expected_source` (gaps) or no tagged chunks (deferrals). `bucketKind` = `'uncategorized'`. |
+| (c) Top bucket = `profile/ideal-candidate-profile` | Read top cluster card label after `humanizeBucket`: should display "Profile › Ideal Candidate Profile" with `gapCount ≈ 143` and `repBreakdown.length ≈ 13`. **Note: spec said 132 gaps — at 2026-05-12, live = 143. Treat criterion (c) as label + rep count ≈ 13.** |
+| (d) Modal chain works | Cluster card click → Layer 1 opens. Row click → Layer 2 opens. Citation pill (utterance) → Layer 3 opens at right utterance. Esc closes one layer at a time. Click-outside on Layer 1 closes all. |
+| (e) Rep-focus mode lists all buckets | Click a rep name in Layer 1 → focus_rep set in URL → cluster list shows every bucket the rep contributed to (1× included). Order: most-deferred first. |
+| (f) Single-bucket-per-deferral is deterministic | Verify the SQL comment is present in `deferral_hits` CTE. |
+| (g) `is_active = true` filter on chunks join | Verify the LATERAL clause contains `AND is_active = true`. |
+
+Plus:
+- Longtail collapse — "Other (N one-offs)" expand/collapse works. Each longtail card still has working drill-down.
+- Dark-mode parity on the new modal.
+- Keyboard: Tab traps inside the topmost modal. Esc closes one layer at a time.
+
+**Validation gate:** All eight checks pass.
+
+**STOP AND REPORT.** Acceptance matrix (criterion → pass/fail/notes).
+
+---
+
+## Refinement Log
+
+Updated 2026-05-12 from council review (Codex + Gemini) and self-cross-checks.
+
+### Bucket 1 — applied autonomously (concrete fixes from council)
+
+| # | Source | Change applied | Where |
+|---|---|---|---|
+| 1 | Codex Critical 1 (C1) | Phase 4 now explicitly widens the `InsightsEvalDetailModal` early-return guard to allow `payload.bucket` alone to trigger render | Phase 4, new 4A section |
+| 2 | Codex Critical 2 (C2) | Phase 6D rewritten with explicit `switch (layer.kind)` + TS `never` exhaustiveness guard; `ariaHidden` derivations now driven off top-of-stack kind including `'cluster'` | Phase 6D |
+| 3 | Codex Critical 3 (C3) | Phase 2E gap_hits bucket logic switched from `COALESCE/NULLIF` to `CASE` with explicit `position('/' IN ...) = 0` single-segment guard. `bucket_kind` derivation aligned | Phase 2E gap_hits CTE |
+| 4 | Codex Critical 4 (C4) | Phase 2E deferral LATERAL gained `, id` tie-breaker → fully deterministic single-bucket assignment | Phase 2E deferral_hits CTE |
+| 5 | Gemini Critical 2 (C5) | Phase 2E evidence aggregation rewritten from correlated-subquery-per-bucket to a single window-function rank (`ROW_NUMBER() OVER (PARTITION BY bucket ...)`) + `FILTER (WHERE rn <= sliceCap)` | Phase 2E final SELECT |
+| 6 | Gemini Critical 4 (C7) | Verified: `grep -rE "knowledge_gaps\|rep_deferrals\|knowledge_base_chunks\|kb_vocab_topics" packages/analyst-bot mcp-server` returned ZERO matches. No cross-functional impact. Documented in Pre-Flight step 5 | Pre-Flight |
+| 7 | Codex Should-Fix 1 (S1) | Phase 2F `.map()` citation transformer rewritten to drop the entire citation entry when neither `utterance_index` nor a fully-populated `kb_source` is present (instead of emitting `{}`) | Phase 2F constructor |
+| 8 | Codex Should-Fix 4 (S3) | Phase 6A `humanizeBucket` now explicitly returns the raw bucket label when it equals `'Uncategorized'` or starts with `'Uncategorized: '` | Phase 6A |
+| 9 | Codex Should-Fix 5 (S4) | Phase 7 split into 7A (SQL assertions) and 7B (component-level tests). 7B mandates a `cluster-click → modal push` test and a `detail-modal renders with bucket-only payload` test | Phase 7 |
+| 10 | Codex Should-Fix 6 (S5) | Pre-Flight gained a probe (step 3) for any `evaluations`-level synthetic flag, mirroring the `rep_deferrals.is_synthetic_test_data` filter | Pre-Flight |
+| 11 | Gemini Improvement 3 | Phase 7.5 expanded with 7.5B — explicit `docs/ARCHITECTURE.md` narrative update for the deprecated vocab-map path | Phase 7.5 |
+| 12 | Self cross-check | Corrected `kb-vocab-synonyms.ts` path: lives at `src/lib/queries/call-intelligence/kb-vocab-synonyms.ts`, not `src/lib/kb-vocab-synonyms.ts` (exploration synthesis was wrong) | Phase 7.5B |
+| 13 | Codex Should-Fix 2 (S2) | Removed the misleading "LATERAL guarantees ORDER BY + LIMIT" comment (it was a correlated subquery, not a LATERAL); replaced with an accurate note about the window-function rewrite | Phase 2E note block |
+
+### Bucket 2 — resolved by user 2026-05-12
+
+| # | Question | User decision | Guide change applied |
+|---|---|---|---|
+| Q1 | Bucket-namespace collision (gap kb_path vs deferral kb_topic) | Keep single `bucket` + `bucketKind`; `kb_path` precedence | No change (matches spec / Phase 2E) |
+| Q2 | Detail-modal scope on cluster drill | Show all + highlight matched (filter-on-client) | No change (matches Phase 4 design decision) |
+| Q3 | `chunk_index` semantic vs DB-order | Treat as DB-order; document trade-off | No change (existing SQL comment in Phase 2E deferral_hits already documents) |
+| Q4 | `Uncategorized: <topic>` label format | Keep raw | No change |
+| Q5 | Longtail collapse rule | Current spec — only `totalOccurrences=1 AND bucketKind='uncategorized'` | No change |
+| Q6 | Sort by occurrences vs unique reps | Sort by occurrences + ADD unique-rep badge to card | **Applied** — Phase 6B card render now shows `{N} rep(s)` badge in the card header |
+| Q7 | Empty-state copy | "No advisor calls in this window. Adjust the date range or filters above." | **Applied** — new Phase 6B.5 section |
+| Q8 | `expected_source` path normalization | No normalization; trust upstream AI | No change |
+| Q9 | Rep-focus payload size | Eager 200 cap | No change (matches spec / Phase 2C) |
+| Q10 | Modal stack preservation on rep-name click | Close all modals + URL hop | No change (matches Phase 6D) |
+| Q11 | Triage filters inside Layer 1 cluster modal | NO — defer to follow-up | No change (Bucket 3) |
+| Q12 | Deferral fallback when chunks lack `topics[]` | Dynamic `'Uncategorized: ' || d.topic` | No change (matches Phase 2E deferral_hits) |
+| Q13 | Detail modal gap-render when no `bucket` payload | Render only when `bucket` is set | **Applied** — Phase 4 implementation outline rewritten to gate the new gap section on `payload.bucket !== undefined`; matching helper rewritten to align with the Phase 2E SQL CASE logic |
+
+### Bucket 3 — noted but not applied
+
+| # | Source | Why deferred |
+|---|---|---|
+| 1 | Gemini Improvement 1 — Triage filters inside Layer 1 cluster modal | Scope expansion. Worth a follow-up after manager feedback on the initial ship. |
+| 2 | Gemini Improvement 2 — "Show all" pagination | Scope; depends on Q9 outcome (if Q9 picks lazy-load, the pagination falls out of that endpoint). |
+| 3 | Codex Suggestion 4 — Split schema into `gapBucket`/`deferralBucket` | Pre-emptive de-collision. Defer pending Q1 resolution. |

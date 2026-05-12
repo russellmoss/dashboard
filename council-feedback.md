@@ -1,140 +1,221 @@
-# Council Feedback — Per-Dimension AI Narrative
+# Council Feedback — Knowledge Gap Clusters Rewrite (§6)
 
-Reviewers: Codex (gpt-5.4) + Gemini (gemini-3.1-pro-preview).
-Date: 2026-05-11.
+Adversarial review of `exploration-results.md` + `agentic_implementation_guide.md` by:
+- **Codex** (gpt-5.4-mini, fallback from gpt-5.4) — TypeScript / build-correctness lens
+- **Gemini** (gemini-3.1-pro-preview) — data engineering / product UX lens
 
----
-
-## Consensus answers (both reviewers agreed)
-
-| Q | Decision | Why |
-|---|---|---|
-| Q1 (model) | **Sonnet 4.6** | 4-5x Opus cost not justified for 2-3 sentence prose summarization |
-| Q3 (body shape) | **(a) plain string + trailing citation pills** | Inline `<<cite:N>>` token splicing creates brittle parsing failures on malformed model output |
-| Q4 (rollout) | **(b) schema-first, then emission flag** | Atomic cross-repo deploys are fake safety; `.passthrough()` permanently weakens contract |
-| Q5 (splicing infra) | **(a) extract shared `CitedProse` component** | Two diverged private impls already exist; a third copy guarantees inconsistent rendering |
+Plus self-cross-checks (Postgres conventions, construction sites, NULL handling).
 
 ---
 
-## Q2 (score pinning) — split
+## Critical Issues — merged and deduped
 
-- **Codex: (c) pin + drift flag** — overwrite hides regressions you'll eventually need to debug
-- **Gemini: (a) pure pin** — pure pin protects historical reporting from retroactive changes
+### C1. `InsightsEvalDetailModal` early-return blocks cluster payloads
+**Source:** Codex Critical 1.
+The existing modal gates on `(!payload.dimension && !payload.topic)` (line 124) and renders nothing. The new cluster drill passes `payload.bucket` only. Phase 4 must widen the guard so `bucket` is also a valid trigger.
 
-**Pragmatic merger**: (c) is strictly more information than (a) — log drift but never auto-overwrite. Manual review of high-drift evals is a follow-up audit job, not a blocker.
+### C2. Modal dispatcher and `ariaHidden` bookkeeping
+**Source:** Codex Critical 2.
+The current modal render in `InsightsTab.tsx` uses `find(...)` + `if/else` per layer, with `listAriaHidden` / `detailAriaHidden` booleans that only know about `detail` / `transcript`. A topmost `cluster` layer would leave lower layers interactive. Phase 6 must update the dispatcher pattern and aria-hidden bookkeeping (preferably via an explicit `switch (layer.kind)` with a TS exhaustiveness guard).
 
----
+### C3. Single-segment `expected_source` mislabels as `value/` not `Uncategorized`
+**Source:** Codex Critical 3.
+`split_part('profile','/',2)` returns `''`, so the COALESCE/NULLIF idiom in Phase 2E evaluates to `'profile/'` instead of `'Uncategorized'`. Affects any one-segment values the upstream AI emits. **Fix:** switch to a `CASE` expression that explicitly checks `position('/' IN ...) = 0`.
 
-## MAJOR PUSHBACK — both councils flagged the same scope reduction
+### C4. `ORDER BY chunk_index LIMIT 1` has no tie-breaker
+**Source:** Codex Critical 4.
+If two active chunks share `chunk_index`, the LATERAL subquery picks non-deterministically. **Fix:** `ORDER BY chunk_index, id` to make it fully deterministic.
 
-**Both reviewers said: do not build an application-layer re-eval endpoint for a one-time 406-row backfill.**
+### C5. Correlated-subquery performance for evidence aggregation
+**Source:** Gemini Critical 2.
+The Phase 2E `sample_evidence` aggregation uses a correlated subquery per `bg.bucket`. For 20+ buckets in 90d, that's 20 subqueries. Postgres usually plans this fine, but Gemini's window-function alternative is cleaner and faster:
+```sql
+WITH ranked AS (
+  SELECT *, ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY evaluation_id, kind) AS rn
+    FROM all_hits
+)
+... jsonb_agg(jsonb_build_object(...)) FILTER (WHERE rn <= ${sliceCap})
+```
+**Apply.** Better engineering pattern, faster, simpler to reason about.
 
-### Codex's alternatives
-1. Don't re-run the full evaluator — run a narrow "dimension rationale only" job that takes existing scores + existing citations as **locked inputs** and generates only `body`. Eliminates score-drift entirely.
-2. Generate `body` lazily on first modal open; backfill only hot records.
-3. Deterministic templated rationale from score + cited snippets — no AI call, no model drift.
+### C6. Deferral fallback may explode the longtail
+**Source:** Gemini Critical 3.
+If the chunks pipeline ever drops `topics[]` population, the `'Uncategorized: ' || d.topic` fallback creates per-deferral buckets (each `d.topic` is essentially unique — 146/147 are distinct). The longtail collapse hides one-offs but the totals are still inflated and the cluster grid is polluted. Today 100% of deferrals bucket via chunks; the risk is future. **Bucket 2 / Q12** — keep dynamic label for forensic value, or fall back to a static "Uncategorized Deferrals" label?
 
-### Gemini's alternatives
-1. **Zero-backfill**: gracefully handle missing `body` in UI; only generate for new evals going forward.
-2. **Offline scripting**: isolated locally-executed script generates `.sql` file of JSONB UPDATE statements. No app-layer re-eval routing.
+### C7. Cross-functional impact unclear (Slack bot / MCP server)
+**Source:** Gemini Critical 4.
+`KnowledgeGapClusterRow` is a Dashboard-only TS type; the bot doesn't import it. But the bot/MCP server may query the same Postgres tables and depend on the old vocab bucketing for its own surfaces. **Verify with a grep** before declaring closed.
 
-### Combined recommendation
-**Build an offline "body-only" generation script** (Codex's narrow job + Gemini's offline script):
-
-- Standalone `scripts/backfill-dimension-bodies.cjs` runs locally
-- For each eval: pull score + citations + ONLY the utterances cited (not the full transcript) → tight prompt asking ONLY for `body` per dimension → JSONB UPDATE
-- Locked inputs guarantee no score drift, no dimension-set mismatch across schema versions
-- No new bridge method, no new Dashboard API route, no admin "Re-evaluate" button
-- Schema mirror change + UI restructure remain in scope — those are needed for any path
-
-### What gets cut
-- Phase A.5 (upstream re-eval endpoint) — DELETED
-- Phase C.7 (Dashboard re-eval route) — DELETED
-- Phase C.8 (`triggerReEvaluation` bridge method) — DELETED
-- Admin "Re-evaluate" button — DELETED
-- Re-eval idempotency / auth / rate-limiting design — DELETED
-
-Replaces with: a single offline script that reads + writes Neon directly, callable from a dev machine. Re-runnable. Audit table still useful as a checkpoint store.
-
-### What we lose
-- No in-app way for a manager to refresh body on a specific eval. Historic v5 evals with missing body show the fallback message; admins must trigger a fresh CLI run to fill them. **Acceptable** for a one-time backfill.
-
----
-
-## Additional risks both councils raised (not in the original spec)
-
-### Hard blockers / production failures
-
-1. **The `EvalDetailClient.tsx:641-661` data-loss bug must be fixed BEFORE backfill writes any body**, or the first manager score-edit silently nukes $30 of AI work across all dimensions. (Spec already flagged this as R1 critical.)
-
-2. **Schema-version dimension mismatch**: v2-v5 historicals have different dimension sets than v6 will produce. A "rerun v6 evaluator" approach hallucinates body for dims that don't exist in legacy JSONB. The body-only narrow job eliminates this because dimensions are read from the existing JSONB, not invented from the v6 prompt.
-
-3. **Token count ≠ char count**: max transcript is 247K chars. Spec claims "fits in 200K context" — but that's chars, not tokens. 247K chars ≈ 60K-80K tokens depending on language, well under 200K, but verify with the actual tokenizer before pushing the longest transcripts through.
-
-4. **No idempotency story**: retries can double-bill, double-write, or race with concurrent live edits. Audit table with `(evaluation_id, attempt_number)` UNIQUE handles double-write; need a `WHERE body IS NULL OR length(body)=0` guard to handle resumption.
-
-5. **JSONB partial-update semantics unspecified**: if the bridge replaces the whole `dimension_scores` blob instead of merging per-dimension keys, concurrent edits clobber body. Use `jsonb_set` per-dim, not full replace.
-
-6. **Cache invalidation**: if bridge caches eval payloads (`CACHE_TAGS.CALL_INTELLIGENCE_QUEUE`), backfilled body shows stale until cache busts. Add `revalidateTag` after backfill completes, or accept short staleness.
-
-7. **`.strict()` mirror upgrade is system-wide**: every consumer and test fixture deserializing `dimension_scores` must be upgraded, not just PATCH path. Search for all callers.
-
-8. **Rate limits**: 406 evals × Anthropic API calls = real RPM/TPM pressure. Spec's `sleep(200)` is naive — need exponential backoff on 429 and probably batching.
-
-9. **Orphan citations**: if the model emits a citation `utterance_index` not in the existing citations array, the pill will be a dead click. Validate body citations against the locked input array before write.
-
-10. **Body provenance audit**: per-eval audit row should record `model_id`, `prompt_version`, `schema_version`, `body_generated_at`. Codex's exact request.
+### C8. Rep-focus payload size — 2MB+
+**Source:** Gemini Critical 1.
+At 200 sampleEvidence × 20 buckets × ~500B = ~2MB response. **Bucket 2 / Q9** — keep eager 200 cap and accept the payload, OR cap at 5 globally and lazy-load on modal open via a new endpoint?
 
 ---
 
-## Revised phase order (post-council)
+## Should Fix — merged
 
-### Phase A — sales-coaching (upstream) PR
-A.1 Add `body: z.string().optional()` to DimensionScore Zod schema. Keep `.strict()`.
-A.2 Match in `src/lib/db/types.ts`.
-A.3 Migration: `eval_body_backfill_audit` table.
-A.4 Bump `AI_ORIGINAL_SCHEMA_VERSION` to 6.
-A.5 ~~POST /re-evaluate endpoint~~ **DELETED per council**.
-A.6 Add prompt-update guard: emission of `body` controlled by env flag (`EMIT_DIMENSION_BODY=false` by default in prod). Allows mirror to deploy first.
-A.7 Deploy A.1-A.6. Flag stays OFF until Dashboard mirror is live.
+### S1. Empty `kb_source` citation entries can leak
+**Source:** Codex Should-Fix 3.
+The Phase 2F `.map()` admits `c.kb_source` truthy but only emits the citation if `chunk_id` AND `doc_id` are present — partial `kb_source` objects produce `{}` entries (because the `kb_source` ternary returns `{}` while the `utterance_index` ternary may also be empty). Apply guard to drop the entire citation entry if neither side is valid.
 
-### Phase B — Dashboard PR (gated on A merging)
-B.1 `/sync-bridge-schema` to mirror the Zod change.
-B.2 Fix `EvalDetailClient.tsx:641-661` body-spread (the R1 data-loss-fix). Must merge first.
-B.3 Update remaining construction sites (types, readDimensionScores, canonicalDimensionScores).
-B.4 Extract shared `CitedProse` component (Q5 consensus).
-B.5 Restructure `InsightsEvalDetailModal` to lead with body + fallback message.
-B.6 Update `citation-helpers.ts` v6 gate.
-B.7 Update `coaching-notes-markdown.ts` to include body.
-B.8 ~~New Dashboard /re-evaluate route + bridge method + admin button~~ **DELETED per council**.
-B.9 Reconcile `scripts/check-schema-mirror.cjs` `BRANCH = 'main'`.
-B.10 Build clean. Deploy.
+### S2. Misleading SQL comment ("LATERAL guarantees")
+**Source:** Codex Should-Fix 2.
+The note in Phase 2E says "LATERAL guarantees ORDER BY + LIMIT before aggregation" but the actual SQL is a correlated subquery. Will be moot after C5 (window-function rewrite).
 
-### Phase C — Upstream prompt flip (gated on B deploy)
-C.1 Update evaluator prompt to emit `body` per dimension.
-C.2 Set `EMIT_DIMENSION_BODY=true`. New evals from this moment have body.
+### S3. `humanizeBucket` doesn't special-case `Uncategorized: <topic>` prefix
+**Source:** Codex Should-Fix 4.
+The current Phase 6A helper falls through to a raw return. Add an explicit early-return when `bucket.startsWith('Uncategorized: ')` so the label reads as written.
 
-### Phase D — Backfill (gated on C deploy)
-D.1 Build `scripts/backfill-dimension-bodies.cjs`:
-   - Direct Neon connection via `SALES_COACHING_DATABASE_URL_UNPOOLED`
-   - Direct Anthropic SDK call (no bridge)
-   - For each eval: pull score + citations + cited-utterance text only → tight body-only prompt → `jsonb_set` per dim
-   - Defaults to dry run; `--commit` to write
-   - Resume from audit checkpoint (`WHERE body IS NULL`)
-   - Sleep 200ms between calls; exponential backoff on 429
-   - Per-row audit insert with model, prompt_version, schema_version_before
-   - Validate emitted citation utterance_indexes against existing citations array; drop unmatched citations
-   - Manual pilot on 5 evals across schema versions, then full run
-D.2 Verification SQL: every eval has body on every dimension.
+### S4. Tests are SQL-text-only
+**Source:** Codex Should-Fix 5.
+Phase 7 only asserts strings in the rendered SQL. Add at least:
+- One test that clicking a cluster card pushes `{ kind: 'cluster', payload: ... }` onto the modal stack.
+- One test that `InsightsEvalDetailModal` renders when only `payload.bucket` is set (the widened C1 guard).
+
+### S5. Asymmetric synthetic-data filtering between ceiling probe and helper
+**Source:** Codex Should-Fix 6 + Codex Q3.
+The Pre-Flight `gap_ceiling` probe does NOT filter any synthetic flag, but `rep_deferrals` filters `is_synthetic_test_data = false`. If `evaluations` has an equivalent flag, the gap ceiling is inflated and acceptance criterion (a) will appear to fail. **Live probe required** before declaring closed.
+
+### S6. `expected_source` path normalization
+**Source:** Gemini Should-Fix 1.
+AI-emitted paths may have casing/separator inconsistencies. Data-verifier probed 0 leading-slash / 0 backslash rows but did NOT probe case-inconsistency. **Bucket 2 / Q8.**
+
+### S7. Context loss on rep-name click in Layer 1 cluster modal
+**Source:** Gemini Should-Fix 2.
+The current Phase 6D click handler closes all modals. Alternative: keep cluster modal stack and re-fetch with rep-scoped data. **Bucket 2 / Q10.**
+
+### S8. Detail modal renders ALL gaps when no `bucket` payload set
+**Source:** Gemini Should-Fix 3.
+When entering from a heat-map cell (no `bucket`), the new gap-rendering section shows all eval's `knowledge_gaps[]`. Gemini argues this breaks the mental model. **Bucket 2 / Q13.**
 
 ---
 
-## Open decisions for human gate
+## Design Questions — needs human input
 
-1. **Approve scope reduction**: drop application-layer re-eval endpoint + admin button, replace with offline script.
-2. **Approve cost**: ~$27-31 (Sonnet 4.6 narrow body-only prompt).
-3. **Approve score-pinning policy**: pin scores; log drift only IF we choose to also re-eval for drift detection (currently NO — the body-only prompt doesn't even produce a new score, so drift is moot).
-4. **Approve body shape**: plain string + trailing citation pills (no inline tokens).
-5. **Approve rollout**: schema mirror first, then upstream prompt flip behind env flag, then offline backfill.
+### Q1. Bucket-namespace collision (gap kb_path vs deferral kb_topic)
+**Source:** Codex Q1, Should-Fix 1.
+If `playbook/sga-discovery` (kb_path) and `playbook-sga-discovery` (kb_topic) share a bucket string, the row collapses across kinds with `kb_path` winning. Acceptable? Or namespace the bucket strings explicitly?
 
-If all five approved → proceed to Phase 5 (build agentic_implementation_guide.md).
+### Q2. Detail-modal scope on cluster drill
+**Source:** Codex Q2, Gemini Should-Fix 3.
+Show **all** gaps+deferrals on the eval (with the matched ones highlighted), or scope strictly to the bucket?
+
+### Q3. Is `chunk_index` semantic order or DB-insertion order?
+**Source:** Codex Q3, Gemini Q3.
+Single-bucket-per-deferral assumes `chunk_index` reflects something meaningful about primary topic. If it's just creation order, picking the first chunk's first topic may misrepresent the deferral.
+
+### Q4. Bucket label normalization for `Uncategorized: <topic>`
+**Source:** Codex Q4.
+Leave raw or re-format?
+
+### Q5. Longtail collapse rule
+**Source:** Gemini Q1.
+Collapse only `totalOccurrences=1 AND bucketKind='uncategorized'` (current), or collapse all `totalOccurrences=1` regardless of kind?
+
+### Q6. Sort by occurrences vs unique reps
+**Source:** Gemini Q2.
+Add a secondary unique-rep signal in the card UI?
+
+### Q7. Empty state copy
+**Source:** Gemini Q5.
+What does the cluster surface render when there's no advisor-eligible data in the window?
+
+### Q8. `expected_source` path normalization in SQL
+**Source:** Gemini Should-Fix 1.
+Apply `LOWER()` + trailing-slash strip + separator normalization, or trust upstream AI?
+
+### Q9. Rep-focus payload size
+**Source:** Gemini Critical 1.
+Eager 200 cap with ~2MB response, OR cap at 5 + lazy-load via new endpoint?
+
+### Q10. Modal stack preservation on rep-name click
+**Source:** Gemini Should-Fix 2.
+Close all modals + URL hop, or keep stack and re-fetch with rep scope?
+
+### Q11. Triage filters inside Layer 1 cluster modal
+**Source:** Gemini Suggestion 1.
+Add in-modal filters (coverage, recency, rep)?
+
+### Q12. Deferral fallback when chunks lack `topics[]`
+**Source:** Gemini Critical 3.
+Keep dynamic `'Uncategorized: ' || d.topic` OR static `'Uncategorized Deferrals'`?
+
+### Q13. Detail modal — gap render when no `bucket` payload
+**Source:** Gemini Should-Fix 3.
+Render new gap section only when `bucket` is set, or always?
+
+---
+
+## Suggested Improvements — ranked by impact
+
+| # | Improvement | Source | Effort | Status |
+|---|---|---|---|---|
+| 1 | Window-function rewrite of evidence aggregation | Gemini | Small | Apply (Bucket 1, replaces C5) |
+| 2 | Deterministic chunk tie-breaker (`ORDER BY chunk_index, id`) | Codex | Trivial | Apply (Bucket 1, C4) |
+| 3 | Update `ARCHITECTURE.md` to deprecate vocab map | Gemini | Trivial | Apply (Phase 7.5 addition) |
+| 4 | Component-level cluster-click test | Codex | Small | Apply (Phase 7) |
+| 5 | Empty-state copy in Phase 6 | Gemini | Small | Bucket 2 / Q7 |
+| 6 | "Show all" pagination in cluster modal | Gemini | Medium | Bucket 3 (scope) |
+| 7 | Triage filters inside Layer 1 | Gemini | Medium | Bucket 3 (scope) |
+
+---
+
+## Raw responses
+
+### Codex (gpt-5.4-mini)
+
+```
+## CRITICAL ISSUES (will break build or cause data loss)
+1. Phase 4 in InsightsEvalDetailModal.tsx: the modal still gates on (!payload.dimension && !payload.topic) at line 124. The new cluster drill payload only has bucket / bucketKind, so Phase 6 will open a blank modal unless this guard is widened.
+2. Phase 6 in InsightsTab.tsx: adding kind: 'cluster' does not become exhaustive protection because the current stack render is find(...) + if/else, not a switch on layer.kind. TypeScript will not force the new branch. The current listAriaHidden / detailAriaHidden booleans only account for detail and transcript, so a topmost cluster layer will leave lower modals exposed.
+3. Phase 2E in knowledge-gap-clusters.ts: COALESCE(NULLIF(split_part(...), '/'), 'Uncategorized') does not catch single-segment expected_source values. split_part('profile','/',2) returns '', so the expression becomes profile/, not Uncategorized.
+4. Phase 2E: the deferral bucket selection is only deterministic if chunk_index is unique. ORDER BY chunk_index LIMIT 1 has no tie-breaker.
+
+## SHOULD FIX
+1. Phase 2E bucket-kind precedence is only safe if bucket strings can never collide across gap and deferral namespaces.
+2. Phase 2E sample-evidence comments say "LATERAL guarantees" but the pattern is a correlated subquery.
+3. Phase 2F sampleEvidence mapping can admit citation objects with empty {} when kb_source is truthy but missing chunk_id/doc_id.
+4. Phase 6 humanizeBucket needs an explicit Uncategorized: <topic> path.
+5. Phase 7 only adds SQL-string assertions. Add component-level tests for cluster row click -> detail payload.
+6. The pre-flight ceiling probe and the deferral query are asymmetric on synthetic-data filtering.
+
+## DESIGN QUESTIONS
+1. Should bucketKind prefer kb_path over kb_topic when the same bucket string appears in both, or never collapse?
+2. Should the cluster detail modal show whole evaluation context plus matched evidence, or only the clicked bucket's rows?
+3. Is there an evaluations-level synthetic-test flag the gap ceiling probe should exclude?
+4. Should uncategorized bucket labels stay raw, or be normalized?
+
+## SUGGESTED IMPROVEMENTS
+1. Update modal stack bookkeeping so ariaHidden + exhaustive handling include cluster.
+2. Make deferral chunk selection fully deterministic with secondary sort key.
+3. Add fixture-driven test for single-segment expected_source case.
+4. Split cluster schema into gapBucket and deferralBucket if collisions are possible.
+5. Add integration test: cluster card -> row -> detail modal accepts bucket-only payload.
+```
+
+### Gemini (gemini-3.1-pro-preview)
+
+```
+## CRITICAL ISSUES
+1. API Payload Bloat in Rep-Focus Mode: 200 sampleEvidence × 20 buckets × ~500B = ~2MB response. Cap globally at 5; lazy-load full 200 via a new endpoint.
+2. SQL Correlated Subquery Bottleneck: 20+ subqueries per call. Rewrite using window functions (ROW_NUMBER() OVER (PARTITION BY bucket ...)) + jsonb_agg().
+3. Deferral Clustering Destruction via Fallback: 'Uncategorized: ' || d.topic explodes to 146 distinct buckets if topics[] are unpopulated. Replace with static 'Uncategorized Deferrals'.
+4. Cross-Functional Breakage in Bots/MCP: Audit KnowledgeGapClusterRow upstream dependencies (Slack bot, MCP server).
+
+## SHOULD FIX
+1. Path Normalization: Apply LOWER() + trailing-slash strip + separator normalization to expected_source.
+2. Context Loss on Rep Focus Click: Maintain modal stack; re-fetch cluster-evidence scoped to rep.
+3. Context-Free Gap Rendering: When entering EvalDetailModal from a heat-map cell with no bucket, don't render the gap-section.
+
+## DESIGN QUESTIONS
+1. Are isolated gaps truly clusters? Collapse all totalOccurrences=1, not just uncategorized.
+2. What defines "Top Bucket" — occurrences or unique reps?
+3. Is chunk_index an accurate primary topic discriminator?
+4. How strictly should rep-focus bound 1x occurrences?
+5. How should empty states be handled?
+
+## SUGGESTED IMPROVEMENTS
+1. Triage filters in Layer 1 modal.
+2. Show-all pagination.
+3. ARCHITECTURE.md deprecation note for vocab map.
+```
