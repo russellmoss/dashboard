@@ -2261,6 +2261,12 @@ The bridge token format: `v1.<base64url(payload)>.<base64url(signature)>`, paylo
 | `/api/call-intelligence/users/[id]` | PATCH | bridge | Update user (admin only) |
 | `/api/call-intelligence/users/[id]/deactivate` | POST | bridge | Deactivate user; surfaces 409 typed errors |
 | `/api/call-intelligence/users/[id]/bulk-reassign-pending-evals` | POST | bridge | Reassign pending evals from blocked deactivate |
+| `/api/call-intelligence/users/[id]/granola-key` | POST / DELETE | bridge | Save or clear the rep's encrypted Granola API key. Save validates against Granola's `/v1/notes` BEFORE storing; surfaces `granola_key_rejected` / `granola_key_malformed` via `BridgeValidationError.issues` so the UI can distinguish rejection from other 400s. |
+| `/api/call-intelligence/users/[id]/granola-key/verify` | POST | bridge | Re-validate the currently-stored key without bumping `granola_key_version`. Returns `status: 'valid' \| 'invalid' \| 'unknown' \| 'no_key'`. |
+| `/api/call-intelligence/managers` | GET | bridge | List `role='manager'` reps for the canonical-manager dropdown. Excludes admins by design — pod-director admins surface via `coaching-teams` instead. |
+| `/api/call-intelligence/coaching-teams` | GET / POST | bridge | List active pods (with embedded members + lead) / create new pod. POST body validated against `CreateCoachingTeamRequest` (name unique case-insensitive among active teams; optional `lead_rep_id` must be role IN ('manager','admin')). |
+| `/api/call-intelligence/coaching-teams/[teamId]/members` | POST | bridge | Add a rep to a pod. Idempotent — re-adding silently no-ops, returns 200 with unchanged team payload. |
+| `/api/call-intelligence/coaching-teams/[teamId]/members/[repId]` | DELETE | bridge | Remove rep from pod. Idempotent — returns `removed: false` if rep wasn't a member. |
 | `/api/call-intelligence/refinements` | GET | direct | List open content_refinement_requests (admin only) |
 | `/api/call-intelligence/refinements/[id]/resolve` | POST | bridge | Mark addressed/declined |
 | `/api/call-intelligence/settings` | GET / PATCH | direct GET, bridge PATCH | Current user reveal policy |
