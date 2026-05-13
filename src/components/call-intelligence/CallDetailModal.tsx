@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { X, Loader2, ExternalLink } from 'lucide-react';
+import { X, Loader2, ExternalLink, AlertTriangle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { NoteReviewClient } from '@/app/dashboard/call-intelligence/review/[callNoteId]/NoteReviewClient';
+import type { CallNoteDetailT, BridgeSfdcSuggestionT } from '@/lib/sales-coaching-client/schemas';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types — keep the modal's row prop loose enough that it accepts the drill-down
@@ -46,7 +48,12 @@ interface CallDetailResponse {
   transcript: TranscriptUtterance[] | null;
 }
 
-type Tab = 'summary' | 'notes' | 'coaching' | 'transcript';
+type Tab = 'summary' | 'notes' | 'coaching' | 'transcript' | 'review';
+
+interface ReviewData {
+  callNote: CallNoteDetailT;
+  suggestion: BridgeSfdcSuggestionT | null;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Small helpers
@@ -270,14 +277,22 @@ function TranscriptTab({
 export function CallDetailModal({
   row,
   onClose,
+  onRefresh,
 }: {
   row: CallDetailRowSummary | null;
   onClose: () => void;
+  onRefresh?: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('summary');
   const [detail, setDetail] = useState<CallDetailResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reviewData, setReviewData] = useState<ReviewData | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+
+  const showReviewTab = row != null && !row.pushedToSfdc;
+  const reviewTabLabel = row?.source === 'granola' ? 'Needs Linking' : 'Not in SFDC';
 
   // Reset state when the row changes (different call selected) and fetch detail.
   useEffect(() => {
@@ -285,6 +300,8 @@ export function CallDetailModal({
     setTab('summary');
     setDetail(null);
     setError(null);
+    setReviewData(null);
+    setReviewError(null);
     let cancelled = false;
     async function load() {
       if (!row) return;
@@ -307,6 +324,30 @@ export function CallDetailModal({
     return () => { cancelled = true; };
   }, [row]);
 
+  // Lazy-fetch review data when the review tab is first selected.
+  useEffect(() => {
+    if (tab !== 'review' || !row || reviewData) return;
+    let cancelled = false;
+    setReviewLoading(true);
+    setReviewError(null);
+    (async () => {
+      try {
+        const res = await fetch(`/api/call-intelligence/note-reviews/${row.callNoteId}`);
+        if (!res.ok) throw new Error(`Failed to load review (${res.status})`);
+        const data = await res.json();
+        if (!cancelled) {
+          setReviewData({ callNote: data.call_note, suggestion: data.sfdc_suggestion ?? null });
+        }
+      } catch (err) {
+        if (!cancelled) setReviewError(err instanceof Error ? err.message : 'Failed to load review');
+      } finally {
+        if (!cancelled) setReviewLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, row, reviewData]);
+
   // Esc-to-close.
   useEffect(() => {
     if (!row) return;
@@ -327,7 +368,10 @@ export function CallDetailModal({
       aria-modal="true"
     >
       <div
-        className="bg-white dark:bg-gray-900 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col"
+        className={[
+          'bg-white dark:bg-gray-900 rounded-lg shadow-xl w-full max-h-[90vh] flex flex-col transition-all',
+          tab === 'review' ? 'max-w-7xl' : 'max-w-3xl',
+        ].join(' ')}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -367,10 +411,28 @@ export function CallDetailModal({
               {t}
             </button>
           ))}
+          {showReviewTab && (
+            <button
+              type="button"
+              onClick={() => setTab('review')}
+              className={[
+                'py-2 px-3 text-sm font-semibold border-b-2 transition-colors ml-1 inline-flex items-center gap-1.5',
+                tab === 'review'
+                  ? 'border-amber-500 text-amber-600 dark:text-amber-400'
+                  : 'border-transparent text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/30 rounded-t-md',
+              ].join(' ')}
+            >
+              <AlertTriangle className="w-3.5 h-3.5" />
+              {reviewTabLabel}
+            </button>
+          )}
         </div>
 
         {/* Body */}
-        <div className="overflow-y-auto px-5 py-4 flex-1">
+        <div className={[
+          'overflow-y-auto flex-1',
+          tab === 'review' ? 'p-0 [&>div]:min-h-0' : 'px-5 py-4',
+        ].join(' ')}>
           {tab === 'summary' && <SummaryTab row={row} />}
           {tab === 'notes' && (
             <MarkdownTab
@@ -391,11 +453,34 @@ export function CallDetailModal({
             />
           )}
           {tab === 'transcript' && <TranscriptTab transcript={detail?.transcript ?? null} loading={loading} error={error} />}
+          {tab === 'review' && (
+            reviewLoading ? (
+              <div className="flex items-center justify-center py-12 text-gray-500 dark:text-gray-400">
+                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                Loading review…
+              </div>
+            ) : reviewError ? (
+              <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300">
+                {reviewError}
+              </div>
+            ) : reviewData ? (
+              <NoteReviewClient
+                initial={reviewData.callNote}
+                suggestion={reviewData.suggestion}
+                backLabel="Back to call detail"
+                onDone={() => {
+                  setTab('summary');
+                  setReviewData(null);
+                  onRefresh?.();
+                }}
+              />
+            ) : null
+          )}
         </div>
 
         {/* Footer — Salesforce deep-links. Only renders when the advisor was
             resolved to SFDC (matches the pattern in RecordDetailModal). */}
-        {(row.leadUrl || row.opportunityUrl) && (
+        {tab !== 'review' && (row.leadUrl || row.opportunityUrl) && (
           <div className="px-5 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
             <div className="flex flex-wrap items-center gap-3">
               {row.leadUrl && (

@@ -37,7 +37,7 @@ function detectSfdcQuery(input: string): { type: SfdcSearchQueryTypeT; query: st
   return { type: 'name', query: trimmed, label: 'Name' };
 }
 
-export function NoteReviewClient({ initial, suggestion, onDone }: { initial: CallNoteDetailT; suggestion: BridgeSfdcSuggestionT | null; onDone?: () => void }) {
+export function NoteReviewClient({ initial, suggestion, onDone, backLabel }: { initial: CallNoteDetailT; suggestion: BridgeSfdcSuggestionT | null; onDone?: () => void; backLabel?: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawReturnTab = searchParams.get('returnTab');
@@ -312,7 +312,7 @@ export function NoteReviewClient({ initial, suggestion, onDone }: { initial: Cal
           onClick={() => onDone ? onDone() : router.push(`/dashboard/call-intelligence?tab=${returnTab}`)}
           className="mb-2 flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
         >
-          <span aria-hidden="true">&larr;</span> {onDone ? 'Back to Needs Linking' : `Back to ${returnTab === 'coaching-usage' ? 'Coaching Usage' : returnTab.replace(/-/g, ' ')}`}
+          <span aria-hidden="true">&larr;</span> {onDone ? (backLabel ?? 'Back to Needs Linking') : `Back to ${returnTab === 'coaching-usage' ? 'Coaching Usage' : returnTab.replace(/-/g, ' ')}`}
         </button>
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-lg md:text-xl font-semibold text-gray-900 dark:text-gray-100">{note.title}</h1>

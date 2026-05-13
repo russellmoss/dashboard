@@ -47,6 +47,7 @@ interface DetailRow {
   rep_role: string | null;
   sgm_name: string | null;
   source: 'granola' | 'kixie';
+  call_note_status: string;
   pushed_to_sfdc: boolean;
   has_ai_feedback: boolean;
   has_manager_edit_eval: boolean;
@@ -135,6 +136,7 @@ const _getCoachingUsageData = async (args: { range: AllowedRange }) => {
       sga.role AS rep_role,
       sgm.full_name AS sgm_name,
       cn.source AS source,
+      cn.status AS call_note_status,
       cn.sfdc_who_id AS sfdc_who_id,
       cn.sfdc_what_id AS sfdc_what_id,
       cn.sfdc_record_type AS sfdc_record_type,
@@ -392,6 +394,7 @@ async function annotateDrillDownWithAdvisor(rows: DetailRow[]) {
       sgmName: r.sgm_name,
       source: r.source,
       pushedToSfdc: r.pushed_to_sfdc,
+      callNoteStatus: r.call_note_status,
       hasAiFeedback: r.has_ai_feedback,
       hasManagerEditEval: r.has_manager_edit_eval,
     };
