@@ -71,6 +71,7 @@ interface CoachingUsageDetailRow {
   sgmName: string | null;
   source: 'granola' | 'kixie';
   pushedToSfdc: boolean;
+  callNoteStatus: string;
   hasAiFeedback: boolean;
   hasManagerEditEval: boolean;
 }
@@ -626,7 +627,11 @@ export function CoachingUsageClient() {
         </Text>
       )}
 
-      <CallDetailModal row={selectedRow} onClose={() => setSelectedRow(null)} />
+      <CallDetailModal
+        row={selectedRow}
+        onClose={() => setSelectedRow(null)}
+        onRefresh={() => { setSelectedRow(null); setCacheBuster((n) => n + 1); }}
+      />
     </div>
   );
 }

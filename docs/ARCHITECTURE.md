@@ -2231,7 +2231,7 @@ The Queue heading is "My Evaluations" for SGM/SGA (coachee view, scoped by own `
 
 **Needs Linking sub-tab** (added 2026-05-12): The Coaching Usage tab now contains two sub-tabs managed by `CoachingUsageWrapper.tsx` — "Overview" (the original `CoachingUsageClient`, revops_admin only) and "Needs Linking" (all coaching-usage roles). Needs Linking surfaces `call_notes` that haven't been attached to a Salesforce record. API at `/api/call-intelligence/needs-linking` (GET, `force-dynamic`, no caching). RBAC via `getRepIdsVisibleToActor()` + actor self-union. Query: `src/lib/queries/call-intelligence/needs-linking.ts`. Component: `NeedsLinkingTab.tsx`. Default filter: last 14 days. Each row links to the existing NoteReviewClient for SFDC search.
 
-**CallDetailModal review tab gate** (fixed 2026-05-13): The "Needs Linking" / "Not in SFDC" tab inside `CallDetailModal` is shown for any record where `pushedToSfdc` is false — no `callNoteStatus` restriction. Previously gated on `callNoteStatus === 'pending'`, which hid the tab from 282 `rejected`-status unlinked Granola records that most need manual linking.
+**CallDetailModal review tab gate** (fixed 2026-05-13): The "Needs Linking" / "Not in SFDC" tab inside `CallDetailModal` is shown for any record where `pushedToSfdc` is false — no `callNoteStatus` restriction. `callNoteStatus` was removed from `CallDetailRowSummary` (the modal's row prop interface) since it is no longer consumed. Previously gated on `callNoteStatus === 'pending'`, which hid the tab from 282 `rejected`-status unlinked Granola records that most need manual linking.
 
 ### Data Flow
 

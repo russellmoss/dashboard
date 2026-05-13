@@ -25,7 +25,6 @@ export interface CallDetailRowSummary {
   currentStage: string | null;
   closedLost: boolean;
   pushedToSfdc: boolean;
-  callNoteStatus: string;
   hasAiFeedback: boolean;
   hasManagerEditEval: boolean;
   /** Lightning deep-link to the resolved Lead — null when unlinked. */
