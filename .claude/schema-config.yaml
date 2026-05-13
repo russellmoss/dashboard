@@ -1238,7 +1238,10 @@ rules:
       Live evidence: Russell Armitage alltime returned 14 from the wrong pattern but the dashboard shows 3 (SGA Hub) or 2 (Funnel Performance) using the correct open_sql filter.
 
   - id: canonical_stage_volume_date_anchor
-    type: disclosure_required
+    type: prefer_field
+    found: "Opp_CreatedDate"
+    prefer: "Date_Became_SQO__c / advisor_join_date__c / stage-specific canonical anchor"
+    context: "stage volume queries"
     severity: warning
     message: |
       Each stage-volume metric has a CANONICAL date anchor — the field the dashboards use to bucket records into a time period. When a user's request specifies a date anchor that differs from the canonical anchor (e.g., "SQOs by created date" or "Joined by Opp CreatedDate"), answer LITERALLY using the user's requested anchor BUT add a disclosure footer noting the canonical anchor and offering to re-run.
