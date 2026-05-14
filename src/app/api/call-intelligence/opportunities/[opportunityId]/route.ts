@@ -44,7 +44,7 @@ export async function GET(
     return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 });
   }
 
-  const isPrivileged = permissions.role === 'admin' || permissions.role === 'revops_admin';
+  const isPrivileged = permissions.role === 'admin' || permissions.role === 'revops_admin' || permissions.role === 'sgm';
   const rep = await getRepIdByEmail(session.user.email);
 
   if (!rep && !isPrivileged) {
@@ -54,7 +54,7 @@ export async function GET(
   const actorRepId = rep?.id ?? '';
   const visibleRepIds = await getRepIdsVisibleToActor({
     repId: actorRepId,
-    role: permissions.role,
+    role: isPrivileged ? 'admin' : permissions.role,
     email: session.user.email,
   });
 
