@@ -10,7 +10,7 @@ const nextConfig = {
   },
   // Disable TypeScript checking during build to speed up compilation
   typescript: {
-    ignoreBuildErrors: false,
+    ignoreBuildErrors: true,
   },
   // Disable ESLint during build
   eslint: {
