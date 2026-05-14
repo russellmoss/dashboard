@@ -214,6 +214,7 @@ export type CallIntelligenceTab =
   | 'admin-refinements'
   | 'rubrics'
   | 'coaching-usage'
+  | 'opportunities'
   | 'insights'
   | 'cost-analysis';
 

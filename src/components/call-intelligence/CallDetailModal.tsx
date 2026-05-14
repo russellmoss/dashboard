@@ -50,7 +50,7 @@ interface CallDetailResponse {
 
 type Tab = 'summary' | 'notes' | 'coaching' | 'transcript' | 'review';
 
-interface ReviewData {
+export interface ReviewData {
   callNote: CallNoteDetailT;
   suggestion: BridgeSfdcSuggestionT | null;
 }
@@ -278,16 +278,18 @@ export function CallDetailModal({
   row,
   onClose,
   onRefresh,
+  initialReviewData,
 }: {
   row: CallDetailRowSummary | null;
   onClose: () => void;
   onRefresh?: () => void;
+  initialReviewData?: ReviewData;
 }) {
   const [tab, setTab] = useState<Tab>('summary');
   const [detail, setDetail] = useState<CallDetailResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [reviewData, setReviewData] = useState<ReviewData | null>(null);
+  const [reviewData, setReviewData] = useState<ReviewData | null>(initialReviewData ?? null);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
 
@@ -300,7 +302,7 @@ export function CallDetailModal({
     setTab('summary');
     setDetail(null);
     setError(null);
-    setReviewData(null);
+    setReviewData(initialReviewData ?? null);
     setReviewError(null);
     let cancelled = false;
     async function load() {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ListChecks, Settings as SettingsIcon, Users, FileText, Sliders, PhoneCall, BarChart3, DollarSign } from 'lucide-react';
+import { ListChecks, Settings as SettingsIcon, Users, FileText, Sliders, PhoneCall, BarChart3, DollarSign, Briefcase } from 'lucide-react';
 import type { CallIntelligenceTab } from '@/types/call-intelligence';
 import { canEditRubrics } from '@/lib/permissions';
 import QueueTab from './tabs/QueueTab';
@@ -10,6 +10,7 @@ import AdminUsersTab from './tabs/AdminUsersTab';
 import AdminRefinementsTab from './tabs/AdminRefinementsTab';
 import { RubricsTab } from './tabs/RubricsTab';
 import CoachingUsageWrapper from './tabs/CoachingUsageWrapper';
+import OpportunitiesTab from './tabs/OpportunitiesTab';
 import InsightsTab from './tabs/InsightsTab';
 import CostAnalysisTab from './tabs/CostAnalysisTab';
 
@@ -19,7 +20,7 @@ interface Props {
   initialFocusRep: string | null;
 }
 
-const VALID_TABS: CallIntelligenceTab[] = ['queue', 'settings', 'admin-users', 'admin-refinements', 'rubrics', 'coaching-usage', 'insights', 'cost-analysis'];
+const VALID_TABS: CallIntelligenceTab[] = ['queue', 'settings', 'admin-users', 'admin-refinements', 'rubrics', 'coaching-usage', 'opportunities', 'insights', 'cost-analysis'];
 
 export default function CallIntelligenceClient({ role, initialTab, initialFocusRep }: Props) {
   const isAdmin = role === 'admin' || role === 'revops_admin';
@@ -74,6 +75,11 @@ export default function CallIntelligenceClient({ role, initialTab, initialFocusR
               <PhoneCall className="w-4 h-4" /> Coaching Usage
             </TabButton>
           )}
+          {(isRevopsAdmin || isManagerOrAdmin || role === 'sgm' || role === 'sga') && (
+            <TabButton active={activeTab === 'opportunities'} onClick={() => setActiveTab('opportunities')}>
+              <Briefcase className="w-4 h-4" /> Opportunities
+            </TabButton>
+          )}
           {isManagerOrAdmin && (
             <TabButton active={activeTab === 'insights'} onClick={() => setActiveTab('insights')}>
               <BarChart3 className="w-4 h-4" /> Insights
@@ -93,6 +99,7 @@ export default function CallIntelligenceClient({ role, initialTab, initialFocusR
       {isAdmin && activeTab === 'admin-refinements' && <AdminRefinementsTab />}
       {isManagerOrAdmin && activeTab === 'rubrics' && <RubricsTab />}
       {(isRevopsAdmin || isManagerOrAdmin || role === 'sgm') && activeTab === 'coaching-usage' && <CoachingUsageWrapper role={role} />}
+      {(isRevopsAdmin || isManagerOrAdmin || role === 'sgm' || role === 'sga') && activeTab === 'opportunities' && <OpportunitiesTab />}
       {isManagerOrAdmin && activeTab === 'insights' && (
         <InsightsTab initialFocusRep={initialFocusRep} />
       )}

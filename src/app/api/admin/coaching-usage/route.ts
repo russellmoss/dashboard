@@ -382,6 +382,7 @@ async function annotateDrillDownWithAdvisor(rows: DetailRow[]) {
       linkedToSfdc: info !== null,
       leadUrl,
       opportunityUrl,
+      opportunityId: info?.opportunityId ?? null,
       // Funnel status — derived from vw_funnel_master via the resolver. Defaults
       // to false / null when the advisor couldn't be linked to a Lead/Contact.
       didSql: info?.didSql ?? false,

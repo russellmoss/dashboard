@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { Card, Title, Text, Metric } from '@tremor/react';
 import { RefreshCw } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -57,6 +58,7 @@ interface CoachingUsageDetailRow {
   linkedToSfdc: boolean;
   leadUrl: string | null;
   opportunityUrl: string | null;
+  opportunityId: string | null;
   // Funnel status (vw_funnel_master). Defaults to false / null when unlinked.
   didSql: boolean;
   didSqo: boolean;
@@ -591,7 +593,19 @@ export function CoachingUsageClient() {
                     <td className="py-2 px-2 dark:text-gray-200">{row.source}</td>
                     <td className="py-2 px-2 dark:text-gray-200">{row.didSql ? '✓' : '—'}</td>
                     <td className="py-2 px-2 dark:text-gray-200">{row.didSqo ? '✓' : '—'}</td>
-                    <td className="py-2 px-2 dark:text-gray-200">{row.currentStage ?? '—'}</td>
+                    <td className="py-2 px-2 dark:text-gray-200">
+                      {row.opportunityId && row.currentStage ? (
+                        <Link
+                          href={`/dashboard/call-intelligence/opportunity/${row.opportunityId}`}
+                          className="text-blue-600 dark:text-blue-400 hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {row.currentStage}
+                        </Link>
+                      ) : (
+                        row.currentStage ?? '—'
+                      )}
+                    </td>
                     <td className="py-2 px-2 dark:text-gray-200">{row.closedLost ? '✓' : '—'}</td>
                     <td className="py-2 px-2 dark:text-gray-200">{row.pushedToSfdc ? '✓' : '—'}</td>
                     <td className="py-2 px-2 dark:text-gray-200">{row.hasAiFeedback ? '✓' : '—'}</td>

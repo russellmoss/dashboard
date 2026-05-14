@@ -1,6 +1,29 @@
 import { getCoachingPool } from '@/lib/coachingDb';
 import type { InsightsPod } from '@/types/call-intelligence';
 
+export interface SfdcPodMapping {
+  sfdcUserId: string;
+  podId: string;
+  podName: string;
+}
+
+export async function getSfdcUserIdToPodMap(): Promise<Map<string, { podId: string; podName: string }>> {
+  const pool = getCoachingPool();
+  const { rows } = await pool.query<{ sfdc_user_id: string; pod_id: string; pod_name: string }>(
+    `SELECT r.sfdc_user_id, t.id AS pod_id, t.name AS pod_name
+       FROM reps r
+       JOIN coaching_team_members tm ON tm.rep_id = r.id
+       JOIN coaching_teams t ON t.id = tm.team_id AND t.is_active = true
+      WHERE r.sfdc_user_id IS NOT NULL`,
+  );
+
+  const map = new Map<string, { podId: string; podName: string }>();
+  for (const r of rows) {
+    map.set(r.sfdc_user_id, { podId: r.pod_id, podName: r.pod_name });
+  }
+  return map;
+}
+
 /**
  * Returns active coaching_teams pods, restricted to those whose members
  * intersect with visibleRepIds.
