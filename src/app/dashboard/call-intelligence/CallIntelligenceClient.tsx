@@ -34,8 +34,7 @@ export default function CallIntelligenceClient({ role, initialTab, initialFocusR
         : 'queue';
   const [activeTab, setActiveTab] = useState<CallIntelligenceTab>(safeInitial);
 
-  // SGM/SGA see "My Evaluations" (coachee view); manager/admin see "Queue" (reviewer view).
-  const queueLabel = role === 'sgm' || role === 'sga' ? 'My Evaluations' : 'Queue';
+  const queueLabel = role === 'sgm' || role === 'sga' ? 'My Reviews' : 'Reviews';
   const queueMode: 'mine' | 'queue' = role === 'sgm' || role === 'sga' ? 'mine' : 'queue';
 
   return (
@@ -48,10 +47,30 @@ export default function CallIntelligenceClient({ role, initialTab, initialFocusR
       </div>
 
       <div className="border-b border-gray-200 dark:border-gray-700">
-        <nav className="-mb-px flex gap-6" aria-label="Tabs">
+        <nav className="-mb-px flex gap-6 overflow-x-auto" aria-label="Tabs">
           <TabButton active={activeTab === 'queue'} onClick={() => setActiveTab('queue')}>
             <ListChecks className="w-4 h-4" /> {queueLabel}
           </TabButton>
+          {(isRevopsAdmin || isManagerOrAdmin || role === 'sgm' || role === 'sga') && (
+            <TabButton active={activeTab === 'opportunities'} onClick={() => setActiveTab('opportunities')}>
+              <Briefcase className="w-4 h-4" /> Opportunities
+            </TabButton>
+          )}
+          {isManagerOrAdmin && (
+            <TabButton active={activeTab === 'insights'} onClick={() => setActiveTab('insights')}>
+              <BarChart3 className="w-4 h-4" /> Insights
+            </TabButton>
+          )}
+          {isManagerOrAdmin && (
+            <TabButton active={activeTab === 'rubrics'} onClick={() => setActiveTab('rubrics')}>
+              <Sliders className="w-4 h-4" /> Rubrics
+            </TabButton>
+          )}
+          {(isRevopsAdmin || isManagerOrAdmin || role === 'sgm') && (
+            <TabButton active={activeTab === 'coaching-usage'} onClick={() => setActiveTab('coaching-usage')}>
+              <PhoneCall className="w-4 h-4" /> Usage
+            </TabButton>
+          )}
           <TabButton active={activeTab === 'settings'} onClick={() => setActiveTab('settings')}>
             <SettingsIcon className="w-4 h-4" /> My settings
           </TabButton>
@@ -65,26 +84,6 @@ export default function CallIntelligenceClient({ role, initialTab, initialFocusR
               <FileText className="w-4 h-4" /> Admin: Content Refinements
             </TabButton>
           )}
-          {isManagerOrAdmin && (
-            <TabButton active={activeTab === 'rubrics'} onClick={() => setActiveTab('rubrics')}>
-              <Sliders className="w-4 h-4" /> Rubrics
-            </TabButton>
-          )}
-          {(isRevopsAdmin || isManagerOrAdmin || role === 'sgm') && (
-            <TabButton active={activeTab === 'coaching-usage'} onClick={() => setActiveTab('coaching-usage')}>
-              <PhoneCall className="w-4 h-4" /> Coaching Usage
-            </TabButton>
-          )}
-          {(isRevopsAdmin || isManagerOrAdmin || role === 'sgm' || role === 'sga') && (
-            <TabButton active={activeTab === 'opportunities'} onClick={() => setActiveTab('opportunities')}>
-              <Briefcase className="w-4 h-4" /> Opportunities
-            </TabButton>
-          )}
-          {isManagerOrAdmin && (
-            <TabButton active={activeTab === 'insights'} onClick={() => setActiveTab('insights')}>
-              <BarChart3 className="w-4 h-4" /> Insights
-            </TabButton>
-          )}
           {isAdmin && (
             <TabButton active={activeTab === 'cost-analysis'} onClick={() => setActiveTab('cost-analysis')}>
               <DollarSign className="w-4 h-4" /> Cost Analysis
@@ -94,15 +93,15 @@ export default function CallIntelligenceClient({ role, initialTab, initialFocusR
       </div>
 
       {activeTab === 'queue' && <QueueTab role={role} mode={queueMode} />}
-      {activeTab === 'settings' && <SettingsTab />}
-      {isAdmin && activeTab === 'admin-users' && <AdminUsersTab />}
-      {isAdmin && activeTab === 'admin-refinements' && <AdminRefinementsTab />}
-      {isManagerOrAdmin && activeTab === 'rubrics' && <RubricsTab />}
-      {(isRevopsAdmin || isManagerOrAdmin || role === 'sgm') && activeTab === 'coaching-usage' && <CoachingUsageWrapper role={role} />}
       {(isRevopsAdmin || isManagerOrAdmin || role === 'sgm' || role === 'sga') && activeTab === 'opportunities' && <OpportunitiesTab />}
       {isManagerOrAdmin && activeTab === 'insights' && (
         <InsightsTab initialFocusRep={initialFocusRep} />
       )}
+      {isManagerOrAdmin && activeTab === 'rubrics' && <RubricsTab />}
+      {(isRevopsAdmin || isManagerOrAdmin || role === 'sgm') && activeTab === 'coaching-usage' && <CoachingUsageWrapper role={role} />}
+      {activeTab === 'settings' && <SettingsTab />}
+      {isAdmin && activeTab === 'admin-users' && <AdminUsersTab />}
+      {isAdmin && activeTab === 'admin-refinements' && <AdminRefinementsTab />}
       {isAdmin && activeTab === 'cost-analysis' && <CostAnalysisTab />}
     </div>
   );

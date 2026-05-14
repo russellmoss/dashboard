@@ -56,7 +56,9 @@ export async function getThreadedCallCounts(
       GROUP BY im.opp_id
     ),
     likely_counts AS (
-      SELECT im.opp_id, count(DISTINCT cn.id) AS likely_count
+      SELECT im.opp_id,
+        count(DISTINCT cn.id) AS likely_count,
+        max(cn.call_started_at) AS last_likely_call
       FROM identity_map im
       JOIN call_notes cn ON cn.source_deleted_at IS NULL
         AND cn.rep_id = ANY($4::uuid[])
@@ -77,7 +79,7 @@ export async function getThreadedCallCounts(
       COALESCE(l.opp_id, u.opp_id) AS opp_id,
       COALESCE(l.linked_count, 0) + COALESCE(u.likely_count, 0) AS total_count,
       COALESCE(u.likely_count, 0) AS likely_unlinked_count,
-      l.last_call,
+      GREATEST(l.last_call, u.last_likely_call) AS last_call,
       COALESCE(l.granola_count, 0) AS granola_count,
       COALESCE(l.kixie_count, 0) AS kixie_count
     FROM linked_counts l

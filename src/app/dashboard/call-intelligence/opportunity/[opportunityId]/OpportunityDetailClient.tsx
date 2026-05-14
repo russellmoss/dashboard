@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, ArrowLeft, ArrowRightCircle, ChevronDown, ChevronUp, DollarSign, Flame, Loader2, RefreshCw, Sparkles, Swords } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowRightCircle, ChevronDown, ChevronUp, DollarSign, Flame, Loader2, MessageCircle, RefreshCw, Sparkles, Swords } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CallDetailModal, type CallDetailRowSummary, type ReviewData } from '@/components/call-intelligence/CallDetailModal';
 import type { OpportunityHeader, OpportunityTimelineRow, LinkageStatus, OpportunityAiSummary } from '@/types/call-intelligence-opportunities';
+import OpportunityChatPanel from '@/components/call-intelligence/OpportunityChatPanel';
 
 interface Props {
   opportunityId: string;
@@ -147,6 +148,7 @@ export default function OpportunityDetailClient({ opportunityId, role }: Props) 
   const [aiSummaryLoading, setAiSummaryLoading] = useState(true);
   const [aiSummaryError, setAiSummaryError] = useState<string | null>(null);
   const [aiSummaryCollapsed, setAiSummaryCollapsed] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const fetchAiSummary = useCallback((force = false) => {
@@ -630,6 +632,26 @@ export default function OpportunityDetailClient({ opportunityId, role }: Props) 
         onClose={() => { setSelectedRow(null); setSelectedReviewData(undefined); }}
         onRefresh={() => { setSelectedRow(null); setSelectedReviewData(undefined); fetchDetail(); }}
         initialReviewData={selectedReviewData}
+      />
+
+      {/* Chat floating button */}
+      {!chatOpen && (
+        <button
+          onClick={() => setChatOpen(true)}
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-indigo-600 px-4 py-3 text-white shadow-lg hover:bg-indigo-700 transition-colors"
+          aria-label="Chat about this deal"
+        >
+          <MessageCircle className="h-5 w-5" />
+          <span className="text-sm font-medium">Chat</span>
+        </button>
+      )}
+
+      {/* Chat panel */}
+      <OpportunityChatPanel
+        opportunityId={opportunityId}
+        isOpen={chatOpen}
+        onClose={() => setChatOpen(false)}
+        advisorName={data?.header?.name ?? ''}
       />
     </div>
   );

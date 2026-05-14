@@ -60,3 +60,49 @@ export interface OpportunityAiSummary {
   cacheHit: boolean;
   callDateMap: Record<string, string>;
 }
+
+export interface OpportunityChatThread {
+  id: string;
+  title: string | null;
+  callNoteIdsHash: string;
+  lastMessageAt: string | null;
+  createdAt: string;
+}
+
+export interface OpportunityChatThreadSummary {
+  id: string;
+  title: string | null;
+  lastMessageAt: string | null;
+  createdAt: string;
+  messageCount: number;
+}
+
+export interface OpportunityChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  citedChunkIds: string[];
+  createdAt: string;
+}
+
+export interface OpportunityChatResponse {
+  thread: OpportunityChatThread;
+  messages: OpportunityChatMessage[];
+  threads: OpportunityChatThreadSummary[];
+  newCallsDetected: boolean;
+}
+
+export interface KbChunkForChat {
+  id: string;
+  bodyText: string;
+  docId: string;
+  driveFileId: string;
+  docTitle: string;
+  driveUrl: string;
+  distance: number;
+}
+
+export type ChatStreamChunk =
+  | { type: 'text'; content: string }
+  | { type: 'done'; citedChunkIds: string[] }
+  | { type: 'error'; message: string };

@@ -60,6 +60,13 @@
 | `slack_review_messages` | coaching usage — `sfdc_suggestion` JSONB read |
 | `ai_feedback` | coaching usage — `has_ai_feedback` EXISTS check |
 | `evaluation_edit_audit_log` | coaching usage — `has_manager_edit_eval` EXISTS check |
+| `objections` | opportunity ai-summary + chat — objection data for calls via `getObjectionsForCalls()` |
+| `opportunity_chat_threads` | opportunity chat — thread CRUD (Dashboard-owned, direct pg read+write) |
+| `opportunity_chat_messages` | opportunity chat — message CRUD (Dashboard-owned, direct pg read+write) |
+
+### Tables Dashboard owns and writes directly (no bridge, no upstream consumer)
+
+`opportunity_chat_threads`, `opportunity_chat_messages` — created by Dashboard migration, no sales-coaching service code reads or writes them. Direct pg via `getCoachingPool()`. Columns: threads has `id UUID PK, sfdc_opportunity_id TEXT, user_email TEXT, call_note_ids_hash TEXT, title TEXT, last_message_at TIMESTAMPTZ, created_at TIMESTAMPTZ`; messages has `id UUID PK, thread_id UUID FK CASCADE, role TEXT CHECK (user/assistant/system), content TEXT, cited_chunk_ids UUID[], created_at TIMESTAMPTZ`. Multiple threads per (opp, user) allowed — no UNIQUE constraint.
 
 ### Tables Dashboard mutates via bridge only (no direct pg writes)
 
@@ -67,7 +74,7 @@
 
 ### Tables Dashboard never touches (~22 tables)
 
-All `neon_auth.*`, all `kb_vocab_*`, `evaluation_comments`, `eval_correction_*` (3 tables — features not yet active), `eval_body_backfill_audit`, `kb_corrections_log`, `call_note_enrichments`, `email_enrichments`, `coaching_briefs`, `coaching_doc_outbox`, `notification_outbox`, `salesforce_credentials`, `admin_audit_log`, `admin_rate_limits`, `advisor_summaries`, `job3_dormancy_alert_state`, `long_note_alert_state`, `objections`, `onboarding_assignments`, `rollout_windows`, `sync_state`. These are sales-coaching internals.
+All `neon_auth.*`, all `kb_vocab_*`, `evaluation_comments`, `eval_correction_*` (3 tables — features not yet active), `eval_body_backfill_audit`, `kb_corrections_log`, `call_note_enrichments`, `email_enrichments`, `coaching_briefs`, `coaching_doc_outbox`, `notification_outbox`, `salesforce_credentials`, `admin_audit_log`, `admin_rate_limits`, `advisor_summaries`, `job3_dormancy_alert_state`, `long_note_alert_state`, `onboarding_assignments`, `rollout_windows`, `sync_state`. These are sales-coaching internals.
 
 ---
 
