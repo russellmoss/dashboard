@@ -5,42 +5,52 @@ import type {
   OpportunityChatMessage,
   KbChunkForChat,
 } from '@/types/call-intelligence-opportunities';
-import { PredictionServiceClient, helpers } from '@google-cloud/aiplatform';
+import { GoogleAuth } from 'google-auth-library';
 
 // ---------------------------------------------------------------------------
-// Vertex AI Embedding
+// Vertex AI Embedding (REST API — avoids heavy gRPC @google-cloud/aiplatform)
 // ---------------------------------------------------------------------------
 
 const GCP_PROJECT = process.env.GCP_PROJECT_ID || '';
 const GCP_LOCATION = process.env.VERTEX_AI_LOCATION || 'us-central1';
 const EMBEDDING_MODEL = 'text-embedding-004';
-const EMBEDDING_ENDPOINT = `projects/${GCP_PROJECT}/locations/${GCP_LOCATION}/publishers/google/models/${EMBEDDING_MODEL}`;
+const VERTEX_URL = `https://${GCP_LOCATION}-aiplatform.googleapis.com/v1/projects/${GCP_PROJECT}/locations/${GCP_LOCATION}/publishers/google/models/${EMBEDDING_MODEL}:predict`;
 
-let predictionClient: PredictionServiceClient | null = null;
+let authClient: GoogleAuth | null = null;
 
-function getPredictionClient(): PredictionServiceClient {
-  if (!predictionClient) {
-    predictionClient = new PredictionServiceClient({
-      apiEndpoint: `${GCP_LOCATION}-aiplatform.googleapis.com`,
+function getAuthClient(): GoogleAuth {
+  if (!authClient) {
+    authClient = new GoogleAuth({
+      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
     });
   }
-  return predictionClient;
+  return authClient;
 }
 
 export async function embedQueryText(text: string): Promise<number[]> {
-  const client = getPredictionClient();
-  const instance = helpers.toValue({
-    content: text,
-    task_type: 'RETRIEVAL_QUERY',
+  const auth = getAuthClient();
+  const client = await auth.getClient();
+  const token = await client.getAccessToken();
+
+  const res = await fetch(VERTEX_URL, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token.token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      instances: [{ content: text, task_type: 'RETRIEVAL_QUERY' }],
+    }),
   });
-  const [response] = await client.predict({
-    endpoint: EMBEDDING_ENDPOINT,
-    instances: [instance!],
-  });
-  const embedding = response.predictions?.[0]?.structValue?.fields?.embeddings
-    ?.structValue?.fields?.values?.listValue?.values?.map(
-      (v) => v.numberValue ?? 0
-    );
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Vertex AI embedding failed (${res.status}): ${errText}`);
+  }
+
+  const data = await res.json();
+  const embedding: number[] | undefined =
+    data.predictions?.[0]?.embeddings?.values;
   if (!embedding || embedding.length !== 768) {
     throw new Error(`Unexpected embedding dimension: ${embedding?.length}`);
   }
