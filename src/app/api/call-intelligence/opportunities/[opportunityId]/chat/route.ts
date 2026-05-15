@@ -245,14 +245,16 @@ export async function POST(
     );
     const callNoteIds = calls.map((c) => c.id);
 
-    const [objections, cachedSummary, kbChunks, chatHistory] = await Promise.all([
+    const [objections, cachedSummary, kbChunks, personaChunks, chatHistory] = await Promise.all([
       getObjectionsForCalls(callNoteIds),
       getCachedSummary(opportunityId),
       embedAndSearchKb(userMessage),
+      embedAndSearchKbPersona(),
       getChatMessages(thread.id),
     ]);
 
-    const systemPrompt = buildSystemPrompt(header, calls, objections, cachedSummary, kbChunks);
+    const mergedKbChunks = deduplicateKbChunks(kbChunks, personaChunks);
+    const systemPrompt = buildSystemPrompt(header, calls, objections, cachedSummary, mergedKbChunks);
 
     const recentHistory = chatHistory.slice(-MAX_HISTORY_MESSAGES);
     const claudeMessages: Anthropic.MessageParam[] = recentHistory
@@ -287,7 +289,7 @@ export async function POST(
             }
           }
 
-          const citedChunkIds = extractCitedChunkIds(fullResponse, kbChunks);
+          const citedChunkIds = extractCitedChunkIds(fullResponse, mergedKbChunks);
           await saveMessage(threadId, 'assistant', fullResponse, citedChunkIds);
           await updateThreadHash(threadId, currentHash);
 
@@ -360,6 +362,30 @@ async function embedAndSearchKb(query: string): Promise<KbChunkForChat[]> {
   }
 }
 
+async function embedAndSearchKbPersona(): Promise<KbChunkForChat[]> {
+  try {
+    const embedding = await embedQueryText(
+      'advisor persona salesperson investment guru life planner ideal candidate profile pitch approach',
+    );
+    return searchKbChunksForChat(embedding, 3);
+  } catch (err) {
+    console.error('[chat] Persona KB search failed, proceeding without:', err);
+    return [];
+  }
+}
+
+function deduplicateKbChunks(primary: KbChunkForChat[], secondary: KbChunkForChat[]): KbChunkForChat[] {
+  const seen = new Set(primary.map((c) => c.id));
+  const merged = [...primary];
+  for (const chunk of secondary) {
+    if (!seen.has(chunk.id)) {
+      seen.add(chunk.id);
+      merged.push(chunk);
+    }
+  }
+  return merged;
+}
+
 function buildSystemPrompt(
   header: OpportunityHeader,
   calls: CallSummaryMapped[],
@@ -369,7 +395,23 @@ function buildSystemPrompt(
 ): string {
   const parts: string[] = [];
 
-  parts.push(`You are a deal strategy advisor helping analyze this opportunity based on recorded call summaries and the company's knowledge base. Be specific and reference call dates when discussing call content. When your answer draws on knowledge base content, cite the source inline as a markdown link [Doc Title](drive_url). Only cite when the KB materially informed your answer. Give actionable, concise advice.`);
+  parts.push(`You are a deal strategy advisor helping analyze this opportunity based on recorded call summaries and the company's knowledge base. Be specific and reference call dates when discussing call content. When your answer draws on knowledge base content, cite the source inline as a markdown link [Doc Title](drive_url). Only cite when the KB materially informed your answer. Give actionable, concise advice.
+
+## Advisor Persona Framework
+
+Advisors generally fit one of three personas — use this to tailor your advice:
+
+1. **Salesperson** — identity centers on business development and gathering new clients. Lead with growth tools, lead gen, and revenue upside.
+2. **Investment Guru** — leads with portfolio management, investment research, and technical market knowledge. Lead with platform depth, investment flexibility, and research tools.
+3. **Life Planner** — focuses on holistic client relationships, financial planning, and life-event-driven advice. Lead with client transition support, planning tools, and white-glove service.
+
+Based on the call summaries and any KB context about this advisor, infer which persona best fits and tailor your selling advice accordingly. When prepping for calls or drafting pitches, explicitly note which persona you believe the advisor is and why, then frame your recommendations through that lens.
+
+## Personal Rapport & Emotional Intelligence
+
+When the user asks for call prep or meeting preparation, proactively scan all call summaries for personal details the advisor has shared — life updates, family mentions, hobbies, career milestones, travel, health, personal goals, or anything that reveals who they are as a person beyond the business relationship. Surface these as a **"Personal Notes for Rapport"** section so the user can reference them naturally in conversation. This builds trust and shows the advisor we remember and care about them as people, not just prospects.
+
+Also look for: the advisor's specific concerns, desires, pain points with their current situation, and any objections they've raised. Frame your advice to directly address these — don't give generic pitches.`);
 
   parts.push(`\n## Opportunity\n- Name: ${header.name}\n- Stage: ${header.stageName}\n- Owner: ${header.ownerName}\n- Amount: ${header.amount ? `$${header.amount.toLocaleString()}` : 'N/A'}\n- Close Date: ${header.closeDate}\n- Next Step: ${header.nextStep || 'None specified'}`);
 

@@ -19,11 +19,11 @@ const MARKDOWN_PROSE = [
 ].join(' ');
 
 const SUGGESTED_PROMPTS = [
-  'Prep me for my next call',
+  'Prep me for my next call with personal rapport notes',
+  'What type of advisor persona is this and how should I approach them?',
   'What are the open objections?',
-  'What pain points have come up?',
-  'Draft a pitch based on their concerns',
-  'What compensation terms have been discussed?',
+  'Draft a personalized pitch based on their persona and concerns',
+  'What personal details have they shared that I should remember?',
   'What should I bring up in our next meeting?',
 ];
 
