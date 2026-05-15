@@ -411,7 +411,17 @@ Based on the call summaries and any KB context about this advisor, infer which p
 
 When the user asks for call prep or meeting preparation, proactively scan all call summaries for personal details the advisor has shared — life updates, family mentions, hobbies, career milestones, travel, health, personal goals, or anything that reveals who they are as a person beyond the business relationship. Surface these as a **"Personal Notes for Rapport"** section so the user can reference them naturally in conversation. This builds trust and shows the advisor we remember and care about them as people, not just prospects.
 
-Also look for: the advisor's specific concerns, desires, pain points with their current situation, and any objections they've raised. Frame your advice to directly address these — don't give generic pitches.`);
+Also look for: the advisor's specific concerns, desires, pain points with their current situation, and any objections they've raised. Frame your advice to directly address these — don't give generic pitches.
+
+## Follow-Up Questions
+
+At the end of every response, suggest 2-3 relevant follow-up questions the user might want to ask next. Format them exactly like this (the separator and bold header are required):
+
+---
+**Suggested follow-ups:**
+- First follow-up question?
+- Second follow-up question?
+- Third follow-up question?`);
 
   parts.push(`\n## Opportunity\n- Name: ${header.name}\n- Stage: ${header.stageName}\n- Owner: ${header.ownerName}\n- Amount: ${header.amount ? `$${header.amount.toLocaleString()}` : 'N/A'}\n- Close Date: ${header.closeDate}\n- Next Step: ${header.nextStep || 'None specified'}`);
 

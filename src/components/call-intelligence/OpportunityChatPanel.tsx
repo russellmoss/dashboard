@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { X, Send, MessageCircle, Info, ChevronDown, ExternalLink, ChevronRight, Plus, Clock, ArrowLeft } from 'lucide-react';
+import { X, Send, MessageCircle, Info, ChevronDown, ChevronUp, ExternalLink, ChevronRight, Plus, Clock, ArrowLeft, Sparkles } from 'lucide-react';
 import type { OpportunityChatMessage, OpportunityChatThreadSummary, ChatStreamChunk } from '@/types/call-intelligence-opportunities';
 
 const MARKDOWN_PROSE = [
@@ -67,6 +67,7 @@ export default function OpportunityChatPanel({ opportunityId, isOpen, onClose, a
   const [showNewMessagePill, setShowNewMessagePill] = useState(false);
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
   const [showThreadList, setShowThreadList] = useState(false);
+  const [promptsExpanded, setPromptsExpanded] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -300,9 +301,21 @@ export default function OpportunityChatPanel({ opportunityId, isOpen, onClose, a
     return docs;
   }
 
-  const showSuggestions = !isStreaming && !isLoading && !showThreadList &&
-    (messages.filter((m) => m.role !== 'system').length === 0 ||
-     messages[messages.length - 1]?.role === 'assistant');
+  function extractFollowUps(content: string): { cleanContent: string; followUps: string[] } {
+    const marker = /\n---\n\*\*Suggested follow-ups?:\*\*\s*\n([\s\S]*?)$/;
+    const match = content.match(marker);
+    if (!match) return { cleanContent: content, followUps: [] };
+    const cleanContent = content.slice(0, match.index!).trimEnd();
+    const items = match[1]
+      .split('\n')
+      .map((line) => line.replace(/^[-*]\s*/, '').trim())
+      .filter((line) => line.length > 0);
+    return { cleanContent, followUps: items.slice(0, 3) };
+  }
+
+  const hasUserMessages = messages.some((m) => m.role === 'user');
+  const canShowPrompts = !isStreaming && !isLoading && !showThreadList;
+  const showPromptsExpanded = canShowPrompts && (!hasUserMessages || promptsExpanded);
 
   if (!isOpen) return null;
 
@@ -474,8 +487,10 @@ export default function OpportunityChatPanel({ opportunityId, isOpen, onClose, a
                       );
                     }
 
-                    const sources = extractSourceDocs(msg.content);
+                    const { cleanContent, followUps } = extractFollowUps(msg.content);
+                    const sources = extractSourceDocs(cleanContent);
                     const isExpanded = expandedSources.has(msg.id);
+                    const isLastAssistant = msg.id === [...messages].reverse().find((m) => m.role === 'assistant')?.id;
 
                     return (
                       <div key={msg.id} className="my-3">
@@ -486,7 +501,7 @@ export default function OpportunityChatPanel({ opportunityId, isOpen, onClose, a
                               components={{ a: ({ href, children }) => (
                                 <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
                               )}}
-                            >{msg.content}</ReactMarkdown>
+                            >{cleanContent}</ReactMarkdown>
                           </div>
                         </div>
 
@@ -515,6 +530,25 @@ export default function OpportunityChatPanel({ opportunityId, isOpen, onClose, a
                                 ))}
                               </div>
                             )}
+                          </div>
+                        )}
+
+                        {isLastAssistant && followUps.length > 0 && !isStreaming && (
+                          <div className="ml-1 mt-2 flex flex-wrap gap-1.5">
+                            <Sparkles className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-indigo-400" />
+                            {followUps.map((q) => (
+                              <button
+                                key={q}
+                                onClick={() => sendMessage(q)}
+                                className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs text-indigo-700
+                                           hover:border-indigo-400 hover:bg-indigo-100
+                                           dark:border-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300
+                                           dark:hover:border-indigo-500 dark:hover:bg-indigo-900/50
+                                           transition-colors"
+                              >
+                                {q}
+                              </button>
+                            ))}
                           </div>
                         )}
                       </div>
@@ -582,8 +616,47 @@ export default function OpportunityChatPanel({ opportunityId, isOpen, onClose, a
               </div>
             )}
 
-            {/* Suggested prompts */}
-            {showSuggestions && (
+            {/* Suggested prompts — full when no user messages, collapsible toggle after */}
+            {canShowPrompts && hasUserMessages && !showPromptsExpanded && (
+              <div className="border-t border-gray-100 px-4 py-1.5 dark:border-gray-800">
+                <button
+                  onClick={() => setPromptsExpanded(true)}
+                  className="flex w-full items-center justify-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 transition-colors"
+                >
+                  <ChevronUp className="h-3 w-3" />
+                  Suggested questions
+                </button>
+              </div>
+            )}
+            {showPromptsExpanded && (
+              <div className="border-t border-gray-100 px-4 py-2 dark:border-gray-800">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Suggested questions</span>
+                  <button
+                    onClick={() => setPromptsExpanded(false)}
+                    className="text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+                  >
+                    <ChevronDown className="h-3 w-3" />
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {SUGGESTED_PROMPTS.map((prompt) => (
+                    <button
+                      key={prompt}
+                      onClick={() => { setPromptsExpanded(false); sendMessage(prompt); }}
+                      className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700
+                                 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700
+                                 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300
+                                 dark:hover:border-indigo-500 dark:hover:bg-indigo-900/30 dark:hover:text-indigo-300
+                                 transition-colors"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {canShowPrompts && !hasUserMessages && (
               <div className="flex flex-wrap gap-2 border-t border-gray-100 px-4 py-2 dark:border-gray-800">
                 {SUGGESTED_PROMPTS.map((prompt) => (
                   <button
