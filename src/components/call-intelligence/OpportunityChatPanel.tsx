@@ -315,7 +315,6 @@ export default function OpportunityChatPanel({ opportunityId, isOpen, onClose, a
 
   const hasUserMessages = messages.some((m) => m.role === 'user');
   const canShowPrompts = !isStreaming && !isLoading && !showThreadList;
-  const showPromptsExpanded = canShowPrompts && (!hasUserMessages || promptsExpanded);
 
   if (!isOpen) return null;
 
@@ -616,8 +615,8 @@ export default function OpportunityChatPanel({ opportunityId, isOpen, onClose, a
               </div>
             )}
 
-            {/* Suggested prompts — full when no user messages, collapsible toggle after */}
-            {canShowPrompts && hasUserMessages && !showPromptsExpanded && (
+            {/* Suggested prompts — full on empty thread, collapsed toggle after first message */}
+            {canShowPrompts && hasUserMessages && !promptsExpanded && (
               <div className="border-t border-gray-100 px-4 py-1.5 dark:border-gray-800">
                 <button
                   onClick={() => setPromptsExpanded(true)}
@@ -628,17 +627,19 @@ export default function OpportunityChatPanel({ opportunityId, isOpen, onClose, a
                 </button>
               </div>
             )}
-            {showPromptsExpanded && (
+            {canShowPrompts && (promptsExpanded || !hasUserMessages) && (
               <div className="border-t border-gray-100 px-4 py-2 dark:border-gray-800">
-                <div className="mb-1.5 flex items-center justify-between">
-                  <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Suggested questions</span>
-                  <button
-                    onClick={() => setPromptsExpanded(false)}
-                    className="text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-                  >
-                    <ChevronDown className="h-3 w-3" />
-                  </button>
-                </div>
+                {hasUserMessages && (
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Suggested questions</span>
+                    <button
+                      onClick={() => setPromptsExpanded(false)}
+                      className="text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+                    >
+                      <ChevronDown className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-2">
                   {SUGGESTED_PROMPTS.map((prompt) => (
                     <button
@@ -654,23 +655,6 @@ export default function OpportunityChatPanel({ opportunityId, isOpen, onClose, a
                     </button>
                   ))}
                 </div>
-              </div>
-            )}
-            {canShowPrompts && !hasUserMessages && (
-              <div className="flex flex-wrap gap-2 border-t border-gray-100 px-4 py-2 dark:border-gray-800">
-                {SUGGESTED_PROMPTS.map((prompt) => (
-                  <button
-                    key={prompt}
-                    onClick={() => sendMessage(prompt)}
-                    className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700
-                               hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700
-                               dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300
-                               dark:hover:border-indigo-500 dark:hover:bg-indigo-900/30 dark:hover:text-indigo-300
-                               transition-colors"
-                  >
-                    {prompt}
-                  </button>
-                ))}
               </div>
             )}
 
