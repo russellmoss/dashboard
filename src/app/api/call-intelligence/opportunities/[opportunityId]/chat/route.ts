@@ -25,6 +25,7 @@ import {
   updateThreadTitle,
   embedQueryText,
   searchKbChunksForChat,
+  searchKbChunksByKeyword,
 } from '@/lib/queries/call-intelligence/opportunity-chat';
 import type { OpportunityHeader, KbChunkForChat } from '@/types/call-intelligence-opportunities';
 import Anthropic from '@anthropic-ai/sdk';
@@ -352,14 +353,45 @@ async function generateTitle(threadId: string, userMessage: string, assistantRes
   }
 }
 
+const KB_KEYWORD_SIGNALS: Record<string, string[]> = {
+  objection:   ['objection', 'pushback', 'handle objection'],
+  comp:        ['compensation', 'payout', 'revenue split', 'rev share', 'economics'],
+  tech:        ['tech platform', 'technology', 'integration'],
+  transition:  ['transition', 'timeline', 'move date', 'onboarding'],
+  compliance:  ['compliance', 'regulatory', 'finra', 'sec '],
+  equity:      ['equity', 'partner equity', 'equity structure'],
+};
+
+function extractKbKeywords(query: string): string[] {
+  const q = query.toLowerCase();
+  const keywords: string[] = [];
+  for (const [topic, signals] of Object.entries(KB_KEYWORD_SIGNALS)) {
+    if (signals.some((s) => q.includes(s))) {
+      keywords.push(topic);
+    }
+  }
+  return keywords;
+}
+
 async function embedAndSearchKb(query: string): Promise<KbChunkForChat[]> {
+  let embeddingResults: KbChunkForChat[] = [];
   try {
     const embedding = await embedQueryText(query);
-    return searchKbChunksForChat(embedding, 5);
+    embeddingResults = await searchKbChunksForChat(embedding, 8);
   } catch (err) {
-    console.error('[chat] KB embedding/search failed, proceeding without KB context:', err);
-    return [];
+    console.error('[chat] KB embedding/search failed, falling back to keyword search:', err);
   }
+
+  const keywords = extractKbKeywords(query);
+  if (keywords.length > 0) {
+    try {
+      const keywordResults = await searchKbChunksByKeyword(keywords, 6);
+      return deduplicateKbChunks(embeddingResults, keywordResults);
+    } catch (err) {
+      console.error('[chat] KB keyword fallback also failed:', err);
+    }
+  }
+  return embeddingResults;
 }
 
 async function embedAndSearchKbPersona(): Promise<KbChunkForChat[]> {

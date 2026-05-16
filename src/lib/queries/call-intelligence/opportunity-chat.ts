@@ -280,31 +280,68 @@ export async function searchKbChunksForChat(
      FROM knowledge_base_chunks
      WHERE is_active = true
        AND chunk_type = ANY($2::text[])
-       AND embedding <=> $1::vector < 0.5
+       AND embedding <=> $1::vector < 0.65
      ORDER BY embedding <=> $1::vector
      LIMIT $3`,
     [vectorLiteral, ['fact', 'playbook'], topK],
   );
-  return rows.map((r) => {
-    const slug = (r.doc_id || '').split('/').pop() || r.doc_id || 'Unknown';
-    const docTitle = slug
-      .replace(/[_-]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .split(' ')
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(' ');
-    const driveUrl = r.drive_file_id
-      ? `https://docs.google.com/document/d/${r.drive_file_id}/edit`
-      : '';
-    return {
-      id: r.id,
-      bodyText: r.body_text,
-      docId: r.doc_id,
-      driveFileId: r.drive_file_id,
-      docTitle,
-      driveUrl,
-      distance: r.distance,
-    };
-  });
+  return rows.map(mapChunkRow);
+}
+
+export async function searchKbChunksByKeyword(
+  keywords: string[],
+  topK: number = 5,
+): Promise<KbChunkForChat[]> {
+  if (keywords.length === 0) return [];
+  const pool = getCoachingPool();
+  const conditions = keywords.map(
+    (_, i) => `(LOWER(doc_id) LIKE $${i + 1} OR LOWER(body_text) LIKE $${i + 1})`,
+  );
+  const params = keywords.map((kw) => `%${kw.toLowerCase()}%`);
+  const { rows } = await pool.query<{
+    id: string;
+    body_text: string;
+    doc_id: string;
+    drive_file_id: string;
+    distance: number;
+  }>(
+    `SELECT id, body_text, doc_id, drive_file_id, 0.0 AS distance
+     FROM knowledge_base_chunks
+     WHERE is_active = true
+       AND chunk_type = ANY($${keywords.length + 1}::text[])
+       AND (${conditions.join(' OR ')})
+     ORDER BY doc_id
+     LIMIT $${keywords.length + 2}`,
+    [...params, ['fact', 'playbook'], topK],
+  );
+  return rows.map(mapChunkRow);
+}
+
+function mapChunkRow(r: {
+  id: string;
+  body_text: string;
+  doc_id: string;
+  drive_file_id: string;
+  distance: number;
+}): KbChunkForChat {
+  const slug = (r.doc_id || '').split('/').pop() || r.doc_id || 'Unknown';
+  const docTitle = slug
+    .replace(/[_-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+  const driveUrl = r.drive_file_id
+    ? `https://docs.google.com/document/d/${r.drive_file_id}/edit`
+    : '';
+  return {
+    id: r.id,
+    bodyText: r.body_text,
+    docId: r.doc_id,
+    driveFileId: r.drive_file_id,
+    docTitle,
+    driveUrl,
+    distance: r.distance,
+  };
 }
