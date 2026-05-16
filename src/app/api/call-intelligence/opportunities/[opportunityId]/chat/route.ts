@@ -275,7 +275,7 @@ export async function POST(
         try {
           const claudeStream = anthropic.messages.stream({
             model: CLAUDE_MODEL,
-            max_tokens: 2048,
+            max_tokens: 4096,
             system: systemPrompt,
             messages: claudeMessages,
           });
