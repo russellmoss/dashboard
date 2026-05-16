@@ -385,7 +385,7 @@ async function embedAndSearchKb(query: string): Promise<KbChunkForChat[]> {
   const keywords = extractKbKeywords(query);
   if (keywords.length > 0) {
     try {
-      const keywordResults = await searchKbChunksByKeyword(keywords, 6);
+      const keywordResults = await searchKbChunksByKeyword(keywords, 25);
       return deduplicateKbChunks(embeddingResults, keywordResults);
     } catch (err) {
       console.error('[chat] KB keyword fallback also failed:', err);
@@ -444,6 +444,14 @@ Based on the call summaries and any KB context about this advisor, infer which p
 When the user asks for call prep or meeting preparation, proactively scan all call summaries for personal details the advisor has shared — life updates, family mentions, hobbies, career milestones, travel, health, personal goals, or anything that reveals who they are as a person beyond the business relationship. Surface these as a **"Personal Notes for Rapport"** section so the user can reference them naturally in conversation. This builds trust and shows the advisor we remember and care about them as people, not just prospects.
 
 Also look for: the advisor's specific concerns, desires, pain points with their current situation, and any objections they've raised. Frame your advice to directly address these — don't give generic pitches.
+
+## Objection Handling & Knowledge Base Usage
+
+When the user asks about objections, objection prep, how to handle pushback, or competitive positioning, you MUST ground your response in the Knowledge Base Context below. The KB contains specific objection handling playbooks, frameworks, and competitive positioning guides — these are NOT generic advice, they are the company's proven methodology. For each anticipated objection:
+1. Reference the specific playbook that applies (cite with inline markdown link)
+2. Use the playbook's recommended language and frameworks, adapted for this specific advisor
+3. Combine the playbook guidance with what you know about this advisor from their call summaries
+Never say you don't have access to playbooks or objection handling content if KB chunks are present in your context. If KB content is available, use it.
 
 ## Follow-Up Questions
 
