@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ListChecks, Settings as SettingsIcon, Users, FileText, Sliders, PhoneCall, BarChart3, DollarSign, Briefcase } from 'lucide-react';
+import { ListChecks, Settings as SettingsIcon, Users, FileText, Sliders, PhoneCall, BarChart3, DollarSign, Briefcase, PlayCircle } from 'lucide-react';
 import type { CallIntelligenceTab } from '@/types/call-intelligence';
 import { canEditRubrics } from '@/lib/permissions';
 import QueueTab from './tabs/QueueTab';
@@ -13,6 +13,7 @@ import CoachingUsageWrapper from './tabs/CoachingUsageWrapper';
 import OpportunitiesTab from './tabs/OpportunitiesTab';
 import InsightsTab from './tabs/InsightsTab';
 import CostAnalysisTab from './tabs/CostAnalysisTab';
+import TutorialsTab from './tabs/TutorialsTab';
 
 interface Props {
   role: string;
@@ -20,7 +21,7 @@ interface Props {
   initialFocusRep: string | null;
 }
 
-const VALID_TABS: CallIntelligenceTab[] = ['queue', 'settings', 'admin-users', 'admin-refinements', 'rubrics', 'coaching-usage', 'opportunities', 'insights', 'cost-analysis'];
+const VALID_TABS: CallIntelligenceTab[] = ['queue', 'settings', 'admin-users', 'admin-refinements', 'rubrics', 'coaching-usage', 'opportunities', 'insights', 'cost-analysis', 'tutorials'];
 
 export default function CallIntelligenceClient({ role, initialTab, initialFocusRep }: Props) {
   const isAdmin = role === 'admin' || role === 'revops_admin';
@@ -71,6 +72,9 @@ export default function CallIntelligenceClient({ role, initialTab, initialFocusR
               <PhoneCall className="w-4 h-4" /> Usage
             </TabButton>
           )}
+          <TabButton active={activeTab === 'tutorials'} onClick={() => setActiveTab('tutorials')}>
+            <PlayCircle className="w-4 h-4" /> Tutorials
+          </TabButton>
           <TabButton active={activeTab === 'settings'} onClick={() => setActiveTab('settings')}>
             <SettingsIcon className="w-4 h-4" /> My settings
           </TabButton>
@@ -99,6 +103,7 @@ export default function CallIntelligenceClient({ role, initialTab, initialFocusR
       )}
       {isManagerOrAdmin && activeTab === 'rubrics' && <RubricsTab />}
       {(isRevopsAdmin || isManagerOrAdmin || role === 'sgm') && activeTab === 'coaching-usage' && <CoachingUsageWrapper role={role} />}
+      {activeTab === 'tutorials' && <TutorialsTab role={role} />}
       {activeTab === 'settings' && <SettingsTab />}
       {isAdmin && activeTab === 'admin-users' && <AdminUsersTab />}
       {isAdmin && activeTab === 'admin-refinements' && <AdminRefinementsTab />}

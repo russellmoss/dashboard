@@ -9,7 +9,7 @@ import type { CallIntelligenceTab } from '@/types/call-intelligence';
 
 export const dynamic = 'force-dynamic';
 
-const VALID_TABS: CallIntelligenceTab[] = ['queue', 'settings', 'admin-users', 'admin-refinements', 'rubrics', 'coaching-usage', 'opportunities', 'insights', 'cost-analysis'];
+const VALID_TABS: CallIntelligenceTab[] = ['queue', 'settings', 'admin-users', 'admin-refinements', 'rubrics', 'coaching-usage', 'opportunities', 'insights', 'cost-analysis', 'tutorials'];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default async function CallIntelligencePage({

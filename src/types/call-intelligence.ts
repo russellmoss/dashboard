@@ -216,7 +216,8 @@ export type CallIntelligenceTab =
   | 'coaching-usage'
   | 'opportunities'
   | 'insights'
-  | 'cost-analysis';
+  | 'cost-analysis'
+  | 'tutorials';
 
 export interface NeedsLinkingRow {
   callNoteId: string;
