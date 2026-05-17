@@ -1278,3 +1278,32 @@ export type SaveGranolaKeyResponseT = z.infer<typeof SaveGranolaKeyResponse>;
 export type VerifyGranolaKeyResponseT = z.infer<typeof VerifyGranolaKeyResponse>;
 export type ClearGranolaKeyResponseT = z.infer<typeof ClearGranolaKeyResponse>;
 export type GranolaKeyStatusT = z.infer<typeof GranolaKeyStatusSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// POST /api/dashboard/evaluations/:id/feedback — ai_feedback submission
+// from Dashboard (2026-05-17). Managers flag incorrect AI evaluation content;
+// rows become retrieval candidates for the correction-injection pipeline.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const SubmitEvalFeedbackRequest = z.object({
+  claim_type: z.enum([
+    'strength', 'weakness', 'observation', 'knowledge_gap',
+    'compliance_flag', 'coaching_nudge', 'dimension_score', 'rep_deferral',
+  ]),
+  claim_index: z.number().int().min(0).nullable(),
+  claim_text: z.string().trim().min(1).max(2000),
+  displayed_text: z.string().trim().min(1).max(2000).nullable().optional(),
+  dimension_key: z.string().trim().min(1).max(200).nullable().optional(),
+  category: z.enum(['factual_error', 'obsolete_process', 'wrong_tone', 'wrong_recommendation']),
+  what_was_wrong: z.string().trim().min(1).max(2000),
+  what_it_should_say: z.string().trim().min(1).max(2000).nullable().optional(),
+}).strict();
+
+export type SubmitEvalFeedbackRequestT = z.infer<typeof SubmitEvalFeedbackRequest>;
+
+export const SubmitEvalFeedbackResponse = z.object({
+  feedback_id: z.string().uuid(),
+  status: z.literal('pending_review'),
+}).strict();
+
+export type SubmitEvalFeedbackResponseT = z.infer<typeof SubmitEvalFeedbackResponse>;

@@ -109,6 +109,17 @@ export interface EvaluationDetail {
   manager_edited_by_active: boolean | null;
   transcript_comments: TranscriptCommentRow[];
   chunk_lookup: Record<string, KbChunkAugmentation>;
+  flags: AiFeedbackSummary[];
+}
+
+export interface AiFeedbackSummary {
+  id: string;
+  claim_type: string;
+  claim_index: number | null;
+  category: string;
+  what_was_wrong: string;
+  status: string;
+  submitted_at: string;
 }
 
 /** A single utterance/KB citation block embedded inside ai_original or canonical fields.

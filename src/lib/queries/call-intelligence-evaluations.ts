@@ -490,3 +490,29 @@ export async function getKbChunksByIds(
     return acc;
   }, {});
 }
+
+export interface AiFeedbackSummary {
+  id: string;
+  claim_type: string;
+  claim_index: number | null;
+  category: string;
+  what_was_wrong: string;
+  status: string;
+  submitted_at: string;
+}
+
+export async function getAiFeedbackForEval(evaluationId: string): Promise<AiFeedbackSummary[]> {
+  if (!UUID_RE.test(evaluationId)) return [];
+  const pool = getCoachingPool();
+  const { rows } = await pool.query<AiFeedbackSummary>(
+    `SELECT af.id, af.claim_type, af.claim_index, af.category,
+            af.what_was_wrong, af.status,
+            af.submitted_at::text AS submitted_at
+     FROM ai_feedback af
+     WHERE af.evaluation_id = $1
+       AND af.is_synthetic_test_data = false
+     ORDER BY af.submitted_at DESC`,
+    [evaluationId],
+  );
+  return rows;
+}

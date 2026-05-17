@@ -7,6 +7,7 @@ import {
   getKbChunksByIds,
   getRepIdByEmail,
   getTranscriptComments,
+  getAiFeedbackForEval,
 } from '@/lib/queries/call-intelligence-evaluations';
 import { getCoachingPool } from '@/lib/coachingDb';
 import { readAiOriginalCoachingNudge } from '@/components/call-intelligence/citation-helpers';
@@ -124,9 +125,10 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: st
     const role = permissions.role;
     const canSeeComments = role === 'manager' || role === 'admin' || role === 'revops_admin';
 
-    const [comments, chunkLookup] = await Promise.all([
+    const [comments, chunkLookup, flags] = await Promise.all([
       canSeeComments ? getTranscriptComments(id) : Promise.resolve([]),
       buildChunkLookup(detail),
+      canSeeComments ? getAiFeedbackForEval(id) : Promise.resolve([]),
     ]);
 
     // Pre-024 fallback: canonical coaching_nudge is null for older rows; read from ai_original.
@@ -138,6 +140,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: st
       transcript_comments: comments,
       chunk_lookup: chunkLookup,
       coaching_nudge_effective: coachingNudgeEffective,
+      flags,
     });
   } catch (err) {
     console.error('[/api/call-intelligence/evaluations/[id]] error', err);

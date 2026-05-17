@@ -56,6 +56,9 @@ import {
   type SubmitNoteReviewRequestT, type SubmitNoteReviewResponseT,
   type RejectNoteReviewRequestT, type RejectNoteReviewResponseT,
   type CostAnalysisResponseT,
+  // ai_feedback submission from Dashboard.
+  SubmitEvalFeedbackRequest, SubmitEvalFeedbackResponse,
+  type SubmitEvalFeedbackRequestT, type SubmitEvalFeedbackResponseT,
   // Step 5b-3-API admin: managers list + coaching-teams CRUD + Granola key.
   ListManagersResponse,
   ListCoachingTeamsResponse,
@@ -341,6 +344,17 @@ export const salesCoachingClient = {
         evaluationId,
         expectedEditVersion: (body as { expected_edit_version: number }).expected_edit_version,
       },
+    }),
+
+  submitEvalFeedback: (email: string, evaluationId: string, body: SubmitEvalFeedbackRequestT) =>
+    bridgeRequest<SubmitEvalFeedbackRequestT, SubmitEvalFeedbackResponseT>({
+      method: 'POST',
+      path: `/api/dashboard/evaluations/${encodeURIComponent(evaluationId)}/feedback`,
+      email,
+      requestSchema: SubmitEvalFeedbackRequest,
+      responseSchema: SubmitEvalFeedbackResponse,
+      body,
+      context: { evaluationId },
     }),
 
   createTranscriptComment: (

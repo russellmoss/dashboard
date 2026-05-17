@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Card } from '@tremor/react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronRight, Flag } from 'lucide-react';
+import { FlagClaimModal } from '@/components/call-intelligence/FlagClaimModal';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import type { Citation, EvaluationDetail } from '@/types/call-intelligence';
 import { formatRelativeTimestamp } from '@/lib/utils/freshness-helpers';
@@ -215,6 +216,14 @@ export default function EvalDetailClient({ id, role, returnTab, currentRepId }: 
   const [mutationLock, setMutationLock] = useState<MutationLock>({ kind: 'idle' });
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [pendingUtteranceIdx, setPendingUtteranceIdx] = useState<number | null>(null);
+  const [evalPanelExpanded, setEvalPanelExpanded] = useState(false);
+  const [flagTarget, setFlagTarget] = useState<{
+    claimType: string;
+    claimIndex: number | null;
+    claimText: string;
+    displayedText?: string | null;
+    dimensionKey?: string | null;
+  } | null>(null);
   const transcriptRef = useRef<TranscriptModalHandle>(null);
 
   const isLocked = mutationLock.kind !== 'idle';
@@ -485,6 +494,49 @@ export default function EvalDetailClient({ id, role, returnTab, currentRepId }: 
     'coachingNudge',
   );
 
+  const flags = detail.flags ?? [];
+  function flagCountFor(claimType: string) {
+    return flags.filter((f) => f.claim_type === claimType).length;
+  }
+  function FlagBadge({ count }: { count: number }) {
+    if (count === 0) return null;
+    return (
+      <span className="inline-flex items-center px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/30 rounded">
+        {count} {count === 1 ? 'flag' : 'flags'}
+      </span>
+    );
+  }
+
+  function FlagButton({ claimType, claimIndex, claimText, displayedText, dimensionKey }: {
+    claimType: string;
+    claimIndex: number | null;
+    claimText: string;
+    displayedText?: string | null;
+    dimensionKey?: string | null;
+  }) {
+    if (!isManager) return null;
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setFlagTarget({
+            claimType,
+            claimIndex,
+            claimText,
+            displayedText: displayedText !== claimText ? displayedText : null,
+            dimensionKey,
+          });
+        }}
+        className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded transition-colors opacity-0 group-hover:opacity-100"
+        title="Flag this content"
+      >
+        <Flag className="w-3 h-3" />
+        Flag
+      </button>
+    );
+  }
+
   const renderCitedDisplay = (item: ListItem) => (
     <CitedTextLine
       text={item.text}
@@ -495,6 +547,32 @@ export default function EvalDetailClient({ id, role, returnTab, currentRepId }: 
       disabled={isLocked}
     />
   );
+
+  function makeFlaggedRenderer(
+    claimType: string,
+    aiItems: ListItem[],
+  ) {
+    return (item: ListItem, idx: number) => (
+      <div className="group/item flex items-start gap-1">
+        <div className="flex-1">
+          <CitedTextLine
+            text={item.text}
+            citations={item.citations}
+            chunkLookup={detail.chunk_lookup}
+            onScrollToUtterance={handleScrollToUtterance}
+            onOpenKB={handleOpenKB}
+            disabled={isLocked}
+          />
+        </div>
+        <FlagButton
+          claimType={claimType}
+          claimIndex={idx}
+          claimText={aiItems[idx]?.text ?? item.text}
+          displayedText={item.text}
+        />
+      </div>
+    );
+  }
 
   /** Normalize a list-field draft for the bridge: every item gets a guaranteed
    *  citations array (even if empty). Preserves expected_source for knowledge_gaps. */
@@ -602,11 +680,21 @@ export default function EvalDetailClient({ id, role, returnTab, currentRepId }: 
 
       <div className="space-y-4">
         {(overall !== null || canonicalDimensionScores.length > 0) && (
-            <Card className="dark:bg-gray-800 dark:border-gray-700">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  AI Evaluation
-                </h2>
+            <Card className="dark:bg-gray-800 dark:border-gray-700 p-0 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setEvalPanelExpanded((v) => !v)}
+                aria-expanded={evalPanelExpanded}
+                className="flex items-center justify-between w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  {evalPanelExpanded
+                    ? <ChevronDown className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                    : <ChevronRight className="w-5 h-5 text-gray-500 dark:text-gray-400" />}
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    AI Evaluation
+                  </h2>
+                </div>
                 <div className="flex items-center gap-2">
                   {overall !== null && <OverallScoreBadge score={overall} />}
                   <RubricVersionBadge
@@ -615,82 +703,104 @@ export default function EvalDetailClient({ id, role, returnTab, currentRepId }: 
                     dimensionCount={detail.rubric_dimension_count}
                   />
                 </div>
-              </div>
-              {canonicalDimensionScores.length > 0 && (
-                <div className="space-y-3">
-                  {canonicalDimensionScores.map((s) => {
-                    const aiCounterpart = aiDimensionScores.find((d) => d.name === s.name);
-                    if (auditEnabled && aiCounterpart) {
-                      return (
-                        <div key={s.name} className="grid grid-cols-2 gap-3 items-center">
-                          <DimensionBar name={s.name} score={s.score} />
-                          <div className="opacity-70 italic text-xs">
-                            <DimensionBar name={`AI: ${s.name}`} score={aiCounterpart.score} />
+              </button>
+              {evalPanelExpanded && (
+                <div className="px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-700">
+                  {canonicalDimensionScores.length > 0 ? (
+                    <div className="space-y-3">
+                      {canonicalDimensionScores.map((s) => {
+                        const aiCounterpart = aiDimensionScores.find((d) => d.name === s.name);
+                        if (auditEnabled && aiCounterpart) {
+                          return (
+                            <div key={s.name} className="grid grid-cols-2 gap-3 items-center">
+                              <DimensionBar name={s.name} score={s.score} />
+                              <div className="opacity-70 italic text-xs">
+                                <DimensionBar name={`AI: ${s.name}`} score={aiCounterpart.score} />
+                              </div>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={s.name} className="group flex items-center gap-2">
+                            <div className="flex-1">
+                              <DimensionBar name={s.name} score={s.score} />
+                            </div>
+                            {isManager && !auditEnabled && (
+                              <FlagButton
+                                claimType="dimension_score"
+                                claimIndex={null}
+                                claimText={`Dimension: ${humanizeKey(s.name)} — Score: ${(aiCounterpart ?? s).score.toFixed(1)}/4${(aiCounterpart ?? s).body ? `. ${(aiCounterpart ?? s).body}` : ''}`}
+                                displayedText={`Dimension: ${humanizeKey(s.name)} — Score: ${s.score.toFixed(1)}/4${s.body ? `. ${s.body}` : ''}`}
+                                dimensionKey={s.name}
+                              />
+                            )}
+                            {isManager && !auditEnabled && (
+                              <InlineEditDimensionScore
+                                dimension={humanizeKey(s.name)}
+                                score={s.score}
+                                disabled={isLocked}
+                                onSave={async (newScore) => {
+                                  const base: Record<
+                                    string,
+                                    { score: number; citations: Citation[]; body?: string }
+                                  > = {};
+                                  const source =
+                                    detail.dimension_scores ??
+                                    Object.fromEntries(
+                                      aiDimensionScores.map((d) => [
+                                        d.name,
+                                        { score: d.score, citations: d.citations ?? [], body: d.body },
+                                      ]),
+                                    );
+                                  for (const [name, v] of Object.entries(source)) {
+                                    const body = (v as { body?: unknown }).body;
+                                    base[name] = {
+                                      score: v.score,
+                                      citations: (v.citations ?? []) as Citation[],
+                                      ...(typeof body === 'string' && body.length > 0
+                                        ? { body }
+                                        : {}),
+                                    };
+                                  }
+                                  base[s.name] = {
+                                    score: newScore,
+                                    citations: (s.citations ?? []) as Citation[],
+                                    ...(typeof s.body === 'string' && s.body.length > 0
+                                      ? { body: s.body }
+                                      : {}),
+                                  };
+                                  return handleEdit({ dimension_scores: base });
+                                }}
+                              />
+                            )}
                           </div>
-                        </div>
-                      );
-                    }
-                    return (
-                      <div key={s.name} className="flex items-center gap-2">
-                        <div className="flex-1">
-                          <DimensionBar name={s.name} score={s.score} />
-                        </div>
-                        {isManager && !auditEnabled && (
-                          <InlineEditDimensionScore
-                            dimension={humanizeKey(s.name)}
-                            score={s.score}
-                            disabled={isLocked}
-                            onSave={async (newScore) => {
-                              // Bridge schema expects { score, citations, body? } per dimension.
-                              // Preserve existing citations AND body on every dimension; only the
-                              // edited dimension gets its score swapped. Dropping body here would
-                              // silently nuke the AI rationale on every score edit (R1 data loss).
-                              const base: Record<
-                                string,
-                                { score: number; citations: Citation[]; body?: string }
-                              > = {};
-                              const source =
-                                detail.dimension_scores ??
-                                Object.fromEntries(
-                                  aiDimensionScores.map((d) => [
-                                    d.name,
-                                    { score: d.score, citations: d.citations ?? [], body: d.body },
-                                  ]),
-                                );
-                              for (const [name, v] of Object.entries(source)) {
-                                const body = (v as { body?: unknown }).body;
-                                base[name] = {
-                                  score: v.score,
-                                  citations: (v.citations ?? []) as Citation[],
-                                  ...(typeof body === 'string' && body.length > 0
-                                    ? { body }
-                                    : {}),
-                                };
-                              }
-                              base[s.name] = {
-                                score: newScore,
-                                citations: (s.citations ?? []) as Citation[],
-                                ...(typeof s.body === 'string' && s.body.length > 0
-                                  ? { body: s.body }
-                                  : {}),
-                              };
-                              return handleEdit({ dimension_scores: base });
-                            }}
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                      No dimension scores available
+                    </p>
+                  )}
                 </div>
               )}
             </Card>
           )}
 
           {(canonicalNarrative || aiNarrative) && (
-            <Card className="dark:bg-gray-800 dark:border-gray-700">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                Narrative
-              </h2>
+            <Card className="group dark:bg-gray-800 dark:border-gray-700">
+              <div className="flex items-center gap-2 mb-2">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  Narrative
+                </h2>
+                {isManager && <FlagBadge count={flagCountFor('observation')} />}
+                <FlagButton
+                  claimType="observation"
+                  claimIndex={null}
+                  claimText={aiNarrative}
+                  displayedText={canonicalNarrative}
+                />
+              </div>
               {auditEnabled ? (
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -736,10 +846,19 @@ export default function EvalDetailClient({ id, role, returnTab, currentRepId }: 
           )}
 
           {supportsCoachingNudge && (effectiveNudge || isManager) && (
-            <Card className="dark:bg-gray-800 dark:border-gray-700">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                Coaching nudge
-              </h2>
+            <Card className="group dark:bg-gray-800 dark:border-gray-700">
+              <div className="flex items-center gap-2 mb-2">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  Coaching nudge
+                </h2>
+                {isManager && <FlagBadge count={flagCountFor('coaching_nudge')} />}
+                <FlagButton
+                  claimType="coaching_nudge"
+                  claimIndex={null}
+                  claimText={aiCoachingNudge}
+                  displayedText={effectiveNudge}
+                />
+              </div>
               {auditEnabled ? (
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -795,7 +914,7 @@ export default function EvalDetailClient({ id, role, returnTab, currentRepId }: 
                       onSave={(newItems) =>
                         handleEdit({ strengths: normalizeListForSave(newItems, 'strengths') })
                       }
-                      renderItemDisplay={renderCitedDisplay}
+                      renderItemDisplay={isManager ? makeFlaggedRenderer('strength', aiStrengths) : renderCitedDisplay}
                     />
                   )}
                 </Card>
@@ -814,7 +933,7 @@ export default function EvalDetailClient({ id, role, returnTab, currentRepId }: 
                       onSave={(newItems) =>
                         handleEdit({ weaknesses: normalizeListForSave(newItems, 'weaknesses') })
                       }
-                      renderItemDisplay={renderCitedDisplay}
+                      renderItemDisplay={isManager ? makeFlaggedRenderer('weakness', aiWeaknesses) : renderCitedDisplay}
                     />
                   )}
                 </Card>
@@ -839,7 +958,7 @@ export default function EvalDetailClient({ id, role, returnTab, currentRepId }: 
                       knowledge_gaps: normalizeListForSave(newItems, 'knowledge_gaps'),
                     })
                   }
-                  renderItemDisplay={renderCitedDisplay}
+                  renderItemDisplay={isManager ? makeFlaggedRenderer('knowledge_gap', aiKnowledgeGaps) : renderCitedDisplay}
                 />
               )}
             </Card>
@@ -855,8 +974,15 @@ export default function EvalDetailClient({ id, role, returnTab, currentRepId }: 
               </p>
               <ul className="space-y-2 text-sm text-gray-800 dark:text-gray-200">
                 {repDeferrals.map((d, i) => (
-                  <li key={i} className="border-l-2 border-gray-300 dark:border-gray-600 pl-3">
-                    <div className="font-medium">{d.topic}</div>
+                  <li key={i} className="group border-l-2 border-gray-300 dark:border-gray-600 pl-3">
+                    <div className="flex items-center gap-2">
+                      <div className="font-medium">{d.topic}</div>
+                      <FlagButton
+                        claimType="rep_deferral"
+                        claimIndex={i}
+                        claimText={d.deferral_text}
+                      />
+                    </div>
                     <div className="text-gray-700 dark:text-gray-300">
                       &ldquo;{d.deferral_text}&rdquo;
                     </div>
@@ -882,7 +1008,7 @@ export default function EvalDetailClient({ id, role, returnTab, currentRepId }: 
                       compliance_flags: normalizeListForSave(newItems, 'compliance_flags'),
                     })
                   }
-                  renderItemDisplay={renderCitedDisplay}
+                  renderItemDisplay={isManager ? makeFlaggedRenderer('compliance_flag', aiComplianceFlags) : renderCitedDisplay}
                 />
               )}
             </Card>
@@ -907,7 +1033,7 @@ export default function EvalDetailClient({ id, role, returnTab, currentRepId }: 
                       ),
                     })
                   }
-                  renderItemDisplay={renderCitedDisplay}
+                  renderItemDisplay={isManager ? makeFlaggedRenderer('observation', aiAdditional) : renderCitedDisplay}
                 />
               )}
             </Card>
@@ -1042,6 +1168,39 @@ export default function EvalDetailClient({ id, role, returnTab, currentRepId }: 
         onOpenRefinement={() => setRefinementOpen(true)}
         disabled={isLocked}
       />
+
+      {flagTarget && (
+        <FlagClaimModal
+          evaluationId={id}
+          claimType={flagTarget.claimType}
+          claimIndex={flagTarget.claimIndex}
+          claimText={flagTarget.claimText}
+          displayedText={flagTarget.displayedText}
+          dimensionKey={flagTarget.dimensionKey}
+          onClose={() => setFlagTarget(null)}
+          onSuccess={() => {
+            if (detail && flagTarget) {
+              setDetail({
+                ...detail,
+                flags: [
+                  {
+                    id: crypto.randomUUID(),
+                    claim_type: flagTarget.claimType,
+                    claim_index: flagTarget.claimIndex,
+                    category: '',
+                    what_was_wrong: '',
+                    status: 'pending_review',
+                    submitted_at: new Date().toISOString(),
+                  },
+                  ...(detail.flags ?? []),
+                ],
+              });
+            }
+            setFlagTarget(null);
+            setBanner({ kind: 'success', text: 'Feedback submitted — it will improve future evaluations.' });
+          }}
+        />
+      )}
 
       {refinementOpen && activeKb && (
         <RefinementModal
