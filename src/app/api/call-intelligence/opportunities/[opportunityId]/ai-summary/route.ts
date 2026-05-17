@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
-import { getRepIdByEmail } from '@/lib/queries/call-intelligence-evaluations';
 import { getRepIdsVisibleToActor } from '@/lib/queries/call-intelligence/visible-reps';
 import { getOpportunityHeader } from '@/lib/queries/opportunity-header';
 import {
@@ -71,25 +70,13 @@ async function authenticate(opportunityId: string) {
     return { error: NextResponse.json({ error: 'Opportunity not found' }, { status: 404 }) };
   }
 
-  const isPrivileged = permissions.role === 'admin' || permissions.role === 'revops_admin' || permissions.role === 'sgm';
-  const rep = await getRepIdByEmail(session.user.email);
-
-  if (!rep && !isPrivileged) {
-    return { error: NextResponse.json({ error: 'Rep not found' }, { status: 403 }) };
-  }
-
-  const actorRepId = rep?.id ?? '';
-  const visibleRepIds = await getRepIdsVisibleToActor({
-    repId: actorRepId,
-    role: isPrivileged ? 'admin' : permissions.role,
+  const allRepIds = await getRepIdsVisibleToActor({
+    repId: '',
+    role: 'admin',
     email: session.user.email,
   });
 
-  const allRepIds = actorRepId && !visibleRepIds.includes(actorRepId)
-    ? [actorRepId, ...visibleRepIds]
-    : visibleRepIds;
-
-  return { session, permissions, header, isPrivileged, allRepIds };
+  return { session, permissions, header, allRepIds };
 }
 
 // ---------------------------------------------------------------------------
@@ -296,7 +283,7 @@ export async function GET(
   const auth = await authenticate(opportunityId);
   if ('error' in auth) return auth.error;
 
-  const { header, isPrivileged, allRepIds } = auth;
+  const { header, allRepIds } = auth;
 
   const calls = await getCallSummariesForOpportunity(
     opportunityId,
@@ -304,10 +291,6 @@ export async function GET(
     header.contactId,
     allRepIds,
   );
-
-  if (calls.length === 0 && !isPrivileged) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
 
   if (calls.length === 0) {
     return NextResponse.json({
@@ -370,7 +353,7 @@ export async function POST(
   const auth = await authenticate(opportunityId);
   if ('error' in auth) return auth.error;
 
-  const { header, isPrivileged, allRepIds } = auth;
+  const { header, allRepIds } = auth;
 
   const calls = await getCallSummariesForOpportunity(
     opportunityId,
@@ -378,10 +361,6 @@ export async function POST(
     header.contactId,
     allRepIds,
   );
-
-  if (calls.length === 0 && !isPrivileged) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
 
   if (calls.length === 0) {
     return NextResponse.json({

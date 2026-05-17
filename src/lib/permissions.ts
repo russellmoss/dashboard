@@ -92,7 +92,7 @@ export function getPermissionsFromToken(tokenData: TokenUserData): UserPermissio
   return {
     ...basePermissions,
     sgaFilter: tokenData.role === 'sga' ? (tokenData.sgaCanonicalName ?? tokenData.name) : null,
-    sgmFilter: tokenData.role === 'sgm' ? tokenData.name : null,
+    sgmFilter: null,
     recruiterFilter: tokenData.role === 'recruiter' ? (tokenData.externalAgency ?? null) : null,
     capitalPartnerFilter: tokenData.role === 'capital_partner' ? (tokenData.externalAgency ?? null) : null,
     userId: tokenData.id,
@@ -128,7 +128,7 @@ export async function getUserPermissions(email: string): Promise<UserPermissions
   return {
     ...basePermissions,
     sgaFilter: user.role === 'sga' ? user.name : null,
-    sgmFilter: user.role === 'sgm' ? user.name : null,
+    sgmFilter: null,
     recruiterFilter: user.role === 'recruiter' ? (user.externalAgency ?? null) : null,
     capitalPartnerFilter: user.role === 'capital_partner' ? (user.externalAgency ?? null) : null,
     userId: user.id,

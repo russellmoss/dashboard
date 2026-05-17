@@ -2,7 +2,7 @@
 // Detail-tab payload for the Coaching Usage drill-down modal.
 // Returns the full summary_markdown + (optional) transcript for one call_note.
 //
-// Auth: revops_admin only — same gate as the parent /api/admin/coaching-usage.
+// Auth: any call-intelligence role (manager, admin, revops_admin, sgm, sga).
 // Cache: per-call_note_id, 5-min TTL on the COACHING_USAGE tag (so the global
 // "Refresh" button busts these too).
 
@@ -95,7 +95,8 @@ export async function GET(
     if (!permissions) {
       return NextResponse.json({ error: 'Session invalid' }, { status: 401 });
     }
-    if (permissions.role !== 'revops_admin') {
+    const ALLOWED_ROLES = ['manager', 'admin', 'revops_admin', 'sgm', 'sga'] as const;
+    if (!(ALLOWED_ROLES as readonly string[]).includes(permissions.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

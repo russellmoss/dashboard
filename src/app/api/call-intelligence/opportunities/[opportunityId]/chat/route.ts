@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
-import { getRepIdByEmail } from '@/lib/queries/call-intelligence-evaluations';
 import { getRepIdsVisibleToActor } from '@/lib/queries/call-intelligence/visible-reps';
 import { getOpportunityHeader } from '@/lib/queries/opportunity-header';
 import {
@@ -76,25 +75,13 @@ async function authenticate(opportunityId: string) {
     return { error: NextResponse.json({ error: 'Opportunity not found' }, { status: 404 }) };
   }
 
-  const isPrivileged = permissions.role === 'admin' || permissions.role === 'revops_admin' || permissions.role === 'sgm';
-  const rep = await getRepIdByEmail(session.user.email);
-
-  if (!rep && !isPrivileged) {
-    return { error: NextResponse.json({ error: 'Rep not found' }, { status: 403 }) };
-  }
-
-  const actorRepId = rep?.id ?? '';
-  const visibleRepIds = await getRepIdsVisibleToActor({
-    repId: actorRepId,
-    role: isPrivileged ? 'admin' : permissions.role,
+  const allRepIds = await getRepIdsVisibleToActor({
+    repId: '',
+    role: 'admin',
     email: session.user.email,
   });
 
-  const allRepIds = actorRepId && !visibleRepIds.includes(actorRepId)
-    ? [actorRepId, ...visibleRepIds]
-    : visibleRepIds;
-
-  return { session, permissions, header, isPrivileged, allRepIds };
+  return { session, permissions, header, allRepIds };
 }
 
 // ---------------------------------------------------------------------------

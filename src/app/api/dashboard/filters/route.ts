@@ -61,13 +61,6 @@ export async function GET() {
       count: sgm.record_count,
     }));
 
-    // Apply permission-based filtering (not cached - user-specific)
-    // Note: SGA users see all SGAs in the dropdown (same as admins on funnel performance page)
-    // SGM users should only see their own name in the dropdown
-    if (permissions.sgmFilter) {
-      processedSgms = processedSgms.filter(sgm => sgm.value === permissions.sgmFilter);
-    }
-
     const filterOptions: FilterOptions = {
       channels: rawOptions.channels,
       sources: rawOptions.sources,

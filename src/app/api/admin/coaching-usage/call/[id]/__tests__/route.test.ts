@@ -39,9 +39,9 @@ describe('GET /api/admin/coaching-usage/call/[id]', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when role is not revops_admin', async () => {
+  it('returns 403 when role is not in allowed list', async () => {
     (getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'a@x.com' } });
-    mockGetSessionPermissions.mockReturnValue({ role: 'admin' });
+    mockGetSessionPermissions.mockReturnValue({ role: 'viewer' });
     const res = await GET(makeReq() as never, makeCtx(VALID_UUID));
     expect(res.status).toBe(403);
   });

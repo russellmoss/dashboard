@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getSessionPermissions } from '@/types/auth';
-import { getRepIdByEmail } from '@/lib/queries/call-intelligence-evaluations';
 import { getRepIdsVisibleToActor } from '@/lib/queries/call-intelligence/visible-reps';
 import { getOpportunityIdentityMap } from '@/lib/queries/opportunity-header';
 import { getThreadedCallCounts } from '@/lib/queries/call-intelligence/opportunity-list-counts';
@@ -32,23 +31,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const isPrivileged = permissions.role === 'admin' || permissions.role === 'revops_admin' || permissions.role === 'sgm';
-  const rep = await getRepIdByEmail(session.user.email);
-
-  if (!rep && !isPrivileged) {
-    return NextResponse.json({ error: 'Rep not found' }, { status: 403 });
-  }
-
-  const actorRepId = rep?.id ?? '';
-  const visibleRepIds = await getRepIdsVisibleToActor({
-    repId: actorRepId,
-    role: isPrivileged ? 'admin' : permissions.role,
+  const allRepIds = await getRepIdsVisibleToActor({
+    repId: '',
+    role: 'admin',
     email: session.user.email,
   });
-
-  const allRepIds = actorRepId && !visibleRepIds.includes(actorRepId)
-    ? [actorRepId, ...visibleRepIds]
-    : visibleRepIds;
 
   const [identityMap, podMap] = await Promise.all([
     getOpportunityIdentityMap(),
@@ -62,6 +49,9 @@ export async function GET(request: Request) {
   const ownerFilter = searchParams.getAll('owner');
   const podFilter = searchParams.getAll('podId');
   const hasLikelyUnlinked = searchParams.get('hasLikelyUnlinked') === 'true';
+
+  const isScopedRole = permissions.role === 'sgm' || permissions.role === 'sga';
+  const actorName = session.user?.name ?? '';
 
   let rows: OpportunityListRow[] = identityMap
     .map((opp) => {
@@ -83,7 +73,8 @@ export async function GET(request: Request) {
         kixieCount: c?.kixieCount ?? 0,
       };
     })
-    .filter((r) => r.threadedCallCount > 0);
+    .filter((r) => r.threadedCallCount > 0)
+    .filter((r) => !isScopedRole || r.ownerName === actorName);
 
   if (stageFilter.length > 0) {
     rows = rows.filter((r) => stageFilter.includes(r.stageName));
