@@ -161,11 +161,16 @@ export async function getEvaluationsForManager(
       e.revealed_at,
       e.reveal_override_action,
       e.rubric_version,
-      e.created_at
+      e.created_at,
+      cn.sfdc_what_id,
+      ct.id                             AS pod_id,
+      ct.name                           AS pod_name
     FROM evaluations e
     JOIN call_notes cn         ON cn.id = e.call_note_id
     LEFT JOIN reps  sga        ON sga.id = e.rep_id                     AND sga.is_system = false
     LEFT JOIN reps  mgr        ON mgr.id = e.assigned_manager_id_snapshot AND mgr.is_system = false
+    LEFT JOIN coaching_team_members ctm ON ctm.rep_id = e.rep_id
+    LEFT JOIN coaching_teams ct         ON ct.id = ctm.team_id AND ct.is_active = true
     WHERE (${scopeWhere}) AND (${statusWhere(historyFilter)})
       -- Advisor-facing rule: every Kixie call counts (outbound dialer = prospect-
       -- facing by definition, never AI-classified). Granola calls require
@@ -176,8 +181,9 @@ export async function getEvaluationsForManager(
     LIMIT $${limitParamIdx}
   `;
 
-  interface RawRow extends Omit<EvaluationQueueRow, 'advisor_name'> {
+  interface RawRow extends Omit<EvaluationQueueRow, 'advisor_name' | 'opp_stage'> {
     sfdc_who_id: string | null;
+    sfdc_what_id: string | null;
     invitee_emails: string[] | null;
     advisor_name_fallback: string | null;
   }
@@ -186,9 +192,11 @@ export async function getEvaluationsForManager(
   // Collect signals for the BQ resolver: real SFDC who_ids, plus all external
   // (non-Savvy, non-resource) invitee emails. Empty inputs short-circuit BQ.
   const whoIds = new Set<string>();
+  const whatIds = new Set<string>();
   const emails = new Set<string>();
   for (const r of rawRows) {
     if (r.sfdc_who_id) whoIds.add(r.sfdc_who_id);
+    if (r.sfdc_what_id) whatIds.add(r.sfdc_what_id);
     if (Array.isArray(r.invitee_emails)) {
       for (const e of r.invitee_emails) {
         if (typeof e !== 'string') continue;
@@ -206,15 +214,15 @@ export async function getEvaluationsForManager(
     }
   }
 
-  // BQ round-trip (skipped entirely when both sets are empty — first render of an
+  // BQ round-trip (skipped entirely when all sets are empty — first render of an
   // empty queue, or admin-only fully-internal calls).
   let bq: Awaited<ReturnType<typeof resolveAdvisorNames>> = {
     whoIdToInfo: {}, whatIdToInfo: {}, contactAccountOppToInfo: {},
     emailToUniqueInfo: {}, kixieTaskIdToInfo: {},
   };
   try {
-    if (whoIds.size > 0 || emails.size > 0) {
-      bq = await resolveAdvisorNames({ whoIds: [...whoIds], emails: [...emails] });
+    if (whoIds.size > 0 || emails.size > 0 || whatIds.size > 0) {
+      bq = await resolveAdvisorNames({ whoIds: [...whoIds], emails: [...emails], whatIds: [...whatIds] });
     }
   } catch (err) {
     // BQ failure is not fatal — the fallback advisor_name from SQL is still useful.
@@ -268,6 +276,11 @@ export async function getEvaluationsForManager(
       reveal_override_action: r.reveal_override_action,
       rubric_version: r.rubric_version,
       created_at: r.created_at,
+      pod_id: r.pod_id,
+      pod_name: r.pod_name,
+      opp_stage: r.sfdc_what_id && bq.whatIdToInfo[r.sfdc_what_id]
+        ? bq.whatIdToInfo[r.sfdc_what_id]!.currentStage
+        : null,
     };
   });
 }

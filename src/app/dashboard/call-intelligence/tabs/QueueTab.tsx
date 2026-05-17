@@ -1,11 +1,23 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@tremor/react';
-import { ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { Check, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import type { EvaluationQueueRow } from '@/types/call-intelligence';
+import type { EvaluationQueueRow, InsightsPod } from '@/types/call-intelligence';
+
+const ALL_STAGES = [
+  { value: 'Qualifying', label: 'Qualifying' },
+  { value: 'Discovery', label: 'Discovery' },
+  { value: 'Sales Process', label: 'Sales Process' },
+  { value: 'Negotiating', label: 'Negotiating' },
+  { value: 'Signed', label: 'Signed' },
+  { value: 'On Hold', label: 'On Hold' },
+  { value: 'Joined', label: 'Joined' },
+  { value: 'Closed Lost', label: 'Closed Lost' },
+  { value: 'Planned Nurture', label: 'Planned Nurture' },
+];
 
 type HistoryFilter = 'pending' | 'revealed' | 'all';
 type RepRoleFilter = 'any' | 'SGA' | 'SGM';
@@ -133,6 +145,13 @@ export default function QueueTab({ role, mode }: Props) {
   const [repNameSearch, setRepNameSearch] = useState('');
   const [advisorNameSearch, setAdvisorNameSearch] = useState('');
   const [repRoleFilter, setRepRoleFilter] = useState<RepRoleFilter>('any');
+  const [stageFilter, setStageFilter] = useState<string[]>(ALL_STAGES.map((s) => s.value));
+  const [stageDropdownOpen, setStageDropdownOpen] = useState(false);
+  const [podFilter, setPodFilter] = useState<string[]>([]);
+  const [pods, setPods] = useState<InsightsPod[]>([]);
+  const [podDropdownOpen, setPodDropdownOpen] = useState(false);
+  const stageDropdownRef = useRef<HTMLDivElement>(null);
+  const podDropdownRef = useRef<HTMLDivElement>(null);
 
   // Admin-or-manager-only role filter visibility — SGM/SGA only see their own evals.
   const isAdminOrManager = role === 'admin' || role === 'revops_admin' || role === 'manager';
@@ -163,6 +182,27 @@ export default function QueueTab({ role, mode }: Props) {
     return () => { cancelled = true; };
   }, [historyFilter]);
 
+  useEffect(() => {
+    if (!isAdminOrManager) return;
+    fetch('/api/call-intelligence/insights/pods')
+      .then((res) => res.json())
+      .then((data) => setPods(data.pods ?? []))
+      .catch(() => {});
+  }, [isAdminOrManager]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (stageDropdownRef.current && !stageDropdownRef.current.contains(e.target as Node)) {
+        setStageDropdownOpen(false);
+      }
+      if (podDropdownRef.current && !podDropdownRef.current.contains(e.target as Node)) {
+        setPodDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   function handleSort(field: SortField) {
     if (field === sortField) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -176,21 +216,38 @@ export default function QueueTab({ role, mode }: Props) {
     setRepNameSearch('');
     setAdvisorNameSearch('');
     setRepRoleFilter('any');
+    setStageFilter(ALL_STAGES.map((s) => s.value));
+    setPodFilter([]);
   }
   const hasActiveFilters =
     repNameSearch.trim() !== '' ||
     advisorNameSearch.trim() !== '' ||
-    repRoleFilter !== 'any';
+    repRoleFilter !== 'any' ||
+    stageFilter.length < ALL_STAGES.length ||
+    podFilter.length > 0;
 
   // ─── Filter pass ─────────────────────────────────────────────────────────
+  const stageSummary =
+    stageFilter.length === ALL_STAGES.length
+      ? 'All Stages'
+      : stageFilter.length === 0
+        ? 'No Stages'
+        : `${stageFilter.length} Stages`;
+
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
       if (!fuzzyMatches(r.rep_full_name, repNameSearch)) return false;
       if (!fuzzyMatches(r.advisor_name, advisorNameSearch)) return false;
       if (repRoleFilter !== 'any' && r.rep_role !== repRoleFilter) return false;
+      if (stageFilter.length < ALL_STAGES.length) {
+        if (r.opp_stage && !stageFilter.includes(r.opp_stage)) return false;
+      }
+      if (podFilter.length > 0) {
+        if (!r.pod_id || !podFilter.includes(r.pod_id)) return false;
+      }
       return true;
     });
-  }, [rows, repNameSearch, advisorNameSearch, repRoleFilter]);
+  }, [rows, repNameSearch, advisorNameSearch, repRoleFilter, stageFilter, podFilter]);
 
   // ─── Sort pass ───────────────────────────────────────────────────────────
   const visibleRows = useMemo(() => {
@@ -277,6 +334,120 @@ export default function QueueTab({ role, mode }: Props) {
 
       {/* Filter bar — global filters mirror CoachingUsage's pattern. */}
       <div className="flex flex-wrap items-end gap-3 mb-4 pb-3 border-b border-gray-200 dark:border-gray-700">
+        {/* Stage dropdown multi-select */}
+        <div className="flex flex-col">
+          <label className="text-xs text-gray-600 dark:text-gray-400 mb-1">Stage</label>
+          <div className="relative" ref={stageDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setStageDropdownOpen(!stageDropdownOpen)}
+              className="flex items-center gap-1.5 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+              <span>{stageSummary}</span>
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${stageDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {stageDropdownOpen && (
+              <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 p-2">
+                <div className="flex gap-2 text-xs mb-2 pb-2 border-b border-gray-200 dark:border-gray-700">
+                  <button type="button" onClick={() => setStageFilter(ALL_STAGES.map((s) => s.value))} className="text-blue-600 dark:text-blue-400 hover:underline">
+                    All
+                  </button>
+                  <span className="text-gray-300 dark:text-gray-600">|</span>
+                  <button type="button" onClick={() => setStageFilter([])} className="text-blue-600 dark:text-blue-400 hover:underline">
+                    None
+                  </button>
+                </div>
+                <div className="space-y-0.5 max-h-56 overflow-y-auto">
+                  {ALL_STAGES.map((stage) => {
+                    const isSelected = stageFilter.includes(stage.value);
+                    return (
+                      <label
+                        key={stage.value}
+                        className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
+                          isSelected ? 'bg-blue-50 dark:bg-blue-900/30' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                        }`}
+                      >
+                        <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+                          isSelected ? 'bg-blue-600 border-blue-600' : 'border-gray-300 dark:border-gray-600'
+                        }`}>
+                          {isSelected && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => setStageFilter((prev) => prev.includes(stage.value) ? prev.filter((s) => s !== stage.value) : [...prev, stage.value])}
+                          className="sr-only"
+                        />
+                        <span className={`text-sm ${isSelected ? 'text-blue-700 dark:text-blue-300 font-medium' : 'text-gray-700 dark:text-gray-300'}`}>
+                          {stage.label}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Pod dropdown multi-select */}
+        {isAdminOrManager && pods.length > 0 && (
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-600 dark:text-gray-400 mb-1">Pod</label>
+            <div className="relative" ref={podDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setPodDropdownOpen(!podDropdownOpen)}
+                className="flex items-center gap-1.5 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                <span>{podFilter.length === 0 ? 'All Pods' : `${podFilter.length} Pod${podFilter.length > 1 ? 's' : ''}`}</span>
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${podDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {podDropdownOpen && (
+                <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 p-2">
+                  <div className="flex gap-2 text-xs mb-2 pb-2 border-b border-gray-200 dark:border-gray-700">
+                    <button type="button" onClick={() => setPodFilter(pods.map((p) => p.id))} className="text-blue-600 dark:text-blue-400 hover:underline">
+                      All
+                    </button>
+                    <span className="text-gray-300 dark:text-gray-600">|</span>
+                    <button type="button" onClick={() => setPodFilter([])} className="text-blue-600 dark:text-blue-400 hover:underline">
+                      None
+                    </button>
+                  </div>
+                  <div className="space-y-0.5 max-h-56 overflow-y-auto">
+                    {pods.map((pod) => {
+                      const isSelected = podFilter.includes(pod.id);
+                      return (
+                        <label
+                          key={pod.id}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
+                            isSelected ? 'bg-blue-50 dark:bg-blue-900/30' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                          }`}
+                        >
+                          <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+                            isSelected ? 'bg-blue-600 border-blue-600' : 'border-gray-300 dark:border-gray-600'
+                          }`}>
+                            {isSelected && <Check className="w-3 h-3 text-white" />}
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => setPodFilter((prev) => prev.includes(pod.id) ? prev.filter((id) => id !== pod.id) : [...prev, pod.id])}
+                            className="sr-only"
+                          />
+                          <span className={`text-sm ${isSelected ? 'text-blue-700 dark:text-blue-300 font-medium' : 'text-gray-700 dark:text-gray-300'}`}>
+                            {pod.name}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col">
           <label className="text-xs text-gray-600 dark:text-gray-400 mb-1">Rep name</label>
           <input

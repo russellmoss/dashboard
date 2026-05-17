@@ -32,6 +32,9 @@ export interface EvaluationQueueRow {
    * Null on legacy rows scored before rubric versioning was introduced. */
   rubric_version: number | null;
   created_at: string;
+  pod_id: string | null;
+  pod_name: string | null;
+  opp_stage: string | null;
 }
 
 /** Eval detail. Source: getEvaluationDetail. */
