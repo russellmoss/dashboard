@@ -46,20 +46,8 @@ const TUTORIALS: TutorialVideo[] = [
   },
 ];
 
-function rolesForUser(role: string): string[] {
-  if (role === 'admin' || role === 'revops_admin' || role === 'manager') {
-    return ['sga', 'sgm'];
-  }
-  return [role];
-}
-
-interface Props {
-  role: string;
-}
-
-export default function TutorialsTab({ role }: Props) {
-  const visibleRoles = rolesForUser(role);
-  const videos = TUTORIALS.filter((v) => v.roles.some((r) => visibleRoles.includes(r)));
+export default function TutorialsTab() {
+  const videos = TUTORIALS;
   const [expandedId, setExpandedId] = useState<string | null>(videos[0]?.id ?? null);
 
   const sgaVideos = videos.filter((v) => v.roles.includes('sga'));

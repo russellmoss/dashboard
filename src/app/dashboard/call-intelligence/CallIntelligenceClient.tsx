@@ -103,7 +103,7 @@ export default function CallIntelligenceClient({ role, initialTab, initialFocusR
       )}
       {isManagerOrAdmin && activeTab === 'rubrics' && <RubricsTab />}
       {(isRevopsAdmin || isManagerOrAdmin || role === 'sgm') && activeTab === 'coaching-usage' && <CoachingUsageWrapper role={role} />}
-      {activeTab === 'tutorials' && <TutorialsTab role={role} />}
+      {activeTab === 'tutorials' && <TutorialsTab />}
       {activeTab === 'settings' && <SettingsTab />}
       {isAdmin && activeTab === 'admin-users' && <AdminUsersTab />}
       {isAdmin && activeTab === 'admin-refinements' && <AdminRefinementsTab />}
